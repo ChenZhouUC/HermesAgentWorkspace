@@ -16,6 +16,13 @@ channel_directory.json
 .update_check
 .tick.lock
 
+# ── 密钥缓存（含明文 API key，绝对不入库）───────────────────
+auth.json
+
+# ── 运行时缓存 ───────────────────────────────────────────────
+models_dev_cache.json
+.skills_prompt_snapshot.json
+
 # ── 日志和会话 ──────────────────────────────────────────────
 logs/
 sessions/
