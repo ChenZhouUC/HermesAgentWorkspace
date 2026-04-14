@@ -1,0 +1,38 @@
+# ── Hermes 官方源码（有独立 git repo）──────────────────────
+hermes-agent/
+
+# ── 密钥和凭据 ──────────────────────────────────────────────
+.env
+
+# ── 运行时状态 ──────────────────────────────────────────────
+state.db
+state.db-shm
+state.db-wal
+gateway.pid
+gateway_state.json
+auth.lock
+feishu_seen_message_ids.json
+channel_directory.json
+.update_check
+.tick.lock
+
+# ── 日志和会话 ──────────────────────────────────────────────
+logs/
+sessions/
+cron/output/
+sandboxes/
+
+# ── 官方 Skills Hub 包（171MB，按需重装）─────────────────────
+skills/
+
+# ── Migration 临时数据 ───────────────────────────────────────
+migration/
+
+# ── 平台 pairing 缓存 ────────────────────────────────────────
+platforms/
+
+# ── 二进制文件 ──────────────────────────────────────────────
+bin/
+
+# ── macOS ────────────────────────────────────────────────────
+.DS_Store
