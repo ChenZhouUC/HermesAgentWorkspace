@@ -57,6 +57,14 @@ add_warn() { WARNS+=("$1"); }
 add_act() { ACTS+=("$1"); }
 FINAL_RC=0
 
+# Returns 0 (true) if the launchd gateway service has an active PID.
+# hermes gateway status on macOS outputs a launchd JSON blob that contains
+# "PID" = NNNN only when the process is running; the words "running"/"active"
+# do not appear in the output.
+gw_running() {
+    hermes gateway status 2>&1 | grep -q '"PID"'
+}
+
 # ── 1. Preflight ──────────────────────────────────────────────────────────────
 step "Preflight"
 
@@ -101,37 +109,51 @@ if [[ $UPDATE_RC -ne 0 ]]; then
     FINAL_RC=1
 fi
 
-# ── 3. Refresh gateway launchd service ────────────────────────────────────────
-# hermes update restarts a running gateway process but does NOT refresh the
-# launchd plist. Force-reinstalling is cheap and idempotent; it ensures the
-# plist stays accurate after a version bump (updated env vars, paths, etc.).
-step "Refreshing gateway launchd plist"
+# ── 3. Refresh gateway launchd plist ─────────────────────────────────────────
+# Only refresh the plist when the gateway is NOT already running post-update.
+# When hermes update successfully restarted the service it used the current
+# plist. Force-reinstalling an already-running service triggers a bootout then
+# bootstrap; the bootstrap can fail with launchd exit 5 (I/O error) due to
+# timing, leaving the service unloaded. Skip this step if the gateway is live.
+step "Gateway launchd plist"
 
 set +e
-hermes gateway install --force
-GW_INSTALL_RC=$?
+GW_IS_RUNNING=false
+gw_running && GW_IS_RUNNING=true
 set -e
 
-if [[ $GW_INSTALL_RC -eq 0 ]]; then
-    ok "Plist refreshed"
+if $GW_IS_RUNNING; then
+    ok "Gateway running post-update — plist refresh not needed"
+    note "To force-refresh the plist manually: hermes gateway install --force"
 else
-    warn "hermes gateway install --force returned $GW_INSTALL_RC"
-    add_act "Run manually: hermes gateway install --force"
+    note "Gateway not running — installing/refreshing plist..."
+    set +e
+    hermes gateway install --force
+    GW_INSTALL_RC=$?
+    set -e
+    if [[ $GW_INSTALL_RC -eq 0 ]]; then
+        ok "Plist installed/refreshed"
+    else
+        warn "hermes gateway install --force returned $GW_INSTALL_RC"
+        add_act "Run manually: hermes gateway install --force"
+    fi
 fi
 
 # ── 4. Ensure gateway is running ──────────────────────────────────────────────
 # hermes update already restarts a running gateway; this step only fires if
-# the gateway was stopped before the update.
+# the gateway was stopped before the update (or install --force started it).
 set +e
-GW_STATUS_OUT=$(hermes gateway status 2>&1)
+GW_IS_RUNNING=false
+gw_running && GW_IS_RUNNING=true
 set -e
 
-if ! echo "$GW_STATUS_OUT" | grep -qi "running\|active"; then
+if ! $GW_IS_RUNNING; then
     note "Gateway not running — starting..."
     set +e
     hermes gateway start 2>&1
     GW_START_RC=$?
     set -e
+    sleep 3 # give launchd a moment to spawn the process
     if [[ $GW_START_RC -eq 0 ]]; then
         ok "Gateway started"
     else
@@ -174,14 +196,15 @@ echo ""
 
 DOCTOR_OUT=$(hermes doctor 2>&1)
 echo "$DOCTOR_OUT"
-if echo "$DOCTOR_OUT" | grep -qiE '(✗|^\s+error|failed:)'; then
-    add_act "hermes doctor reported issues — run: hermes doctor --fix"
+# Doctor summarises problems as "Found N issue(s) to address"
+if echo "$DOCTOR_OUT" | grep -qE 'Found [0-9]+ issue'; then
+    add_act "hermes doctor found issues — run: hermes doctor --fix"
 fi
 echo ""
 
 GW_FINAL=$(hermes gateway status 2>&1)
 echo "$GW_FINAL"
-if echo "$GW_FINAL" | grep -qi "running\|active"; then
+if gw_running; then
     ok "Gateway is running"
 else
     fail "Gateway is not running"
