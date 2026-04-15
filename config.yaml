@@ -181,7 +181,8 @@ delegation:
   reasoning_effort: ''
 prefill_messages_file: ''
 skills:
-  external_dirs: []
+  external_dirs:
+    - ~/.hermes/my-skills
 honcho: {}
 timezone: ''
 discord:
@@ -215,6 +216,8 @@ logging:
   backup_count: 3
 network:
   force_ipv4: false
+web:
+  backend: tavily
 _config_version: 17
 custom_providers:
 - name: bailian
