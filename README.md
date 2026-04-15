@@ -484,6 +484,18 @@ skills:
 
 **调用 Skill**：会话中输入 `/skill-name` 或启动时 `hermes --skills skill-name`。
 
+#### 自定义 Skill 创建路径修复
+
+Hermes 原生的 `skill_manage(action='create')` 工具默认将新 skill 写入 `~/.hermes/skills/`（官方 skill 目录），而非 `my-skills/`。本仓库对 `hermes-agent/tools/skill_manager_tool.py` 做了一处本地补丁，使其优先读取 `config.yaml` 的 `external_dirs` 并将新建 skill 路由至 `~/.hermes/my-skills/`。
+
+**补丁保持策略**：补丁以未提交修改的形式保留在 hermes-agent 工作树中。`hermes update` 会在 `git pull` 前自动 `git stash`、pull 后还原 stash；若上游修改了同一文件则会出现合并冲突，需手动解决后执行 `git stash pop`。`hermes-update.sh` 第 7 步会行为化验证补丁是否存活，如失效会给出 action 提示。
+
+**补丁内容**（需要时手动重新应用）：
+
+- `_resolve_skill_dir()`：读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非 `~/.hermes/skills/` 的目录作为新 skill 的基准目录。
+- `_create_skill()`：`path` 字段改为对外部目录也兼容（`try/except ValueError`）。
+- `_delete_skill()`：清理空目录时，`external_dirs` 根目录加入受保护集，避免误删 `my-skills/`。
+
 ### Context References（@ 语法）
 
 在消息中直接引用外部内容，按需注入，不占用系统 prompt：

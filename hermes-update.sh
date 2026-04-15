@@ -11,12 +11,18 @@
 #   4. Gateway process restart   (via hermes update, if already running)
 #   5. Gateway launchd plist refresh (hermes gateway install --force)
 #   6. zsh completion script regeneration
-#   7. Health verification (hermes doctor + gateway status)
+#   7. Local patch verification  (skill routing: new skills → my-skills/)
+#   8. Health verification (hermes doctor + gateway status)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
-#    - If hermes update adds/removes steps, review whether step 5–6 are still needed
+#    - If hermes update adds/removes steps, review whether steps 5–6 are still needed
 #    - If gateway install flags change, update step 5
 #    - If venv or binary paths move, update step 6
+#    - Step 7 checks a local patch to tools/skill_manager_tool.py that routes
+#      new agent-created skills to ~/.hermes/my-skills/ (external_dirs).
+#      hermes update stash-restores this patch automatically; if a conflict
+#      arises, resolve it in ~/.hermes/hermes-agent/tools/skill_manager_tool.py
+#      (see README.md § Skills → 自定义 Skill 创建路径修复 for details).
 #    Referenced from README.md § 更新
 #
 # Usage:
@@ -182,7 +188,39 @@ else
     add_act "Run: hermes completion zsh > ~/.hermes/completions/_hermes"
 fi
 
-# ── 6. Verify ─────────────────────────────────────────────────────────────────
+# ── 7. Verify local skill-routing patch ──────────────────────────────────────
+# hermes update stash-restores local modifications to hermes-agent source.
+# This step confirms the patch that routes new skills to my-skills/ survived.
+# If stash-restore had a conflict the patch may be missing or partial.
+step "Skill routing patch"
+
+SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
+VENV_PY="${HERMES_AGENT}/venv/bin/python3"
+
+if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
+    PATCH_CHECK=$(
+        cd "${HERMES_AGENT}" &&
+            "${VENV_PY}" - <<'PYEOF' 2>/dev/null
+import sys
+sys.path.insert(0, ".")
+from tools.skill_manager_tool import _resolve_skill_dir
+result = str(_resolve_skill_dir("_patch_test"))
+# Pass if result is NOT inside the bundled skills dir
+print("ok" if "my-skills" in result or "/skills/_patch_test" not in result else "native")
+PYEOF
+    )
+    if [[ "${PATCH_CHECK}" == "ok" ]]; then
+        ok "New skills route to my-skills/ (external_dirs)"
+    else
+        warn "skill_manager_tool.py routing patch missing — new skills land in ~/.hermes/skills/"
+        add_warn "Skill routing patch lost (likely stash conflict). New skills will go to native skills dir."
+        add_act "Re-apply patch: see README.md § Skills → 自定义 Skill 创建路径修复"
+    fi
+else
+    warn "Could not locate venv or skill_manager_tool.py — skipping patch check"
+fi
+
+# ── 8. Verify ─────────────────────────────────────────────────────────────────
 step "Verifying"
 echo ""
 
