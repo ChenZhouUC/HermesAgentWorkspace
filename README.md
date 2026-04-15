@@ -176,7 +176,16 @@ nano ~/.hermes/.env
 | 飞书               | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`   | 飞书开放平台获取                                    |
 | Gateway 访问控制   | `GATEWAY_ALLOW_ALL_USERS=true`          | 个人 bot 必须设置，否则拒绝所有用户                 |
 
-> **双 key 说明**：`GOOGLE_API_KEY` 是 hermes 内置 provider `gemini` 的识别变量；`GEMINI_API_KEY` 用于 doctor 检测。两者需保持同值。同理，`DASHSCOPE_API_KEY` 用于 doctor 检测，`BAILIAN_API_KEY` 用于 `custom_providers` 中的 `bailian` provider 引用。
+**API Key 加载机制（官方设计）：**
+
+Hermes 有两套独立的 key 读取路径：
+
+1. **内置 Provider（gemini 等）**：Provider Registry 为每个内置 provider 定义了对应的环境变量名（`api_key_env_vars`），启动时直接从 `os.environ` 读取，**无需在 `config.yaml` 里引用**。把 key 写进 `.env` 即自动生效。
+2. **自定义 Provider（`custom_providers`）**：需要在 `config.yaml` 里显式写 `api_key`。支持 `${VAR}` 插值——Hermes 解析配置时递归展开所有 `${VAR}` 为对应的环境变量值（变量不存在时保留字面量，调用会报鉴权错误）。
+
+因此，`.env` 里写了但没出现在 `config.yaml` 里的变量（如 `GOOGLE_API_KEY`），仍然对内置 provider 完全有效。
+
+> **双 key 说明**：gemini provider 按优先顺序读 `GOOGLE_API_KEY` → `GEMINI_API_KEY`，两者设为同值即可。`BAILIAN_API_KEY` 通过 `config.yaml` 的 `${BAILIAN_API_KEY}` 插值传给自定义 bailian provider；`DASHSCOPE_API_KEY` 用于 hermes doctor 健康检查，两者也应设为同值。
 
 ### config.yaml 主配置
 
