@@ -209,7 +209,7 @@ fallback_model:
 custom_providers:
   - name: bailian
     base_url: ${DASHSCOPE_BASE_URL}
-    api_key: "${BAILIAN_API_KEY}"
+    api_key: ${BAILIAN_API_KEY}
     api_mode: chat_completions
 ```
 
