@@ -218,7 +218,6 @@ network:
 _config_version: 17
 custom_providers:
 - name: bailian
-  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  base_url: ${DASHSCOPE_BASE_URL}
   api_key: ${BAILIAN_API_KEY}
   api_mode: chat_completions
-FEISHU_HOME_CHANNEL: oc_c8221472cf59b202ccd0682cf6cea296
