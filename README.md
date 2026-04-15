@@ -73,7 +73,7 @@
 ├── config.yaml            # 主配置（入库）
 ├── SOUL.md                # Agent 人格（入库）
 ├── completions/
-│   └── hermes.zsh         # zsh 补全脚本（入库）
+│   └── _hermes            # zsh 补全脚本（#compdef 格式，fpath 加载）
 ├── memories/
 │   ├── MEMORY.md          # 结构化记忆（入库）
 │   └── USER.md            # 用户画像（入库）
@@ -188,7 +188,7 @@ nano ~/.hermes/.env
 # 主模型
 model:
   provider: gemini # 内置 provider 名称（非 google）
-  default: gemini-2.5-pro
+  default: gemini-3.1-pro-preview
 
 # 备用模型（主模型失败时自动切换）
 fallback_model:
@@ -267,11 +267,13 @@ tail -f ~/.hermes/logs/gateway.log
 
 zsh 补全脚本存放在 `completions/_hermes`（`#compdef` 格式，须通过 `fpath` 加载，**不能 `source`**）。
 
-**`.zshrc` 正确配置方式**：在 `source $ZSH/oh-my-zsh.sh` **之前**加入：
+**`.zshrc` 正确配置方式**：在 `source "$ZSH/oh-my-zsh.sh"` **之前**加入：
 
 ```zsh
-# Hermes completions — must be before oh-my-zsh loads compinit
-fpath=("$HOME/.hermes/completions" "${fpath[@]}")
+# Hermes completions — must be added to fpath BEFORE oh-my-zsh sources compinit
+if [[ -f "${HOME}/.hermes/completions/_hermes" ]]; then
+    fpath+=("$HOME/.hermes/completions")
+fi
 ```
 
 配置好后清除缓存生效：
@@ -280,7 +282,7 @@ fpath=("$HOME/.hermes/completions" "${fpath[@]}")
 rm -f ~/.zcompdump* && exec zsh
 ```
 
-> **常见错误**：直接 `source completions/hermes.zsh` 不会注册补全，因为 `#compdef` 文件不是普通脚本，必须通过 fpath + compinit 机制加载。
+> **常见错误**：直接 `source completions/_hermes` 不会注册补全，因为 `#compdef` 文件不是普通脚本，必须通过 fpath + compinit 机制加载。
 
 **更新补全脚本**（hermes 升级后）：
 
@@ -399,9 +401,9 @@ hermes model                 # 交互式选择默认模型
 hermes model list            # 列出可用模型
 ```
 
-**会话内切换**：`/model gemini-2.5-pro`
+**会话内切换**：`/model gemini-3.1-pro-preview`
 
-> ⚠️ **Thinking 模型注意**：`gemini-2.5-pro-preview` 等 thinking 模型在会话内通过 `/model` 切换后，thinking 标签可能污染上下文，引发 400 级联错误（hermes v0.9.0 已知 bug）。
+> ⚠️ **Thinking 模型注意**：`gemini-3.1-pro-preview` 等 thinking 模型在会话内通过 `/model` 切换后，thinking 标签可能污染上下文，引发 400 级联错误（hermes v0.9.0 已知 bug）。
 
 ### Skills 技能包
 
@@ -455,8 +457,6 @@ hermes cron run JOB_ID       # 立即执行一次
 ```
 
 > Cron 任务由 Gateway 服务调度，**Gateway 必须运行**才能执行定时任务。
-
----
 
 ---
 
@@ -623,11 +623,11 @@ hermes memory off        # 禁用外部 provider
 | --------------- | --------------- | -------------------- | ----- | -------------------------------------------------------------------------------------- | ---------- |
 | **Hindsight**   | 本地 / 云端     | 本地免费，云端付费   | ★★★   | 知识图谱 + 实体关系 + `hindsight_reflect` 跨记忆推理合成；自动保留对话；多策略检索     | ⭐⭐⭐⭐⭐ |
 | **OpenViking**  | 自托管          | 免费 (AGPL-3.0)      | ★★★★★ | 字节跳动出品，CJK 支持最佳；文件系统层级浏览；分层检索（摘要→概览→全文）；6 类自动提取 | ⭐⭐⭐⭐   |
-| **ByteRover**   | 本地 / 可选云   | 本地免费             | ★★★   | 压缩前预提取（防止有价值上下文被压缩丢弃）；层级知识树；CLI 工具链，开发者友好         | ⭐⭐⭐½    |
+| **ByteRover**   | 本地 / 可选云   | 本地免费             | ★★★   | 压缩前预提取（防止有价值上下文被压缩丢弃）；层级知识树；CLI 工具链，开发者友好         | ⭐⭐⭐     |
 | **Holographic** | 本地 SQLite     | 完全免费             | ★★★   | 零外部依赖；HRR 代数实体查询；矛盾检测；信任评分机制                                   | ⭐⭐⭐     |
 | **Honcho**      | 云端 / 可自托管 | 云端付费，自托管免费 | ★★    | 辩证式用户建模；跨 session 上下文对齐；多 profile 支持                                 | ⭐⭐⭐     |
-| **Mem0**        | 云端            | 付费                 | ★★★   | 全自动 LLM 事实提取；语义搜索 + 重排序；自动去重                                       | ⭐⭐½      |
-| **Supermemory** | 云端            | 付费                 | ★★★   | 图谱级 session 摄入；多容器隔离；context fencing 防递归污染                            | ⭐⭐½      |
+| **Mem0**        | 云端            | 付费                 | ★★★   | 全自动 LLM 事实提取；语义搜索 + 重排序；自动去重                                       | ⭐⭐       |
+| **Supermemory** | 云端            | 付费                 | ★★★   | 图谱级 session 摄入；多容器隔离；context fencing 防递归污染                            | ⭐⭐       |
 | **RetainDB**    | 云端            | $20/月               | ★★    | 混合检索（向量 + BM25 + 重排序）；Delta 压缩；7 种记忆类型                             | ⭐⭐       |
 
 **推荐理由**
@@ -646,7 +646,7 @@ hermes memory off        # 禁用外部 provider
   hermes memory setup        # 选择 "openviking"
   ```
 
-- ⭐⭐⭐½ **ByteRover**：开发者友好 CLI，本地免费；压缩前预提取特性可防止有价值的上下文在 context 压缩时丢失，适合长对话密集的技术工作者。
+- ⭐⭐⭐ **ByteRover**：开发者友好 CLI，本地免费；压缩前预提取特性可防止有价值的上下文在 context 压缩时丢失，适合长对话密集的技术工作者。
 
 - ⭐⭐⭐ **Holographic**：零依赖，最简单的本地选项；HRR 代数矛盾检测独特，但不支持语义搜索（仅 FTS5 关键词），适合轻量使用。
 

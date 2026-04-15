@@ -1,6 +1,6 @@
 model:
   provider: gemini
-  default: gemini-2.5-pro
+  default: gemini-3.1-pro-preview
 providers: {}
 fallback_model:
   provider: bailian
@@ -114,7 +114,7 @@ display:
   resume_display: full
   busy_input_mode: interrupt
   bell_on_complete: false
-  show_reasoning: false
+  show_reasoning: true
   streaming: false
   inline_diffs: true
   show_cost: false
