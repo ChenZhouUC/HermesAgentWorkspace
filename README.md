@@ -147,7 +147,7 @@ hermes claw migrate
 # 将以下内容追加到 ~/.hermes/.env（从 ~/.openclaw/.env 复制实际值）
 FEISHU_APP_ID=cli_xxxxxxxxxxxx
 FEISHU_APP_SECRET=your_secret
-FEISHU_DOMAIN=https://open.feishu.cn
+FEISHU_DOMAIN=feishu
 FEISHU_CONNECTION_MODE=websocket
 ```
 
@@ -174,6 +174,7 @@ nano ~/.hermes/.env
 | Qwen（备用模型）   | `BAILIAN_API_KEY` / `DASHSCOPE_API_KEY` | 两个变量需设为相同值                                |
 | DashScope 国内端点 | `DASHSCOPE_BASE_URL`                    | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | 飞书               | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`   | 飞书开放平台获取                                    |
+| 飞书推送频道       | `FEISHU_HOME_CHANNEL`                   | cron / 通知默认投递的群或会话 ID                    |
 | Gateway 访问控制   | `GATEWAY_ALLOW_ALL_USERS=true`          | 个人 bot 必须设置，否则拒绝所有用户                 |
 
 **API Key 加载机制（官方设计）：**
@@ -207,7 +208,7 @@ fallback_model:
 # 自定义 provider（Qwen / DashScope）
 custom_providers:
   - name: bailian
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    base_url: ${DASHSCOPE_BASE_URL}
     api_key: "${BAILIAN_API_KEY}"
     api_mode: chat_completions
 ```
