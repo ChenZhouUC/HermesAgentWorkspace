@@ -1,26 +1,258 @@
 #compdef hermes
-# Hermes Agent profile completion
-# Add to ~/.zshrc: eval "$(hermes completion zsh)"
+# Hermes Agent zsh completion
+# Add to ~/.zshrc:
+#   eval "$(hermes completion zsh)"
 
-_hermes() {
+_hermes_profiles() {
     local -a profiles
     profiles=(default)
     if [[ -d "$HOME/.hermes/profiles" ]]; then
         profiles+=("${(@f)$(ls $HOME/.hermes/profiles 2>/dev/null)}")
     fi
+    _describe 'profile' profiles
+}
 
-    _arguments \
-        '-p[Profile name]:profile:($profiles)' \
-        '--profile[Profile name]:profile:($profiles)' \
-        '1:command:(chat model gateway setup status cron doctor dump config skills tools mcp sessions profile update version)' \
+_hermes() {
+    local context state line
+    typeset -A opt_args
+
+    _arguments -C \
+        '(-h --help){-h,--help}[Show help and exit]' \
+        '(-V --version){-V,--version}[Show version and exit]' \
+        '(-p --profile){-p,--profile}[Profile name]:profile:_hermes_profiles' \
+        '1:command:->commands' \
         '*::arg:->args'
 
-    case $words[1] in
-    profile)
-        _arguments '1:action:(list use create delete show alias rename export import)' \
-            '2:profile:($profiles)'
-        ;;
+    case $state in
+        commands)
+            local -a subcmds
+            subcmds=(
+                'acp:Run Hermes Agent as an ACP (Agent Client Protocol) server'
+                'auth:Manage pooled provider credentials'
+                'backup:Back up Hermes home directory to a zip file'
+                'chat:Interactive chat with the agent'
+                'claw:OpenClaw migration tools'
+                'completion:Print shell completion script (bash, zsh, or fish)'
+                'config:View and edit configuration'
+                'cron:Cron job management'
+                'dashboard:Start the web UI dashboard'
+                'debug:Debug tools — upload logs and system info for support'
+                'doctor:Check configuration and dependencies'
+                'dump:Dump setup summary for support/debugging'
+                'gateway:Messaging gateway management'
+                'import:Restore a Hermes backup from a zip file'
+                'insights:Show usage insights and analytics'
+                'login:Authenticate with an inference provider'
+                'logout:Clear authentication for an inference provider'
+                'logs:View and filter Hermes log files'
+                'mcp:Manage MCP servers and run Hermes as an MCP server'
+                'memory:Configure external memory provider'
+                'model:Select default model and provider'
+                'pairing:Manage DM pairing codes for user authorization'
+                'plugins:Manage plugins — install, update, remove, list'
+                'profile:Manage profiles — multiple isolated Hermes instances'
+                'sessions:Manage session history (list, rename, export, prune, delete)'
+                'setup:Interactive setup wizard'
+                'skills:Search, install, configure, and manage skills'
+                'status:Show status of all components'
+                'tools:Configure which tools are enabled per platform'
+                'uninstall:Uninstall Hermes Agent'
+                'update:Update Hermes Agent to the latest version'
+                'version:Show version information'
+                'webhook:Manage dynamic webhook subscriptions'
+                'whatsapp:Set up WhatsApp integration'
+            )
+            _describe 'hermes command' subcmds
+            ;;
+        args)
+            case ${line[1]} in
+                auth)
+                    local -a auth_cmds
+                    auth_cmds=(
+                    'add:Add a pooled credential'
+                    'list:List pooled credentials'
+                    'remove:Remove a pooled credential by index, id, or label'
+                    'reset:Clear exhaustion status for all credentials for a provider'
+                    )
+                    _describe 'auth command' auth_cmds
+                    ;;
+                claw)
+                    local -a claw_cmds
+                    claw_cmds=(
+                    'cleanup:Archive leftover OpenClaw directories after migration'
+                    'migrate:Migrate from OpenClaw to Hermes'
+                    )
+                    _describe 'claw command' claw_cmds
+                    ;;
+                config)
+                    local -a config_cmds
+                    config_cmds=(
+                    'check:Check for missing/outdated config'
+                    'edit:Open config file in editor'
+                    'env-path:Print .env file path'
+                    'migrate:Update config with new options'
+                    'path:Print config file path'
+                    'set:Set a configuration value'
+                    'show:Show current configuration'
+                    )
+                    _describe 'config command' config_cmds
+                    ;;
+                cron)
+                    local -a cron_cmds
+                    cron_cmds=(
+                    'create:Create a scheduled job'
+                    'edit:Edit an existing scheduled job'
+                    'list:List scheduled jobs'
+                    'pause:Pause a scheduled job'
+                    'remove:Remove a scheduled job'
+                    'resume:Resume a paused job'
+                    'run:Run a job on the next scheduler tick'
+                    'status:Check if cron scheduler is running'
+                    'tick:Run due jobs once and exit'
+                    )
+                    _describe 'cron command' cron_cmds
+                    ;;
+                debug)
+                    local -a debug_cmds
+                    debug_cmds=(
+                    'share:Upload debug report to a paste service and print a shareable'
+                    )
+                    _describe 'debug command' debug_cmds
+                    ;;
+                gateway)
+                    local -a gateway_cmds
+                    gateway_cmds=(
+                    'install:Install gateway as a systemd/launchd background service'
+                    'restart:Restart gateway service'
+                    'run:Run gateway in foreground (recommended for WSL, Docker, Term'
+                    'setup:Configure messaging platforms'
+                    'start:Start the installed systemd/launchd background service'
+                    'status:Show gateway status'
+                    'stop:Stop gateway service'
+                    'uninstall:Uninstall gateway service'
+                    )
+                    _describe 'gateway command' gateway_cmds
+                    ;;
+                mcp)
+                    local -a mcp_cmds
+                    mcp_cmds=(
+                    'add:Add an MCP server (discovery-first install)'
+                    'configure:Toggle tool selection'
+                    'list:List configured MCP servers'
+                    'remove:Remove an MCP server'
+                    'serve:Run Hermes as an MCP server (expose conversations to other a'
+                    'test:Test MCP server connection'
+                    )
+                    _describe 'mcp command' mcp_cmds
+                    ;;
+                memory)
+                    local -a memory_cmds
+                    memory_cmds=(
+                    'off:Disable external provider (built-in only)'
+                    'setup:Interactive provider selection and configuration'
+                    'status:Show current memory provider config'
+                    )
+                    _describe 'memory command' memory_cmds
+                    ;;
+                pairing)
+                    local -a pairing_cmds
+                    pairing_cmds=(
+                    'approve:Approve a pairing code'
+                    'clear-pending:Clear all pending codes'
+                    'list:Show pending + approved users'
+                    'revoke:Revoke user access'
+                    )
+                    _describe 'pairing command' pairing_cmds
+                    ;;
+                plugins)
+                    local -a plugins_cmds
+                    plugins_cmds=(
+                    'disable:Disable a plugin without removing it'
+                    'enable:Enable a disabled plugin'
+                    'install:Install a plugin from a Git URL or owner/repo'
+                    'list:List installed plugins'
+                    'remove:Remove an installed plugin'
+                    'update:Pull latest changes for an installed plugin'
+                    )
+                    _describe 'plugins command' plugins_cmds
+                    ;;
+                profile)
+                    case ${line[2]} in
+                        use|delete|show|alias|rename|export)
+                            _hermes_profiles
+                            ;;
+                        *)
+                            local -a profile_cmds
+                            profile_cmds=(
+                        'alias:Manage wrapper scripts'
+                        'create:Create a new profile'
+                        'delete:Delete a profile'
+                        'export:Export a profile to archive'
+                        'import:Import a profile from archive'
+                        'list:List all profiles'
+                        'rename:Rename a profile'
+                        'show:Show profile details'
+                        'use:Set sticky default profile'
+                            )
+                            _describe 'profile command' profile_cmds
+                            ;;
+                    esac
+                    ;;
+                sessions)
+                    local -a sessions_cmds
+                    sessions_cmds=(
+                    'browse:Interactive session picker — browse, search, and resume sess'
+                    'delete:Delete a specific session'
+                    'export:Export sessions to a JSONL file'
+                    'list:List recent sessions'
+                    'prune:Delete old sessions'
+                    'rename:Set or change a sessions title'
+                    'stats:Show session store statistics'
+                    )
+                    _describe 'sessions command' sessions_cmds
+                    ;;
+                skills)
+                    local -a skills_cmds
+                    skills_cmds=(
+                    'audit:Re-scan installed hub skills'
+                    'browse:Browse all available skills (paginated)'
+                    'check:Check installed hub skills for updates'
+                    'config:Interactive skill configuration — enable/disable individual '
+                    'inspect:Preview a skill without installing'
+                    'install:Install a skill'
+                    'list:List installed skills'
+                    'publish:Publish a skill to a registry'
+                    'search:Search skill registries'
+                    'snapshot:Export/import skill configurations'
+                    'tap:Manage skill sources'
+                    'uninstall:Remove a hub-installed skill'
+                    'update:Update installed hub skills'
+                    )
+                    _describe 'skills command' skills_cmds
+                    ;;
+                tools)
+                    local -a tools_cmds
+                    tools_cmds=(
+                    'disable:Disable toolsets or MCP tools'
+                    'enable:Enable toolsets or MCP tools'
+                    'list:Show all tools and their enabled/disabled status'
+                    )
+                    _describe 'tools command' tools_cmds
+                    ;;
+                webhook)
+                    local -a webhook_cmds
+                    webhook_cmds=(
+                    'list:List all dynamic subscriptions'
+                    'remove:Remove a subscription'
+                    'subscribe:Create a webhook subscription'
+                    'test:Send a test POST to a webhook route'
+                    )
+                    _describe 'webhook command' webhook_cmds
+                    ;;
+            esac
+            ;;
     esac
 }
 
 _hermes "$@"
+

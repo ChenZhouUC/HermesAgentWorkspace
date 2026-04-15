@@ -50,17 +50,18 @@
 
 本仓库存储的内容：
 
-| 文件/目录             | 说明                                           |
-| --------------------- | ---------------------------------------------- |
-| `config.yaml`         | 主配置：模型、工具集、gateway 超时、显示风格等 |
-| `.env.example`        | 密钥配置模板（实际 `.env` 不入库）             |
-| `completions/_hermes` | zsh 补全脚本（#compdef 格式，通过 fpath 加载） |
-| `memories/MEMORY.md`  | Agent 的结构化记忆（短期），自动注入每次会话   |
-| `memories/USER.md`    | 用户画像（偏好、时区、语言等）                 |
-| `my-skills/`          | 自定义 Skills（独立 git 仓库）                 |
-| `hermes-update.sh`    | 一键更新脚本（入库，随版本变更同步维护）       |
-| `SOUL.md`             | Agent 人格与语气配置                           |
-| `README.md`           | 本文档                                         |
+| 文件/目录                    | 说明                                           |
+| ---------------------------- | ---------------------------------------------- |
+| `config.yaml`                | 主配置：模型、工具集、gateway 超时、显示风格等 |
+| `.env.example`               | 密钥配置模板（实际 `.env` 不入库）             |
+| `completions/_hermes`        | zsh 补全脚本（#compdef 格式，通过 fpath 加载） |
+| `memories/MEMORY.md`         | Agent 的结构化记忆（短期），自动注入每次会话   |
+| `memories/USER.md`           | 用户画像（偏好、时区、语言等）                 |
+| `my-skills/`                 | 自定义 Skills（独立 git 仓库）                 |
+| `patches/local-patches.diff` | hermes-agent 本地补丁（更新时自动重新应用）    |
+| `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）       |
+| `SOUL.md`                    | Agent 人格与语气配置                           |
+| `README.md`                  | 本文档                                         |
 
 **不跟踪的内容**：官方源码（`hermes-agent/`）、密钥（`.env`）、数据库（`state.db`）、日志、会话、Hub Skills（`skills/`，按需重装）。
 
@@ -82,6 +83,8 @@
 │   └── USER.md            # 用户画像（入库）
 ├── skills/                # Skills Hub 包（.gitignore 排除，按需重装）
 ├── my-skills/             # 自定义 Skills（独立 git 仓库，入库）
+├── patches/               # hermes-agent 本地补丁（入库，供 hermes-update.sh 使用）
+│   └── local-patches.diff # 所有本地 patch 的 unified diff，更新时自动重新应用
 ├── hermes-update.sh       # 一键更新脚本（入库）
 ├── cron/                  # Cron 任务状态（运行时，.gitignore 排除）
 ├── logs/                  # 日志（.gitignore 排除）
@@ -318,13 +321,16 @@ bash ~/.hermes/hermes-update.sh
 
 脚本依次执行以下步骤，完成后显示状态摘要和待操作提示：
 
-| 步骤 | 操作                                      | 说明                                                                          |
-| ---- | ----------------------------------------- | ----------------------------------------------------------------------------- |
-| 1    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启 |
-| 2    | `hermes gateway install --force`          | 刷新 launchd plist（`hermes update` 不自动执行此步）                          |
-| 3    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                 |
-| 4    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，清除 zcompdump 缓存                                    |
-| 5    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                            |
+| 步骤 | 操作                                      | 说明                                                                                                   |
+| ---- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                               |
+| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash） |
+| 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                          |
+| 4    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 5                                   |
+| 5    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                          |
+| 6    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，清除 zcompdump 缓存                                                             |
+| 7    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用；行为化验证两个补丁是否存活；验证通过后刷新 diff 文件         |
+| 8    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                     |
 
 > ⚠ **脚本维护提示**：若 hermes 上游大版本升级后更新流程发生变化（新增步骤、flags 变动、路径变更），需同步更新 `~/.hermes/hermes-update.sh`。脚本顶部有详细的"需关注场景"注释。
 
@@ -488,7 +494,15 @@ skills:
 
 Hermes 原生的 `skill_manage(action='create')` 工具默认将新 skill 写入 `~/.hermes/skills/`（官方 skill 目录），而非 `my-skills/`。本仓库对 `hermes-agent/tools/skill_manager_tool.py` 做了一处本地补丁，使其优先读取 `config.yaml` 的 `external_dirs` 并将新建 skill 路由至 `~/.hermes/my-skills/`。
 
-**补丁保持策略**：补丁以未提交修改的形式保留在 hermes-agent 工作树中。`hermes update` 会在 `git pull` 前自动 `git stash`、pull 后还原 stash；若上游修改了同一文件则会出现合并冲突，需手动解决后执行 `git stash pop`。`hermes-update.sh` 第 7 步会行为化验证补丁是否存活，如失效会给出 action 提示。
+**补丁保持策略**：补丁以 `~/.hermes/patches/local-patches.diff` 的形式保存，并被 config 仓库 git 跟踪。`hermes-update.sh` 第 2 步在 `hermes update` 执行前将补丁文件另存、恢复被修改文件至 HEAD，使 git pull 无需 stash，彻底避免 stash 冲突。第 7 步重新应用补丁并行为化验证路由是否正确，验证通过后刷新 diff 文件；如失效给出 action 提示。
+
+**补丁冲突手动处理**：若第 7 步报告 patch conflict，运行：
+
+```bash
+cd ~/.hermes/hermes-agent
+git apply --reject ~/.hermes/patches/local-patches.diff
+# 手动解决 .rej 文件后再次运行 bash ~/.hermes/hermes-update.sh
+```
 
 **补丁内容**（需要时手动重新应用）：
 
@@ -502,7 +516,7 @@ Hermes 原生的 `skill_manage(action='create')` 工具默认将新 skill 写入
 
 **触发条件**：`moa`（需要 OPENROUTER_API_KEY）和 `rl`（需要 TINKER_API_KEY、WANDB_API_KEY）未被用户启用但仍触发 issue 集计。
 
-**补丁保持策略**：同上，以未提交修改保留在 hermes-agent 工作树中。`hermes-update.sh` 第 7b 步通过 `grep -q _get_platform_tools` 确认补丁存活，如失效会给出 action 提示。
+**补丁保持策略**：同上，以 `patches/local-patches.diff` 保存并跟踪。`hermes-update.sh` 第 7 步通过行为化验证（`_get_platform_tools` grep）确认补丁存活，如失效会给出 action 提示。
 
 **补丁内容**（`hermes_cli/doctor.py` 中 "Count disabled tools with API key requirements" 块）：
 

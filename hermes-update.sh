@@ -5,27 +5,26 @@
 # Runs the full update sequence and shows a final status summary.
 #
 # Covers:
-#   1. git pull + uv pip install (via hermes update)
-#   2. Skills Hub sync           (via hermes update)
-#   3. Config migration check    (via hermes update, interactive)
-#   4. Gateway process restart   (via hermes update, if already running)
-#   5. Gateway launchd plist refresh (hermes gateway install --force)
-#   6. zsh completion script regeneration
-#   7. Local patch verification  (skill routing + doctor issue count)
-#   8. Health verification (hermes doctor + gateway status)
+#   1. Preflight checks
+#   2. Save & clean local patches  → patches/local-patches.diff + git checkout
+#   3. git pull + uv pip install   (via hermes update)
+#   4. Skills Hub sync             (via hermes update)
+#   5. Config migration check      (via hermes update, interactive)
+#   6. Gateway process restart     (via hermes update, if already running)
+#   7. Gateway launchd plist refresh (hermes gateway install --force)
+#   8. Ensure gateway running
+#   9. zsh completion script regeneration
+#  10. Re-apply & verify local patches
+#  11. Health verification (hermes doctor + gateway status)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
-#    - If hermes update adds/removes steps, review whether steps 5–6 are still needed
-#    - If gateway install flags change, update step 5
-#    - If venv or binary paths move, update step 6
-#    - Step 7a checks a local patch to tools/skill_manager_tool.py that routes
-#      new agent-created skills to ~/.hermes/my-skills/ (external_dirs).
-#      hermes update stash-restores this patch automatically; if a conflict
-#      arises, resolve it in ~/.hermes/hermes-agent/tools/skill_manager_tool.py
-#      (see README.md § Skills → 自定义 Skill 创建路径修复 for details).
-#    - Step 7b checks a local patch to hermes_cli/doctor.py that suppresses
-#      false issue reports for moa/rl (disabled optional tools with missing API
-#      keys). Re-apply if lost: see README.md § doctor.py issue count 修复.
+#    - If hermes update adds/removes steps, review whether steps 7–9 are still needed
+#    - If gateway install flags change, update step 7
+#    - If venv or binary paths move, update step 9
+#    - Steps 2 + 10 manage local patches to hermes-agent source files.
+#      The saved diff lives at ~/.hermes/patches/local-patches.diff and is
+#      tracked in the config repo. If a patch conflicts with upstream after an
+#      update, follow the instructions in the summary or see README.md § 本地补丁.
 #    Referenced from README.md § 更新
 #
 # Usage:
@@ -36,6 +35,15 @@ set -euo pipefail
 
 HERMES_HOME="${HOME}/.hermes"
 HERMES_AGENT="${HERMES_HOME}/hermes-agent"
+PATCHES_DIR="${HERMES_HOME}/patches"
+PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
+
+# Files we maintain local patches for (relative to HERMES_AGENT).
+PATCHED_FILES=(
+    "tools/skill_manager_tool.py"
+    "tests/tools/test_skill_manager_tool.py"
+    "hermes_cli/doctor.py"
+)
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
 if [[ -t 1 ]]; then
@@ -68,11 +76,24 @@ FINAL_RC=0
 
 # Returns 0 (true) if the launchd gateway service has an active PID.
 # hermes gateway status on macOS outputs a launchd JSON blob that contains
-# "PID" = NNNN only when the process is running; the words "running"/"active"
-# do not appear in the output.
+# "PID" = NNNN only when the process is running.
 gw_running() {
     hermes gateway status 2>&1 | grep -q '"PID"'
 }
+
+# ── Trap: restore patches if script dies after reverting them ────────────────
+# Set to true in step 2 after reverting; cleared once hermes update completes.
+_PATCHES_REVERTED=false
+
+_trap_restore_patches() {
+    if $_PATCHES_REVERTED && [[ -f "${PATCH_FILE}" ]]; then
+        printf "\n${YLW}⚠${NC}  Script exited early — attempting to restore local patches...\n"
+        cd "${HERMES_AGENT}" && git apply "${PATCH_FILE}" 2>/dev/null ||
+            git apply --3way "${PATCH_FILE}" 2>/dev/null ||
+            printf "  ${RED}✗${NC} Could not auto-restore. Run: cd %s && git apply %s\n" "${HERMES_AGENT}" "${PATCH_FILE}"
+    fi
+}
+trap _trap_restore_patches EXIT
 
 # ── 1. Preflight ──────────────────────────────────────────────────────────────
 step "Preflight"
@@ -100,9 +121,48 @@ fi
 PRE_VERSION=$(hermes --version 2>/dev/null | head -1 || echo "unknown")
 note "Current: ${PRE_VERSION}"
 
-# ── 2. hermes update ──────────────────────────────────────────────────────────
+# ── 2. Save & clean local patches ────────────────────────────────────────────
+# Save all local patches to patches/local-patches.diff, then revert the files
+# to HEAD so that hermes update finds a clean tree and skips git stash entirely.
+# This eliminates stash-conflict failures. A trap restores patches on early exit.
+step "Saving local patches"
+
+mkdir -p "${PATCHES_DIR}"
+cd "${HERMES_AGENT}"
+
+_CHANGED_PATCH_FILES=()
+for _f in "${PATCHED_FILES[@]}"; do
+    if ! git --no-pager diff --quiet HEAD -- "${_f}" 2>/dev/null; then
+        _CHANGED_PATCH_FILES+=("${_f}")
+    fi
+done
+
+if [[ ${#_CHANGED_PATCH_FILES[@]} -gt 0 ]]; then
+    git --no-pager diff HEAD -- "${_CHANGED_PATCH_FILES[@]}" >"${PATCH_FILE}"
+    ok "Saved ${#_CHANGED_PATCH_FILES[@]} patched file(s) → patches/local-patches.diff"
+    git checkout HEAD -- "${_CHANGED_PATCH_FILES[@]}"
+    _PATCHES_REVERTED=true
+    ok "Reverted patched files to HEAD (clean tree for git pull)"
+    # Warn if OTHER unrelated changes exist — hermes update will still stash those.
+    _DIRTY=$(git status --porcelain 2>/dev/null)
+    if [[ -n "${_DIRTY}" ]]; then
+        warn "Other uncommitted changes remain in hermes-agent (outside patch set):"
+        printf '%s\n' "${_DIRTY}" | sed 's/^/      /'
+        add_warn "hermes update will stash those unrelated changes — verify they restore correctly"
+    fi
+elif [[ -f "${PATCH_FILE}" ]]; then
+    note "Patches already clean — will re-apply from saved patches/local-patches.diff after update"
+else
+    note "No local patches to save — update will proceed on a clean tree"
+fi
+
+cd - >/dev/null
+
+# ── 3. hermes update ──────────────────────────────────────────────────────────
 # Handles: git pull · uv pip install · skills sync · config migration prompts
 #          · gateway process restart (running launchd/systemd instances)
+# Tree is now clean (patches were reverted in step 2), so hermes update will
+# not need to stash and the pull/reset will succeed without conflicts.
 step "Updating Hermes  [git pull · deps · skills · gateway restart]"
 echo ""
 
@@ -118,24 +178,31 @@ if [[ $UPDATE_RC -ne 0 ]]; then
     FINAL_RC=1
 fi
 
-# ── 3. Refresh gateway launchd plist ─────────────────────────────────────────
-# Only refresh the plist when the gateway is NOT already running post-update.
-# When hermes update successfully restarted the service it used the current
-# plist. Force-reinstalling an already-running service triggers a bootout then
-# bootstrap; the bootstrap can fail with launchd exit 5 (I/O error) due to
-# timing, leaving the service unloaded. Skip this step if the gateway is live.
+# Patches have been reverted; hermes update is now complete.
+# Clear the trap flag — patches will be re-applied in step 10.
+_PATCHES_REVERTED=false
+
+# ── 4. Refresh gateway launchd plist ─────────────────────────────────────────
+# Only bootstrap the plist when the service is not already loaded. hermes update
+# handles plist installation; calling install --force on an already-bootstrapped
+# service triggers launchd exit 5 (Input/Output error). If the service is loaded
+# but not running (OnDemand=true), skip directly to step 5 (hermes gateway start).
 step "Gateway launchd plist"
 
 set +e
 GW_IS_RUNNING=false
 gw_running && GW_IS_RUNNING=true
+GW_IS_LOADED=false
+launchctl list 2>/dev/null | grep -q "ai.hermes.gateway" && GW_IS_LOADED=true
 set -e
 
 if $GW_IS_RUNNING; then
     ok "Gateway running post-update — plist refresh not needed"
     note "To force-refresh the plist manually: hermes gateway install --force"
+elif $GW_IS_LOADED; then
+    ok "Gateway plist already loaded (OnDemand) — will start in step 5"
 else
-    note "Gateway not running — installing/refreshing plist..."
+    note "Gateway not bootstrapped — installing plist..."
     set +e
     hermes gateway install --force
     GW_INSTALL_RC=$?
@@ -148,7 +215,7 @@ else
     fi
 fi
 
-# ── 4. Ensure gateway is running ──────────────────────────────────────────────
+# ── 5. Ensure gateway is running ──────────────────────────────────────────────
 # hermes update already restarts a running gateway; this step only fires if
 # the gateway was stopped before the update (or install --force started it).
 set +e
@@ -171,7 +238,7 @@ if ! $GW_IS_RUNNING; then
     fi
 fi
 
-# ── 5. Update zsh completions ─────────────────────────────────────────────────
+# ── 6. Update zsh completions ─────────────────────────────────────────────────
 step "Updating zsh completions"
 
 COMP_FILE="${HERMES_HOME}/completions/_hermes"
@@ -191,53 +258,98 @@ else
     add_act "Run: hermes completion zsh > ~/.hermes/completions/_hermes"
 fi
 
-# ── 7a. Verify local skill-routing patch ─────────────────────────────────────
-# hermes update stash-restores local modifications to hermes-agent source.
-# This step confirms the patch that routes new skills to my-skills/ survived.
-# If stash-restore had a conflict the patch may be missing or partial.
-step "Skill routing patch (7a)"
+# ── 7. Re-apply & verify local patches ───────────────────────────────────────
+# Re-applies the saved diff (from step 2). Runs behavioral + structural checks
+# before accepting the result. Only refreshes the saved diff on full success,
+# so the canonical patch is never overwritten with a bad/partial merge.
+step "Re-applying local patches"
 
-SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
 VENV_PY="${HERMES_AGENT}/venv/bin/python3"
+SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
+DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
+
+# -- 7a. Apply saved diff -------------------------------------------------------
+if [[ -f "${PATCH_FILE}" ]]; then
+    cd "${HERMES_AGENT}"
+    if git apply --check "${PATCH_FILE}" 2>/dev/null; then
+        git apply "${PATCH_FILE}"
+        ok "Patches applied cleanly from patches/local-patches.diff"
+    elif git apply --3way "${PATCH_FILE}" 2>/dev/null; then
+        # 3-way may silently produce conflict markers — detect them
+        _CONFLICTS=$(git diff --check 2>&1 || true)
+        if [[ -n "${_CONFLICTS}" ]]; then
+            warn "3-way apply introduced conflict markers — patches NOT fully active"
+            add_warn "Patch conflict markers present in hermes-agent source"
+            add_act "Resolve conflicts: cd ${HERMES_AGENT} && git diff --check"
+            add_act "See README.md § 本地补丁 for re-application instructions"
+        else
+            ok "Patches applied via 3-way merge (upstream changed same area)"
+        fi
+    else
+        warn "Patches could not be applied (upstream conflict)"
+        add_warn "Local patches were NOT applied — some customizations inactive"
+        add_act "Manual fix: cd ${HERMES_AGENT} && git apply --reject ${PATCH_FILE}"
+        add_act "See README.md § 本地补丁 for re-application instructions"
+    fi
+    cd - >/dev/null
+else
+    note "No saved patch file — skipping apply (fresh install or patches never saved)"
+fi
+
+# -- 7b. Behavioral verification -----------------------------------------------
+_SKILL_PATCH_OK=false
+_DOCTOR_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
-    PATCH_CHECK=$(
+    _SKILL_CHECK=$(
         cd "${HERMES_AGENT}" &&
             "${VENV_PY}" - <<'PYEOF' 2>/dev/null
 import sys
 sys.path.insert(0, ".")
 from tools.skill_manager_tool import _resolve_skill_dir
 result = str(_resolve_skill_dir("_patch_test"))
-# Pass if result is NOT inside the bundled skills dir
 print("ok" if "my-skills" in result or "/skills/_patch_test" not in result else "native")
 PYEOF
     )
-    if [[ "${PATCH_CHECK}" == "ok" ]]; then
-        ok "New skills route to my-skills/ (external_dirs)"
+    if [[ "${_SKILL_CHECK}" == "ok" ]]; then
+        ok "Skill routing patch: active (new skills → my-skills/)"
+        _SKILL_PATCH_OK=true
     else
-        warn "skill_manager_tool.py routing patch missing — new skills land in ~/.hermes/skills/"
-        add_warn "Skill routing patch lost (likely stash conflict). New skills will go to native skills dir."
-        add_act "Re-apply patch: see README.md § Skills → 自定义 Skill 创建路径修复"
+        warn "Skill routing patch inactive — new skills will land in ~/.hermes/skills/"
+        add_act "Re-apply: see README.md § Skills → 自定义 Skill 创建路径修复"
     fi
 else
-    warn "Could not locate venv or skill_manager_tool.py — skipping patch check"
+    warn "Could not locate venv or skill_manager_tool.py — skipping skill routing check"
 fi
 
-# ── 7b. Verify doctor issue-count patch ──────────────────────────────────────
-# This patch prevents moa/rl (disabled optional tools) from being counted as
-# "issues" by hermes doctor when their API keys aren't configured.
-step "Doctor issue-count patch (7b)"
-
-DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
 if [[ -f "${DOCTOR_PY}" ]]; then
     if grep -q "_get_platform_tools" "${DOCTOR_PY}" 2>/dev/null; then
-        ok "doctor.py patch present (unused tools excluded from issue count)"
+        ok "Doctor issue-count patch: active (unused tools excluded from issue count)"
+        _DOCTOR_PATCH_OK=true
     else
-        warn "doctor.py patch missing — hermes doctor may report false issue for moa/rl"
-        add_act "Re-apply doctor.py patch: see README.md § 'doctor.py issue count 修复'"
+        warn "Doctor issue-count patch inactive — hermes doctor may report false issue for moa/rl"
+        add_act "Re-apply: see README.md § doctor.py issue count 修复"
     fi
 else
-    warn "Could not locate hermes_cli/doctor.py — skipping patch check"
+    warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
+fi
+
+# -- 7c. Refresh saved diff only after full verification -----------------------
+# Regenerating the diff captures any upstream changes that touched our patched
+# files but did not conflict. Only do this once BOTH patches are confirmed live.
+if $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK; then
+    cd "${HERMES_AGENT}"
+    _REFRESHED=()
+    for _f in "${PATCHED_FILES[@]}"; do
+        if ! git --no-pager diff --quiet HEAD -- "${_f}" 2>/dev/null; then
+            _REFRESHED+=("${_f}")
+        fi
+    done
+    if [[ ${#_REFRESHED[@]} -gt 0 ]]; then
+        git --no-pager diff HEAD -- "${_REFRESHED[@]}" >"${PATCH_FILE}"
+        ok "patches/local-patches.diff refreshed (${#_REFRESHED[@]} file(s))"
+    fi
+    cd - >/dev/null
 fi
 
 # ── 8. Verify ─────────────────────────────────────────────────────────────────
@@ -270,7 +382,7 @@ else
     FINAL_RC=1
 fi
 
-# ── 7. Summary ────────────────────────────────────────────────────────────────
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 printf "${BOLD}══════════════════════════════════════════════${NC}\n"
 printf "${BOLD}  Hermes update — done${NC}\n"
