@@ -58,6 +58,7 @@
 | `memories/MEMORY.md`  | Agent 的结构化记忆（短期），自动注入每次会话   |
 | `memories/USER.md`    | 用户画像（偏好、时区、语言等）                 |
 | `my-skills/`          | 自定义 Skills（独立 git 仓库）                 |
+| `hermes-update.sh`    | 一键更新脚本（入库，随版本变更同步维护）       |
 | `SOUL.md`             | Agent 人格与语气配置                           |
 | `README.md`           | 本文档                                         |
 
@@ -81,6 +82,7 @@
 │   └── USER.md            # 用户画像（入库）
 ├── skills/                # Skills Hub 包（.gitignore 排除，按需重装）
 ├── my-skills/             # 自定义 Skills（独立 git 仓库，入库）
+├── hermes-update.sh       # 一键更新脚本（入库）
 ├── cron/                  # Cron 任务状态（运行时，.gitignore 排除）
 ├── logs/                  # 日志（.gitignore 排除）
 ├── sessions/              # 会话历史（.gitignore 排除）
@@ -308,29 +310,44 @@ rm -f ~/.zcompdump* && exec zsh
 
 ## 更新
 
+推荐使用 `hermes-update.sh` 一键完成完整更新流程：
+
 ```bash
-# 1. 更新源码
-cd ~/.hermes/hermes-agent
-git pull
+bash ~/.hermes/hermes-update.sh
+```
 
-# 2. 更新 Python 依赖
-source venv/bin/activate
-uv pip install -e ".[all]"
+脚本依次执行以下步骤，完成后显示状态摘要和待操作提示：
 
-# 3. 重新安装 gateway 服务（plist 嵌入版本路径，必须刷新）
+| 步骤 | 操作                                      | 说明                                                                          |
+| ---- | ----------------------------------------- | ----------------------------------------------------------------------------- |
+| 1    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启 |
+| 2    | `hermes gateway install --force`          | 刷新 launchd plist（`hermes update` 不自动执行此步）                          |
+| 3    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                 |
+| 4    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，清除 zcompdump 缓存                                    |
+| 5    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                            |
+
+> ⚠ **脚本维护提示**：若 hermes 上游大版本升级后更新流程发生变化（新增步骤、flags 变动、路径变更），需同步更新 `~/.hermes/hermes-update.sh`。脚本顶部有详细的"需关注场景"注释。
+
+### 手动步骤参考
+
+若脚本某步失败，可单独执行对应命令排查：
+
+```bash
+# 代码 + 依赖 + skills + gateway 重启
+hermes update
+
+# 刷新 launchd plist（版本升级后必须执行）
 hermes gateway install --force
 
-# 4. 更新 zsh 补全脚本
+# zsh 补全脚本
 hermes completion zsh > ~/.hermes/completions/_hermes
 rm -f ~/.zcompdump*
 
-# 5. 验证
+# 验证
 hermes --version
 hermes doctor
 hermes gateway status
 ```
-
-> **提示**：也可以使用内置命令 `hermes update`（适用于通过 `git clone` 安装的版本）。
 
 ---
 
