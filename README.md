@@ -38,6 +38,7 @@
   - [SOUL.md：人格与语气](#soulmd人格与语气)
   - [外部记忆 Provider（进阶）](#外部记忆-provider进阶)
 - [Web Search 工具](#web-search-工具)
+- [Web Dashboard](#web-dashboard)
 - [维护与排错](#维护与排错)
 
 ---
@@ -48,15 +49,15 @@
 
 本仓库存储的内容：
 
-| 文件/目录                | 说明                                           |
-| ------------------------ | ---------------------------------------------- |
-| `config.yaml`            | 主配置：模型、工具集、gateway 超时、显示风格等 |
-| `.env.example`           | 密钥配置模板（实际 `.env` 不入库）             |
-| `completions/hermes.zsh` | zsh 补全脚本                                   |
-| `memories/MEMORY.md`     | Agent 的结构化记忆（短期），自动注入每次会话   |
-| `memories/USER.md`       | 用户画像（偏好、时区、语言等）                 |
-| `SOUL.md`                | Agent 人格与语气配置                           |
-| `README.md`              | 本文档                                         |
+| 文件/目录             | 说明                                           |
+| --------------------- | ---------------------------------------------- |
+| `config.yaml`         | 主配置：模型、工具集、gateway 超时、显示风格等 |
+| `.env.example`        | 密钥配置模板（实际 `.env` 不入库）             |
+| `completions/_hermes` | zsh 补全脚本（#compdef 格式，通过 fpath 加载） |
+| `memories/MEMORY.md`  | Agent 的结构化记忆（短期），自动注入每次会话   |
+| `memories/USER.md`    | 用户画像（偏好、时区、语言等）                 |
+| `SOUL.md`             | Agent 人格与语气配置                           |
+| `README.md`           | 本文档                                         |
 
 **不跟踪的内容**：官方源码（`hermes-agent/`）、密钥（`.env`）、数据库（`state.db`）、日志、会话、Skills 包（171MB，按需重装）。
 
@@ -264,26 +265,28 @@ tail -f ~/.hermes/logs/gateway.log
 
 ## Shell 集成
 
-zsh 补全脚本已生成在 `completions/hermes.zsh`。
+zsh 补全脚本存放在 `completions/_hermes`（`#compdef` 格式，须通过 `fpath` 加载，**不能 `source`**）。
 
-**`.zshrc` 配置**（参考当前 `~/.zshrc`）：
+**`.zshrc` 正确配置方式**：在 `source $ZSH/oh-my-zsh.sh` **之前**加入：
 
 ```zsh
-# Hermes Completion
-if [[ -f "$HOME/.hermes/completions/hermes.zsh" ]]; then
-  hermes_fpath="$HOME/.hermes/completions"
-  if [[ -z "${fpath[(r)$hermes_fpath]}" ]]; then
-    fpath=("$hermes_fpath" $fpath)
-  fi
-  autoload -Uz _hermes
-fi
-unset hermes_fpath
+# Hermes completions — must be before oh-my-zsh loads compinit
+fpath=("$HOME/.hermes/completions" "${fpath[@]}")
 ```
+
+配置好后清除缓存生效：
+
+```bash
+rm -f ~/.zcompdump* && exec zsh
+```
+
+> **常见错误**：直接 `source completions/hermes.zsh` 不会注册补全，因为 `#compdef` 文件不是普通脚本，必须通过 fpath + compinit 机制加载。
 
 **更新补全脚本**（hermes 升级后）：
 
 ```bash
-hermes completion zsh > ~/.hermes/completions/hermes.zsh
+hermes completion zsh > ~/.hermes/completions/_hermes
+rm -f ~/.zcompdump* && exec zsh
 ```
 
 ---
@@ -303,7 +306,8 @@ uv pip install -e ".[all]"
 hermes gateway install --force
 
 # 4. 更新 zsh 补全脚本
-hermes completion zsh > ~/.hermes/completions/hermes.zsh
+hermes completion zsh > ~/.hermes/completions/_hermes
+rm -f ~/.zcompdump*
 
 # 5. 验证
 hermes --version
@@ -701,6 +705,72 @@ hermes tools
 > **推荐策略**：先配置 Tavily（每月 1,000 次免费）作为保底，再申请 Exa 赠金并在 `.env` 中同时配置两个 key（Firecrawl 优先级最高，Tavily 最低，但都配置的话 Firecrawl 先被检测到）。
 >
 > **切换 provider**：在 `.env` 中注释掉不想用的 key，只留一个，hermes doctor 会自动识别当前激活的 provider。
+
+---
+
+## Web Dashboard
+
+Hermes 内置本地 Web 控制台，运行在 `http://127.0.0.1:9119`，提供可视化配置、会话浏览、日志查看等功能。
+
+### 启动
+
+```bash
+# 推荐：用 alias（自动激活 venv）
+hermes-dashboard
+
+# 或手动
+cd ~/.hermes/hermes-agent && source venv/bin/activate && python -m hermes_cli.main dashboard
+
+# 不自动打开浏览器
+hermes-dashboard --no-open
+
+# 自定义端口
+hermes-dashboard --port 8080
+```
+
+> **首次启动**会自动构建前端（需要 `npm`），约需 10–20 秒，之后立即可用。
+
+### 功能页面
+
+| 页面      | 功能                                                   |
+| --------- | ------------------------------------------------------ |
+| Status    | Gateway 状态、活跃 session 数、版本信息（5s 自动刷新） |
+| Config    | 可视化编辑 `config.yaml`，支持导入/导出                |
+| API Keys  | 管理 `.env` 中的密钥，按类别分组（LLM / 工具 / 平台）  |
+| Sessions  | 浏览/搜索会话历史，查看消息详情，删除会话              |
+| Logs      | 实时日志，支持按级别/组件过滤                          |
+| Analytics | Token 用量与费用统计图表                               |
+| Cron      | 定时任务管理（增删改查 + 立即触发）                    |
+| Skills    | 技能启用/禁用                                          |
+
+### ⚠️ Dashboard 不是持久化服务
+
+**Dashboard 是按需启动的工具进程，不会随系统开机或 gateway 启动自动运行。** 设计上如此，原因：
+
+- Dashboard 可读写 `.env`（含所有 API key），长期暴露在端口上存在安全风险
+- 日常运营只需 gateway 常驻，dashboard 按需打开即可
+- 如确实需要持久化，可参考 gateway 的 launchd 方案自行封装（不推荐）
+
+用完关闭浏览器标签后，进程仍在后台运行；若要彻底停止：
+
+```bash
+lsof -ti :9119 | xargs kill
+```
+
+### REST API
+
+Dashboard 同时暴露 REST API，可用于自动化：
+
+```bash
+# 查看 gateway 状态
+curl http://127.0.0.1:9119/api/status
+
+# 列出最近 session
+curl http://127.0.0.1:9119/api/sessions
+
+# 查看日志（最近 50 行）
+curl "http://127.0.0.1:9119/api/logs?file=gateway&lines=50"
+```
 
 ---
 
