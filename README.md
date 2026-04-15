@@ -496,6 +496,33 @@ Hermes 原生的 `skill_manage(action='create')` 工具默认将新 skill 写入
 - `_create_skill()`：`path` 字段改为对外部目录也兼容（`try/except ValueError`）。
 - `_delete_skill()`：清理空目录时，`external_dirs` 根目录加入受保护集，避免误删 `my-skills/`。
 
+#### doctor.py issue count 修复
+
+`hermes doctor` 原生逻辑会把**所有**已注册但缺少 API key 的 toolset（包括从未启用的 `moa`、`rl`）都计入 issue，导致 `Found 1 issue(s) to address`。本仓库对 `hermes-agent/hermes_cli/doctor.py` 做了一处本地补丁，使其只对**用户实际启用**的 toolset 报告 issue。
+
+**触发条件**：`moa`（需要 OPENROUTER_API_KEY）和 `rl`（需要 TINKER_API_KEY、WANDB_API_KEY）未被用户启用但仍触发 issue 集计。
+
+**补丁保持策略**：同上，以未提交修改保留在 hermes-agent 工作树中。`hermes-update.sh` 第 7b 步通过 `grep -q _get_platform_tools` 确认补丁存活，如失效会给出 action 提示。
+
+**补丁内容**（`hermes_cli/doctor.py` 中 "Count disabled tools with API key requirements" 块）：
+
+```python
+# 替换原来的单行 api_disabled 赋值为：
+try:
+    from hermes_cli.config import load_config as _load_doctor_config
+    from hermes_cli.tools_config import _get_platform_tools, PLATFORMS
+    _dc = _load_doctor_config()
+    _enabled_ts = set()
+    for _p in PLATFORMS:
+        _enabled_ts.update(_get_platform_tools(_dc, _p))
+    api_disabled = [
+        u for u in unavailable
+        if (u.get("missing_vars") or u.get("env_vars")) and u.get("name") in _enabled_ts
+    ]
+except Exception:
+    api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
+```
+
 ### Context References（@ 语法）
 
 在消息中直接引用外部内容，按需注入，不占用系统 prompt：

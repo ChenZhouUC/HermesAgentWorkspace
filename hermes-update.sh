@@ -11,18 +11,21 @@
 #   4. Gateway process restart   (via hermes update, if already running)
 #   5. Gateway launchd plist refresh (hermes gateway install --force)
 #   6. zsh completion script regeneration
-#   7. Local patch verification  (skill routing: new skills → my-skills/)
+#   7. Local patch verification  (skill routing + doctor issue count)
 #   8. Health verification (hermes doctor + gateway status)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
 #    - If hermes update adds/removes steps, review whether steps 5–6 are still needed
 #    - If gateway install flags change, update step 5
 #    - If venv or binary paths move, update step 6
-#    - Step 7 checks a local patch to tools/skill_manager_tool.py that routes
+#    - Step 7a checks a local patch to tools/skill_manager_tool.py that routes
 #      new agent-created skills to ~/.hermes/my-skills/ (external_dirs).
 #      hermes update stash-restores this patch automatically; if a conflict
 #      arises, resolve it in ~/.hermes/hermes-agent/tools/skill_manager_tool.py
 #      (see README.md § Skills → 自定义 Skill 创建路径修复 for details).
+#    - Step 7b checks a local patch to hermes_cli/doctor.py that suppresses
+#      false issue reports for moa/rl (disabled optional tools with missing API
+#      keys). Re-apply if lost: see README.md § doctor.py issue count 修复.
 #    Referenced from README.md § 更新
 #
 # Usage:
@@ -188,11 +191,11 @@ else
     add_act "Run: hermes completion zsh > ~/.hermes/completions/_hermes"
 fi
 
-# ── 7. Verify local skill-routing patch ──────────────────────────────────────
+# ── 7a. Verify local skill-routing patch ─────────────────────────────────────
 # hermes update stash-restores local modifications to hermes-agent source.
 # This step confirms the patch that routes new skills to my-skills/ survived.
 # If stash-restore had a conflict the patch may be missing or partial.
-step "Skill routing patch"
+step "Skill routing patch (7a)"
 
 SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
 VENV_PY="${HERMES_AGENT}/venv/bin/python3"
@@ -218,6 +221,23 @@ PYEOF
     fi
 else
     warn "Could not locate venv or skill_manager_tool.py — skipping patch check"
+fi
+
+# ── 7b. Verify doctor issue-count patch ──────────────────────────────────────
+# This patch prevents moa/rl (disabled optional tools) from being counted as
+# "issues" by hermes doctor when their API keys aren't configured.
+step "Doctor issue-count patch (7b)"
+
+DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
+if [[ -f "${DOCTOR_PY}" ]]; then
+    if grep -q "_get_platform_tools" "${DOCTOR_PY}" 2>/dev/null; then
+        ok "doctor.py patch present (unused tools excluded from issue count)"
+    else
+        warn "doctor.py patch missing — hermes doctor may report false issue for moa/rl"
+        add_act "Re-apply doctor.py patch: see README.md § 'doctor.py issue count 修复'"
+    fi
+else
+    warn "Could not locate hermes_cli/doctor.py — skipping patch check"
 fi
 
 # ── 8. Verify ─────────────────────────────────────────────────────────────────
