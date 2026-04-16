@@ -467,7 +467,7 @@ cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
 '(-p --profile)--profile[Profile name]:profile:_hermes_profiles'
 ```
 
-> ⚠️ **升级注意**：`hermes update` 后若重新生成 `completions/_hermes`（或执行 `hermes completion zsh > completions/_hermes`），需重新应用此补丁。
+> ℹ️ **升级说明**：更新脚本（`hermes-update.sh`）已在 Step 6 自动检测并重新应用此补丁。若上游修复了该语法问题，更新脚本会自动跳过修复步骤。
 
 ---
 
