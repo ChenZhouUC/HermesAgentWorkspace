@@ -19,6 +19,7 @@
 - [Gateway 服务](#gateway-服务)
 - [Shell 集成](#shell-集成)
 - [更新](#更新)
+- [本地补丁记录](#本地补丁记录)
 - [卸载](#卸载)
 - [基础使用](#基础使用)
   - [对话（Chat）](#对话chat)
@@ -353,6 +354,91 @@ hermes gateway status
 
 ---
 
+## 本地补丁记录
+
+> 本章集中记录所有相对上游 hermes-agent 的本地补丁，与 `patches/local-patches.diff` 一一对应。
+>
+> **AI 维护规范**：
+>
+> - 每次 `hermes update` 升级后，将该版本下新增的补丁条目移至对应版本节；若上游已合并某补丁，将状态改为 `✅ 已上游合并（vX.Y.Z）` 并从 `hermes-update.sh` 的 `PATCHED_FILES` 中移除对应文件。
+> - 新补丁格式：在当前版本节下复制一个 `#### [PATCH-N]` 块并填写各字段。
+> - 版本升级时在顶部新增 `### vX.Y.Z（upstream COMMIT）` 节，未变化的补丁直接迁移过来。
+
+### 补丁管理机制
+
+所有补丁以 unified diff 保存在 `patches/local-patches.diff`，由 `hermes-update.sh` 全自动管理：
+
+| 步骤                  | 操作                                                                                                                        |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **更新前（第 2 步）** | `git diff HEAD -- <patched_files>` 另存至 `local-patches.diff`，然后 `git checkout HEAD` 还原文件，使 `git pull` 无需 stash |
+| **更新后（第 7 步）** | `git apply local-patches.diff` 重新应用；行为化验证通过后刷新 diff 文件；失败给出 action 提示                               |
+
+**受管理的文件列表**（`hermes-update.sh` 中 `PATCHED_FILES`）：
+
+```bash
+PATCHED_FILES=(
+    "tools/skill_manager_tool.py"
+    "tests/tools/test_skill_manager_tool.py"
+    "hermes_cli/doctor.py"
+    "gateway/platforms/feishu.py"
+)
+```
+
+手动恢复：
+
+```bash
+cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
+# 若有冲突：git apply --reject && 手动解决 .rej，再重跑 hermes-update.sh
+```
+
+---
+
+### v0.9.0 (upstream `00ff9a26`）
+
+#### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
+
+| 字段         | 内容                                                                    |
+| ------------ | ----------------------------------------------------------------------- |
+| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py` |
+| **状态**     | 🟡 未上游合并                                                           |
+| **适用版本** | ≥ v0.9.0                                                                |
+
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。
+
+**修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配。
+
+---
+
+#### [PATCH-2] hermes_cli/doctor.py — issue count 过报
+
+| 字段         | 内容                   |
+| ------------ | ---------------------- |
+| **文件**     | `hermes_cli/doctor.py` |
+| **状态**     | 🟡 未上游合并          |
+| **适用版本** | ≥ v0.9.0               |
+
+**问题**：`hermes doctor` 将所有注册但缺少 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，导致虚报 `Found 1 issue(s) to address`。
+
+**修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
+
+---
+
+#### [PATCH-3] gateway/platforms/feishu.py — WS 模式审批按钮失效
+
+| 字段         | 内容                          |
+| ------------ | ----------------------------- |
+| **文件**     | `gateway/platforms/feishu.py` |
+| **状态**     | 🟡 未上游合并                 |
+| **适用版本** | lark_oapi ≤ 1.5.3             |
+
+**问题**：WebSocket 连接模式下，点击飞书审批卡片的「同意」/「拒绝」按钮，用户侧报「操作失败」，Agent 无法收到审批结果。
+
+**根因**：`lark_oapi` WS SDK（≤1.5.3）`_handle_data_frame` 对 `MessageType.CARD` 帧直接 `return`，不派发、不回传响应帧；Feishu 服务端超时后向客户端返回失败。`register_p2_card_action_trigger` 注册的回调从未被触发。
+
+**修复**：在 `_run_official_feishu_ws_client` 中 monkey-patch WS client 实例的 `_handle_data_frame`，将 CARD 帧通过 `do_without_validation` 路由（与 EVENT 帧相同路径），并将 `P2CardActionTriggerResponse` 序列化为响应帧回传。位置：`_apply_runtime_ws_overrides()` 调用之后、`ws_client.start()` 之前。
+
+---
+
 ## 卸载
 
 ```bash
@@ -486,64 +572,7 @@ skills:
 
 **调用 Skill**：会话中输入 `/skill-name` 或启动时 `hermes --skills skill-name`。
 
-#### 自定义 Skill 创建路径修复
-
-Hermes 原生的 `skill_manage(action='create')` 工具默认将新 skill 写入 `~/.hermes/skills/`（官方 skill 目录），而非 `my-skills/`。本仓库对 `hermes-agent/tools/skill_manager_tool.py` 做了一处本地补丁，使其优先读取 `config.yaml` 的 `external_dirs` 并将新建 skill 路由至 `~/.hermes/my-skills/`。
-
-**补丁保持策略**：补丁以 `~/.hermes/patches/local-patches.diff` 的形式保存，并被 config 仓库 git 跟踪。`hermes-update.sh` 第 2 步在 `hermes update` 执行前将补丁文件另存、恢复被修改文件至 HEAD，使 git pull 无需 stash，彻底避免 stash 冲突。第 7 步重新应用补丁并行为化验证路由是否正确，验证通过后刷新 diff 文件；如失效给出 action 提示。
-
-**补丁冲突手动处理**：若第 7 步报告 patch conflict，运行：
-
-```bash
-cd ~/.hermes/hermes-agent
-git apply --reject ~/.hermes/patches/local-patches.diff
-# 手动解决 .rej 文件后再次运行 bash ~/.hermes/hermes-update.sh
-```
-
-**补丁内容**（需要时手动重新应用）：
-
-- `_resolve_skill_dir()`：读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非 `~/.hermes/skills/` 的目录作为新 skill 的基准目录。
-- `_create_skill()`：`path` 字段改为对外部目录也兼容（`try/except ValueError`）。
-- `_delete_skill()`：清理空目录时，`external_dirs` 根目录加入受保护集，避免误删 `my-skills/`。
-
-#### doctor.py issue count 修复
-
-`hermes doctor` 原生逻辑会把**所有**已注册但缺少 API key 的 toolset（包括从未启用的 `moa`、`rl`）都计入 issue，导致 `Found 1 issue(s) to address`。本仓库对 `hermes-agent/hermes_cli/doctor.py` 做了一处本地补丁，使其只对**用户实际启用**的 toolset 报告 issue。
-
-**触发条件**：`moa`（需要 OPENROUTER_API_KEY）和 `rl`（需要 TINKER_API_KEY、WANDB_API_KEY）未被用户启用但仍触发 issue 集计。
-
-**补丁保持策略**：同上，以 `patches/local-patches.diff` 保存并跟踪。`hermes-update.sh` 第 7 步通过行为化验证（`_get_platform_tools` grep）确认补丁存活，如失效会给出 action 提示。
-
-**补丁内容**（`hermes_cli/doctor.py` 中 "Count disabled tools with API key requirements" 块）：
-
-```python
-# 替换原来的单行 api_disabled 赋值为：
-try:
-    from hermes_cli.config import load_config as _load_doctor_config
-    from hermes_cli.tools_config import _get_platform_tools, PLATFORMS
-    _dc = _load_doctor_config()
-    _enabled_ts = set()
-    for _p in PLATFORMS:
-        _enabled_ts.update(_get_platform_tools(_dc, _p))
-    api_disabled = [
-        u for u in unavailable
-        if (u.get("missing_vars") or u.get("env_vars")) and u.get("name") in _enabled_ts
-    ]
-except Exception:
-    api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
-```
-
-#### feishu.py 飞书审批按钮修复
-
-**问题**：在 WebSocket 连接模式下，点击飞书审批卡片中的"同意"/"拒绝"按钮，用户侧会出现「操作失败」错误，Agent 也无法收到审批结果继续执行。
-
-**根因**：`lark_oapi` WS SDK（≤1.5.3）的 `_handle_data_frame` 对 `MessageType.CARD` 帧直接 `return` 而不处理，导致 Feishu 服务端超时等待响应后向客户端返回失败。`register_p2_card_action_trigger` 注册的回调从未被触发。
-
-**修复**：在 `_run_official_feishu_ws_client` 中 monkey-patch WS client 实例的 `_handle_data_frame`，将 CARD 帧通过 `do_without_validation` 路由，与 EVENT 帧走同一条回调路径，并正确序列化 `P2CardActionTriggerResponse` 作为响应帧回传。
-
-**补丁文件**：`gateway/platforms/feishu.py`（`_run_official_feishu_ws_client` 函数，`_apply_runtime_ws_overrides()` 调用之后）
-
-**补丁保持策略**：同上，以 `patches/local-patches.diff` 保存并跟踪。`PATCHED_FILES` 中已加入 `gateway/platforms/feishu.py`，更新时自动保存并还原。
+> 本地补丁对 skill 相关行为有所修改，详见 [本地补丁记录](#本地补丁记录)。
 
 ### Context References（@ 语法）
 
