@@ -28,7 +28,7 @@ PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
-    "gateway/platforms/feishu.py"
+    "hermes_cli/main.py"
 )
 ```
 
@@ -71,23 +71,7 @@ cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
 
 ---
 
-### [PATCH-3] gateway/platforms/feishu.py — WS 模式审批按钮失效
-
-| 字段         | 内容                          |
-| ------------ | ----------------------------- |
-| **文件**     | `gateway/platforms/feishu.py` |
-| **状态**     | 🟡 未上游合并                 |
-| **适用版本** | lark_oapi ≤ 1.5.3             |
-
-**问题**：WebSocket 连接模式下，点击飞书审批卡片的「同意」/「拒绝」按钮，用户侧报「操作失败」，Agent 无法收到审批结果。
-
-**根因**：`lark_oapi` WS SDK（≤1.5.3）`_handle_data_frame` 对 `MessageType.CARD` 帧直接 `return`，不派发、不回传响应帧；Feishu 服务端超时后向客户端返回失败。`register_p2_card_action_trigger` 注册的回调从未被触发。
-
-**修复**：在 `_run_official_feishu_ws_client` 中 monkey-patch WS client 实例的 `_handle_data_frame`，将 CARD 帧通过 `do_without_validation` 路由（与 EVENT 帧相同路径），并将 `P2CardActionTriggerResponse` 序列化为响应帧回传。位置：`_apply_runtime_ws_overrides()` 调用之后、`ws_client.start()` 之前。
-
----
-
-### [PATCH-4] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
+### [PATCH-3] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
 
 | 字段         | 内容                                                     |
 | ------------ | -------------------------------------------------------- |
@@ -118,5 +102,19 @@ cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
 ```
 
 **升级处理**：`hermes-update.sh` Step 6 在重新生成补全脚本后自动检测并重新应用此修复；若上游已修正该语法，步骤自动跳过。
+
+---
+
+### [PATCH-4] hermes_cli/main.py — `hermes web` 每次启动重复 build
+
+| 字段         | 内容                 |
+| ------------ | -------------------- |
+| **文件**     | `hermes_cli/main.py` |
+| **状态**     | 🟡 未上游合并        |
+| **适用版本** | ≥ v0.9.0             |
+
+**问题**：`hermes web` 每次启动都无条件执行 `npm install + npm run build`，即使 `web/dist/` 已存在可用的构建产物，导致启动耗时数十秒。
+
+**修复**：在 `cmd_web()` 中检查 `web/dist/index.html` 是否存在，存在则跳过 build 直接启动；不存在时仍正常 build。`hermes update` 路径不受影响（每次 update 仍会重新 build）。
 
 ---

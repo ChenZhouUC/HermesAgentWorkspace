@@ -327,7 +327,7 @@ bash ~/.hermes/hermes-update.sh
 | 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                               |
 | 4    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 5                                                                        |
 | 5    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                               |
-| 6    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-4（`_arguments` 语法修复），清除 zcompdump 缓存                                                   |
+| 6    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-3（`_arguments` 语法修复），清除 zcompdump 缓存                                                   |
 | 7    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用；行为化验证 PATCH-1（skill 路由）、PATCH-2（doctor issue count）是否存活；验证通过后刷新 diff 文件 |
 | 8    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                                                          |
 
@@ -360,7 +360,7 @@ hermes gateway status
 
 本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。
 
-补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 6 重新应用工程外补丁（PATCH-4）、Step 7 重新应用 `hermes-agent/` 内补丁并行为化验证。
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 6 重新应用工程外补丁（PATCH-3）、Step 7 重新应用 `hermes-agent/` 内补丁并行为化验证。
 
 手动恢复 `hermes-agent/` 内补丁：
 
