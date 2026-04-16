@@ -2,9 +2,6 @@ model:
   provider: gemini
   default: gemini-3.1-pro-preview
 providers: {}
-fallback_model:
-  provider: bailian
-  model: qwen3-max
 fallback_providers: []
 credential_pool_strategies: {}
 toolsets:
@@ -53,6 +50,17 @@ compression:
   threshold: 0.5
   target_ratio: 0.2
   protect_last_n: 20
+bedrock:
+  region: ''
+  discovery:
+    enabled: true
+    provider_filter: []
+    refresh_interval: 3600
+  guardrail:
+    guardrail_identifier: ''
+    guardrail_version: ''
+    stream_processing_mode: async
+    trace: disabled
 smart_model_routing:
   enabled: false
   max_simple_chars: 160
@@ -182,7 +190,7 @@ delegation:
 prefill_messages_file: ''
 skills:
   external_dirs:
-    - ~/.hermes/my-skills
+  - ~/.hermes/my-skills
 honcho: {}
 timezone: ''
 discord:
@@ -191,7 +199,14 @@ discord:
   allowed_channels: ''
   auto_thread: true
   reactions: true
+  channel_prompts: {}
 whatsapp: {}
+telegram:
+  channel_prompts: {}
+slack:
+  channel_prompts: {}
+mattermost:
+  channel_prompts: {}
 approvals:
   mode: manual
   timeout: 60
@@ -216,9 +231,9 @@ logging:
   backup_count: 3
 network:
   force_ipv4: false
+_config_version: 18
 web:
   backend: tavily
-_config_version: 17
 custom_providers:
 - name: bailian
   base_url: ${DASHSCOPE_BASE_URL}
