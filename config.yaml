@@ -2,6 +2,9 @@ model:
   provider: gemini
   default: gemini-3.1-pro-preview
 providers: {}
+fallback_model:
+  provider: alibaba
+  model: qwen3-max
 fallback_providers: []
 credential_pool_strategies: {}
 toolsets:
@@ -234,8 +237,4 @@ network:
 _config_version: 18
 web:
   backend: tavily
-custom_providers:
-- name: bailian
-  base_url: ${DASHSCOPE_BASE_URL}
-  api_key: ${BAILIAN_API_KEY}
-  api_mode: chat_completions
+custom_providers: []
