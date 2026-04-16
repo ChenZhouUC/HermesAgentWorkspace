@@ -437,6 +437,38 @@ cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
 
 **修复**：在 `_run_official_feishu_ws_client` 中 monkey-patch WS client 实例的 `_handle_data_frame`，将 CARD 帧通过 `do_without_validation` 路由（与 EVENT 帧相同路径），并将 `P2CardActionTriggerResponse` 序列化为响应帧回传。位置：`_apply_runtime_ws_overrides()` 调用之后、`ws_client.start()` 之前。
 
+#### [PATCH-4] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
+
+| 字段         | 内容                                                     |
+| ------------ | -------------------------------------------------------- |
+| **文件**     | `completions/_hermes`                                    |
+| **状态**     | 🟡 未上游合并                                            |
+| **适用版本** | 已验证 v0.9.0；上游 `hermes completion zsh` 输出同样错误 |
+
+**问题**：在任何新终端按 Tab 键补全 `hermes` 命令，提示符短暂出现 `...` 随即消失，无任何补全菜单。
+
+**根因**：`hermes completion zsh`（即上游二进制）生成的 `_arguments` 规格将互斥说明符 `(...)` 和替代语法 `{...}` 混用，这是无效语法：
+
+```zsh
+# 无效：zsh _arguments 不支持 (...){...} 组合写法
+'(-h --help){-h,--help}[Show help and exit]'
+```
+
+`_arguments` 解析时报 `invalid argument` 并立即退出，`$state` 未被设置，`case $state in` 块从未执行，函数返回零条补全。
+
+**修复**：将三处无效规格拆为独立规格：`-h/--help/-V/--version` 改用 `(- :)` 模式（出现时排除所有其他补全），`-p/--profile` 拆为两条：
+
+```zsh
+'(- :)-h[Show help and exit]'
+'(- :)--help[Show help and exit]'
+'(- :)-V[Show version and exit]'
+'(- :)--version[Show version and exit]'
+'(-p --profile)-p[Profile name]:profile:_hermes_profiles'
+'(-p --profile)--profile[Profile name]:profile:_hermes_profiles'
+```
+
+> ⚠️ **升级注意**：`hermes update` 后若重新生成 `completions/_hermes`（或执行 `hermes completion zsh > completions/_hermes`），需重新应用此补丁。
+
 ---
 
 ## 卸载
