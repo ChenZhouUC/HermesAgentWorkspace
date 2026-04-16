@@ -1,8 +1,8 @@
 diff --git a/gateway/platforms/feishu.py b/gateway/platforms/feishu.py
-index 01b1c3a1..6ea4e51a 100644
+index 01b1c3a1..da856fb2 100644
 --- a/gateway/platforms/feishu.py
 +++ b/gateway/platforms/feishu.py
-@@ -1010,6 +1010,76 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
+@@ -1010,6 +1010,90 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
      if original_configure is not None:
          setattr(ws_client, "_configure", _configure_with_overrides)
      _apply_runtime_ws_overrides()
@@ -36,6 +36,8 @@ index 01b1c3a1..6ea4e51a 100644
 +            await _orig_handle_data_frame(frame)
 +            return
 +
++        logger.debug("[Feishu][PATCH-3] frame received type=%s", type_)
++
 +        if message_type != _WsMsgType.CARD:
 +            await _orig_handle_data_frame(frame)
 +            return
@@ -48,17 +50,27 @@ index 01b1c3a1..6ea4e51a 100644
 +        sum_ = _ws_get_by_key(hs, _HDR_SUM)
 +        seq = _ws_get_by_key(hs, _HDR_SEQ)
 +
++        logger.info("[Feishu][PATCH-3] CARD frame received msg_id=%s trace_id=%s", msg_id, trace_id)
++
 +        pl = frame.payload
 +        if int(sum_) > 1:
 +            pl = ws_client._combine(msg_id, int(sum_), int(seq), pl)
 +            if pl is None:
++                logger.warning("[Feishu][PATCH-3] multi-part CARD frame incomplete, skipping")
 +                return
++
++        try:
++            pl_preview = pl[:500].decode(_UTF_8, errors="replace") if pl else ""
++            logger.debug("[Feishu][PATCH-3] CARD payload preview: %s", pl_preview)
++        except Exception:
++            pass
 +
 +        resp = _WsResponse(code=_http.HTTPStatus.OK)
 +        try:
 +            start = int(round(time.time() * 1000))
 +            result = ws_client._event_handler.do_without_validation(pl)
 +            end = int(round(time.time() * 1000))
++            logger.info("[Feishu][PATCH-3] CARD callback processed in %dms result=%r", end - start, result)
 +            header = hs.add()
 +            header.key = _HDR_BIZ_RT
 +            header.value = str(end - start)
@@ -73,13 +85,15 @@ index 01b1c3a1..6ea4e51a 100644
 +
 +        frame.payload = _WsJSON.marshal(resp).encode(_UTF_8)
 +        await ws_client._write_message(frame.SerializeToString())
++        logger.info("[Feishu][PATCH-3] CARD response written trace_id=%s code=%s", trace_id, resp.code)
 +
 +    ws_client._handle_data_frame = _handle_data_frame_with_card_support
++    logger.info("[Feishu][PATCH-3] _handle_data_frame monkey-patched on ws_client id=%s", id(ws_client))
 +
      try:
          ws_client.start()
      except Exception:
-@@ -1018,6 +1088,7 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
+@@ -1018,6 +1102,7 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
          ws_client_module.websockets.connect = original_connect
          if original_configure is not None:
              setattr(ws_client, "_configure", original_configure)
@@ -87,128 +101,3 @@ index 01b1c3a1..6ea4e51a 100644
          pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
          for task in pending:
              task.cancel()
-diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 70bd9d0e..e1fc48c3 100644
---- a/hermes_cli/doctor.py
-+++ b/hermes_cli/doctor.py
-@@ -933,8 +933,22 @@ def run_doctor(args):
-             else:
-                 check_warn(item["name"], "(system dependency not met)")
- 
--        # Count disabled tools with API key requirements
--        api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
-+        # Count disabled tools with API key requirements.
-+        # Only flag toolsets the user has actually enabled — skip optional tools
-+        # like moa/rl that haven't been configured in the user's toolset list.
-+        try:
-+            from hermes_cli.config import load_config as _load_doctor_config
-+            from hermes_cli.tools_config import _get_platform_tools, PLATFORMS
-+            _dc = _load_doctor_config()
-+            _enabled_ts = set()
-+            for _p in PLATFORMS:
-+                _enabled_ts.update(_get_platform_tools(_dc, _p))
-+            api_disabled = [
-+                u for u in unavailable
-+                if (u.get("missing_vars") or u.get("env_vars")) and u.get("name") in _enabled_ts
-+            ]
-+        except Exception:
-+            api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
-         if api_disabled:
-             issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
-     except Exception as e:
-diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index dd0ae17f..ccefd1ec 100644
---- a/tests/tools/test_skill_manager_tool.py
-+++ b/tests/tools/test_skill_manager_tool.py
-@@ -29,10 +29,13 @@ from tools.skill_manager_tool import (
- 
- @contextmanager
- def _skill_dir(tmp_path):
--    """Patch both SKILLS_DIR and get_all_skills_dirs so _find_skill searches
--    only the temp directory — not the real ~/.hermes/skills/."""
-+    """Patch SKILLS_DIR, get_all_skills_dirs, get_external_skills_dirs, and
-+    get_config_path so that skill operations are fully isolated to tmp_path."""
-+    fake_config = tmp_path / "config.yaml"  # non-existent → no external_dirs in config
-     with patch("tools.skill_manager_tool.SKILLS_DIR", tmp_path), \
--         patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]):
-+         patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]), \
-+         patch("agent.skill_utils.get_external_skills_dirs", return_value=[]), \
-+         patch("agent.skill_utils.get_config_path", return_value=fake_config):
-         yield
- 
- 
-diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index 33d3976e..c79ad566 100644
---- a/tools/skill_manager_tool.py
-+++ b/tools/skill_manager_tool.py
-@@ -202,10 +202,37 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
- 
- 
- def _resolve_skill_dir(name: str, category: str = None) -> Path:
--    """Build the directory path for a new skill, optionally under a category."""
-+    """Build the directory path for a new skill, optionally under a category.
-+
-+    Uses the first configured external dir (skills.external_dirs) so that
-+    agent-created skills land in the user-managed directory rather than the
-+    bundled skills dir. The directory need not exist yet — _create_skill will
-+    mkdir it. Falls back to SKILLS_DIR if no external dirs are configured.
-+    """
-+    import os
-+    # get_external_skills_dirs() only returns dirs that already exist, so read
-+    # the config directly here to support not-yet-created target directories.
-+    try:
-+        from agent.skill_utils import get_config_path
-+        import yaml as _yaml
-+        cfg = _yaml.safe_load(get_config_path().read_text(encoding="utf-8")) or {}
-+        raw_dirs = cfg.get("skills", {}).get("external_dirs") or []
-+        if isinstance(raw_dirs, str):
-+            raw_dirs = [raw_dirs]
-+        local_resolved = SKILLS_DIR.resolve()
-+        for entry in raw_dirs:
-+            expanded = os.path.expanduser(os.path.expandvars(str(entry).strip()))
-+            candidate = Path(expanded).resolve()
-+            if candidate != local_resolved:
-+                base = candidate
-+                break
-+        else:
-+            base = SKILLS_DIR
-+    except Exception:
-+        base = SKILLS_DIR
-     if category:
--        return SKILLS_DIR / category / name
--    return SKILLS_DIR / name
-+        return base / category / name
-+    return base / name
- 
- 
- def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -343,10 +370,14 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
-         shutil.rmtree(skill_dir, ignore_errors=True)
-         return {"success": False, "error": scan_error}
- 
-+    try:
-+        display_path = str(skill_dir.relative_to(SKILLS_DIR))
-+    except ValueError:
-+        display_path = str(skill_dir)  # external dir — show absolute path
-     result = {
-         "success": True,
-         "message": f"Skill '{name}' created.",
--        "path": str(skill_dir.relative_to(SKILLS_DIR)),
-+        "path": display_path,
-         "skill_md": str(skill_md),
-     }
-     if category:
-@@ -497,9 +528,11 @@ def _delete_skill(name: str) -> Dict[str, Any]:
-     skill_dir = existing["path"]
-     shutil.rmtree(skill_dir)
- 
--    # Clean up empty category directories (don't remove SKILLS_DIR itself)
-+    # Clean up empty category directories (don't remove SKILLS_DIR or any external root)
-+    from agent.skill_utils import get_external_skills_dirs
-+    protected = {SKILLS_DIR.resolve()} | {p.resolve() for p in get_external_skills_dirs()}
-     parent = skill_dir.parent
--    if parent != SKILLS_DIR and parent.exists() and not any(parent.iterdir()):
-+    if parent.resolve() not in protected and parent.exists() and not any(parent.iterdir()):
-         parent.rmdir()
- 
-     return {
