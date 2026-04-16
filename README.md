@@ -147,7 +147,7 @@ hermes claw migrate
 >
 > 1. `HERMES_GATEWAY_TOKEN` 会被写成 OpenClaw 内部序列化格式 `{'source': 'env', ...}`，需替换为实际 token 值
 > 2. `GOOGLE_API_KEY=${GEMINI_API_KEY}` — dotenv 不展开变量，需替换为实际 key 值
-> 3. `BAILIAN_API_KEY=${BAILIAN_API_KEY}` — 自循环引用，需替换为实际 key 值
+> 3. `BAILIAN_API_KEY=${BAILIAN_API_KEY}` — 自循环引用，需替换为实际 key 值（注：当前配置已改用内置 `alibaba` provider，`BAILIAN_API_KEY` 不再需要，仅迁移时需注意）
 
 **飞书迁移**（迁移工具不支持，需手动配置）：
 
@@ -176,14 +176,14 @@ open -a TextEdit ~/.hermes/.env
 
 当前使用的 provider 及其环境变量：
 
-| Provider           | 环境变量                                | 说明                                                |
-| ------------------ | --------------------------------------- | --------------------------------------------------- |
-| Gemini（主模型）   | `GEMINI_API_KEY` / `GOOGLE_API_KEY`     | 两个变量需设为相同值                                |
-| Qwen（备用模型）   | `BAILIAN_API_KEY` / `DASHSCOPE_API_KEY` | 两个变量需设为相同值                                |
-| DashScope 国内端点 | `DASHSCOPE_BASE_URL`                    | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| 飞书               | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`   | 飞书开放平台获取                                    |
-| 飞书推送频道       | `FEISHU_HOME_CHANNEL`                   | cron / 通知默认投递的群或会话 ID                    |
-| Gateway 访问控制   | `GATEWAY_ALLOW_ALL_USERS=true`          | 个人 bot 必须设置，否则拒绝所有用户                 |
+| Provider           | 环境变量                              | 说明                                                |
+| ------------------ | ------------------------------------- | --------------------------------------------------- |
+| Gemini（主模型）   | `GEMINI_API_KEY` / `GOOGLE_API_KEY`   | 两个变量需设为相同值                                |
+| Qwen（备用模型）   | `DASHSCOPE_API_KEY`                   | 内置 `alibaba` provider 直接读取                    |
+| DashScope 国内端点 | `DASHSCOPE_BASE_URL`                  | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 飞书               | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书开放平台获取                                    |
+| 飞书推送频道       | `FEISHU_HOME_CHANNEL`                 | cron / 通知默认投递的群或会话 ID                    |
+| Gateway 访问控制   | `GATEWAY_ALLOW_ALL_USERS=true`        | 个人 bot 必须设置，否则拒绝所有用户                 |
 
 **API Key 加载机制（官方设计）：**
 
@@ -194,7 +194,7 @@ Hermes 有两套独立的 key 读取路径：
 
 因此，`.env` 里写了但没出现在 `config.yaml` 里的变量（如 `GOOGLE_API_KEY`），仍然对内置 provider 完全有效。
 
-> **双 key 说明**：gemini provider 按优先顺序读 `GOOGLE_API_KEY` → `GEMINI_API_KEY`，两者设为同值即可。`BAILIAN_API_KEY` 通过 `config.yaml` 的 `${BAILIAN_API_KEY}` 插值传给自定义 bailian provider；`DASHSCOPE_API_KEY` 用于 hermes doctor 健康检查，两者也应设为同值。
+> **双 key 说明**：gemini provider 按优先顺序读 `GOOGLE_API_KEY` → `GEMINI_API_KEY`，两者设为同值即可。Qwen 使用内置 `alibaba` provider，直接读取 `DASHSCOPE_API_KEY` 和 `DASHSCOPE_BASE_URL`，无需在 `config.yaml` 里写 `custom_providers`。
 
 ### config.yaml 主配置
 
@@ -209,16 +209,12 @@ model:
   default: gemini-3.1-pro-preview
 
 # 备用模型（主模型失败时自动切换）
+# 支持内置 provider：alibaba / openrouter / zai / kimi-coding 等
 fallback_model:
-  provider: bailian # 对应 custom_providers 中的名称
+  provider: alibaba # 内置 alibaba provider（DashScope），读取 DASHSCOPE_API_KEY
   model: qwen3-max
 
-# 自定义 provider（Qwen / DashScope）
-custom_providers:
-  - name: bailian
-    base_url: ${DASHSCOPE_BASE_URL}
-    api_key: ${BAILIAN_API_KEY}
-    api_mode: chat_completions
+# custom_providers: []  # 当前无自定义 provider；如需自定义 OpenAI 兼容端点可在此添加
 ```
 
 **常用配置项**：
