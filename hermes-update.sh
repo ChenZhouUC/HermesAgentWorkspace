@@ -7,7 +7,7 @@
 # Covers:
 #   1. Preflight checks
 #   2. Save & clean local patches  → patches/local-patches.diff + git checkout
-#   3. git pull + uv pip install   (via hermes update)
+#   3. pull · deps · web · skills · restart  (via hermes update)
 #   4. Skills Hub sync             (via hermes update)
 #   5. Config migration check      (via hermes update, interactive)
 #   6. Gateway process restart     (via hermes update, if already running)
@@ -162,11 +162,10 @@ fi
 cd - >/dev/null
 
 # ── 3. hermes update ──────────────────────────────────────────────────────────
-# Handles: git pull · uv pip install · skills sync · config migration prompts
-#          · gateway process restart (running launchd/systemd instances)
+# Handles: pull · deps · web · skills · config migration · restart
 # Tree is now clean (patches were reverted in step 2), so hermes update will
 # not need to stash and the pull/reset will succeed without conflicts.
-step "Updating Hermes  [git pull · deps · skills · gateway restart]"
+step "Updating Hermes  [pull · deps · web · skills · restart]"
 echo ""
 
 set +e

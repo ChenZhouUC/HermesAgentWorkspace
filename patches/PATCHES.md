@@ -113,8 +113,8 @@ cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
 | **状态**     | 🟡 未上游合并        |
 | **适用版本** | ≥ v0.9.0             |
 
-**问题**：`hermes web` 每次启动都无条件执行 `npm install + npm run build`，即使 `web/dist/` 已存在可用的构建产物，导致启动耗时数十秒。
+**问题**：`hermes web` 每次启动都无条件执行 `npm install + npm run build`，即使构建产物已存在，导致启动耗时数十秒。
 
-**修复**：在 `cmd_web()` 中检查 `web/dist/index.html` 是否存在，存在则跳过 build 直接启动；不存在时仍正常 build。`hermes update` 路径不受影响（每次 update 仍会重新 build）。
+**修复**：在 `cmd_dashboard()` 中检查 `hermes_cli/web_dist/index.html`（Vite 实际输出路径）是否存在，存在则跳过 build 直接启动；不存在时仍正常 build。`hermes update` 路径不受影响（每次 update 仍会重新 build）。
 
 ---

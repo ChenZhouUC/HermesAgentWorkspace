@@ -28,10 +28,10 @@ index 70bd9d0e..e1fc48c3 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/main.py b/hermes_cli/main.py
-index d1ee08c4..29683aaf 100644
+index d1ee08c4..d0834025 100644
 --- a/hermes_cli/main.py
 +++ b/hermes_cli/main.py
-@@ -4724,8 +4724,14 @@ def cmd_dashboard(args):
+@@ -4724,8 +4724,15 @@ def cmd_dashboard(args):
          print("Install them with:  pip install hermes-agent[web]")
          sys.exit(1)
  
@@ -40,7 +40,8 @@ index d1ee08c4..29683aaf 100644
 +    # Skip build if dist already exists (e.g. built by hermes update);
 +    # only rebuild when dist is missing or explicitly via hermes update.
 +    _web_dir = PROJECT_ROOT / "web"
-+    if not (_web_dir / "dist" / "index.html").exists():
++    _dist_index = PROJECT_ROOT / "hermes_cli" / "web_dist" / "index.html"
++    if not _dist_index.exists():
 +        if not _build_web_ui(_web_dir, fatal=True):
 +            sys.exit(1)
 +    else:
