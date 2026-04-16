@@ -51,18 +51,19 @@
 
 本仓库存储的内容：
 
-| 文件/目录                    | 说明                                           |
-| ---------------------------- | ---------------------------------------------- |
-| `config.yaml`                | 主配置：模型、工具集、gateway 超时、显示风格等 |
-| `.env.example`               | 密钥配置模板（实际 `.env` 不入库）             |
-| `completions/_hermes`        | zsh 补全脚本（#compdef 格式，通过 fpath 加载） |
-| `memories/MEMORY.md`         | Agent 的结构化记忆（短期），自动注入每次会话   |
-| `memories/USER.md`           | 用户画像（偏好、时区、语言等）                 |
-| `my-skills/`                 | 自定义 Skills（独立 git 仓库）                 |
-| `patches/local-patches.diff` | hermes-agent 本地补丁（更新时自动重新应用）    |
-| `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）       |
-| `SOUL.md`                    | Agent 人格与语气配置                           |
-| `README.md`                  | 本文档                                         |
+| 文件/目录                    | 说明                                             |
+| ---------------------------- | ------------------------------------------------ |
+| `config.yaml`                | 主配置：模型、工具集、gateway 超时、显示风格等   |
+| `.env.example`               | 密钥配置模板（实际 `.env` 不入库）               |
+| `completions/_hermes`        | zsh 补全脚本（#compdef 格式，通过 fpath 加载）   |
+| `memories/MEMORY.md`         | Agent 的结构化记忆（短期），自动注入每次会话     |
+| `memories/USER.md`           | 用户画像（偏好、时区、语言等）                   |
+| `my-skills/`                 | 自定义 Skills（独立 git 仓库）                   |
+| `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用） |
+| `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）       |
+| `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）         |
+| `SOUL.md`                    | Agent 人格与语气配置                             |
+| `README.md`                  | 本文档                                           |
 
 **不跟踪的内容**：官方源码（`hermes-agent/`）、密钥（`.env`）、数据库（`state.db`）、日志、会话、Hub Skills（`skills/`，按需重装）。
 
@@ -85,7 +86,8 @@
 ├── skills/                # Skills Hub 包（.gitignore 排除，按需重装）
 ├── my-skills/             # 自定义 Skills（独立 git 仓库，入库）
 ├── patches/               # hermes-agent 本地补丁（入库，供 hermes-update.sh 使用）
-│   └── local-patches.diff # 所有本地 patch 的 unified diff，更新时自动重新应用
+│   ├── local-patches.diff # 所有本地 patch 的 unified diff，更新时自动重新应用
+│   └── PATCHES.md         # 补丁详细记录（问题 / 根因 / 修复方案）
 ├── hermes-update.sh       # 一键更新脚本（入库）
 ├── cron/                  # Cron 任务状态（运行时，.gitignore 排除）
 ├── logs/                  # 日志（.gitignore 排除）
@@ -318,16 +320,16 @@ bash ~/.hermes/hermes-update.sh
 
 脚本依次执行以下步骤，完成后显示状态摘要和待操作提示：
 
-| 步骤 | 操作                                      | 说明                                                                                                   |
-| ---- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                               |
-| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash） |
-| 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                          |
-| 4    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 5                                   |
-| 5    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                          |
-| 6    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，清除 zcompdump 缓存                                                             |
-| 7    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用；行为化验证两个补丁是否存活；验证通过后刷新 diff 文件         |
-| 8    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                     |
+| 步骤 | 操作                                      | 说明                                                                                                                                        |
+| ---- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                    |
+| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash）                                      |
+| 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                               |
+| 4    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 5                                                                        |
+| 5    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                               |
+| 6    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-4（`_arguments` 语法修复），清除 zcompdump 缓存                                                   |
+| 7    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用；行为化验证 PATCH-1（skill 路由）、PATCH-2（doctor issue count）是否存活；验证通过后刷新 diff 文件 |
+| 8    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                                                          |
 
 > ⚠ **脚本维护提示**：若 hermes 上游大版本升级后更新流程发生变化（新增步骤、flags 变动、路径变更），需同步更新 `~/.hermes/hermes-update.sh`。脚本顶部有详细的"需关注场景"注释。
 
@@ -356,118 +358,16 @@ hermes gateway status
 
 ## 本地补丁记录
 
-> 本章集中记录所有相对上游 hermes-agent 的本地补丁，与 `patches/local-patches.diff` 一一对应。
->
-> **AI 维护规范**：
->
-> - 每次 `hermes update` 升级后，将该版本下新增的补丁条目移至对应版本节；若上游已合并某补丁，将状态改为 `✅ 已上游合并（vX.Y.Z）` 并从 `hermes-update.sh` 的 `PATCHED_FILES` 中移除对应文件。
-> - 新补丁格式：在当前版本节下复制一个 `#### [PATCH-N]` 块并填写各字段。
-> - 版本升级时在顶部新增 `### vX.Y.Z（upstream COMMIT）` 节，未变化的补丁直接迁移过来。
+本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。
 
-### 补丁管理机制
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 6 重新应用工程外补丁（PATCH-4）、Step 7 重新应用 `hermes-agent/` 内补丁并行为化验证。
 
-所有补丁以 unified diff 保存在 `patches/local-patches.diff`，由 `hermes-update.sh` 全自动管理：
-
-| 步骤                  | 操作                                                                                                                        |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **更新前（第 2 步）** | `git diff HEAD -- <patched_files>` 另存至 `local-patches.diff`，然后 `git checkout HEAD` 还原文件，使 `git pull` 无需 stash |
-| **更新后（第 7 步）** | `git apply local-patches.diff` 重新应用；行为化验证通过后刷新 diff 文件；失败给出 action 提示                               |
-
-**受管理的文件列表**（`hermes-update.sh` 中 `PATCHED_FILES`）：
-
-```bash
-PATCHED_FILES=(
-    "tools/skill_manager_tool.py"
-    "tests/tools/test_skill_manager_tool.py"
-    "hermes_cli/doctor.py"
-    "gateway/platforms/feishu.py"
-)
-```
-
-手动恢复：
+手动恢复 `hermes-agent/` 内补丁：
 
 ```bash
 cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
 # 若有冲突：git apply --reject && 手动解决 .rej，再重跑 hermes-update.sh
 ```
-
----
-
-### v0.9.0 (upstream `00ff9a26`）
-
-#### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
-
-| 字段         | 内容                                                                    |
-| ------------ | ----------------------------------------------------------------------- |
-| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py` |
-| **状态**     | 🟡 未上游合并                                                           |
-| **适用版本** | ≥ v0.9.0                                                                |
-
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。
-
-**修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配。
-
----
-
-#### [PATCH-2] hermes_cli/doctor.py — issue count 过报
-
-| 字段         | 内容                   |
-| ------------ | ---------------------- |
-| **文件**     | `hermes_cli/doctor.py` |
-| **状态**     | 🟡 未上游合并          |
-| **适用版本** | ≥ v0.9.0               |
-
-**问题**：`hermes doctor` 将所有注册但缺少 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，导致虚报 `Found 1 issue(s) to address`。
-
-**修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
-
----
-
-#### [PATCH-3] gateway/platforms/feishu.py — WS 模式审批按钮失效
-
-| 字段         | 内容                          |
-| ------------ | ----------------------------- |
-| **文件**     | `gateway/platforms/feishu.py` |
-| **状态**     | 🟡 未上游合并                 |
-| **适用版本** | lark_oapi ≤ 1.5.3             |
-
-**问题**：WebSocket 连接模式下，点击飞书审批卡片的「同意」/「拒绝」按钮，用户侧报「操作失败」，Agent 无法收到审批结果。
-
-**根因**：`lark_oapi` WS SDK（≤1.5.3）`_handle_data_frame` 对 `MessageType.CARD` 帧直接 `return`，不派发、不回传响应帧；Feishu 服务端超时后向客户端返回失败。`register_p2_card_action_trigger` 注册的回调从未被触发。
-
-**修复**：在 `_run_official_feishu_ws_client` 中 monkey-patch WS client 实例的 `_handle_data_frame`，将 CARD 帧通过 `do_without_validation` 路由（与 EVENT 帧相同路径），并将 `P2CardActionTriggerResponse` 序列化为响应帧回传。位置：`_apply_runtime_ws_overrides()` 调用之后、`ws_client.start()` 之前。
-
-#### [PATCH-4] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
-
-| 字段         | 内容                                                     |
-| ------------ | -------------------------------------------------------- |
-| **文件**     | `completions/_hermes`                                    |
-| **状态**     | 🟡 未上游合并                                            |
-| **适用版本** | 已验证 v0.9.0；上游 `hermes completion zsh` 输出同样错误 |
-
-**问题**：在任何新终端按 Tab 键补全 `hermes` 命令，提示符短暂出现 `...` 随即消失，无任何补全菜单。
-
-**根因**：`hermes completion zsh`（即上游二进制）生成的 `_arguments` 规格将互斥说明符 `(...)` 和替代语法 `{...}` 混用，这是无效语法：
-
-```zsh
-# 无效：zsh _arguments 不支持 (...){...} 组合写法
-'(-h --help){-h,--help}[Show help and exit]'
-```
-
-`_arguments` 解析时报 `invalid argument` 并立即退出，`$state` 未被设置，`case $state in` 块从未执行，函数返回零条补全。
-
-**修复**：将三处无效规格拆为独立规格：`-h/--help/-V/--version` 改用 `(- :)` 模式（出现时排除所有其他补全），`-p/--profile` 拆为两条：
-
-```zsh
-'(- :)-h[Show help and exit]'
-'(- :)--help[Show help and exit]'
-'(- :)-V[Show version and exit]'
-'(- :)--version[Show version and exit]'
-'(-p --profile)-p[Profile name]:profile:_hermes_profiles'
-'(-p --profile)--profile[Profile name]:profile:_hermes_profiles'
-```
-
-> ℹ️ **升级说明**：更新脚本（`hermes-update.sh`）已在 Step 6 自动检测并重新应用此补丁。若上游修复了该语法问题，更新脚本会自动跳过修复步骤。
 
 ---
 
@@ -604,7 +504,7 @@ skills:
 
 **调用 Skill**：会话中输入 `/skill-name` 或启动时 `hermes --skills skill-name`。
 
-> 本地补丁对 skill 相关行为有所修改，详见 [本地补丁记录](#本地补丁记录)。
+> 本地补丁对 skill 相关行为有所修改，详见 [`patches/PATCHES.md`](patches/PATCHES.md)。
 
 ### Context References（@ 语法）
 
