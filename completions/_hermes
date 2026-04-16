@@ -17,9 +17,12 @@ _hermes() {
     typeset -A opt_args
 
     _arguments -C \
-        '(-h --help){-h,--help}[Show help and exit]' \
-        '(-V --version){-V,--version}[Show version and exit]' \
-        '(-p --profile){-p,--profile}[Profile name]:profile:_hermes_profiles' \
+        '(- :)-h[Show help and exit]' \
+        '(- :)--help[Show help and exit]' \
+        '(- :)-V[Show version and exit]' \
+        '(- :)--version[Show version and exit]' \
+        '(-p --profile)-p[Profile name]:profile:_hermes_profiles' \
+        '(-p --profile)--profile[Profile name]:profile:_hermes_profiles' \
         '1:command:->commands' \
         '*::arg:->args'
 
@@ -115,6 +118,7 @@ _hermes() {
                 debug)
                     local -a debug_cmds
                     debug_cmds=(
+                    'delete:Delete a paste uploaded by hermes debug share'
                     'share:Upload debug report to a paste service and print a shareable'
                     )
                     _describe 'debug command' debug_cmds
