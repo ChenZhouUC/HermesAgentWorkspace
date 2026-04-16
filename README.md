@@ -533,6 +533,18 @@ except Exception:
     api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
 ```
 
+#### feishu.py 飞书审批按钮修复
+
+**问题**：在 WebSocket 连接模式下，点击飞书审批卡片中的"同意"/"拒绝"按钮，用户侧会出现「操作失败」错误，Agent 也无法收到审批结果继续执行。
+
+**根因**：`lark_oapi` WS SDK（≤1.5.3）的 `_handle_data_frame` 对 `MessageType.CARD` 帧直接 `return` 而不处理，导致 Feishu 服务端超时等待响应后向客户端返回失败。`register_p2_card_action_trigger` 注册的回调从未被触发。
+
+**修复**：在 `_run_official_feishu_ws_client` 中 monkey-patch WS client 实例的 `_handle_data_frame`，将 CARD 帧通过 `do_without_validation` 路由，与 EVENT 帧走同一条回调路径，并正确序列化 `P2CardActionTriggerResponse` 作为响应帧回传。
+
+**补丁文件**：`gateway/platforms/feishu.py`（`_run_official_feishu_ws_client` 函数，`_apply_runtime_ws_overrides()` 调用之后）
+
+**补丁保持策略**：同上，以 `patches/local-patches.diff` 保存并跟踪。`PATCHED_FILES` 中已加入 `gateway/platforms/feishu.py`，更新时自动保存并还原。
+
 ### Context References（@ 语法）
 
 在消息中直接引用外部内容，按需注入，不占用系统 prompt：

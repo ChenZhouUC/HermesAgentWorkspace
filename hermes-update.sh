@@ -43,6 +43,7 @@ PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
+    "gateway/platforms/feishu.py"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────

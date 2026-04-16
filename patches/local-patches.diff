@@ -1,8 +1,97 @@
+diff --git a/gateway/platforms/feishu.py b/gateway/platforms/feishu.py
+index 01b1c3a1..6ea4e51a 100644
+--- a/gateway/platforms/feishu.py
++++ b/gateway/platforms/feishu.py
+@@ -1010,6 +1010,76 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
+     if original_configure is not None:
+         setattr(ws_client, "_configure", _configure_with_overrides)
+     _apply_runtime_ws_overrides()
++
++    # Patch _handle_data_frame to support CARD messages.
++    # The upstream lark_oapi WS SDK (<=1.5.3) silently drops MessageType.CARD frames
++    # without dispatching them, so card button callbacks are never fired. We route CARD
++    # frames through the same do_without_validation path used for EVENT frames so that
++    # register_p2_card_action_trigger callbacks (e.g. approval buttons) work in WS mode.
++    _orig_handle_data_frame = ws_client._handle_data_frame  # bound method
++
++    import base64 as _b64
++    import http as _http
++    from lark_oapi.ws.enum import MessageType as _WsMsgType
++    from lark_oapi.ws.const import (
++        HEADER_TYPE as _HDR_TYPE, HEADER_MESSAGE_ID as _HDR_MSG_ID,
++        HEADER_SUM as _HDR_SUM, HEADER_SEQ as _HDR_SEQ,
++        HEADER_TRACE_ID as _HDR_TRACE_ID, HEADER_BIZ_RT as _HDR_BIZ_RT,
++    )
++    from lark_oapi.ws.model import Response as _WsResponse
++    from lark_oapi.core.json import JSON as _WsJSON
++    from lark_oapi.core.const import UTF_8 as _UTF_8
++    from lark_oapi.ws.client import _get_by_key as _ws_get_by_key
++
++    async def _handle_data_frame_with_card_support(frame: Any) -> None:
++        hs = frame.headers
++        try:
++            type_ = _ws_get_by_key(hs, _HDR_TYPE)
++            message_type = _WsMsgType(type_)
++        except Exception:
++            await _orig_handle_data_frame(frame)
++            return
++
++        if message_type != _WsMsgType.CARD:
++            await _orig_handle_data_frame(frame)
++            return
++
++        # CARD frame: process through event handler (mirrors EVENT frame handling).
++        # The upstream lark_oapi WS SDK silently drops CARD frames, so approval
++        # button callbacks never fire in WebSocket mode without this patch.
++        msg_id = _ws_get_by_key(hs, _HDR_MSG_ID)
++        trace_id = _ws_get_by_key(hs, _HDR_TRACE_ID)
++        sum_ = _ws_get_by_key(hs, _HDR_SUM)
++        seq = _ws_get_by_key(hs, _HDR_SEQ)
++
++        pl = frame.payload
++        if int(sum_) > 1:
++            pl = ws_client._combine(msg_id, int(sum_), int(seq), pl)
++            if pl is None:
++                return
++
++        resp = _WsResponse(code=_http.HTTPStatus.OK)
++        try:
++            start = int(round(time.time() * 1000))
++            result = ws_client._event_handler.do_without_validation(pl)
++            end = int(round(time.time() * 1000))
++            header = hs.add()
++            header.key = _HDR_BIZ_RT
++            header.value = str(end - start)
++            if result is not None:
++                resp.data = _b64.b64encode(_WsJSON.marshal(result).encode(_UTF_8))
++        except Exception as _card_err:
++            logger.error(
++                "[Feishu] Card action callback failed trace_id=%s err=%s",
++                trace_id, _card_err, exc_info=True,
++            )
++            resp = _WsResponse(code=_http.HTTPStatus.INTERNAL_SERVER_ERROR)
++
++        frame.payload = _WsJSON.marshal(resp).encode(_UTF_8)
++        await ws_client._write_message(frame.SerializeToString())
++
++    ws_client._handle_data_frame = _handle_data_frame_with_card_support
++
+     try:
+         ws_client.start()
+     except Exception:
+@@ -1018,6 +1088,7 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
+         ws_client_module.websockets.connect = original_connect
+         if original_configure is not None:
+             setattr(ws_client, "_configure", original_configure)
++        ws_client._handle_data_frame = _orig_handle_data_frame
+         pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+         for task in pending:
+             task.cancel()
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index b89a8040..e56498ce 100644
+index 70bd9d0e..e1fc48c3 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -907,8 +907,22 @@ def run_doctor(args):
+@@ -933,8 +933,22 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -49,10 +138,10 @@ index dd0ae17f..ccefd1ec 100644
  
  
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index a3e585a5..684dbf93 100644
+index 33d3976e..c79ad566 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -190,10 +190,37 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -202,10 +202,37 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -93,7 +182,7 @@ index a3e585a5..684dbf93 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -331,10 +358,14 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -343,10 +370,14 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
          shutil.rmtree(skill_dir, ignore_errors=True)
          return {"success": False, "error": scan_error}
  
@@ -109,7 +198,7 @@ index a3e585a5..684dbf93 100644
          "skill_md": str(skill_md),
      }
      if category:
-@@ -476,9 +507,11 @@ def _delete_skill(name: str) -> Dict[str, Any]:
+@@ -497,9 +528,11 @@ def _delete_skill(name: str) -> Dict[str, Any]:
      skill_dir = existing["path"]
      shutil.rmtree(skill_dir)
  
