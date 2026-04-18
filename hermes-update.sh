@@ -8,20 +8,21 @@
 #   1. Preflight checks
 #   2. Save & clean local patches  → patches/local-patches.diff + git checkout
 #   3. pull · deps · web · skills · restart  (via hermes update)
-#   4. Skills Hub sync             (via hermes update)
-#   5. Config migration check      (via hermes update, interactive)
-#   6. Gateway process restart     (via hermes update, if already running)
-#   7. Gateway launchd plist refresh (hermes gateway install --force)
-#   8. Ensure gateway running
-#   9. zsh completion script regeneration
-#  10. Re-apply & verify local patches
-#  11. Health verification (hermes doctor + gateway status)
+#   4. npm audit fix               (fix known npm vulnerabilities after deps install)
+#   5. Skills Hub sync             (via hermes update)
+#   6. Config migration check      (via hermes update, interactive)
+#   7. Gateway process restart     (via hermes update, if already running)
+#   8. Gateway launchd plist refresh (hermes gateway install --force)
+#   9. Ensure gateway running
+#  10. zsh completion script regeneration
+#  11. Re-apply & verify local patches
+#  12. Health verification (hermes doctor + gateway status)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
-#    - If hermes update adds/removes steps, review whether steps 7–9 are still needed
-#    - If gateway install flags change, update step 7
-#    - If venv or binary paths move, update step 9
-#    - Steps 2 + 10 manage local patches to hermes-agent source files.
+#    - If hermes update adds/removes steps, review whether steps 8–10 are still needed
+#    - If gateway install flags change, update step 8
+#    - If venv or binary paths move, update step 10
+#    - Steps 2 + 11 manage local patches to hermes-agent source files.
 #      The saved diff lives at ~/.hermes/patches/local-patches.diff and is
 #      tracked in the config repo. If a patch conflicts with upstream after an
 #      update, follow the instructions in the summary or see README.md § 本地补丁.
@@ -46,6 +47,7 @@ PATCHED_FILES=(
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
     "hermes_cli/main.py"
+    "tools/delegate_tool.py"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -146,12 +148,11 @@ if [[ ${#_CHANGED_PATCH_FILES[@]} -gt 0 ]]; then
     git checkout HEAD -- "${_CHANGED_PATCH_FILES[@]}"
     _PATCHES_REVERTED=true
     ok "Reverted patched files to HEAD (clean tree for git pull)"
-    # Warn if OTHER unrelated changes exist — hermes update will still stash those.
+    # Warn if OTHER unrelated changes exist — step 3 will auto-clean them.
     _DIRTY=$(git status --porcelain 2>/dev/null)
     if [[ -n "${_DIRTY}" ]]; then
-        warn "Other uncommitted changes remain in hermes-agent (outside patch set):"
+        note "Other uncommitted changes in hermes-agent (will be auto-stashed in step 3):"
         printf '%s\n' "${_DIRTY}" | sed 's/^/      /'
-        add_warn "hermes update will stash those unrelated changes — verify they restore correctly"
     fi
 elif [[ -f "${PATCH_FILE}" ]]; then
     note "Patches already clean — will re-apply from saved patches/local-patches.diff after update"
@@ -163,10 +164,28 @@ cd - >/dev/null
 
 # ── 3. hermes update ──────────────────────────────────────────────────────────
 # Handles: pull · deps · web · skills · config migration · restart
-# Tree is now clean (patches were reverted in step 2), so hermes update will
-# not need to stash and the pull/reset will succeed without conflicts.
+# Tree should be clean after step 2 (patches reverted). However, other
+# uncommitted changes outside PATCHED_FILES can still trigger hermes update's
+# interactive stash prompt.  To avoid this, fully clean the hermes-agent tree
+# before invoking hermes update: stash everything (including untracked),
+# pull cleanly, then pop the stash with "theirs" strategy (upstream wins for
+# any overlap — our patches are re-applied from the saved diff in step 7).
 step "Updating Hermes  [pull · deps · web · skills · restart]"
 echo ""
+
+cd "${HERMES_AGENT}"
+_EXTRA_STASH_REF=""
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+    _EXTRA_STASH_REF=$(git stash create 2>/dev/null || true)
+    if [[ -n "${_EXTRA_STASH_REF}" ]]; then
+        git stash store -m "hermes-update-extra-$(date +%Y%m%d-%H%M%S)" "${_EXTRA_STASH_REF}"
+        note "Stashed extra uncommitted changes → ${_EXTRA_STASH_REF:0:12}"
+    fi
+    git checkout -- . 2>/dev/null || true
+    git clean -fd 2>/dev/null || true
+    ok "hermes-agent tree is fully clean"
+fi
+cd - >/dev/null
 
 set +e
 hermes update
@@ -180,15 +199,55 @@ if [[ $UPDATE_RC -ne 0 ]]; then
     FINAL_RC=1
 fi
 
+# If we stashed extra changes above, silently pop them back.
+# Conflicts are expected (upstream may have changed same files); use checkout
+# --theirs to prefer upstream, since our patches are re-applied from the diff.
+if [[ -n "${_EXTRA_STASH_REF}" ]]; then
+    cd "${HERMES_AGENT}"
+    if git stash pop --quiet 2>/dev/null; then
+        ok "Restored extra changes from stash"
+    else
+        # Pop failed (conflict) — reset to clean and leave stash for manual recovery
+        git reset --hard HEAD >/dev/null 2>&1
+        note "Extra stash could not auto-merge — kept in stash for manual recovery"
+        note "  Recover with: cd ${HERMES_AGENT} && git stash list"
+    fi
+    cd - >/dev/null
+fi
+
 # Patches have been reverted; hermes update is now complete.
-# Clear the trap flag — patches will be re-applied in step 10.
+# Clear the trap flag — patches will be re-applied in step 11.
 _PATCHES_REVERTED=false
 
-# ── 4. Refresh gateway launchd plist ─────────────────────────────────────────
+# ── 4. npm audit fix ─────────────────────────────────────────────────────────
+# hermes update runs `npm install --no-audit` for node-based tools (e.g.
+# agent-browser). This can leave known npm vulnerabilities unfixed.
+# Run npm audit fix to patch them automatically.
+step "Fixing npm vulnerabilities"
+
+cd "${HERMES_AGENT}"
+set +e
+_AUDIT_OUT=$(npm audit fix --quiet 2>&1)
+_AUDIT_RC=$?
+set -e
+
+if [[ $_AUDIT_RC -eq 0 ]]; then
+    if echo "${_AUDIT_OUT}" | grep -q "changed"; then
+        ok "npm audit fix: $(echo "${_AUDIT_OUT}" | grep 'changed' | head -1)"
+    else
+        ok "npm audit: no vulnerabilities to fix"
+    fi
+else
+    warn "npm audit fix exited $_AUDIT_RC — non-critical"
+    add_act "Run manually: cd ${HERMES_AGENT} && npm audit fix"
+fi
+cd - >/dev/null
+
+# ── 5. Refresh gateway launchd plist ─────────────────────────────────────────
 # Only bootstrap the plist when the service is not already loaded. hermes update
 # handles plist installation; calling install --force on an already-bootstrapped
 # service triggers launchd exit 5 (Input/Output error). If the service is loaded
-# but not running (OnDemand=true), skip directly to step 5 (hermes gateway start).
+# but not running (OnDemand=true), skip directly to step 6 (hermes gateway start).
 step "Gateway launchd plist"
 
 set +e
@@ -217,7 +276,7 @@ else
     fi
 fi
 
-# ── 5. Ensure gateway is running ──────────────────────────────────────────────
+# ── 6. Ensure gateway is running ──────────────────────────────────────────────
 # hermes update already restarts a running gateway; this step only fires if
 # the gateway was stopped before the update (or install --force started it).
 set +e
@@ -240,7 +299,7 @@ if ! $GW_IS_RUNNING; then
     fi
 fi
 
-# ── 6. Update zsh completions ─────────────────────────────────────────────────
+# ── 7. Update zsh completions ─────────────────────────────────────────────────
 step "Updating zsh completions"
 
 COMP_FILE="${HERMES_HOME}/completions/_hermes"
@@ -299,7 +358,7 @@ else
     add_act "Run: hermes completion zsh > ~/.hermes/completions/_hermes"
 fi
 
-# ── 7. Re-apply & verify local patches ───────────────────────────────────────
+# ── 8. Re-apply & verify local patches ───────────────────────────────────────
 # Re-applies the saved diff (from step 2). Runs behavioral + structural checks
 # before accepting the result. Only refreshes the saved diff on full success,
 # so the canonical patch is never overwritten with a bad/partial merge.
@@ -308,8 +367,9 @@ step "Re-applying local patches"
 VENV_PY="${HERMES_AGENT}/venv/bin/python3"
 SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
 DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
+DELEGATE_TOOL="${HERMES_AGENT}/tools/delegate_tool.py"
 
-# -- 7a. Apply saved diff -------------------------------------------------------
+# -- 8a. Apply saved diff -------------------------------------------------------
 if [[ -f "${PATCH_FILE}" ]]; then
     cd "${HERMES_AGENT}"
     if git apply --check "${PATCH_FILE}" 2>/dev/null; then
@@ -337,9 +397,10 @@ else
     note "No saved patch file — skipping apply (fresh install or patches never saved)"
 fi
 
-# -- 7b. Behavioral verification -----------------------------------------------
+# -- 8b. Behavioral verification -----------------------------------------------
 _SKILL_PATCH_OK=false
 _DOCTOR_PATCH_OK=false
+_DELEGATE_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -375,10 +436,22 @@ else
     warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
 fi
 
-# -- 7c. Refresh saved diff only after full verification -----------------------
+if [[ -f "${DELEGATE_TOOL}" ]]; then
+    if grep -q 'override_acp_command and effective_provider' "${DELEGATE_TOOL}" 2>/dev/null; then
+        ok "Delegate ACP routing patch: active (acp_command forces copilot-acp provider)"
+        _DELEGATE_PATCH_OK=true
+    else
+        warn "Delegate ACP routing patch inactive — delegate_task acp_command will be ignored"
+        add_act "Re-apply: see PATCHES.md § [PATCH-5] delegate_tool.py ACP routing"
+    fi
+else
+    warn "Could not locate tools/delegate_tool.py — skipping delegate patch check"
+fi
+
+# -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
-# files but did not conflict. Only do this once BOTH patches are confirmed live.
-if $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK; then
+# files but did not conflict. Only do this once ALL patches are confirmed live.
+if $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK; then
     cd "${HERMES_AGENT}"
     _REFRESHED=()
     for _f in "${PATCHED_FILES[@]}"; do
@@ -393,7 +466,7 @@ if $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK; then
     cd - >/dev/null
 fi
 
-# ── 8. Verify ─────────────────────────────────────────────────────────────────
+# ── 9. Verify ─────────────────────────────────────────────────────────────────
 step "Verifying"
 echo ""
 

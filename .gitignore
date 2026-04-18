@@ -15,6 +15,7 @@ feishu_seen_message_ids.json
 channel_directory.json
 .update_check
 .tick.lock
+.hermes_history
 
 # ── 密钥缓存（含明文 API key，绝对不入库）───────────────────
 auth.json
@@ -32,6 +33,9 @@ sandboxes/
 
 # ── 官方 Skills Hub 包（171MB，按需重装）─────────────────────
 skills/
+
+# ── 自定义 Skills（独立 git 仓库）──────────────────────────────
+my-skills/
 
 # ── Migration 临时数据 ───────────────────────────────────────
 migration/

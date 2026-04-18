@@ -15,11 +15,12 @@
 
 所有针对 `hermes-agent/` 的补丁以 unified diff 保存在 `local-patches.diff`，由 `hermes-update.sh` 全自动管理：
 
-| 步骤                  | 操作                                                                                                                                   |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **更新前（第 2 步）** | `git diff HEAD -- <patched_files>` 另存至 `local-patches.diff`，然后 `git checkout HEAD` 还原文件，使 `git pull` 无需 stash            |
-| **更新后（第 6 步）** | 工程外补丁（如 `completions/_hermes`）在此步骤用 inline python 重写，自动检测是否仍需修复                                              |
-| **更新后（第 7 步）** | `git apply local-patches.diff` 重新应用；行为化验证 PATCH-1（skill 路由）、PATCH-2（doctor issue count）是否存活；通过后刷新 diff 文件 |
+| 步骤                  | 操作                                                                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **更新前（第 2 步）** | `git diff HEAD -- <patched_files>` 另存至 `local-patches.diff`，然后 `git checkout HEAD` 还原文件，使 `git pull` 无需 stash                                          |
+| **更新后（第 4 步）** | `npm audit fix` 修复 npm 依赖中的已知安全漏洞（PATCH-6）                                                                                                             |
+| **更新后（第 7 步）** | 工程外补丁（如 `completions/_hermes`）在此步骤用 inline python 重写，自动检测是否仍需修复                                                                            |
+| **更新后（第 8 步）** | `git apply local-patches.diff` 重新应用；行为化验证 PATCH-1（skill 路由）、PATCH-2（doctor issue count）、PATCH-5（delegate ACP 路由）是否存活；通过后刷新 diff 文件 |
 
 **受 `PATCHED_FILES` 管理的文件**（`hermes-update.sh`）：
 
@@ -29,6 +30,7 @@ PATCHED_FILES=(
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
     "hermes_cli/main.py"
+    "tools/delegate_tool.py"
 )
 ```
 
@@ -116,5 +118,33 @@ cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
 **问题**：`hermes web` 每次启动都无条件执行 `npm install + npm run build`，即使构建产物已存在，导致启动耗时数十秒。
 
 **修复**：在 `cmd_dashboard()` 中检查 `hermes_cli/web_dist/index.html`（Vite 实际输出路径）是否存在，存在则跳过 build 直接启动；不存在时仍正常 build。`hermes update` 路径不受影响（每次 update 仍会重新 build）。
+
+---
+
+### [PATCH-5] tools/delegate_tool.py — ACP 子进程路由缺失
+
+| 字段         | 内容                     |
+| ------------ | ------------------------ |
+| **文件**     | `tools/delegate_tool.py` |
+| **状态**     | 🟡 未上游合并            |
+| **适用版本** | ≥ v0.9.0                 |
+
+**问题**：`delegate_task(acp_command="copilot")` 传入 ACP 命令后，子 agent 的 `provider` 仍继承父 agent（如 `gemini`），未切换为 `"copilot-acp"`。`AIAgent` 构造时只在 `provider == "copilot-acp"` 时启用 ACP subprocess 通道，导致 `acp_command`/`acp_args` 被存储但从未使用，子 agent 直接走父 agent 的 API（如 Gemini），最终超时失败。
+
+**修复**：在 `_build_child_agent()` 解析 `effective_acp_command` 之后，检测 `override_acp_command` 是否被显式设置：若是，强制 `effective_provider = "copilot-acp"`、`effective_base_url = "acp://copilot"`，确保 `AIAgent.__init__` 走 `CopilotACPClient` 子进程通道。
+
+---
+
+### [PATCH-6] npm audit fix — node_modules 已知漏洞自动修复
+
+| 字段         | 内容                                              |
+| ------------ | ------------------------------------------------- |
+| **文件**     | `node_modules/`（gitignored，非 `PATCHED_FILES`） |
+| **状态**     | 🟢 自动化（`hermes-update.sh` Step 4）            |
+| **适用版本** | ≥ v0.9.0                                          |
+
+**问题**：`hermes update` 安装 npm 依赖时使用 `npm install --no-audit`，不会自动修复已知安全漏洞。例如 `basic-ftp ≤5.2.2` 存在高危 DoS 漏洞（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报告 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。
+
+**修复**：在 `hermes-update.sh` Step 4 中，于 `hermes update` 完成后自动执行 `npm audit fix --quiet`。由于 `node_modules/` 被 gitignore，此修复不通过 `PATCHED_FILES` / `local-patches.diff` 管理，而是每次更新后重新执行。
 
 ---

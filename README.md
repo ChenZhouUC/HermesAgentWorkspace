@@ -320,16 +320,17 @@ bash ~/.hermes/hermes-update.sh
 
 脚本依次执行以下步骤，完成后显示状态摘要和待操作提示：
 
-| 步骤 | 操作                                      | 说明                                                                                                                                        |
-| ---- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                    |
-| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash）                                      |
-| 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                               |
-| 4    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 5                                                                        |
-| 5    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                               |
-| 6    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-3（`_arguments` 语法修复），清除 zcompdump 缓存                                                   |
-| 7    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用；行为化验证 PATCH-1（skill 路由）、PATCH-2（doctor issue count）是否存活；验证通过后刷新 diff 文件 |
-| 8    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                                                          |
+| 步骤 | 操作                                      | 说明                                                                                                                                                                      |
+| ---- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                                                  |
+| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash）                                                                    |
+| 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                                             |
+| 4    | `npm audit fix`                           | 修复 hermes update 安装 npm 依赖后遗留的已知安全漏洞（PATCH-6）                                                                                                           |
+| 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                      |
+| 6    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                                                             |
+| 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-3（`_arguments` 语法修复），清除 zcompdump 缓存                                                                                 |
+| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用；行为化验证 PATCH-1（skill 路由）、PATCH-2（doctor issue count）、PATCH-5（delegate ACP 路由）是否存活；验证通过后刷新 diff 文件 |
+| 9    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                                                                                        |
 
 > ⚠ **脚本维护提示**：若 hermes 上游大版本升级后更新流程发生变化（新增步骤、flags 变动、路径变更），需同步更新 `~/.hermes/hermes-update.sh`。脚本顶部有详细的"需关注场景"注释。
 
@@ -360,7 +361,7 @@ hermes gateway status
 
 本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。
 
-补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 6 重新应用工程外补丁（PATCH-3）、Step 7 重新应用 `hermes-agent/` 内补丁并行为化验证。
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新应用工程外补丁（PATCH-3）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-5 delegate ACP 路由）。
 
 手动恢复 `hermes-agent/` 内补丁：
 
@@ -447,11 +448,32 @@ hermes sessions prune        # 清理旧会话
 ### 模型选择
 
 ```bash
-hermes model                 # 交互式选择默认模型
+hermes model                 # 交互式选择默认 provider 和模型（TUI 选择器）
 hermes model list            # 列出可用模型
 ```
 
-**会话内切换**：`/model gemini-3.1-pro-preview`
+**会话内切换**：
+
+| 命令                            | 说明                       |
+| ------------------------------- | -------------------------- |
+| `/model gemini-3.1-pro-preview` | 临时切换（仅当前会话）     |
+| `/model qwen3-max --global`     | 切换并持久化到 config.yaml |
+
+**通过 `hermes config set` 切换**（脚本化 / 非交互式）：
+
+```bash
+# 切换主模型
+hermes config set model.provider alibaba
+hermes config set model.default qwen3-max
+
+# 切换 fallback 模型
+hermes config set fallback_model.provider gemini
+hermes config set fallback_model.model gemini-3.1-pro-preview
+```
+
+**直接编辑配置文件**：`hermes config edit`（用 `$EDITOR` 打开 config.yaml）。
+
+> 💡 **fallback_model** 的配置说明见上方 [config.yaml 主配置](#configyaml-主配置) 节。
 
 > ⚠️ **Thinking 模型注意**：`gemini-3.1-pro-preview` 等 thinking 模型在会话内通过 `/model` 切换后，thinking 标签可能污染上下文，引发 400 级联错误（hermes v0.9.0 已知 bug）。
 
@@ -493,12 +515,12 @@ skills:
 
 当前自定义 skills：
 
-| Skill                    | 说明                                               |
-| ------------------------ | -------------------------------------------------- |
-| `feishu-docs`            | 飞书文档创建与权限管理                             |
-| `feishu-document-reader` | 通过 Bot API 读取飞书文档（绕过浏览器登录墙）      |
-| `hacker-news`            | 通过 Firebase API 抓取 HN 技术新闻（绕过 CAPTCHA） |
-| `memory-management`      | 记忆工具报错处理指南                               |
+| Skill                   | 分类                 | 说明                                                              |
+| ----------------------- | -------------------- | ----------------------------------------------------------------- |
+| `feishu-docs`           | productivity         | 飞书文档读取（Bot API 绕过登录墙）与创建（Import API + 权限管理） |
+| `hacker-news`           | feeds                | 通过 Firebase API 抓取 HN 技术新闻（绕过 CAPTCHA）                |
+| `memory-management`     | —                    | 记忆工具报错处理指南（容量超限、状态异常等）                      |
+| `agentic-demo-pipeline` | software-development | Codex + Copilot 双 Agent 自动化 Demo 开发流水线（调研→代码→文档） |
 
 新增自定义 skill：在 `~/.hermes/my-skills/` 下创建目录，写 `SKILL.md`，git commit 即生效（无需重启）。
 

@@ -127,6 +127,7 @@ _hermes() {
                     local -a gateway_cmds
                     gateway_cmds=(
                     'install:Install gateway as a systemd/launchd background service'
+                    'migrate-legacy:Remove legacy hermes.service units from pre-rename installs'
                     'restart:Restart gateway service'
                     'run:Run gateway in foreground (recommended for WSL, Docker, Term'
                     'setup:Configure messaging platforms'
@@ -143,6 +144,7 @@ _hermes() {
                     'add:Add an MCP server (discovery-first install)'
                     'configure:Toggle tool selection'
                     'list:List configured MCP servers'
+                    'login:Force re-authentication for an OAuth-based MCP server'
                     'remove:Remove an MCP server'
                     'serve:Run Hermes as an MCP server (expose conversations to other a'
                     'test:Test MCP server connection'
@@ -153,6 +155,7 @@ _hermes() {
                     local -a memory_cmds
                     memory_cmds=(
                     'off:Disable external provider (built-in only)'
+                    'reset:Erase all built-in memory (MEMORY.md and USER.md)'
                     'setup:Interactive provider selection and configuration'
                     'status:Show current memory provider config'
                     )
@@ -226,6 +229,7 @@ _hermes() {
                     'install:Install a skill'
                     'list:List installed skills'
                     'publish:Publish a skill to a registry'
+                    'reset:Reset a bundled skill — clears user-modified tracking so upd'
                     'search:Search skill registries'
                     'snapshot:Export/import skill configurations'
                     'tap:Manage skill sources'

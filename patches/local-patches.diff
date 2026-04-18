@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 70bd9d0e..e1fc48c3 100644
+index 4138aeaa..6d19b3d9 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -933,8 +933,22 @@ def run_doctor(args):
+@@ -952,8 +952,22 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -28,11 +28,11 @@ index 70bd9d0e..e1fc48c3 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/main.py b/hermes_cli/main.py
-index d1ee08c4..d0834025 100644
+index 0afadac3..e2ab7182 100644
 --- a/hermes_cli/main.py
 +++ b/hermes_cli/main.py
-@@ -4724,8 +4724,15 @@ def cmd_dashboard(args):
-         print("Install them with:  pip install hermes-agent[web]")
+@@ -6225,8 +6225,15 @@ def cmd_dashboard(args):
+         print(f"Install them with:  {sys.executable} -m pip install 'fastapi' 'uvicorn[standard]'")
          sys.exit(1)
  
 -    if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
@@ -48,7 +48,7 @@ index d1ee08c4..d0834025 100644
 +        print("  ✓ Web UI already built — skipping rebuild")
  
      from hermes_cli.web_server import start_server
-     start_server(
+ 
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
 index dd0ae17f..ccefd1ec 100644
 --- a/tests/tools/test_skill_manager_tool.py
@@ -70,6 +70,27 @@ index dd0ae17f..ccefd1ec 100644
          yield
  
  
+diff --git a/tools/delegate_tool.py b/tools/delegate_tool.py
+index 22b132f2..57e100aa 100644
+--- a/tools/delegate_tool.py
++++ b/tools/delegate_tool.py
+@@ -354,6 +354,16 @@ def _build_child_agent(
+     effective_acp_command = override_acp_command or getattr(parent_agent, "acp_command", None)
+     effective_acp_args = list(override_acp_args if override_acp_args is not None else (getattr(parent_agent, "acp_args", []) or []))
+ 
++    # When an explicit ACP command is provided (e.g. "copilot", "codex"),
++    # the child must use the ACP subprocess transport instead of inheriting
++    # the parent's direct API provider.  Force provider to "copilot-acp" so
++    # AIAgent.__init__ routes through CopilotACPClient.
++    if override_acp_command and effective_provider != "copilot-acp":
++        effective_provider = "copilot-acp"
++        effective_base_url = "acp://copilot"
++        effective_api_key = effective_api_key or "acp-placeholder"
++        effective_api_mode = None
++
+     # Resolve reasoning config: delegation override > parent inherit
+     parent_reasoning = getattr(parent_agent, "reasoning_config", None)
+     child_reasoning = parent_reasoning
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
 index 33d3976e..c79ad566 100644
 --- a/tools/skill_manager_tool.py
