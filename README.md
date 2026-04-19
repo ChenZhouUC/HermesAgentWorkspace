@@ -65,7 +65,7 @@
 | `SOUL.md`                    | Agent 人格与语气配置                             |
 | `README.md`                  | 本文档                                           |
 
-**不跟踪的内容**：官方源码（`hermes-agent/`）、密钥（`.env`）、数据库（`state.db`）、日志、会话、Hub Skills（`skills/`，按需重装）。
+**不跟踪的内容**：官方源码（`hermes-agent/`）、密钥（`.env`）、数据库（`state.db`）、日志、会话、Hub Skills（`skills/`，更新时自动镜像上游）。
 
 ---
 
@@ -83,7 +83,7 @@
 ├── memories/
 │   ├── MEMORY.md          # 结构化记忆（入库）
 │   └── USER.md            # 用户画像（入库）
-├── skills/                # Skills Hub 包（.gitignore 排除，按需重装）
+├── skills/                # Hub 官方 Skills（.gitignore 排除，更新时由 rsync 镜像上游）
 ├── my-skills/             # 自定义 Skills（独立 git 仓库，入库）
 ├── patches/               # hermes-agent 本地补丁（入库，供 hermes-update.sh 使用）
 │   ├── local-patches.diff # 所有本地 patch 的 unified diff，更新时自动重新应用
@@ -326,6 +326,7 @@ bash ~/.hermes/hermes-update.sh
 | 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash）                                                                                                                                                                   |
 | 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                                                                                                                                            |
 | 4    | `npm audit fix`                           | 修复 hermes update 安装 npm 依赖后遗留的已知安全漏洞（PATCH-6）                                                                                                                                                                                                          |
+| 4b   | Skills 镜像同步                           | `rsync --delete` 使 `skills/` 完全镜像上游 `hermes-agent/skills/`：新增 skill 自动添加、上游删除的 skill 自动清理；用户自定义 skill 存于 `my-skills/`，不受影响                                                                                                          |
 | 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                                                                                                                     |
 | 6    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                                                                                                                                                            |
 | 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-3（`_arguments` 语法修复），清除 zcompdump 缓存                                                                                                                                                                                |
@@ -493,12 +494,12 @@ Skills 是 Hermes 的知识/工具扩展模块，按需加载，不常驻 contex
 
 #### Hub 官方 Skills 更新机制
 
-每次 `hermes` 启动时自动运行 `sync_skills`，规则如下：
+官方 Skills 目录 `~/.hermes/skills/` 通过两层机制与上游保持同步：
 
-- **新 skill**：自动复制到 `~/.hermes/skills/`
-- **未修改的 skill**：检测到上游有新版本时自动更新
-- **你改过的 skill**：检测到本地 hash 变化后跳过，不覆盖
-- **你删掉的 skill**：不重新添加
+1. **运行时同步**（`hermes` 每次启动时）：自动运行 `sync_skills`，将新 skill 复制到本地、更新已变更的 skill。但此机制**只增不删**——上游移除的 skill 会作为孤儿残留在本地（显示为 `local` 而非 `builtin`）。
+2. **更新时镜像**（`hermes-update.sh` Step 4b）：使用 `rsync --delete` 将 `hermes-agent/skills/` 完整镜像到 `~/.hermes/skills/`，确保新增、更新、删除三向同步。运行后 `skills/` 与上游 100% 一致，不会遗留孤儿。
+
+自定义 skill 存放于 `~/.hermes/my-skills/`（通过 `external_dirs` 注册），不在 `skills/` 目录下，因此镜像同步**不会触及**自定义 skill。
 
 ```bash
 hermes skills list            # 列出 Skills Hub 可用的 skills

@@ -9,6 +9,7 @@
 #   2. Save & clean local patches  → patches/local-patches.diff + git checkout
 #   3. pull · deps · web · skills · restart  (via hermes update)
 #   4. npm audit fix               (fix known npm vulnerabilities after deps install)
+#   4b. Skills mirror sync          (rsync --delete to match upstream exactly)
 #   5. Skills Hub sync             (via hermes update)
 #   6. Config migration check      (via hermes update, interactive)
 #   7. Gateway process restart     (via hermes update, if already running)
@@ -258,6 +259,36 @@ else
     add_act "Run manually: cd ${HERMES_AGENT} && npm audit fix"
 fi
 cd - >/dev/null
+
+# ── 4b. Full skills sync (mirror upstream) ────────────────────────────────────
+# hermes update copies bundled skills from hermes-agent/skills/ → ~/.hermes/skills/
+# but only adds, never removes. This leaves orphans when upstream deletes a skill.
+# Use rsync --delete to make ~/.hermes/skills/ an exact mirror of upstream.
+# User-created skills live in my-skills/ (configured via external_dirs) and are
+# never touched by this step.
+BUNDLED_SKILLS_DIR="${HERMES_AGENT}/skills"
+LOCAL_SKILLS_DIR="${HERMES_HOME}/skills"
+
+step "Skills sync (mirror upstream)"
+if [[ -d "${BUNDLED_SKILLS_DIR}" ]]; then
+    mkdir -p "${LOCAL_SKILLS_DIR}"
+    # --archive preserves structure, --delete removes anything not in upstream
+    _SYNC_OUT=$(rsync -a --delete --itemize-changes \
+        "${BUNDLED_SKILLS_DIR}/" "${LOCAL_SKILLS_DIR}/" 2>&1) || true
+
+    _ADDED=$(echo "${_SYNC_OUT}" | grep -c '^>f+++' || true)
+    _UPDATED=$(echo "${_SYNC_OUT}" | grep -c '^>f[^+]' || true)
+    _DELETED=$(echo "${_SYNC_OUT}" | grep -c '^\*deleting' || true)
+
+    if [[ ${_ADDED} -gt 0 || ${_UPDATED} -gt 0 || ${_DELETED} -gt 0 ]]; then
+        ok "Skills synced: +${_ADDED} new, ~${_UPDATED} updated, -${_DELETED} removed"
+    else
+        ok "Skills already in sync with upstream"
+    fi
+else
+    warn "Bundled skills dir not found: ${BUNDLED_SKILLS_DIR}"
+    add_act "Check hermes-agent installation — skills directory missing"
+fi
 
 # ── 5. Refresh gateway launchd plist ─────────────────────────────────────────
 # Only bootstrap the plist when the service is not already loaded. hermes update

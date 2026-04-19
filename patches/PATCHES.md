@@ -36,6 +36,13 @@ Step 2: Save & Clean
 Step 3: hermes update
   └─ 在干净工作区上跑 git pull + deps + web build + restart
 
+Step 4b: Skills 镜像同步
+  └─ rsync -a --delete hermes-agent/skills/ → ~/.hermes/skills/
+      ├─ 新增 skill：自动复制到本地
+      ├─ 更新 skill：覆盖本地旧版本
+      └─ 删除 skill：清理上游已移除但本地残留的孤儿
+      （my-skills/ 为独立目录，不受此步骤影响）
+
 Step 8: Re-apply & Verify（核心）
   ├─ 8a. Apply saved diff
   │   ├─ 前置检查：patch 文件自身是否含 conflict marker → 含则跳过
