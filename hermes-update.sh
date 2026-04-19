@@ -17,6 +17,7 @@
 #   9. Ensure gateway running
 #  10. zsh completion script regeneration
 #  11. Re-apply & verify local patches
+#  11d. Gateway restart             (reload patched Python modules into running process)
 #  12. Health verification (hermes doctor + gateway status)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
@@ -566,6 +567,29 @@ if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_WEB_PATCH_OK &
         fi
     fi
     cd - >/dev/null
+fi
+
+# ── 8d. Gateway restart (post-patch) ─────────────────────────────────────────
+# hermes update (step 3) restarts the gateway BEFORE patches are re-applied.
+# The running Python process still has the pre-patch modules cached in
+# sys.modules. A restart ensures patched code (skill routing, delegate ACP
+# routing, etc.) is loaded by the gateway immediately.
+if $_PATCH_APPLY_OK; then
+    set +e
+    if gw_running; then
+        step "Restarting gateway (loading patched code)"
+        hermes gateway stop >/dev/null 2>&1
+        sleep 2
+        hermes gateway start >/dev/null 2>&1
+        sleep 3
+        if gw_running; then
+            ok "Gateway restarted — patched modules now active"
+        else
+            warn "Gateway did not come back up after restart"
+            add_act "Start gateway manually: hermes gateway start"
+        fi
+    fi
+    set -e
 fi
 
 # ── 9. Verify ─────────────────────────────────────────────────────────────────

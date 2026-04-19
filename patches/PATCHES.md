@@ -62,6 +62,12 @@ Step 8: Re-apply & Verify（核心）
       ├─ 再次 _has_conflict_markers() → 不干净则拒绝刷新
       ├─ 干净且有 diff: 原子写 local-patches.diff + 写 .local-patches.base
       └─ 干净但无 diff: 提示 "patches may have been absorbed"
+
+Step 8d: Gateway restart（post-patch）
+  └─ 前提: _PATCH_APPLY_OK == true && gateway 正在运行
+      └─ stop → sleep 2 → start → sleep 3 → 确认存活
+      （hermes update 在 step 3 重启 gateway 时补丁尚未 apply，
+       Python 进程 sys.modules 缓存旧模块，需重启才能加载补丁代码）
 ```
 
 ### 安全机制（及设计原因）
