@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 4138aeaa..6d19b3d9 100644
+index 4138aeaa..3e3bb9b7 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -952,8 +952,22 @@ def run_doctor(args):
+@@ -952,8 +952,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -14,6 +14,7 @@ index 4138aeaa..6d19b3d9 100644
 +        try:
 +            from hermes_cli.config import load_config as _load_doctor_config
 +            from hermes_cli.tools_config import _get_platform_tools, PLATFORMS
++
 +            _dc = _load_doctor_config()
 +            _enabled_ts = set()
 +            for _p in PLATFORMS:
@@ -28,24 +29,24 @@ index 4138aeaa..6d19b3d9 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/main.py b/hermes_cli/main.py
-index 0afadac3..e2ab7182 100644
+index 7e0220d9..e1b6b40f 100644
 --- a/hermes_cli/main.py
 +++ b/hermes_cli/main.py
-@@ -6225,8 +6225,15 @@ def cmd_dashboard(args):
-         print(f"Install them with:  {sys.executable} -m pip install 'fastapi' 'uvicorn[standard]'")
+@@ -6230,8 +6230,15 @@ def cmd_dashboard(args):
          sys.exit(1)
  
--    if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
--        sys.exit(1)
-+    # Skip build if dist already exists (e.g. built by hermes update);
-+    # only rebuild when dist is missing or explicitly via hermes update.
-+    _web_dir = PROJECT_ROOT / "web"
-+    _dist_index = PROJECT_ROOT / "hermes_cli" / "web_dist" / "index.html"
-+    if not _dist_index.exists():
-+        if not _build_web_ui(_web_dir, fatal=True):
-+            sys.exit(1)
-+    else:
-+        print("  ✓ Web UI already built — skipping rebuild")
+     if "HERMES_WEB_DIST" not in os.environ:
+-        if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
+-            sys.exit(1)
++        # Skip build if dist already exists (e.g. built by hermes update);
++        # only rebuild when dist is missing or explicitly via hermes update.
++        _web_dir = PROJECT_ROOT / "web"
++        _dist_index = PROJECT_ROOT / "hermes_cli" / "web_dist" / "index.html"
++        if not _dist_index.exists():
++            if not _build_web_ui(_web_dir, fatal=True):
++                sys.exit(1)
++        else:
++            print("  ✓ Web UI already built — skipping rebuild")
  
      from hermes_cli.web_server import start_server
  
@@ -71,7 +72,7 @@ index dd0ae17f..ccefd1ec 100644
  
  
 diff --git a/tools/delegate_tool.py b/tools/delegate_tool.py
-index 22b132f2..57e100aa 100644
+index 22b132f2..8ab3d439 100644
 --- a/tools/delegate_tool.py
 +++ b/tools/delegate_tool.py
 @@ -354,6 +354,16 @@ def _build_child_agent(
@@ -80,22 +81,22 @@ index 22b132f2..57e100aa 100644
  
 +    # When an explicit ACP command is provided (e.g. "copilot", "codex"),
 +    # the child must use the ACP subprocess transport instead of inheriting
-+    # the parent's direct API provider.  Force provider to "copilot-acp" so
++    # the parent's direct API provider. Force provider to "copilot-acp" so
 +    # AIAgent.__init__ routes through CopilotACPClient.
 +    if override_acp_command and effective_provider != "copilot-acp":
 +        effective_provider = "copilot-acp"
 +        effective_base_url = "acp://copilot"
-+        effective_api_key = effective_api_key or "acp-placeholder"
++        effective_api_key = "copilot-acp"
 +        effective_api_mode = None
 +
      # Resolve reasoning config: delegation override > parent inherit
      parent_reasoning = getattr(parent_agent, "reasoning_config", None)
      child_reasoning = parent_reasoning
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index 33d3976e..c79ad566 100644
+index 33d3976e..70ef0fd4 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -202,10 +202,37 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -202,10 +202,36 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -107,13 +108,12 @@ index 33d3976e..c79ad566 100644
 +    bundled skills dir. The directory need not exist yet — _create_skill will
 +    mkdir it. Falls back to SKILLS_DIR if no external dirs are configured.
 +    """
-+    import os
 +    # get_external_skills_dirs() only returns dirs that already exist, so read
 +    # the config directly here to support not-yet-created target directories.
 +    try:
 +        from agent.skill_utils import get_config_path
-+        import yaml as _yaml
-+        cfg = _yaml.safe_load(get_config_path().read_text(encoding="utf-8")) or {}
++
++        cfg = yaml.safe_load(get_config_path().read_text(encoding="utf-8")) or {}
 +        raw_dirs = cfg.get("skills", {}).get("external_dirs") or []
 +        if isinstance(raw_dirs, str):
 +            raw_dirs = [raw_dirs]
@@ -136,7 +136,7 @@ index 33d3976e..c79ad566 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -343,10 +370,14 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -343,10 +369,14 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
          shutil.rmtree(skill_dir, ignore_errors=True)
          return {"success": False, "error": scan_error}
  
@@ -152,13 +152,14 @@ index 33d3976e..c79ad566 100644
          "skill_md": str(skill_md),
      }
      if category:
-@@ -497,9 +528,11 @@ def _delete_skill(name: str) -> Dict[str, Any]:
+@@ -497,9 +527,12 @@ def _delete_skill(name: str) -> Dict[str, Any]:
      skill_dir = existing["path"]
      shutil.rmtree(skill_dir)
  
 -    # Clean up empty category directories (don't remove SKILLS_DIR itself)
 +    # Clean up empty category directories (don't remove SKILLS_DIR or any external root)
 +    from agent.skill_utils import get_external_skills_dirs
++
 +    protected = {SKILLS_DIR.resolve()} | {p.resolve() for p in get_external_skills_dirs()}
      parent = skill_dir.parent
 -    if parent != SKILLS_DIR and parent.exists() and not any(parent.iterdir()):

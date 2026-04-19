@@ -79,6 +79,21 @@ add_warn() { WARNS+=("$1"); }
 add_act() { ACTS+=("$1"); }
 FINAL_RC=0
 
+# Returns 0 if any of the given files contain git merge conflict markers.
+# Unlike `git diff --check`, this only catches actual conflict markers —
+# it ignores trailing-whitespace and indent-style issues that would
+# otherwise cause false-positive rollbacks.
+_has_conflict_markers() {
+    local _f
+    for _f in "$@"; do
+        [[ -f "$_f" ]] || continue
+        if grep -qE '^(<<<<<<<($| )|=======$|>>>>>>>($| ))' "$_f" 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Returns 0 (true) if the launchd gateway service has an active PID.
 # hermes gateway status on macOS outputs a launchd JSON blob that contains
 # "PID" = NNNN only when the process is running.
@@ -143,7 +158,8 @@ for _f in "${PATCHED_FILES[@]}"; do
 done
 
 if [[ ${#_CHANGED_PATCH_FILES[@]} -gt 0 ]]; then
-    git --no-pager diff HEAD -- "${_CHANGED_PATCH_FILES[@]}" >"${PATCH_FILE}"
+    git --no-pager diff HEAD -- "${_CHANGED_PATCH_FILES[@]}" >"${PATCH_FILE}.tmp" &&
+        mv -f "${PATCH_FILE}.tmp" "${PATCH_FILE}"
     ok "Saved ${#_CHANGED_PATCH_FILES[@]} patched file(s) → patches/local-patches.diff"
     git checkout HEAD -- "${_CHANGED_PATCH_FILES[@]}"
     _PATCHES_REVERTED=true
@@ -367,30 +383,56 @@ step "Re-applying local patches"
 VENV_PY="${HERMES_AGENT}/venv/bin/python3"
 SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
 DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
+MAIN_PY="${HERMES_AGENT}/hermes_cli/main.py"
 DELEGATE_TOOL="${HERMES_AGENT}/tools/delegate_tool.py"
+_PATCH_APPLY_OK=false
 
 # -- 8a. Apply saved diff -------------------------------------------------------
 if [[ -f "${PATCH_FILE}" ]]; then
     cd "${HERMES_AGENT}"
-    if git apply --check "${PATCH_FILE}" 2>/dev/null; then
-        git apply "${PATCH_FILE}"
-        ok "Patches applied cleanly from patches/local-patches.diff"
-    elif git apply --3way "${PATCH_FILE}" 2>/dev/null; then
-        # 3-way may silently produce conflict markers — detect them
-        _CONFLICTS=$(git diff --check 2>&1 || true)
-        if [[ -n "${_CONFLICTS}" ]]; then
-            warn "3-way apply introduced conflict markers — patches NOT fully active"
-            add_warn "Patch conflict markers present in hermes-agent source"
-            add_act "Resolve conflicts: cd ${HERMES_AGENT} && git diff --check"
-            add_act "See README.md § 本地补丁 for re-application instructions"
-        else
-            ok "Patches applied via 3-way merge (upstream changed same area)"
-        fi
+    if grep -nE '^\+?(<<<<<<<|=======|>>>>>>>)' "${PATCH_FILE}" >/dev/null 2>&1; then
+        warn "Saved patch file contains conflict markers — skipping auto-apply"
+        add_warn "patches/local-patches.diff is poisoned with merge conflict markers"
+        add_act "Repair ${PATCH_FILE} (or restore it from git) before re-running this script"
+        add_act "Restore last committed patch file: cd ${HERMES_HOME} && git restore --source=HEAD -- patches/local-patches.diff"
     else
-        warn "Patches could not be applied (upstream conflict)"
-        add_warn "Local patches were NOT applied — some customizations inactive"
-        add_act "Manual fix: cd ${HERMES_AGENT} && git apply --reject ${PATCH_FILE}"
-        add_act "See README.md § 本地补丁 for re-application instructions"
+        _PATCH_MODE=""
+        if git apply --check "${PATCH_FILE}" 2>/dev/null; then
+            if git apply "${PATCH_FILE}" 2>/dev/null; then
+                _PATCH_MODE="clean"
+            else
+                git restore --source=HEAD --staged --worktree -- "${PATCHED_FILES[@]}" 2>/dev/null || true
+                warn "Patches passed --check but apply failed unexpectedly"
+                add_warn "Local patches were NOT applied — some customizations inactive"
+                add_act "Retry manually: cd ${HERMES_AGENT} && git apply ${PATCH_FILE}"
+                add_act "See README.md § 本地补丁 for re-application instructions"
+            fi
+        elif git apply --3way "${PATCH_FILE}" 2>/dev/null; then
+            _PATCH_MODE="3-way"
+        else
+            git restore --source=HEAD --staged --worktree -- "${PATCHED_FILES[@]}" 2>/dev/null || true
+            warn "Patches could not be applied (upstream conflict)"
+            add_warn "Local patches were NOT applied — some customizations inactive"
+            add_act "Manual fix: cd ${HERMES_AGENT} && git apply --reject ${PATCH_FILE}"
+            add_act "See README.md § 本地补丁 for re-application instructions"
+        fi
+
+        if [[ -n "${_PATCH_MODE}" ]]; then
+            if _has_conflict_markers "${PATCHED_FILES[@]}"; then
+                git restore --source=HEAD --staged --worktree -- "${PATCHED_FILES[@]}" 2>/dev/null || true
+                warn "${_PATCH_MODE} apply introduced conflict markers — restored patched files to HEAD"
+                add_warn "Patch re-apply produced conflicts; patched files were restored to clean upstream state"
+                add_act "Inspect drift: cd ${HERMES_AGENT} && git apply --reject ${PATCH_FILE}"
+                add_act "See README.md § 本地补丁 for re-application instructions"
+            else
+                _PATCH_APPLY_OK=true
+                if [[ "${_PATCH_MODE}" == "clean" ]]; then
+                    ok "Patches applied cleanly from patches/local-patches.diff"
+                else
+                    ok "Patches applied via 3-way merge (upstream changed same area)"
+                fi
+            fi
+        fi
     fi
     cd - >/dev/null
 else
@@ -400,6 +442,7 @@ fi
 # -- 8b. Behavioral verification -----------------------------------------------
 _SKILL_PATCH_OK=false
 _DOCTOR_PATCH_OK=false
+_WEB_PATCH_OK=false
 _DELEGATE_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
@@ -436,6 +479,18 @@ else
     warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
 fi
 
+if [[ -f "${MAIN_PY}" ]]; then
+    if grep -q '_dist_index = PROJECT_ROOT / "hermes_cli" / "web_dist" / "index.html"' "${MAIN_PY}" 2>/dev/null; then
+        ok "Dashboard web-build patch: active (existing web_dist skips rebuild)"
+        _WEB_PATCH_OK=true
+    else
+        warn "Dashboard web-build patch inactive — dashboard will rebuild frontend on every start"
+        add_act "Re-apply: see PATCHES.md § [PATCH-4] hermes_cli/main.py web-build skip"
+    fi
+else
+    warn "Could not locate hermes_cli/main.py — skipping dashboard build check"
+fi
+
 if [[ -f "${DELEGATE_TOOL}" ]]; then
     if grep -q 'override_acp_command and effective_provider' "${DELEGATE_TOOL}" 2>/dev/null; then
         ok "Delegate ACP routing patch: active (acp_command forces copilot-acp provider)"
@@ -450,18 +505,34 @@ fi
 
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
-# files but did not conflict. Only do this once ALL patches are confirmed live.
-if $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK; then
+# files but did not conflict. Only do this once ALL patches are confirmed live
+# and the patched files are conflict-marker-free.
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_WEB_PATCH_OK && $_DELEGATE_PATCH_OK; then
     cd "${HERMES_AGENT}"
-    _REFRESHED=()
-    for _f in "${PATCHED_FILES[@]}"; do
-        if ! git --no-pager diff --quiet HEAD -- "${_f}" 2>/dev/null; then
-            _REFRESHED+=("${_f}")
+    if _has_conflict_markers "${PATCHED_FILES[@]}"; then
+        warn "Patched files contain conflict markers — skipping diff refresh"
+        add_warn "patches/local-patches.diff was NOT refreshed because patched files are not clean"
+        add_act "Inspect patched files: cd ${HERMES_AGENT} && grep -rnE '^(<{7}|={7}|>{7})' ${PATCHED_FILES[*]}"
+    else
+        _REFRESHED=()
+        for _f in "${PATCHED_FILES[@]}"; do
+            if ! git --no-pager diff --quiet HEAD -- "${_f}" 2>/dev/null; then
+                _REFRESHED+=("${_f}")
+            fi
+        done
+        if [[ ${#_REFRESHED[@]} -gt 0 ]]; then
+            git --no-pager diff HEAD -- "${_REFRESHED[@]}" >"${PATCH_FILE}.tmp" &&
+                mv -f "${PATCH_FILE}.tmp" "${PATCH_FILE}"
+            ok "patches/local-patches.diff refreshed (${#_REFRESHED[@]} file(s))"
+            # Record upstream base commit for provenance tracking
+            printf '%s %s\n' "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                >"${PATCHES_DIR}/.local-patches.base"
+        elif [[ -f "${PATCH_FILE}" ]]; then
+            # All patches are now upstream — diff is empty but file still exists.
+            note "All patched files match upstream HEAD — patches may have been absorbed"
+            note "Review PATCHED_FILES list and PATCHES.md for stale entries"
+            add_act "If patches are fully upstream, prune PATCHED_FILES in hermes-update.sh and PATCHES.md"
         fi
-    done
-    if [[ ${#_REFRESHED[@]} -gt 0 ]]; then
-        git --no-pager diff HEAD -- "${_REFRESHED[@]}" >"${PATCH_FILE}"
-        ok "patches/local-patches.diff refreshed (${#_REFRESHED[@]} file(s))"
     fi
     cd - >/dev/null
 fi

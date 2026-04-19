@@ -39,6 +39,7 @@ browser:
   command_timeout: 30
   record_sessions: false
   allow_private_urls: false
+  cdp_url: ''
   camofox:
     managed_persistence: false
 checkpoints:
@@ -111,6 +112,12 @@ auxiliary:
     api_key: ''
     timeout: 30
   flush_memories:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 30
+  title_generation:
     provider: auto
     model: ''
     base_url: ''
@@ -217,6 +224,7 @@ mattermost:
 approvals:
   mode: manual
   timeout: 60
+  cron_mode: deny
 command_allowlist: []
 quick_commands: {}
 personalities: {}
@@ -232,13 +240,15 @@ security:
     shared_files: []
 cron:
   wrap_response: true
+code_execution:
+  mode: project
 logging:
   level: INFO
   max_size_mb: 5
   backup_count: 3
 network:
   force_ipv4: false
-_config_version: 18
+_config_version: 19
 fallback_model:
   provider: alibaba
   model: qwen3-max
