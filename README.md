@@ -11,6 +11,7 @@
 - [安装](#安装)
   - [前置条件](#前置条件)
   - [全新安装](#全新安装)
+  - [可选依赖（Optional Extras）](#可选依赖optional-extras)
   - [从 OpenClaw 迁移](#从-openclaw-迁移)
 - [配置](#配置)
   - [.env 密钥文件](#env-密钥文件)
@@ -137,6 +138,80 @@ source ~/.hermes/hermes-agent/venv/bin/activate
 ```
 
 > **注意**：日常使用通过 symlink `~/.local/bin/hermes` 调用，无需每次激活 venv。
+
+### 可选依赖（Optional Extras）
+
+`hermes-agent` 的 `pyproject.toml` 定义了大量 optional extras，按需安装可以启用对应功能。**基础安装（无 extras）已包含核心对话、工具调用和 Skills 能力**，以下模块只在需要时才需安装。
+
+#### 安装方式
+
+```bash
+# 激活 venv 后，用 uv pip install 按需追加
+cd ~/.hermes/hermes-agent && source venv/bin/activate
+
+# 安装单个 extra
+uv pip install -e ".[feishu]"
+
+# 同时安装多个 extras（逗号分隔）
+uv pip install -e ".[feishu,cron,voice,mcp]"
+
+# 安装全部 extras（约 171MB+，含所有平台和工具）
+uv pip install -e ".[all]"
+```
+
+> **注意**：`uv pip install -e ".[xxx]"` 会增量安装，不影响已有依赖。如需在更新脚本中固化，可编辑 `hermes-update.sh` 的 Step 3 安装命令。
+
+#### Extras 一览
+
+| Extra             | 功能                                 | 主要依赖包                                                                          | 说明                                                         |
+| ----------------- | ------------------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **feishu**        | 飞书 IM 集成（WebSocket 长连接）     | `lark-oapi`, `qrcode`, `python-socks`                                               | **当前已安装** ✅ 。代理网络环境需 `python-socks`（PATCH-7） |
+| **cron**          | Cron 定时任务调度                    | `croniter`                                                                          | Gateway 使用，不装则 `hermes cron` 不可用                    |
+| **messaging**     | Telegram + Discord + Slack + 飞书 QR | `python-telegram-bot`, `discord.py`, `aiohttp`, `slack-bolt`, `slack-sdk`, `qrcode` | 全平台 IM 一把梭；若只用飞书可单独装 `feishu`                |
+| **slack**         | Slack 集成                           | `slack-bolt`, `slack-sdk`                                                           | `messaging` 的子集                                           |
+| **matrix**        | Matrix 协议集成                      | `mautrix[encryption]`, `Markdown`, `aiosqlite`, `asyncpg`                           | ⚠️ macOS 上 `python-olm` 构建可能失败                        |
+| **voice**         | 本地语音输入（STT）                  | `faster-whisper`, `sounddevice`, `numpy`                                            | 需要麦克风权限；包含 `ctranslate2` 等重型依赖                |
+| **tts-premium**   | 高级语音合成（ElevenLabs）           | `elevenlabs`                                                                        | 需 ElevenLabs API key；基础 TTS（Edge TTS）已在 base 中      |
+| **mcp**           | Model Context Protocol 支持          | `mcp`                                                                               | 外部工具/数据源接入标准                                      |
+| **acp**           | Agent Client Protocol                | `agent-client-protocol`                                                             | Agent 间委托通信协议                                         |
+| **cli**           | 交互式 TUI 选择器                    | `simple-term-menu`                                                                  | `hermes model` 等 TUI 选择器依赖                             |
+| **pty**           | 伪终端支持                           | `ptyprocess` (macOS/Linux) / `pywinpty` (Windows)                                   | 终端工具增强                                                 |
+| **honcho**        | Honcho 外部记忆 Provider             | `honcho-ai`                                                                         | 需配合 `hermes memory setup` 使用                            |
+| **modal**         | Modal 云端执行                       | `modal`                                                                             | 远程沙箱执行                                                 |
+| **daytona**       | Daytona 开发环境                     | `daytona`                                                                           | 远程开发环境集成                                             |
+| **mistral**       | Mistral AI Provider                  | `mistralai`                                                                         | 使用 Mistral 模型时需要                                      |
+| **bedrock**       | AWS Bedrock Provider                 | `boto3`                                                                             | 使用 AWS 托管模型时需要                                      |
+| **dingtalk**      | 钉钉 IM 集成                         | `dingtalk-stream`, `alibabacloud-dingtalk`, `qrcode`                                | 钉钉企业应用                                                 |
+| **web**           | Web Dashboard + REST API             | `fastapi`, `uvicorn[standard]`                                                      | `hermes dashboard` 命令依赖                                  |
+| **homeassistant** | Home Assistant 集成                  | `aiohttp`                                                                           | 智能家居控制                                                 |
+| **sms**           | SMS 消息支持                         | `aiohttp`                                                                           | 短信通知                                                     |
+| **dev**           | 开发/测试工具                        | `debugpy`, `pytest`, `pytest-asyncio`, `pytest-xdist`, `mcp`                        | 贡献代码或调试时使用                                         |
+| **termux**        | Android Termux 平台                  | Telegram + cron + cli + pty + mcp + honcho + acp                                    | 专为 Termux 环境裁剪，排除不兼容的 voice                     |
+| **rl**            | 强化学习实验                         | `atroposlib`, `tinker`, `fastapi`, `wandb`                                          | 研究用途                                                     |
+| **yc-bench**      | YC Bench 评测                        | `yc-bench`                                                                          | 需要 Python ≥ 3.12                                           |
+| **all**           | 全部安装                             | 上述所有（除 matrix 在非 Linux 上跳过）                                             | 最完整但最重，适合开发/测试环境                              |
+
+#### 当前环境已安装的 Extras
+
+```
+base (核心依赖) ✅
+feishu           ✅  ← 飞书 WebSocket + SOCKS 代理
+```
+
+其余 extras 均未安装。如需启用更多功能（如 `cron`、`voice`、`mcp`），按上方安装方式追加即可。
+
+#### 推荐安装组合
+
+```bash
+# 飞书用户日常推荐（已安装 feishu，追加常用模块）
+uv pip install -e ".[feishu,cron,cli,mcp,pty]"
+
+# 全平台 IM + 定时任务 + 语音
+uv pip install -e ".[messaging,cron,voice,mcp,cli,pty]"
+
+# 开发/调试
+uv pip install -e ".[dev,web]"
+```
 
 ### 从 OpenClaw 迁移
 
