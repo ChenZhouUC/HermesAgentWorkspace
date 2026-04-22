@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 2fc50321..bc4f99b0 100644
+index 064b1d68..cedcc58f 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1047,8 +1047,23 @@ def run_doctor(args):
+@@ -1048,8 +1048,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -29,10 +29,10 @@ index 2fc50321..bc4f99b0 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/main.py b/hermes_cli/main.py
-index fe2fdd37..e023cd65 100644
+index 404e5908..31075852 100644
 --- a/hermes_cli/main.py
 +++ b/hermes_cli/main.py
-@@ -6324,8 +6324,15 @@ def cmd_dashboard(args):
+@@ -6460,8 +6460,15 @@ def cmd_dashboard(args):
          sys.exit(1)
  
      if "HERMES_WEB_DIST" not in os.environ:

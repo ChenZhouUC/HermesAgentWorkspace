@@ -662,7 +662,7 @@ echo ""
 printf "  Gateway:   ${BOLD}hermes gateway status${NC}\n"
 printf "  Logs:      ${BOLD}hermes logs${NC}\n"
 printf "  Health:    ${BOLD}hermes doctor${NC}\n"
-printf "  Dashboard: ${BOLD}hermes-dashboard${NC}\n"
+printf "  Dashboard: ${BOLD}hermes dashboard${NC}\n"
 echo ""
 
 exit $FINAL_RC
