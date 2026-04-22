@@ -16,6 +16,7 @@
 - [配置](#配置)
   - [.env 密钥文件](#env-密钥文件)
   - [config.yaml 主配置](#configyaml-主配置)
+  - [Vertex Provider](#vertex-provider)
   - [飞书集成](#飞书集成)
 - [Gateway 服务](#gateway-服务)
 - [Shell 集成](#shell-集成)
@@ -56,6 +57,7 @@
 | ---------------------------- | ------------------------------------------------ |
 | `config.yaml`                | 主配置：模型、工具集、gateway 超时、显示风格等   |
 | `.env.example`               | 密钥配置模板（实际 `.env` 不入库）               |
+| `credentials/`               | 本地 service-account JSON 等凭据（不入库）       |
 | `completions/_hermes`        | zsh 补全脚本（#compdef 格式，通过 fpath 加载）   |
 | `memories/MEMORY.md`         | Agent 的结构化记忆（短期），自动注入每次会话     |
 | `memories/USER.md`           | 用户画像（偏好、时区、语言等）                   |
@@ -63,6 +65,7 @@
 | `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用） |
 | `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）       |
 | `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）         |
+| `scripts/`                   | Vertex token 刷新与 launchd 安装脚本             |
 | `SOUL.md`                    | Agent 人格与语气配置                             |
 | `README.md`                  | 本文档                                           |
 
@@ -77,8 +80,10 @@
 ├── hermes-agent/          # 官方源码 clone（独立 git repo，.gitignore 排除）
 ├── .env                   # 密钥（.gitignore 排除）
 ├── .env.example           # 密钥模板（入库）
+├── credentials/           # service-account JSON 等本地凭据（.gitignore 排除）
 ├── config.yaml            # 主配置（入库）
 ├── SOUL.md                # Agent 人格（入库）
+├── scripts/               # Vertex token 刷新 / launchd 安装脚本（入库）
 ├── completions/
 │   └── _hermes            # zsh 补全脚本（#compdef 格式，fpath 加载）
 ├── memories/
@@ -255,25 +260,25 @@ open -a TextEdit ~/.hermes/.env
 
 当前使用的 provider 及其环境变量：
 
-| Provider           | 环境变量                              | 说明                                                |
-| ------------------ | ------------------------------------- | --------------------------------------------------- |
-| Gemini（主模型）   | `GEMINI_API_KEY` / `GOOGLE_API_KEY`   | 两个变量需设为相同值                                |
-| Qwen（备用模型）   | `DASHSCOPE_API_KEY`                   | 内置 `alibaba` provider 直接读取                    |
-| DashScope 国内端点 | `DASHSCOPE_BASE_URL`                  | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| 飞书               | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书开放平台获取                                    |
-| 飞书推送频道       | `FEISHU_HOME_CHANNEL`                 | cron / 通知默认投递的群或会话 ID                    |
-| Gateway 访问控制   | `GATEWAY_ALLOW_ALL_USERS=true`        | 个人 bot 必须设置，否则拒绝所有用户                 |
+| Provider                | 环境变量                                                                            | 说明                                                |
+| ----------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Vertex Gemini（主模型） | `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_ACCESS_TOKEN` / `VERTEX_OPENAI_BASE_URL` | `VERTEX_ACCESS_TOKEN` 为短期 token，需定期刷新      |
+| Gemini（可选直连）      | `GEMINI_API_KEY` / `GOOGLE_API_KEY`                                                 | 仅在切回内置 `gemini` provider 时使用               |
+| Qwen（备用模型）        | `DASHSCOPE_API_KEY`                                                                 | 内置 `alibaba` provider 直接读取                    |
+| DashScope 国内端点      | `DASHSCOPE_BASE_URL`                                                                | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 飞书                    | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`                                               | 飞书开放平台获取                                    |
+| 飞书推送频道            | `FEISHU_HOME_CHANNEL`                                                               | cron / 通知默认投递的群或会话 ID                    |
+| Gateway 访问控制        | `GATEWAY_ALLOW_ALL_USERS=true`                                                      | 个人 bot 必须设置，否则拒绝所有用户                 |
 
-**API Key 加载机制（官方设计）：**
+**当前主模型的加载机制：**
 
-Hermes 有两套独立的 key 读取路径：
+当前配置不再直接使用 Hermes 内置 `gemini` provider，而是通过 `config.yaml` 中自定义的 `vertex-gemini` provider 指向 Vertex 的 OpenAI 兼容端点：
 
-1. **内置 Provider（gemini 等）**：Provider Registry 为每个内置 provider 定义了对应的环境变量名（`api_key_env_vars`），启动时直接从 `os.environ` 读取，**无需在 `config.yaml` 里引用**。把 key 写进 `.env` 即自动生效。
-2. **自定义 Provider（`custom_providers`）**：需要在 `config.yaml` 里显式写 `api_key`。支持 `${VAR}` 插值——Hermes 解析配置时递归展开所有 `${VAR}` 为对应的环境变量值（变量不存在时保留字面量，调用会报鉴权错误）。
+1. `api: ${VERTEX_OPENAI_BASE_URL}` 指向 Vertex 的 OpenAI 兼容入口。
+2. `key_env: VERTEX_ACCESS_TOKEN` 告诉 Hermes 从环境变量里取 Bearer token。
+3. `scripts/refresh_vertex_access_token` 负责把 service-account JSON 换成短期 token，并回写到 `~/.hermes/.env`。
 
-因此，`.env` 里写了但没出现在 `config.yaml` 里的变量（如 `GOOGLE_API_KEY`），仍然对内置 provider 完全有效。
-
-> **双 key 说明**：gemini provider 按优先顺序读 `GOOGLE_API_KEY` → `GEMINI_API_KEY`，两者设为同值即可。Qwen 使用内置 `alibaba` provider，直接读取 `DASHSCOPE_API_KEY` 和 `DASHSCOPE_BASE_URL`，无需在 `config.yaml` 里写 `custom_providers`。
+因此，Vertex 这条链路里真正被 Hermes 请求时读取的是 `VERTEX_ACCESS_TOKEN`，而不是 `GEMINI_API_KEY`。后者只在你切回 Hermes 内置 `gemini` provider 时才会生效。
 
 ### config.yaml 主配置
 
@@ -284,16 +289,21 @@ Hermes 有两套独立的 key 读取路径：
 ```yaml
 # 主模型
 model:
-  provider: gemini # 内置 provider 名称（非 google）
-  default: gemini-3.1-pro-preview
+  provider: vertex-gemini
+  default: google/gemini-3.1-pro-preview
+
+providers:
+  vertex-gemini:
+    name: Vertex Gemini
+    api: ${VERTEX_OPENAI_BASE_URL}
+    key_env: VERTEX_ACCESS_TOKEN
+    default_model: google/gemini-3.1-pro-preview
+    transport: chat_completions
 
 # 备用模型（主模型失败时自动切换）
-# 支持内置 provider：alibaba / openrouter / zai / kimi-coding 等
 fallback_model:
-  provider: alibaba # 内置 alibaba provider（DashScope），读取 DASHSCOPE_API_KEY
+  provider: alibaba
   model: qwen3-max
-
-# custom_providers: []  # 当前无自定义 provider；如需自定义 OpenAI 兼容端点可在此添加
 ```
 
 **常用配置项**：
@@ -305,6 +315,96 @@ fallback_model:
 | `agent.reasoning_effort` | low    | 推理强度（low/medium/high） |
 | `display.personality`    | kawaii | 显示风格                    |
 | `approvals.mode`         | manual | 危险命令审批（manual/auto） |
+
+### Vertex Provider
+
+当前主模型走的是 Vertex AI 的 OpenAI 兼容端点，凭据链路分成三层：
+
+1. `GOOGLE_APPLICATION_CREDENTIALS` 指向 service-account JSON。
+2. `scripts/refresh_vertex_access_token` 用 service account 换出 1 小时左右有效的 `VERTEX_ACCESS_TOKEN`，同时写入 `VERTEX_PROJECT_ID`、`VERTEX_LOCATION` 和 `VERTEX_OPENAI_BASE_URL`。
+3. Hermes 在启动请求时读取 `VERTEX_ACCESS_TOKEN`，并通过 `providers.vertex-gemini` 发到 Vertex 端点。
+
+#### 单次刷新
+
+首次配置、切换 service account、或怀疑 token 已过期时，先手动跑一次刷新：
+
+```bash
+# 默认读取 GOOGLE_APPLICATION_CREDENTIALS
+~/.hermes/scripts/refresh_vertex_access_token
+
+# 或显式指定 service-account JSON
+~/.hermes/scripts/refresh_vertex_access_token \
+  --credentials ~/.hermes/credentials/vertex-service-account.json
+```
+
+脚本会把新的 `VERTEX_ACCESS_TOKEN` 和过期时间回写到 `~/.hermes/.env`。如果当前有交互式 Hermes CLI 会话，执行 `/reload` 即可让当前进程重新读取环境变量；如果是 gateway / cron / 飞书 bot 这类后台进程，则需要重启对应进程。
+
+#### 自动刷新（launchd）
+
+macOS 下可安装一个独立的 LaunchAgent，定时执行“刷新 Vertex token -> 重启 gateway”：
+
+```bash
+~/.hermes/scripts/install_vertex_refresh_launchd
+
+# 可选：改为每 45 分钟刷新一次
+~/.hermes/scripts/install_vertex_refresh_launchd --interval-seconds 2700
+```
+
+默认行为：
+
+- Label：`ai.hermes.vertex-refresh`
+- plist：`~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist`
+- 周期：`3000` 秒（50 分钟）
+- `RunAtLoad=true`，安装后会立即跑一次
+- 日志：`~/.hermes/logs/vertex-refresh.log` 和 `~/.hermes/logs/vertex-refresh.err.log`
+
+这个 LaunchAgent 每次执行都会先刷新 `VERTEX_ACCESS_TOKEN`，然后：
+
+- 若 `ai.hermes.gateway` 已安装为 launchd 服务，则执行 `hermes gateway restart`；若 restart 失败则退回 `hermes gateway start`
+- 若 gateway 尚未安装，则只刷新 token，不会替你安装 gateway
+
+> **launchd 环境说明**：后台 LaunchAgent 不会自动继承你交互式 shell 里的环境变量。当前脚本会主动从 `~/.hermes/.env` 读取 `GOOGLE_APPLICATION_CREDENTIALS` 和 `VERTEX_LOCATION`，因此这两个值必须实际写入 `.env`，不能只存在于 `.zshrc` / `.bashrc`。
+
+常用检查命令：
+
+```bash
+launchctl print gui/$(id -u)/ai.hermes.vertex-refresh
+tail -f ~/.hermes/logs/vertex-refresh.log
+```
+
+#### 运维常用命令
+
+```bash
+# 立即手动刷新一次 token，并重启 gateway
+~/.hermes/scripts/refresh_vertex_and_restart_gateway
+
+# 通过 launchd 立刻触发一次后台任务
+launchctl kickstart -k gui/$(id -u)/ai.hermes.vertex-refresh
+
+# 查看后台任务状态
+launchctl print gui/$(id -u)/ai.hermes.vertex-refresh
+launchctl print gui/$(id -u)/ai.hermes.gateway
+
+# 卸载 Vertex 自动刷新 LaunchAgent
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist
+rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist
+```
+
+#### 与 Hermes 后台自启动的关系
+
+`hermes gateway install` 和上面的 Vertex 自动刷新是两个独立的 LaunchAgent，职责不同：
+
+- `hermes gateway install` 负责 Hermes gateway 常驻、自启动、维持飞书 WebSocket 和 cron；它不会自己去刷新 Vertex token
+- `install_vertex_refresh_launchd` 负责定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN`，并重启 gateway 让新 token 生效
+- 只做“单次刷新”时，新的 token 只会被之后新启动的 Hermes 进程读取；已经在跑的 gateway 不会自动热更新
+
+因此，推荐组合是：
+
+1. 先执行一次 `~/.hermes/scripts/refresh_vertex_access_token`
+2. 再执行 `hermes gateway install`，确保后台服务可自启动
+3. 最后执行 `~/.hermes/scripts/install_vertex_refresh_launchd`，把 token 续期和 gateway 重启自动化
+
+如果你只在前台临时跑 `hermes chat`，不依赖飞书 / cron / gateway 常驻，也可以只做“单次刷新”，不安装自动刷新 LaunchAgent。
 
 ### 飞书集成
 
@@ -325,6 +425,8 @@ fallback_model:
 ## Gateway 服务
 
 Gateway 是常驻后台服务，负责维持飞书 WebSocket 长连接和 Cron 调度。
+
+> **如果主模型使用 Vertex Provider**：`hermes gateway install` 只负责 gateway 常驻，不负责刷新 `VERTEX_ACCESS_TOKEN`。请同时参考上节的自动刷新 LaunchAgent。
 
 ```bash
 # 安装为 launchd 服务（macOS）

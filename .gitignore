@@ -3,6 +3,7 @@ hermes-agent/
 
 # ── 密钥和凭据 ──────────────────────────────────────────────
 .env
+credentials/
 db_workspace/
 
 # ── 运行时状态 ──────────────────────────────────────────────
@@ -22,6 +23,8 @@ channel_directory.json
 auth.json
 
 # ── 运行时缓存 ───────────────────────────────────────────────
+__pycache__/
+*.pyc
 models_dev_cache.json
 .skills_prompt_snapshot.json
 cache/

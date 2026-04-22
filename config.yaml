@@ -1,7 +1,13 @@
 model:
-  provider: gemini
-  default: gemini-3.1-pro-preview
-providers: {}
+  provider: vertex-gemini
+  default: google/gemini-3.1-pro-preview
+providers:
+  vertex-gemini:
+    name: Vertex Gemini
+    api: ${VERTEX_OPENAI_BASE_URL}
+    key_env: VERTEX_ACCESS_TOKEN
+    default_model: google/gemini-3.1-pro-preview
+    transport: chat_completions
 fallback_providers: []
 credential_pool_strategies: {}
 toolsets:
@@ -279,7 +285,6 @@ smart_model_routing:
 fallback_model:
   provider: alibaba
   model: qwen3-max
-custom_providers: []
 web:
   backend: tavily
 plugins:

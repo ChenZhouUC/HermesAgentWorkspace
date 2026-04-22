@@ -1,0 +1,65 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+export PATH
+export HERMES_HOME="${HERMES_HOME:-$ROOT}"
+ENV_FILE="${HERMES_HOME}/.env"
+
+timestamp() {
+    date '+%Y-%m-%d %H:%M:%S %z'
+}
+
+log() {
+    printf '[%s] %s\n' "$(timestamp)" "$*"
+}
+
+read_env_value() {
+    key="$1"
+    if [ ! -f "$ENV_FILE" ]; then
+        return 1
+    fi
+    value=$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 | sed "s/^${key}=//") || return 1
+    [ -n "$value" ] || return 1
+    printf '%s\n' "$value"
+}
+
+if [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
+    GOOGLE_APPLICATION_CREDENTIALS="$(read_env_value GOOGLE_APPLICATION_CREDENTIALS || true)"
+    export GOOGLE_APPLICATION_CREDENTIALS
+fi
+
+VERTEX_LOCATION_VALUE="${VERTEX_LOCATION:-}"
+if [ -z "$VERTEX_LOCATION_VALUE" ]; then
+    VERTEX_LOCATION_VALUE="$(read_env_value VERTEX_LOCATION || true)"
+fi
+
+refresh_args="$*"
+set -- --env-file "$ENV_FILE"
+if [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
+    set -- "$@" --credentials "$GOOGLE_APPLICATION_CREDENTIALS"
+fi
+if [ -n "$VERTEX_LOCATION_VALUE" ]; then
+    set -- "$@" --location "$VERTEX_LOCATION_VALUE"
+fi
+if [ -n "$refresh_args" ]; then
+    # shellcheck disable=SC2086
+    set -- "$@" $refresh_args
+fi
+
+log "Refreshing Vertex access token"
+"$ROOT/scripts/refresh_vertex_access_token" "$@"
+
+if launchctl list 2>/dev/null | grep -q "ai.hermes.gateway"; then
+    log "Restarting Hermes gateway"
+    if hermes gateway restart; then
+        log "Hermes gateway restarted"
+    else
+        log "Gateway restart failed, trying start"
+        hermes gateway start
+        log "Hermes gateway started"
+    fi
+else
+    log "Gateway launchd service not installed; skipped gateway restart"
+fi

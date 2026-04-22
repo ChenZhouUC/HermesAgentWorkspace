@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+LABEL="ai.hermes.vertex-refresh"
+INTERVAL_SECONDS=3000
+RUN_NOW=true
+
+usage() {
+    cat <<'EOF'
+Usage: install_vertex_refresh_launchd [--interval-seconds N] [--no-run-now]
+
+Installs a dedicated LaunchAgent that periodically refreshes the Vertex access
+token and restarts the Hermes gateway so the new token is picked up.
+
+Options:
+  --interval-seconds N  Refresh cadence in seconds (default: 3000, i.e. 50 min)
+  --no-run-now          Install and load the LaunchAgent without running it immediately
+  -h, --help            Show this help
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --interval-seconds)
+        [[ $# -ge 2 ]] || {
+            echo "Missing value for --interval-seconds" >&2
+            exit 2
+        }
+        INTERVAL_SECONDS="$2"
+        shift 2
+        ;;
+    --no-run-now)
+        RUN_NOW=false
+        shift
+        ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    *)
+        echo "Unknown argument: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+done
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "This script only supports macOS launchd." >&2
+    exit 1
+fi
+
+if ! [[ "$INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [[ "$INTERVAL_SECONDS" -lt 60 ]]; then
+    echo "--interval-seconds must be an integer >= 60" >&2
+    exit 2
+fi
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+RUNNER="${ROOT}/scripts/refresh_vertex_and_restart_gateway"
+PLIST_DIR="${HOME}/Library/LaunchAgents"
+PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
+LOG_DIR="${ROOT}/logs"
+STDOUT_PATH="${LOG_DIR}/vertex-refresh.log"
+STDERR_PATH="${LOG_DIR}/vertex-refresh.err.log"
+PATH_VALUE="${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+BOOTSTRAP_DOMAIN="gui/$(id -u)"
+RUN_AT_LOAD_TAG="true"
+
+if [[ "$RUN_NOW" != true ]]; then
+    RUN_AT_LOAD_TAG="false"
+fi
+
+if [[ ! -x "$RUNNER" ]]; then
+    echo "Runner script is missing or not executable: $RUNNER" >&2
+    exit 1
+fi
+
+mkdir -p "$PLIST_DIR" "$LOG_DIR"
+
+TMP_PLIST="$(mktemp "${PLIST_PATH}.XXXXXX")"
+cleanup() {
+    rm -f "$TMP_PLIST"
+}
+trap cleanup EXIT
+
+cat >"$TMP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${RUNNER}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${ROOT}</string>
+    <key>RunAtLoad</key>
+    <${RUN_AT_LOAD_TAG}/>
+    <key>StartInterval</key>
+    <integer>${INTERVAL_SECONDS}</integer>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HERMES_HOME</key>
+        <string>${ROOT}</string>
+        <key>PATH</key>
+        <string>${PATH_VALUE}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>${STDOUT_PATH}</string>
+    <key>StandardErrorPath</key>
+    <string>${STDERR_PATH}</string>
+</dict>
+</plist>
+EOF
+
+plutil -lint "$TMP_PLIST" >/dev/null
+mv "$TMP_PLIST" "$PLIST_PATH"
+trap - EXIT
+
+launchctl bootout "$BOOTSTRAP_DOMAIN" "$PLIST_PATH" >/dev/null 2>&1 || true
+launchctl bootstrap "$BOOTSTRAP_DOMAIN" "$PLIST_PATH"
+
+printf 'Installed LaunchAgent: %s\n' "$PLIST_PATH"
+printf 'Label: %s\n' "$LABEL"
+printf 'Refresh interval: %ss\n' "$INTERVAL_SECONDS"
+printf 'Stdout log: %s\n' "$STDOUT_PATH"
+printf 'Stderr log: %s\n' "$STDERR_PATH"
+printf '\n'
+printf 'To inspect:\n'
+printf '  launchctl print %s/%s\n' "$BOOTSTRAP_DOMAIN" "$LABEL"
+printf '  tail -f %s\n' "$STDOUT_PATH"
+printf '\n'
+printf 'To uninstall:\n'
+printf '  launchctl bootout %s %s\n' "$BOOTSTRAP_DOMAIN" "$PLIST_PATH"
+printf '  rm -f %s\n' "$PLIST_PATH"
