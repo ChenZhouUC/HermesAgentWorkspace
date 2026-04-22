@@ -43,6 +43,7 @@ _hermes() {
                 'doctor:Check configuration and dependencies'
                 'dump:Dump setup summary for support/debugging'
                 'gateway:Messaging gateway management'
+                'hooks:Inspect and manage shell-script hooks'
                 'import:Restore a Hermes backup from a zip file'
                 'insights:Show usage insights and analytics'
                 'login:Authenticate with an inference provider'
@@ -137,6 +138,16 @@ _hermes() {
                     'uninstall:Uninstall gateway service'
                     )
                     _describe 'gateway command' gateway_cmds
+                    ;;
+                hooks)
+                    local -a hooks_cmds
+                    hooks_cmds=(
+                    'doctor:Check each configured hook: exec bit, allowlist, mtime drift'
+                    'list:List configured hooks with matcher, timeout, and consent sta'
+                    'revoke:Remove a commands allowlist entries (takes effect on next re'
+                    'test:Fire every hook matching <event> against a synthetic payload'
+                    )
+                    _describe 'hooks command' hooks_cmds
                     ;;
                 mcp)
                     local -a mcp_cmds

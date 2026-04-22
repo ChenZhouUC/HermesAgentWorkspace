@@ -19,11 +19,11 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表          | 管理方式                                                                        |
-| -------------- | ------------- | ------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/2/4/5 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证            |
-| **工程外补丁** | PATCH-3       | `hermes-update.sh` Step 7 用 inline Python 就地重写，不经过 diff                |
-| **运行时补丁** | PATCH-6       | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行 |
+| 类型           | 代表            | 管理方式                                                                        |
+| -------------- | --------------- | ------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/2/4/5/7 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证            |
+| **工程外补丁** | PATCH-3         | `hermes-update.sh` Step 7 用 inline Python 就地重写，不经过 diff                |
+| **运行时补丁** | PATCH-6         | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行 |
 
 ### 更新生命周期（关键步骤）
 
@@ -55,7 +55,8 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-1: Python import + 调用 _resolve_skill_dir()，检查返回路径
   │   ├─ PATCH-2: grep _get_platform_tools in doctor.py
   │   ├─ PATCH-4: grep _dist_index 签名 in main.py
-  │   └─ PATCH-5: grep 'override_acp_command and effective_provider' in delegate_tool.py
+  │   ├─ PATCH-5: grep 'override_acp_command and effective_provider' in delegate_tool.py
+  │   └─ PATCH-7: grep 'python-socks' in pyproject.toml
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -129,6 +130,7 @@ PATCHED_FILES=(
     "hermes_cli/doctor.py"
     "hermes_cli/main.py"
     "tools/delegate_tool.py"
+    "pyproject.toml"
 )
 ```
 
@@ -250,5 +252,19 @@ cat ~/.hermes/patches/.local-patches.base
 **问题**：`hermes update` 安装 npm 依赖时使用 `npm install --no-audit`，不会自动修复已知安全漏洞。例如 `basic-ftp ≤5.2.2` 存在高危 DoS 漏洞（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报告 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。
 
 **修复**：在 `hermes-update.sh` Step 4 中，于 `hermes update` 完成后自动执行 `npm audit fix --quiet`。由于 `node_modules/` 被 gitignore，此修复不通过 `PATCHED_FILES` / `local-patches.diff` 管理，而是每次更新后重新执行。
+
+---
+
+### [PATCH-7] pyproject.toml — feishu extra 缺少 python-socks 依赖
+
+| 字段         | 内容             |
+| ------------ | ---------------- |
+| **文件**     | `pyproject.toml` |
+| **状态**     | 🟡 未上游合并    |
+| **适用版本** | ≥ v0.10.0        |
+
+**问题**：`feishu` optional extra 只声明了 `lark-oapi` 和 `qrcode`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
+
+**修复**：在 `pyproject.toml` 的 `feishu` extra 中添加 `"python-socks>=2.0,<3"`。
 
 ---

@@ -21,6 +21,8 @@ terminal:
   cwd: .
   timeout: 180
   env_passthrough: []
+  shell_init_files: []
+  auto_source_bashrc: true
   docker_image: nikolaik/python-nodejs:python3.11-nodejs20
   docker_forward_env: []
   docker_env: {}
@@ -62,11 +64,6 @@ bedrock:
     guardrail_version: ''
     stream_processing_mode: async
     trace: disabled
-smart_model_routing:
-  enabled: false
-  max_simple_chars: 160
-  max_simple_words: 28
-  cheap_model: {}
 auxiliary:
   vision:
     provider: auto
@@ -74,6 +71,7 @@ auxiliary:
     base_url: ''
     api_key: ''
     timeout: 120
+    extra_body: {}
     download_timeout: 30
   web_extract:
     provider: auto
@@ -81,48 +79,57 @@ auxiliary:
     base_url: ''
     api_key: ''
     timeout: 360
+    extra_body: {}
   compression:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 120
+    extra_body: {}
   session_search:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 30
+    extra_body: {}
+    max_concurrency: 3
   skills_hub:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 30
+    extra_body: {}
   approval:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 30
+    extra_body: {}
   mcp:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 30
+    extra_body: {}
   flush_memories:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 30
+    extra_body: {}
   title_generation:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 30
+    extra_body: {}
 display:
   compact: false
   personality: kawaii
@@ -131,9 +138,13 @@ display:
   bell_on_complete: false
   show_reasoning: true
   streaming: false
+  final_response_markdown: strip
   inline_diffs: true
   show_cost: false
   skin: default
+  user_message_preview:
+    first_lines: 2
+    last_lines: 2
   interim_assistant_messages: true
   tool_progress_command: false
   tool_progress_overrides: {}
@@ -180,6 +191,7 @@ voice:
   record_key: ctrl+b
   max_recording_seconds: 120
   auto_tts: false
+  beep_enabled: true
   silence_threshold: 200
   silence_duration: 3.0
 human_delay:
@@ -201,10 +213,16 @@ delegation:
   api_key: ''
   max_iterations: 50
   reasoning_effort: ''
+  max_concurrent_children: 3
+  max_spawn_depth: 1
+  orchestrator_enabled: true
 prefill_messages_file: ''
 skills:
   external_dirs:
   - ~/.hermes/my-skills
+  template_vars: true
+  inline_shell: false
+  inline_shell_timeout: 10
 honcho: {}
 timezone: ''
 discord:
@@ -214,6 +232,7 @@ discord:
   auto_thread: true
   reactions: true
   channel_prompts: {}
+  server_actions: ''
 whatsapp: {}
 telegram:
   channel_prompts: {}
@@ -227,6 +246,8 @@ approvals:
   cron_mode: deny
 command_allowlist: []
 quick_commands: {}
+hooks: {}
+hooks_auto_accept: false
 personalities: {}
 security:
   redact_secrets: true
@@ -240,6 +261,7 @@ security:
     shared_files: []
 cron:
   wrap_response: true
+  max_parallel_jobs: null
 code_execution:
   mode: project
 logging:
@@ -248,10 +270,17 @@ logging:
   backup_count: 3
 network:
   force_ipv4: false
-_config_version: 19
+_config_version: 22
+smart_model_routing:
+  enabled: false
+  max_simple_chars: 160
+  max_simple_words: 28
+  cheap_model: {}
 fallback_model:
   provider: alibaba
   model: qwen3-max
 custom_providers: []
 web:
   backend: tavily
+plugins:
+  enabled: []

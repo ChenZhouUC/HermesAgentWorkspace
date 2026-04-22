@@ -50,6 +50,7 @@ PATCHED_FILES=(
     "hermes_cli/doctor.py"
     "hermes_cli/main.py"
     "tools/delegate_tool.py"
+    "pyproject.toml"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -535,11 +536,26 @@ else
     warn "Could not locate tools/delegate_tool.py — skipping delegate patch check"
 fi
 
+PYPROJECT="${HERMES_AGENT}/pyproject.toml"
+_FEISHU_DEPS_PATCH_OK=false
+
+if [[ -f "${PYPROJECT}" ]]; then
+    if grep -q 'python-socks' "${PYPROJECT}" 2>/dev/null; then
+        ok "Feishu python-socks dep patch: active (proxy support in feishu extra)"
+        _FEISHU_DEPS_PATCH_OK=true
+    else
+        warn "Feishu python-socks dep patch inactive — feishu gateway may fail behind proxy"
+        add_act "Re-apply: see PATCHES.md § [PATCH-7] pyproject.toml feishu python-socks"
+    fi
+else
+    warn "Could not locate pyproject.toml — skipping feishu deps check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_WEB_PATCH_OK && $_DELEGATE_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_WEB_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
