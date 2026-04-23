@@ -6,6 +6,8 @@ PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:
 export PATH
 export HERMES_HOME="${HERMES_HOME:-$ROOT}"
 ENV_FILE="${HERMES_HOME}/.env"
+LOCK_ROOT="${HERMES_HOME}/.locks"
+LOCK_DIR="${LOCK_ROOT}/vertex-refresh.lock"
 
 timestamp() {
     date '+%Y-%m-%d %H:%M:%S %z'
@@ -13,6 +15,40 @@ timestamp() {
 
 log() {
     printf '[%s] %s\n' "$(timestamp)" "$*"
+}
+
+release_lock() {
+    rm -f "${LOCK_DIR}/pid" 2>/dev/null || true
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+
+acquire_lock() {
+    mkdir -p "$LOCK_ROOT"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+        trap release_lock EXIT INT TERM HUP
+        return 0
+    fi
+
+    holder=""
+    if [ -f "${LOCK_DIR}/pid" ]; then
+        holder="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+    fi
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+        log "Another Vertex refresh is already running (pid $holder); skipping"
+        exit 0
+    fi
+
+    rm -f "${LOCK_DIR}/pid" 2>/dev/null || true
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+        trap release_lock EXIT INT TERM HUP
+        return 0
+    fi
+
+    log "Another Vertex refresh is already running; skipping"
+    exit 0
 }
 
 read_env_value() {
@@ -29,6 +65,8 @@ if [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
     GOOGLE_APPLICATION_CREDENTIALS="$(read_env_value GOOGLE_APPLICATION_CREDENTIALS || true)"
     export GOOGLE_APPLICATION_CREDENTIALS
 fi
+
+acquire_lock
 
 VERTEX_LOCATION_VALUE="${VERTEX_LOCATION:-}"
 if [ -z "$VERTEX_LOCATION_VALUE" ]; then

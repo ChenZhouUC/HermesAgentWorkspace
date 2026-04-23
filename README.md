@@ -341,7 +341,10 @@ fallback_model:
 
 #### 自动刷新（launchd）
 
-macOS 下可安装一个独立的 LaunchAgent，定时执行“刷新 Vertex token -> 重启 gateway”：
+macOS 下可安装一组独立的 LaunchAgent：
+
+- 定时执行“刷新 Vertex token -> 重启 gateway”
+- 监听系统从休眠恢复，并在 wake 后立即补跑一次刷新
 
 ```bash
 ~/.hermes/scripts/install_vertex_refresh_launchd
@@ -352,13 +355,20 @@ macOS 下可安装一个独立的 LaunchAgent，定时执行“刷新 Vertex tok
 
 默认行为：
 
-- Label：`ai.hermes.vertex-refresh`
-- plist：`~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist`
-- 周期：`3000` 秒（50 分钟）
-- `RunAtLoad=true`，安装后会立即跑一次
-- 日志：`~/.hermes/logs/vertex-refresh.log` 和 `~/.hermes/logs/vertex-refresh.err.log`
+- 定时任务 Label：`ai.hermes.vertex-refresh`
+- 唤醒监听 Label：`ai.hermes.vertex-wake`
+- plist：
+  `~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist`
+  `~/Library/LaunchAgents/ai.hermes.vertex-wake.plist`
+- 定时周期：`3000` 秒（50 分钟）
+- `ai.hermes.vertex-refresh` 的 `RunAtLoad=true`，安装后会立即跑一次
+- 日志：
+  `~/.hermes/logs/vertex-refresh.log`
+  `~/.hermes/logs/vertex-refresh.err.log`
+  `~/.hermes/logs/vertex-wake.log`
+  `~/.hermes/logs/vertex-wake.err.log`
 
-这个 LaunchAgent 每次执行都会先刷新 `VERTEX_ACCESS_TOKEN`，然后：
+定时任务和 wake watcher 触发时，都会先刷新 `VERTEX_ACCESS_TOKEN`，然后：
 
 - 若 `ai.hermes.gateway` 已安装为 launchd 服务，则执行 `hermes gateway restart`；若 restart 失败则退回 `hermes gateway start`
 - 若 gateway 尚未安装，则只刷新 token，不会替你安装 gateway
@@ -369,7 +379,9 @@ macOS 下可安装一个独立的 LaunchAgent，定时执行“刷新 Vertex tok
 
 ```bash
 launchctl print gui/$(id -u)/ai.hermes.vertex-refresh
+launchctl print gui/$(id -u)/ai.hermes.vertex-wake
 tail -f ~/.hermes/logs/vertex-refresh.log
+tail -f ~/.hermes/logs/vertex-wake.log
 ```
 
 #### 运维常用命令
@@ -383,11 +395,14 @@ launchctl kickstart -k gui/$(id -u)/ai.hermes.vertex-refresh
 
 # 查看后台任务状态
 launchctl print gui/$(id -u)/ai.hermes.vertex-refresh
+launchctl print gui/$(id -u)/ai.hermes.vertex-wake
 launchctl print gui/$(id -u)/ai.hermes.gateway
 
 # 卸载 Vertex 自动刷新 LaunchAgent
 launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist
-rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.hermes.vertex-wake.plist
+rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist \
+      ~/Library/LaunchAgents/ai.hermes.vertex-wake.plist
 ```
 
 #### 与 Hermes 后台自启动的关系
@@ -395,7 +410,7 @@ rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist
 `hermes gateway install` 和上面的 Vertex 自动刷新是两个独立的 LaunchAgent，职责不同：
 
 - `hermes gateway install` 负责 Hermes gateway 常驻、自启动、维持飞书 WebSocket 和 cron；它不会自己去刷新 Vertex token
-- `install_vertex_refresh_launchd` 负责定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN`，并重启 gateway 让新 token 生效
+- `install_vertex_refresh_launchd` 负责定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN`，并在系统 wake 后补跑一次刷新，再重启 gateway 让新 token 生效
 - 只做“单次刷新”时，新的 token 只会被之后新启动的 Hermes 进程读取；已经在跑的 gateway 不会自动热更新
 
 因此，推荐组合是：

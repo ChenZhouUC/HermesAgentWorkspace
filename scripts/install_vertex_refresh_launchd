@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LABEL="ai.hermes.vertex-refresh"
+INTERVAL_LABEL="ai.hermes.vertex-refresh"
+WAKE_LABEL="ai.hermes.vertex-wake"
 INTERVAL_SECONDS=3000
 RUN_NOW=true
 
@@ -9,12 +10,15 @@ usage() {
     cat <<'EOF'
 Usage: install_vertex_refresh_launchd [--interval-seconds N] [--no-run-now]
 
-Installs a dedicated LaunchAgent that periodically refreshes the Vertex access
-token and restarts the Hermes gateway so the new token is picked up.
+Installs two dedicated LaunchAgents:
+  1. A periodic refresh agent that refreshes the Vertex access token and
+     restarts the Hermes gateway.
+  2. A wake watcher that triggers the same refresh flow once when macOS
+     resumes from sleep.
 
 Options:
   --interval-seconds N  Refresh cadence in seconds (default: 3000, i.e. 50 min)
-  --no-run-now          Install and load the LaunchAgent without running it immediately
+  --no-run-now          Install and load the periodic LaunchAgent without running it immediately
   -h, --help            Show this help
 EOF
 }
@@ -56,48 +60,57 @@ if ! [[ "$INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [[ "$INTERVAL_SECONDS" -lt 60 ]]; 
 fi
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-RUNNER="${ROOT}/scripts/refresh_vertex_and_restart_gateway"
+INTERVAL_RUNNER="${ROOT}/scripts/refresh_vertex_and_restart_gateway"
+WAKE_RUNNER="${ROOT}/scripts/vertex_wake_watcher.swift"
 PLIST_DIR="${HOME}/Library/LaunchAgents"
-PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
+INTERVAL_PLIST_PATH="${PLIST_DIR}/${INTERVAL_LABEL}.plist"
+WAKE_PLIST_PATH="${PLIST_DIR}/${WAKE_LABEL}.plist"
 LOG_DIR="${ROOT}/logs"
-STDOUT_PATH="${LOG_DIR}/vertex-refresh.log"
-STDERR_PATH="${LOG_DIR}/vertex-refresh.err.log"
+INTERVAL_STDOUT_PATH="${LOG_DIR}/vertex-refresh.log"
+INTERVAL_STDERR_PATH="${LOG_DIR}/vertex-refresh.err.log"
+WAKE_STDOUT_PATH="${LOG_DIR}/vertex-wake.log"
+WAKE_STDERR_PATH="${LOG_DIR}/vertex-wake.err.log"
 PATH_VALUE="${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 BOOTSTRAP_DOMAIN="gui/$(id -u)"
-RUN_AT_LOAD_TAG="true"
+INTERVAL_RUN_AT_LOAD_TAG="true"
 
 if [[ "$RUN_NOW" != true ]]; then
-    RUN_AT_LOAD_TAG="false"
+    INTERVAL_RUN_AT_LOAD_TAG="false"
 fi
 
-if [[ ! -x "$RUNNER" ]]; then
-    echo "Runner script is missing or not executable: $RUNNER" >&2
+if [[ ! -x "$INTERVAL_RUNNER" ]]; then
+    echo "Interval runner is missing or not executable: $INTERVAL_RUNNER" >&2
+    exit 1
+fi
+if [[ ! -x "$WAKE_RUNNER" ]]; then
+    echo "Wake runner is missing or not executable: $WAKE_RUNNER" >&2
     exit 1
 fi
 
 mkdir -p "$PLIST_DIR" "$LOG_DIR"
 
-TMP_PLIST="$(mktemp "${PLIST_PATH}.XXXXXX")"
+TMP_INTERVAL_PLIST="$(mktemp "${INTERVAL_PLIST_PATH}.XXXXXX")"
+TMP_WAKE_PLIST="$(mktemp "${WAKE_PLIST_PATH}.XXXXXX")"
 cleanup() {
-    rm -f "$TMP_PLIST"
+    rm -f "$TMP_INTERVAL_PLIST" "$TMP_WAKE_PLIST"
 }
 trap cleanup EXIT
 
-cat >"$TMP_PLIST" <<EOF
+cat >"$TMP_INTERVAL_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>${LABEL}</string>
+    <string>${INTERVAL_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${RUNNER}</string>
+        <string>${INTERVAL_RUNNER}</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${ROOT}</string>
     <key>RunAtLoad</key>
-    <${RUN_AT_LOAD_TAG}/>
+    <${INTERVAL_RUN_AT_LOAD_TAG}/>
     <key>StartInterval</key>
     <integer>${INTERVAL_SECONDS}</integer>
     <key>EnvironmentVariables</key>
@@ -108,30 +121,78 @@ cat >"$TMP_PLIST" <<EOF
         <string>${PATH_VALUE}</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>${STDOUT_PATH}</string>
+    <string>${INTERVAL_STDOUT_PATH}</string>
     <key>StandardErrorPath</key>
-    <string>${STDERR_PATH}</string>
+    <string>${INTERVAL_STDERR_PATH}</string>
 </dict>
 </plist>
 EOF
 
-plutil -lint "$TMP_PLIST" >/dev/null
-mv "$TMP_PLIST" "$PLIST_PATH"
+cat >"$TMP_WAKE_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${WAKE_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${WAKE_RUNNER}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${ROOT}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HERMES_HOME</key>
+        <string>${ROOT}</string>
+        <key>PATH</key>
+        <string>${PATH_VALUE}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>${WAKE_STDOUT_PATH}</string>
+    <key>StandardErrorPath</key>
+    <string>${WAKE_STDERR_PATH}</string>
+</dict>
+</plist>
+EOF
+
+plutil -lint "$TMP_INTERVAL_PLIST" >/dev/null
+plutil -lint "$TMP_WAKE_PLIST" >/dev/null
+mv "$TMP_INTERVAL_PLIST" "$INTERVAL_PLIST_PATH"
+mv "$TMP_WAKE_PLIST" "$WAKE_PLIST_PATH"
 trap - EXIT
 
-launchctl bootout "$BOOTSTRAP_DOMAIN" "$PLIST_PATH" >/dev/null 2>&1 || true
-launchctl bootstrap "$BOOTSTRAP_DOMAIN" "$PLIST_PATH"
+launchctl bootout "$BOOTSTRAP_DOMAIN" "$INTERVAL_PLIST_PATH" >/dev/null 2>&1 || true
+launchctl bootout "$BOOTSTRAP_DOMAIN" "$WAKE_PLIST_PATH" >/dev/null 2>&1 || true
+launchctl bootstrap "$BOOTSTRAP_DOMAIN" "$INTERVAL_PLIST_PATH"
+launchctl bootstrap "$BOOTSTRAP_DOMAIN" "$WAKE_PLIST_PATH"
 
-printf 'Installed LaunchAgent: %s\n' "$PLIST_PATH"
-printf 'Label: %s\n' "$LABEL"
-printf 'Refresh interval: %ss\n' "$INTERVAL_SECONDS"
-printf 'Stdout log: %s\n' "$STDOUT_PATH"
-printf 'Stderr log: %s\n' "$STDERR_PATH"
+printf 'Installed LaunchAgents:\n'
+printf '  %s\n' "$INTERVAL_PLIST_PATH"
+printf '  %s\n' "$WAKE_PLIST_PATH"
+printf '\n'
+printf 'Periodic refresh:\n'
+printf '  Label: %s\n' "$INTERVAL_LABEL"
+printf '  Interval: %ss\n' "$INTERVAL_SECONDS"
+printf '  Stdout: %s\n' "$INTERVAL_STDOUT_PATH"
+printf '  Stderr: %s\n' "$INTERVAL_STDERR_PATH"
+printf '\n'
+printf 'Wake watcher:\n'
+printf '  Label: %s\n' "$WAKE_LABEL"
+printf '  Stdout: %s\n' "$WAKE_STDOUT_PATH"
+printf '  Stderr: %s\n' "$WAKE_STDERR_PATH"
 printf '\n'
 printf 'To inspect:\n'
-printf '  launchctl print %s/%s\n' "$BOOTSTRAP_DOMAIN" "$LABEL"
-printf '  tail -f %s\n' "$STDOUT_PATH"
+printf '  launchctl print %s/%s\n' "$BOOTSTRAP_DOMAIN" "$INTERVAL_LABEL"
+printf '  launchctl print %s/%s\n' "$BOOTSTRAP_DOMAIN" "$WAKE_LABEL"
+printf '  tail -f %s\n' "$INTERVAL_STDOUT_PATH"
+printf '  tail -f %s\n' "$WAKE_STDOUT_PATH"
 printf '\n'
 printf 'To uninstall:\n'
-printf '  launchctl bootout %s %s\n' "$BOOTSTRAP_DOMAIN" "$PLIST_PATH"
-printf '  rm -f %s\n' "$PLIST_PATH"
+printf '  launchctl bootout %s %s\n' "$BOOTSTRAP_DOMAIN" "$INTERVAL_PLIST_PATH"
+printf '  launchctl bootout %s %s\n' "$BOOTSTRAP_DOMAIN" "$WAKE_PLIST_PATH"
+printf '  rm -f %s %s\n' "$INTERVAL_PLIST_PATH" "$WAKE_PLIST_PATH"
