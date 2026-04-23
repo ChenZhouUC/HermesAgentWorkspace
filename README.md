@@ -413,6 +413,17 @@ rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist \
 - `install_vertex_refresh_launchd` 负责定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN`，并在系统 wake 后补跑一次刷新，再重启 gateway 让新 token 生效
 - 只做“单次刷新”时，新的 token 只会被之后新启动的 Hermes 进程读取；已经在跑的 gateway 不会自动热更新
 
+这些进程在 launchd 层面是**相互独立的兄弟服务**，不是长期父子关系：
+
+```text
+launchd
+├─ ai.hermes.gateway        # Hermes gateway 常驻
+├─ ai.hermes.vertex-wake    # 监听系统 wake 的常驻 watcher
+└─ ai.hermes.vertex-refresh # 定时任务；触发一次就退出，平时显示 not running
+```
+
+只有在 **wake 事件发生的瞬间**，`ai.hermes.vertex-wake` 会临时拉起 `refresh_vertex_and_restart_gateway`，形成一次短暂的父子链；但 `gateway` 本身仍由 launchd 独立管理，重启后也不会挂在 watcher 下面长期存活。
+
 因此，推荐组合是：
 
 1. 先执行一次 `~/.hermes/scripts/refresh_vertex_access_token`
