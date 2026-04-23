@@ -326,16 +326,18 @@ fallback_model:
 
 #### 单次刷新
 
-首次配置、切换 service account、或怀疑 token 已过期时，先手动跑一次刷新：
+首次配置、切换 service account、或怀疑 token 已过期时，手动跑一次刷新：
 
 ```bash
-# 默认读取 GOOGLE_APPLICATION_CREDENTIALS
-~/.hermes/scripts/refresh_vertex_access_token
+# 推荐：使用 wrapper 脚本（自动从 .env 读取凭据，刷新后重启 gateway）
+~/.hermes/scripts/refresh_vertex_and_restart_gateway
 
-# 或显式指定 service-account JSON
+# 仅刷新 token 不重启 gateway（需要 shell 中有 GOOGLE_APPLICATION_CREDENTIALS）
 ~/.hermes/scripts/refresh_vertex_access_token \
-  --credentials ~/.hermes/credentials/vertex-service-account.json
+  --credentials ~/.hermes/credentials/wh-gemini-1-service-account.json
 ```
+
+> **注意**：`refresh_vertex_access_token`（Python 脚本）不会自动读取 `.env`，需要显式传 `--credentials` 或在 shell 中 `export GOOGLE_APPLICATION_CREDENTIALS=...`。日常使用推荐直接调 wrapper 脚本 `refresh_vertex_and_restart_gateway`，它会从 `.env` 提取凭据路径。
 
 脚本会把新的 `VERTEX_ACCESS_TOKEN` 和过期时间回写到 `~/.hermes/.env`。如果当前有交互式 Hermes CLI 会话，执行 `/reload` 即可让当前进程重新读取环境变量；如果是 gateway / cron / 飞书 bot 这类后台进程，则需要重启对应进程。
 
@@ -368,7 +370,7 @@ macOS 下可安装一组独立的 LaunchAgent：
   `~/.hermes/logs/vertex-wake.log`
   `~/.hermes/logs/vertex-wake.err.log`
 
-定时任务和 wake watcher 触发时，都会先刷新 `VERTEX_ACCESS_TOKEN`，然后：
+定时任务和 wake watcher 触发时，都会先刷新 `VERTEX_ACCESS_TOKEN`（失败时自动重试最多 3 次，间隔 60 秒；3 次均失败会弹出 macOS 系统通知），然后：
 
 - 若 `ai.hermes.gateway` 已安装为 launchd 服务，则执行 `hermes gateway restart`；若 restart 失败则退回 `hermes gateway start`
 - 若 gateway 尚未安装，则只刷新 token，不会替你安装 gateway
@@ -426,7 +428,7 @@ launchd
 
 因此，推荐组合是：
 
-1. 先执行一次 `~/.hermes/scripts/refresh_vertex_access_token`
+1. 先执行一次 `~/.hermes/scripts/refresh_vertex_and_restart_gateway`
 2. 再执行 `hermes gateway install`，确保后台服务可自启动
 3. 最后执行 `~/.hermes/scripts/install_vertex_refresh_launchd`，把 token 续期和 gateway 重启自动化
 
@@ -1221,7 +1223,7 @@ hermes skills list   # 首次运行会初始化 Skills Hub 目录
 ```bash
 hermes logs
 tail -f ~/.hermes/logs/gateway.log
-tail -f ~/.hermes/logs/hermes.log
+tail -f ~/.hermes/logs/agent.log
 ```
 
 ### 备份与恢复
@@ -1239,6 +1241,7 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 ## 版本记录
 
-| 版本               | 日期       | 说明                       |
-| ------------------ | ---------- | -------------------------- |
-| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移 |
+| 版本               | 日期       | 说明                                                 |
+| ------------------ | ---------- | ---------------------------------------------------- |
+| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能 |
+| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                           |
