@@ -29,10 +29,10 @@ index 064b1d68..cedcc58f 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/main.py b/hermes_cli/main.py
-index 404e5908..31075852 100644
+index ec0441f8..3b0fb30f 100644
 --- a/hermes_cli/main.py
 +++ b/hermes_cli/main.py
-@@ -6460,8 +6460,15 @@ def cmd_dashboard(args):
+@@ -6476,8 +6476,15 @@ def cmd_dashboard(args):
          sys.exit(1)
  
      if "HERMES_WEB_DIST" not in os.environ:
@@ -51,7 +51,7 @@ index 404e5908..31075852 100644
      from hermes_cli.web_server import start_server
  
 diff --git a/pyproject.toml b/pyproject.toml
-index bd836736..440c4dba 100644
+index b4dc6ed3..405e01e2 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -77,7 +77,7 @@ termux = [
@@ -84,27 +84,6 @@ index dd0ae17f..ccefd1ec 100644
          yield
  
  
-diff --git a/tools/delegate_tool.py b/tools/delegate_tool.py
-index 8bac6eba..7c4fdbb1 100644
---- a/tools/delegate_tool.py
-+++ b/tools/delegate_tool.py
-@@ -604,6 +604,16 @@ def _build_child_agent(
-     effective_acp_command = override_acp_command or getattr(parent_agent, "acp_command", None)
-     effective_acp_args = list(override_acp_args if override_acp_args is not None else (getattr(parent_agent, "acp_args", []) or []))
- 
-+    # When an explicit ACP command is provided (e.g. "copilot", "codex"),
-+    # the child must use the ACP subprocess transport instead of inheriting
-+    # the parent's direct API provider. Force provider to "copilot-acp" so
-+    # AIAgent.__init__ routes through CopilotACPClient.
-+    if override_acp_command and effective_provider != "copilot-acp":
-+        effective_provider = "copilot-acp"
-+        effective_base_url = "acp://copilot"
-+        effective_api_key = "copilot-acp"
-+        effective_api_mode = None
-+
-     # Resolve reasoning config: delegation override > parent inherit
-     parent_reasoning = getattr(parent_agent, "reasoning_config", None)
-     child_reasoning = parent_reasoning
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
 index 493b434c..ca8d8b24 100644
 --- a/tools/skill_manager_tool.py

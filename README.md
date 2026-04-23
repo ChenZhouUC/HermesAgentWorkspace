@@ -260,21 +260,21 @@ open -a TextEdit ~/.hermes/.env
 
 当前使用的 provider 及其环境变量：
 
-| Provider                | 环境变量                                                                            | 说明                                                |
-| ----------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Vertex Gemini（主模型） | `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_ACCESS_TOKEN` / `VERTEX_OPENAI_BASE_URL` | `VERTEX_ACCESS_TOKEN` 为短期 token，需定期刷新      |
-| Gemini（可选直连）      | `GEMINI_API_KEY` / `GOOGLE_API_KEY`                                                 | 仅在切回内置 `gemini` provider 时使用               |
-| Qwen（备用模型）        | `DASHSCOPE_API_KEY`                                                                 | 内置 `alibaba` provider 直接读取                    |
-| DashScope 国内端点      | `DASHSCOPE_BASE_URL`                                                                | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| 飞书                    | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`                                               | 飞书开放平台获取                                    |
-| 飞书推送频道            | `FEISHU_HOME_CHANNEL`                                                               | cron / 通知默认投递的群或会话 ID                    |
-| Gateway 访问控制        | `GATEWAY_ALLOW_ALL_USERS=true`                                                      | 个人 bot 必须设置，否则拒绝所有用户                 |
+| Provider                | 环境变量                                                 | 说明                                                |
+| ----------------------- | -------------------------------------------------------- | --------------------------------------------------- |
+| Vertex Gemini（主模型） | `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_ACCESS_TOKEN` | `VERTEX_ACCESS_TOKEN` 为短期 token，由脚本定期刷新  |
+| Gemini（可选直连）      | `GEMINI_API_KEY` / `GOOGLE_API_KEY`                      | 仅在切回内置 `gemini` provider 时使用               |
+| Qwen（备用模型）        | `DASHSCOPE_API_KEY`                                      | 内置 `alibaba` provider 直接读取                    |
+| DashScope 国内端点      | `DASHSCOPE_BASE_URL`                                     | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 飞书                    | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`                    | 飞书开放平台获取                                    |
+| 飞书推送频道            | `FEISHU_HOME_CHANNEL`                                    | cron / 通知默认投递的群或会话 ID                    |
+| Gateway 访问控制        | `GATEWAY_ALLOW_ALL_USERS=true`                           | 个人 bot 必须设置，否则拒绝所有用户                 |
 
 **当前主模型的加载机制：**
 
 当前配置不再直接使用 Hermes 内置 `gemini` provider，而是通过 `config.yaml` 中自定义的 `vertex-gemini` provider 指向 Vertex 的 OpenAI 兼容端点：
 
-1. `api: ${VERTEX_OPENAI_BASE_URL}` 指向 Vertex 的 OpenAI 兼容入口。
+1. `api` 直接指向 Vertex 的 OpenAI 兼容入口（硬编码 URL，避免新版 Hermes 变量展开时序问题）。
 2. `key_env: VERTEX_ACCESS_TOKEN` 告诉 Hermes 从环境变量里取 Bearer token。
 3. `scripts/refresh_vertex_access_token` 负责把 service-account JSON 换成短期 token，并回写到 `~/.hermes/.env`。
 
@@ -295,7 +295,7 @@ model:
 providers:
   vertex-gemini:
     name: Vertex Gemini
-    api: ${VERTEX_OPENAI_BASE_URL}
+    api: https://aiplatform.googleapis.com/v1/projects/wh-gemini-1/locations/global/endpoints/openapi
     key_env: VERTEX_ACCESS_TOKEN
     default_model: google/gemini-3.1-pro-preview
     transport: chat_completions
@@ -321,7 +321,7 @@ fallback_model:
 当前主模型走的是 Vertex AI 的 OpenAI 兼容端点，凭据链路分成三层：
 
 1. `GOOGLE_APPLICATION_CREDENTIALS` 指向 service-account JSON。
-2. `scripts/refresh_vertex_access_token` 用 service account 换出 1 小时左右有效的 `VERTEX_ACCESS_TOKEN`，同时写入 `VERTEX_PROJECT_ID`、`VERTEX_LOCATION` 和 `VERTEX_OPENAI_BASE_URL`。
+2. `scripts/refresh_vertex_access_token` 用 service account 换出 1 小时左右有效的 `VERTEX_ACCESS_TOKEN`（同时写入 `VERTEX_PROJECT_ID`、`VERTEX_LOCATION`、`VERTEX_OPENAI_BASE_URL`，但这三个现已冗余——`config.yaml` 已硬编码 URL）。
 3. Hermes 在启动请求时读取 `VERTEX_ACCESS_TOKEN`，并通过 `providers.vertex-gemini` 发到 Vertex 端点。
 
 #### 单次刷新
@@ -526,18 +526,18 @@ bash ~/.hermes/hermes-update.sh
 
 脚本依次执行以下步骤，完成后显示状态摘要和待操作提示：
 
-| 步骤 | 操作                                      | 说明                                                                                                                                                                                                                                                                              |
-| ---- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                                                                                                                                                          |
-| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash）                                                                                                                                                                            |
-| 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                                                                                                                                                     |
-| 4    | `npm audit fix`                           | 修复 hermes update 安装 npm 依赖后遗留的已知安全漏洞（PATCH-6）                                                                                                                                                                                                                   |
-| 4b   | Skills 镜像同步                           | `rsync --delete` 使 `skills/` 完全镜像上游 `hermes-agent/skills/`：新增 skill 自动添加、上游删除的 skill 自动清理；用户自定义 skill 存于 `my-skills/`，不受影响                                                                                                                   |
-| 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                                                                                                                              |
-| 6    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                                                                                                                                                                     |
-| 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-3（`_arguments` 语法修复），清除 zcompdump 缓存                                                                                                                                                                                         |
-| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用；若 patch 文件自身带 conflict marker 或 apply 后文件含冲突标记，则立即回滚 patched files 到 HEAD；验证 PATCH-1、PATCH-2、PATCH-4、PATCH-5、PATCH-7 均存活后才刷新 diff 文件；刷新时记录上游 base commit 到 `patches/.local-patches.base` |
-| 9    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                                                                                                                                                                                                |
+| 步骤 | 操作                                      | 说明                                                                                                                                                                               |
+| ---- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                                                           |
+| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash）                                                                             |
+| 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                                                      |
+| 4    | `npm audit fix`                           | 修复 hermes update 安装 npm 依赖后遗留的已知安全漏洞（PATCH-6）                                                                                                                    |
+| 4b   | Skills 镜像同步                           | `rsync --delete` 使 `skills/` 完全镜像上游 `hermes-agent/skills/`：新增 skill 自动添加、上游删除的 skill 自动清理；用户自定义 skill 存于 `my-skills/`，不受影响                    |
+| 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                               |
+| 6    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                                                                      |
+| 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-3（`_arguments` 语法修复），清除 zcompdump 缓存                                                                                          |
+| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用（PATCH-1/2/4/7）；验证 PATCH-5 上游行为存活 + 本地补丁生效后才刷新 diff 文件；刷新时记录上游 base commit 到 `patches/.local-patches.base` |
+| 9    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                                                                                                 |
 
 > ⚠ **脚本维护提示**：若 hermes 上游大版本升级后更新流程发生变化（新增步骤、flags 变动、路径变更），需同步更新 `~/.hermes/hermes-update.sh`。脚本顶部有详细的"需关注场景"注释。
 
@@ -568,7 +568,7 @@ hermes gateway status
 
 本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。
 
-补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新应用工程外补丁（PATCH-3）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-4 dashboard build skip、PATCH-5 delegate ACP 路由、PATCH-7 feishu python-socks 依赖）、Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新应用工程外补丁（PATCH-3）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-4 dashboard build skip、PATCH-7 feishu python-socks 依赖；PATCH-5 已上游合并，仅验证行为存活）、Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
 
 手动恢复 `hermes-agent/` 内补丁：
 
@@ -685,7 +685,7 @@ hermes config set fallback_model.model gemini-3.1-pro-preview
 
 > 💡 **fallback_model** 的配置说明见上方 [config.yaml 主配置](#configyaml-主配置) 节。
 
-> ⚠️ **Thinking 模型注意**：`gemini-3.1-pro-preview` 等 thinking 模型在会话内通过 `/model` 切换后，thinking 标签可能污染上下文，引发 400 级联错误（hermes v0.9.0 已知 bug）。
+> ⚠️ **Thinking 模型注意**：`gemini-3.1-pro-preview` 等 thinking 模型在会话内通过 `/model` 切换后，thinking 标签可能污染上下文，引发 400 级联错误。
 
 ### Skills 技能包
 

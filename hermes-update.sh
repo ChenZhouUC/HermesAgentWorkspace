@@ -44,12 +44,12 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 6 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
+# PATCH-5 (delegate_tool) was merged upstream in v0.10.0 and removed from this list.
 PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
     "hermes_cli/main.py"
-    "tools/delegate_tool.py"
     "pyproject.toml"
 )
 
@@ -473,6 +473,7 @@ else
 fi
 
 # -- 8b. Behavioral verification -----------------------------------------------
+# PATCH-5 (delegate ACP routing) was merged upstream in v0.10.0.
 _SKILL_PATCH_OK=false
 _DOCTOR_PATCH_OK=false
 _WEB_PATCH_OK=false
@@ -494,7 +495,7 @@ PYEOF
         _SKILL_PATCH_OK=true
     else
         warn "Skill routing patch inactive — new skills will land in ~/.hermes/skills/"
-        add_act "Re-apply: see README.md § Skills → 自定义 Skill 创建路径修复"
+        add_act "Re-apply: see PATCHES.md § [PATCH-1] skill_manager_tool.py"
     fi
 else
     warn "Could not locate venv or skill_manager_tool.py — skipping skill routing check"
@@ -506,7 +507,7 @@ if [[ -f "${DOCTOR_PY}" ]]; then
         _DOCTOR_PATCH_OK=true
     else
         warn "Doctor issue-count patch inactive — hermes doctor may report false issue for moa/rl"
-        add_act "Re-apply: see README.md § doctor.py issue count 修复"
+        add_act "Re-apply: see PATCHES.md § [PATCH-2] doctor.py issue count"
     fi
 else
     warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
@@ -524,13 +525,16 @@ else
     warn "Could not locate hermes_cli/main.py — skipping dashboard build check"
 fi
 
+# PATCH-5 (delegate ACP routing) was merged upstream in v0.10.0.
+# Verify the behavior still exists but don't require local patch.
 if [[ -f "${DELEGATE_TOOL}" ]]; then
-    if grep -q 'override_acp_command and effective_provider' "${DELEGATE_TOOL}" 2>/dev/null; then
-        ok "Delegate ACP routing patch: active (acp_command forces copilot-acp provider)"
+    if grep -q 'override_acp_command' "${DELEGATE_TOOL}" 2>/dev/null &&
+        grep -q 'copilot-acp' "${DELEGATE_TOOL}" 2>/dev/null; then
+        ok "Delegate ACP routing: active (upstream merged, PATCH-5 retired)"
         _DELEGATE_PATCH_OK=true
     else
-        warn "Delegate ACP routing patch inactive — delegate_task acp_command will be ignored"
-        add_act "Re-apply: see PATCHES.md § [PATCH-5] delegate_tool.py ACP routing"
+        warn "Delegate ACP routing missing — delegate_task acp_command may be ignored"
+        add_act "Check upstream: _build_child_agent should force copilot-acp when override_acp_command is set"
     fi
 else
     warn "Could not locate tools/delegate_tool.py — skipping delegate patch check"

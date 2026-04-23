@@ -19,11 +19,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表            | 管理方式                                                                        |
-| -------------- | --------------- | ------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/2/4/5/7 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证            |
-| **工程外补丁** | PATCH-3         | `hermes-update.sh` Step 7 用 inline Python 就地重写，不经过 diff                |
-| **运行时补丁** | PATCH-6         | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行 |
+| 类型           | 代表          | 管理方式                                                                        |
+| -------------- | ------------- | ------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/2/4/7 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证            |
+| **工程外补丁** | PATCH-3       | `hermes-update.sh` Step 7 用 inline Python 就地重写，不经过 diff                |
+| **运行时补丁** | PATCH-6       | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行 |
+| **已上游合并** | PATCH-5       | v0.10.0 核心逻辑已合并，本地冗余代码已移除，仅保留行为验证                      |
 
 ### 更新生命周期（关键步骤）
 
@@ -55,7 +56,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-1: Python import + 调用 _resolve_skill_dir()，检查返回路径
   │   ├─ PATCH-2: grep _get_platform_tools in doctor.py
   │   ├─ PATCH-4: grep _dist_index 签名 in main.py
-  │   ├─ PATCH-5: grep 'override_acp_command and effective_provider' in delegate_tool.py
+  │   ├─ PATCH-5: grep override_acp_command + copilot-acp（✅ 已上游合并，仅验证）
   │   └─ PATCH-7: grep 'python-socks' in pyproject.toml
   │
   └─ 8c. Refresh saved diff
@@ -129,7 +130,6 @@ PATCHED_FILES=(
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
     "hermes_cli/main.py"
-    "tools/delegate_tool.py"
     "pyproject.toml"
 )
 ```
@@ -156,10 +156,10 @@ cat ~/.hermes/patches/.local-patches.base
 | 字段         | 内容                                                                    |
 | ------------ | ----------------------------------------------------------------------- |
 | **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py` |
-| **状态**     | 🟡 未上游合并                                                           |
+| **状态**     | 🟡 未上游合并（上游有 `_resolve_skill_dir` 但不读 `external_dirs`）     |
 | **适用版本** | ≥ v0.9.0                                                                |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。上游 v0.10.0 新增了 `_resolve_skill_dir()` 函数，但仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配。
 
@@ -232,7 +232,7 @@ cat ~/.hermes/patches/.local-patches.base
 | 字段         | 内容                     |
 | ------------ | ------------------------ |
 | **文件**     | `tools/delegate_tool.py` |
-| **状态**     | 🟡 未上游合并            |
+| **状态**     | ✅ 已上游合并（v0.10.0） |
 | **适用版本** | ≥ v0.9.0                 |
 
 **问题**：`delegate_task(acp_command="copilot")` 传入 ACP 命令后，子 agent 的 `provider` 仍继承父 agent（如 `gemini`），未切换为 `"copilot-acp"`。`AIAgent` 构造时只在 `provider == "copilot-acp"` 时启用 ACP subprocess 通道，导致 `acp_command`/`acp_args` 被存储但从未使用，子 agent 直接走父 agent 的 API（如 Gemini），最终超时失败。

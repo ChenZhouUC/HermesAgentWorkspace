@@ -4,7 +4,7 @@ model:
 providers:
   vertex-gemini:
     name: Vertex Gemini
-    api: ${VERTEX_OPENAI_BASE_URL}
+    api: https://aiplatform.googleapis.com/v1/projects/wh-gemini-1/locations/global/endpoints/openapi
     key_env: VERTEX_ACCESS_TOKEN
     default_model: google/gemini-3.1-pro-preview
     transport: chat_completions
