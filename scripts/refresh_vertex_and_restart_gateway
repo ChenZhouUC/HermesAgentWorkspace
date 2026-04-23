@@ -86,8 +86,28 @@ if [ -n "$refresh_args" ]; then
     set -- "$@" $refresh_args
 fi
 
-log "Refreshing Vertex access token"
-"$ROOT/scripts/refresh_vertex_access_token" "$@"
+MAX_RETRIES=3
+RETRY_INTERVAL=60
+
+_refresh_ok=false
+for _attempt in $(seq 1 "$MAX_RETRIES"); do
+    log "Refreshing Vertex access token (attempt ${_attempt}/${MAX_RETRIES})"
+    if "$ROOT/scripts/refresh_vertex_access_token" "$@" 2>&1; then
+        _refresh_ok=true
+        break
+    fi
+    if [ "$_attempt" -lt "$MAX_RETRIES" ]; then
+        log "Token refresh failed; retrying in ${RETRY_INTERVAL}s"
+        sleep "$RETRY_INTERVAL"
+    fi
+done
+
+if ! $_refresh_ok; then
+    log "ERROR: Vertex token refresh failed after ${MAX_RETRIES} attempts"
+    osascript -e 'display notification "Token 刷新连续 '"$MAX_RETRIES"' 次失败，Gemini 将不可用。请检查网络后手动执行 refresh。" with title "Hermes Vertex" subtitle "Token 刷新失败"' 2>/dev/null || true
+    release_lock
+    exit 1
+fi
 
 if launchctl list 2>/dev/null | grep -q "ai.hermes.gateway"; then
     log "Restarting Hermes gateway"
