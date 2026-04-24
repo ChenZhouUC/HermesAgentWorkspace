@@ -61,7 +61,7 @@
 | `completions/_hermes`        | zsh 补全脚本（#compdef 格式，通过 fpath 加载）   |
 | `memories/MEMORY.md`         | Agent 的结构化记忆（短期），自动注入每次会话     |
 | `memories/USER.md`           | 用户画像（偏好、时区、语言等）                   |
-| `my-skills/`                 | 自定义 Skills（独立 git 仓库）                   |
+| `my-skills/`                 | 自定义 Skills（随主仓库入库）                    |
 | `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用） |
 | `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）       |
 | `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）         |
@@ -90,7 +90,7 @@
 │   ├── MEMORY.md          # 结构化记忆（入库）
 │   └── USER.md            # 用户画像（入库）
 ├── skills/                # Hub 官方 Skills（.gitignore 排除，更新时由 rsync 镜像上游）
-├── my-skills/             # 自定义 Skills（独立 git 仓库，入库）
+├── my-skills/             # 自定义 Skills（随主仓库入库）
 ├── patches/               # hermes-agent 本地补丁（入库，供 hermes-update.sh 使用）
 │   ├── local-patches.diff # 所有本地 patch 的 unified diff，更新时自动重新应用
 │   └── PATCHES.md         # 补丁详细记录（问题 / 根因 / 修复方案）
@@ -689,10 +689,10 @@ Skills 是 Hermes 的知识/工具扩展模块，按需加载，不常驻 contex
 
 #### 两类 Skills
 
-| 类型                | 存放位置               | 管理方式                                           |
-| ------------------- | ---------------------- | -------------------------------------------------- |
-| **Hub 官方 Skills** | `~/.hermes/skills/`    | Hermes 自动管理，每次启动时同步更新                |
-| **自定义 Skills**   | `~/.hermes/my-skills/` | 手动维护，独立 git 仓库，通过 `external_dirs` 加载 |
+| 类型                | 存放位置               | 管理方式                                          |
+| ------------------- | ---------------------- | ------------------------------------------------- |
+| **Hub 官方 Skills** | `~/.hermes/skills/`    | Hermes 自动管理，每次启动时同步更新               |
+| **自定义 Skills**   | `~/.hermes/my-skills/` | 手动维护，随主仓库入库，通过 `external_dirs` 加载 |
 
 #### Hub 官方 Skills 更新机制
 
@@ -711,7 +711,7 @@ hermes skills update          # 强制刷新全部 skills
 
 #### 自定义 Skills
 
-自定义 / Agent 生成的 skills 存放在 `~/.hermes/my-skills/`（独立 git 仓库），通过 `config.yaml` 的 `external_dirs` 注册到 Hermes：
+自定义 / Agent 生成的 skills 存放在 `~/.hermes/my-skills/`（随主仓库入库），通过 `config.yaml` 的 `external_dirs` 注册到 Hermes：
 
 ```yaml
 skills:
@@ -728,7 +728,7 @@ skills:
 | `memory-management`     | —                    | 记忆工具报错处理指南（容量超限、状态异常等）                      |
 | `agentic-demo-pipeline` | software-development | Codex + Copilot 双 Agent 自动化 Demo 开发流水线（调研→代码→文档） |
 
-新增自定义 skill：在 `~/.hermes/my-skills/` 下创建目录，写 `SKILL.md`，git commit 即生效（无需重启）。
+新增自定义 skill：在 `~/.hermes/my-skills/` 下创建目录，写 `SKILL.md`；随主仓库提交即可生效（无需重启）。
 
 **调用 Skill**：会话中输入 `/skill-name` 或启动时 `hermes --skills skill-name`。
 
