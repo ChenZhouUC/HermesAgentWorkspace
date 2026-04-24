@@ -7,7 +7,7 @@
 > - 每次 `hermes update` 升级后，将该版本下新增的补丁条目移至对应版本节；若上游已合并某补丁，将状态改为 `✅ 已上游合并（vX.Y.Z）` 并从 `hermes-update.sh` 的 `PATCHED_FILES` 中移除对应文件。
 > - 新补丁格式：在当前版本节下复制一个 `### [PATCH-N]` 块并填写各字段。
 > - 版本升级时在顶部新增 `## vX.Y.Z（upstream COMMIT）` 节，未变化的补丁直接迁移过来。
-> - `completions/_hermes` 类补丁（不在 `hermes-agent/` 下）在 `hermes-update.sh` Step 6 中用 inline python 处理，不通过 `PATCHED_FILES` 管理。
+> - `completions/_hermes` 类补丁（不在 `hermes-agent/` 下）在 `hermes-update.sh` Step 7 中用 inline python 处理，不通过 `PATCHED_FILES` 管理。
 
 ---
 
@@ -24,7 +24,7 @@
 | **工程内补丁** | PATCH-1/2/4/7 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证            |
 | **工程外补丁** | PATCH-3       | `hermes-update.sh` Step 7 用 inline Python 就地重写，不经过 diff                |
 | **运行时补丁** | PATCH-6       | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行 |
-| **已上游合并** | PATCH-5       | v0.10.0 核心逻辑已合并，本地冗余代码已移除，仅保留行为验证                      |
+| **已上游合并** | PATCH-5/8     | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；本地冗余代码已移除            |
 
 ### 更新生命周期（关键步骤）
 
@@ -67,9 +67,10 @@ Step 8: Re-apply & Verify（核心）
 
 Step 8d: Gateway restart（post-patch）
   └─ 前提: _PATCH_APPLY_OK == true && gateway 正在运行
-      └─ stop → sleep 2 → start → sleep 3 → 确认存活
+      └─ stop → sleep 2 → start → 轮询 PID（最多约 12s）→ 确认存活
       （hermes update 在 step 3 重启 gateway 时补丁尚未 apply，
-       Python 进程 sys.modules 缓存旧模块，需重启才能加载补丁代码）
+       Python 进程 sys.modules 缓存旧模块，需重启才能加载补丁代码；
+       macOS launchd 在 stop 后可能短暂 unloaded，因此不能假设固定 3s 内必起）
 ```
 
 ### 安全机制（及设计原因）
@@ -149,6 +150,24 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+## v0.11.0 (upstream `6fdbf2f2` / release `v2026.4.23`)
+
+### [PATCH-8] agent/transports/types.py — Gemini tool-call replay 丢失 thought_signature
+
+| 字段         | 内容                                                                |
+| ------------ | ------------------------------------------------------------------- |
+| **文件**     | `agent/transports/types.py`, `tests/agent/transports/test_types.py` |
+| **状态**     | ✅ 已上游合并（v0.11.0，commit `f5af6520`）                         |
+| **适用版本** | v0.10.0 需要本地 patch；v0.11.0+ 已上游修复                         |
+
+**问题**：Gemini 3.1 / Gemini 3 Flash 这类 thinking 模型在发出 tool call 后，下一轮 replay 必须把 tool call 上的 `thought_signature` 原样带回。当前版本已经把旧的 `_nr_to_assistant_message` shim 演进成 `ToolCall` dataclass + property 兼容层，但这里只暴露了 `call_id` / `response_item_id`，没有暴露 `extra_content`。于是 `run_agent.py` 中的 `getattr(tool_call, "extra_content", None)` 永远拿到 `None`，Gemini / Vertex 在 replay 下一轮直接返回 HTTP 400：`missing thought_signature`，然后触发 fallback 到 `qwen3-max`。
+
+**修复**：上游在 commit `f5af6520d0bfac5b17c9ce460a5a06bf3249972c` 中给 `ToolCall` 增加了 `extra_content` 兼容属性，并补上了相应回归测试；本地 PATCH-8 已退役，不再通过 `PATCHED_FILES` / `local-patches.diff` 管理。
+
+**上游追踪**：最初的等价修复线索来自上游 PR `#14423`；最终关闭本 issue 的是 commit `f5af6520`。当前 `main` / v0.11.0 已包含该修复，因此本地只保留文档记录，不再维护源码 patch。
+
+---
+
 ## v0.10.0 (upstream `b05d3041`）
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
@@ -209,7 +228,7 @@ cat ~/.hermes/patches/.local-patches.base
 '(-p --profile)--profile[Profile name]:profile:_hermes_profiles'
 ```
 
-**升级处理**：`hermes-update.sh` Step 6 在重新生成补全脚本后自动检测并重新应用此修复；若上游已修正该语法，步骤自动跳过。
+**升级处理**：`hermes-update.sh` Step 7 在重新生成补全脚本后自动检测并重新应用此修复；若上游已修正该语法，步骤自动跳过。
 
 ---
 

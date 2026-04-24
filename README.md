@@ -272,10 +272,10 @@ open -a TextEdit ~/.hermes/.env
 
 **当前主模型的加载机制：**
 
-当前配置不再直接使用 Hermes 内置 `gemini` provider，而是通过 `config.yaml` 中自定义的 `vertex-gemini` provider 指向 Vertex 的 OpenAI 兼容端点：
+当前配置不再直接使用 Hermes 内置 `gemini` provider，而是通过 `config.yaml` 中一等支持的 `custom` provider 指向 Vertex 的 OpenAI 兼容端点：
 
-1. `api` 直接指向 Vertex 的 OpenAI 兼容入口（硬编码 URL，避免新版 Hermes 变量展开时序问题）。
-2. `key_env: VERTEX_ACCESS_TOKEN` 告诉 Hermes 从环境变量里取 Bearer token。
+1. `base_url` 直接指向 Vertex 的 OpenAI 兼容入口（硬编码 URL，避免新版 Hermes 变量展开时序问题）。
+2. `api_key: ${VERTEX_ACCESS_TOKEN}` 让 Hermes 在启动时从环境变量注入 Bearer token。
 3. `scripts/refresh_vertex_access_token` 负责把 service-account JSON 换成短期 token，并回写到 `~/.hermes/.env`。
 
 因此，Vertex 这条链路里真正被 Hermes 请求时读取的是 `VERTEX_ACCESS_TOKEN`，而不是 `GEMINI_API_KEY`。后者只在你切回 Hermes 内置 `gemini` provider 时才会生效。
@@ -289,16 +289,10 @@ open -a TextEdit ~/.hermes/.env
 ```yaml
 # 主模型
 model:
-  provider: vertex-gemini
+  provider: custom
   default: google/gemini-3.1-pro-preview
-
-providers:
-  vertex-gemini:
-    name: Vertex Gemini
-    api: https://aiplatform.googleapis.com/v1/projects/wh-gemini-1/locations/global/endpoints/openapi
-    key_env: VERTEX_ACCESS_TOKEN
-    default_model: google/gemini-3.1-pro-preview
-    transport: chat_completions
+  base_url: https://aiplatform.googleapis.com/v1/projects/wh-gemini-1/locations/global/endpoints/openapi
+  api_key: ${VERTEX_ACCESS_TOKEN}
 
 # 备用模型（主模型失败时自动切换）
 fallback_model:
@@ -312,7 +306,7 @@ fallback_model:
 | ------------------------ | ------ | --------------------------- |
 | `agent.max_turns`        | 90     | 单次 session 最大轮数       |
 | `agent.gateway_timeout`  | 1800s  | Gateway 会话超时（30 分钟） |
-| `agent.reasoning_effort` | low    | 推理强度（low/medium/high） |
+| `agent.reasoning_effort` | medium | 推理强度（low/medium/high） |
 | `display.personality`    | kawaii | 显示风格                    |
 | `approvals.mode`         | manual | 危险命令审批（manual/auto） |
 
@@ -322,7 +316,7 @@ fallback_model:
 
 1. `GOOGLE_APPLICATION_CREDENTIALS` 指向 service-account JSON。
 2. `scripts/refresh_vertex_access_token` 用 service account 换出 1 小时左右有效的 `VERTEX_ACCESS_TOKEN`（同时写入 `VERTEX_PROJECT_ID`、`VERTEX_LOCATION`、`VERTEX_OPENAI_BASE_URL`，但这三个现已冗余——`config.yaml` 已硬编码 URL）。
-3. Hermes 在启动请求时读取 `VERTEX_ACCESS_TOKEN`，并通过 `providers.vertex-gemini` 发到 Vertex 端点。
+3. Hermes 在启动请求时读取 `VERTEX_ACCESS_TOKEN`，并通过 `model.provider: custom` + `model.base_url` 发到 Vertex 端点。
 
 #### 单次刷新
 
@@ -568,7 +562,7 @@ hermes gateway status
 
 本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。
 
-补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新应用工程外补丁（PATCH-3）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-4 dashboard build skip、PATCH-7 feishu python-socks 依赖；PATCH-5 已上游合并，仅验证行为存活）、Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新应用工程外补丁（PATCH-3）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-4 dashboard build skip、PATCH-7 feishu python-socks 依赖；PATCH-5 / PATCH-8 已上游合并并退役），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
 
 手动恢复 `hermes-agent/` 内补丁：
 
@@ -654,6 +648,8 @@ hermes sessions export ID    # 导出会话
 hermes sessions delete ID    # 删除会话
 hermes sessions prune        # 清理旧会话
 ```
+
+> **说明**：`hermes sessions delete` 会删除会话索引；如果你在排查飞书 fallback / 400 级联错误这类“旧会话污染”问题，建议连同 `~/.hermes/sessions/session_<ID>.json` 一起删除，并在完成后重启 gateway。
 
 ### 模型选择
 
@@ -1205,12 +1201,69 @@ hermes gateway status
 
 **会话出现 400 级联错误**：
 
-通常由 thinking 模型污染 context 导致。删除问题会话后重新开始：
+通常表现为旧上下文被污染，或某个异常 session 反复触发后续问题。推荐按“索引 + transcript + gateway”三段式清理：
 
 ```bash
 hermes sessions list
-hermes sessions delete SESSION_ID
+hermes sessions delete --yes SESSION_ID
+rm -f ~/.hermes/sessions/session_SESSION_ID.json
+hermes gateway restart
 ```
+
+清理后，建议在飞书里**新开一个线程**，或至少先发一次 `/new` 再继续。
+
+**批量清理全部旧 Feishu session（谨慎使用）**：
+
+适合排查“新会话也疑似继承旧问题”的场景。下面这段会同时清理：
+
+- `state.db` 里的 Feishu session 索引
+- `~/.hermes/sessions/` 里的 Feishu transcript JSON
+- 最后重启 gateway，清空进程内会话映射
+
+```bash
+cd ~/.hermes
+python3 - <<'PY'
+import glob
+import json
+import os
+import sqlite3
+import subprocess
+
+ids = set()
+
+conn = sqlite3.connect("state.db")
+cur = conn.cursor()
+try:
+    ids.update(
+        row[0]
+        for row in cur.execute("SELECT id FROM sessions WHERE source = 'feishu'")
+        if row and row[0]
+    )
+finally:
+    conn.close()
+
+for path in glob.glob("sessions/session_*.json"):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        continue
+    if data.get("platform") == "feishu":
+        session_id = data.get("session_id")
+        if session_id:
+            ids.add(session_id)
+        os.remove(path)
+
+for session_id in sorted(ids):
+    subprocess.run(
+        ["hermes", "sessions", "delete", "--yes", session_id],
+        check=False,
+    )
+PY
+hermes gateway restart
+```
+
+如果做完这套清理后，**新 Feishu 会话仍然 fallback**，那就基本可以判断：问题不在旧 session，而在当前版本的模型调用链路本身。
 
 **Skills Hub 初始化**：
 
@@ -1241,7 +1294,8 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 ## 版本记录
 
-| 版本               | 日期       | 说明                                                 |
-| ------------------ | ---------- | ---------------------------------------------------- |
-| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能 |
-| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                           |
+| 版本               | 日期       | 说明                                                                           |
+| ------------------ | ---------- | ------------------------------------------------------------------------------ |
+| v0.11.0            | 2026-04-23 | 上游升级，新增 Ink TUI / transport 层 / Bedrock / GPT-5.5 / Dashboard 主题扩展 |
+| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能                           |
+| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                                                     |

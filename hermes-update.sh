@@ -7,24 +7,24 @@
 # Covers:
 #   1. Preflight checks
 #   2. Save & clean local patches  → patches/local-patches.diff + git checkout
-#   3. pull · deps · web · skills · restart  (via hermes update)
+#   3. hermes update               (pull · deps · web · skills · config migration · restart)
 #   4. npm audit fix               (fix known npm vulnerabilities after deps install)
-#   4b. Skills mirror sync          (rsync --delete to match upstream exactly)
-#   5. Skills Hub sync             (via hermes update)
-#   6. Config migration check      (via hermes update, interactive)
-#   7. Gateway process restart     (via hermes update, if already running)
-#   8. Gateway launchd plist refresh (hermes gateway install --force)
-#   9. Ensure gateway running
-#  10. zsh completion script regeneration
-#  11. Re-apply & verify local patches
-#  11d. Gateway restart             (reload patched Python modules into running process)
-#  12. Health verification (hermes doctor + gateway status)
+#   4b. Skills mirror sync         (rsync --delete to match upstream exactly)
+#   5. Gateway launchd plist refresh (hermes gateway install --force, if needed)
+#   6. Ensure gateway running
+#   7. zsh completion script regeneration
+#   8. Re-apply & verify local patches
+#      8a. Apply saved diff
+#      8b. Behavioral verification
+#      8c. Refresh saved diff
+#      8d. Gateway restart         (reload patched Python modules into running process)
+#   9. Health verification         (hermes doctor + gateway status)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
-#    - If hermes update adds/removes steps, review whether steps 8–10 are still needed
-#    - If gateway install flags change, update step 8
-#    - If venv or binary paths move, update step 10
-#    - Steps 2 + 11 manage local patches to hermes-agent source files.
+#    - If hermes update adds/removes steps, review whether steps 5–9 are still needed
+#    - If gateway install flags change, update step 5
+#    - If venv or binary paths move, update step 7
+#    - Steps 2 + 8 manage local patches to hermes-agent source files.
 #      The saved diff lives at ~/.hermes/patches/local-patches.diff and is
 #      tracked in the config repo. If a patch conflicts with upstream after an
 #      update, follow the instructions in the summary or see README.md § 本地补丁.
@@ -42,9 +42,10 @@ PATCHES_DIR="${HERMES_HOME}/patches"
 PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 
 # Files we maintain local patches for (relative to HERMES_AGENT).
-# Note: completions/_hermes (PATCH-3) is handled separately in step 6 via
+# Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# PATCH-5 (delegate_tool) was merged upstream in v0.10.0 and removed from this list.
+# PATCH-5 (delegate_tool) and PATCH-8 (Gemini thought_signature) were merged
+# upstream and removed from this list.
 PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
@@ -188,7 +189,7 @@ cd - >/dev/null
 # interactive stash prompt.  To avoid this, fully clean the hermes-agent tree
 # before invoking hermes update: stash everything (including untracked),
 # pull cleanly, then pop the stash with "theirs" strategy (upstream wins for
-# any overlap — our patches are re-applied from the saved diff in step 7).
+# any overlap — our patches are re-applied from the saved diff in step 8).
 step "Updating Hermes  [pull · deps · web · skills · restart]"
 echo ""
 
@@ -235,7 +236,7 @@ if [[ -n "${_EXTRA_STASH_REF}" ]]; then
 fi
 
 # Patches have been reverted; hermes update is now complete.
-# Clear the trap flag — patches will be re-applied in step 11.
+# Clear the trap flag — patches will be re-applied in step 8.
 _PATCHES_REVERTED=false
 
 # ── 4. npm audit fix ─────────────────────────────────────────────────────────
@@ -296,7 +297,7 @@ fi
 # Only bootstrap the plist when the service is not already loaded. hermes update
 # handles plist installation; calling install --force on an already-bootstrapped
 # service triggers launchd exit 5 (Input/Output error). If the service is loaded
-# but not running (OnDemand=true), skip directly to step 6 (hermes gateway start).
+# but not running (OnDemand=true), skip directly to step 6 (ensure gateway running).
 step "Gateway launchd plist"
 
 set +e
@@ -310,7 +311,7 @@ if $GW_IS_RUNNING; then
     ok "Gateway running post-update — plist refresh not needed"
     note "To force-refresh the plist manually: hermes gateway install --force"
 elif $GW_IS_LOADED; then
-    ok "Gateway plist already loaded (OnDemand) — will start in step 5"
+    ok "Gateway plist already loaded (OnDemand) — will start in step 6"
 else
     note "Gateway not bootstrapped — installing plist..."
     set +e
@@ -418,6 +419,7 @@ SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
 DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
 MAIN_PY="${HERMES_AGENT}/hermes_cli/main.py"
 DELEGATE_TOOL="${HERMES_AGENT}/tools/delegate_tool.py"
+PYPROJECT="${HERMES_AGENT}/pyproject.toml"
 _PATCH_APPLY_OK=false
 
 # -- 8a. Apply saved diff -------------------------------------------------------
@@ -478,6 +480,7 @@ _SKILL_PATCH_OK=false
 _DOCTOR_PATCH_OK=false
 _WEB_PATCH_OK=false
 _DELEGATE_PATCH_OK=false
+_FEISHU_DEPS_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -540,9 +543,6 @@ else
     warn "Could not locate tools/delegate_tool.py — skipping delegate patch check"
 fi
 
-PYPROJECT="${HERMES_AGENT}/pyproject.toml"
-_FEISHU_DEPS_PATCH_OK=false
-
 if [[ -f "${PYPROJECT}" ]]; then
     if grep -q 'python-socks' "${PYPROJECT}" 2>/dev/null; then
         ok "Feishu python-socks dep patch: active (proxy support in feishu extra)"
@@ -593,19 +593,32 @@ fi
 # hermes update (step 3) restarts the gateway BEFORE patches are re-applied.
 # The running Python process still has the pre-patch modules cached in
 # sys.modules. A restart ensures patched code (skill routing, delegate ACP
-# routing, etc.) is loaded by the gateway immediately.
+# routing, etc.) is loaded by the gateway immediately. On macOS, stopping the
+# launchd job can briefly leave it unloaded, so poll for the PID instead of
+# assuming a fixed 3s start window is sufficient.
 if $_PATCH_APPLY_OK; then
     set +e
     if gw_running; then
         step "Restarting gateway (loading patched code)"
         hermes gateway stop >/dev/null 2>&1
         sleep 2
-        hermes gateway start >/dev/null 2>&1
-        sleep 3
+        _GW_RESTART_OUT=$(hermes gateway start 2>&1)
+        _GW_RESTART_RC=$?
+        for _ in {1..12}; do
+            sleep 1
+            if gw_running; then
+                break
+            fi
+        done
         if gw_running; then
             ok "Gateway restarted — patched modules now active"
         else
             warn "Gateway did not come back up after restart"
+            if [[ -n "${_GW_RESTART_OUT:-}" ]]; then
+                add_warn "gateway start output: ${_GW_RESTART_OUT//$'\n'/ | }"
+            elif [[ ${_GW_RESTART_RC:-0} -ne 0 ]]; then
+                add_warn "gateway start exited ${_GW_RESTART_RC}"
+            fi
             add_act "Start gateway manually: hermes gateway start"
         fi
     fi

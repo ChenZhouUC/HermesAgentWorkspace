@@ -1,13 +1,8 @@
 model:
-  provider: vertex-gemini
+  provider: custom
   default: google/gemini-3.1-pro-preview
-providers:
-  vertex-gemini:
-    name: Vertex Gemini
-    api: https://aiplatform.googleapis.com/v1/projects/wh-gemini-1/locations/global/endpoints/openapi
-    key_env: VERTEX_ACCESS_TOKEN
-    default_model: google/gemini-3.1-pro-preview
-    transport: chat_completions
+  base_url: https://aiplatform.googleapis.com/v1/projects/wh-gemini-1/locations/global/endpoints/openapi
+  api_key: ${VERTEX_ACCESS_TOKEN}
 fallback_providers: []
 credential_pool_strategies: {}
 toolsets:
@@ -20,7 +15,7 @@ agent:
   tool_use_enforcement: auto
   gateway_timeout_warning: 900
   gateway_notify_interval: 600
-  reasoning_effort: low
+  reasoning_effort: medium
 terminal:
   backend: local
   modal_mode: auto
