@@ -18,6 +18,44 @@ Use this skill whenever you need to read, summarize, create, or update documents
 
 ---
 
+## 🎙️ Reading Feishu Minutes (飞书妙记)
+
+### Reading Feishu Minutes (Meetings)
+
+To read Feishu Minutes (Meetings), use the `minutes/v1/minutes` and `transcript` endpoints.
+
+**Prerequisite:** The app must have the `minutes:minutes` scope granted in the Feishu Developer Console.
+
+1.  **Get basic metadata (Title, Duration, URL):**
+    `GET https://open.feishu.cn/open-apis/minutes/v1/minutes/{minute_token}`
+    _The `minute_token` is the 24-character string at the end of the URL (e.g., `obcn8ktpq4eh85jp821mib7g`)._
+
+2.  **Get the full transcript (Speaker separation, exact words):**
+    `GET https://open.feishu.cn/open-apis/minutes/v1/minutes/{minute_token}/transcript`
+    - **Crucial:** Use `response.encoding = 'utf-8'` before reading `response.text` in Python `requests`, as the response may contain raw UTF-8 bytes that `requests` misinterprets, leading to garbled Chinese text or `JSONDecodeError` if attempting `.json()` directly.
+    - The `/summary` endpoint is deprecated/unreliable (often returns 404), so parse the `transcript` text directly to generate your own AI summaries.
+
+3.  **Fallback Mechanism (No API Permissions):**
+    If the API returns `99991672 (Access denied)`, it means the app lacks the `minutes:minutes` scope. If the user cannot grant this permission but the link is accessible to anyone in the workspace, you can use the **browser tool** (`browser_navigate`) to visit the URL, use `browser_click` on the "Show More" or "Transcript" tabs, and extract the visible DOM text using `browser_console` as a workaround.
+
+**Fallback Strategy (Browser Scraping):**
+
+1. Use `browser_navigate` to load the public/shared URL.
+2. Find the "Show More" button (for AI Notes or Transcripts) in the `browser_snapshot` and `browser_click` it.
+3. The DOM hides content with anti-scraping `display: none` elements. Use `browser_console` to extract only the visible text:
+
+```javascript
+Array.from(document.querySelectorAll("div"))
+  .filter((el) => {
+    const styles = window.getComputedStyle(el);
+    return styles.display !== "none" && el.innerText.trim().length > 0;
+  })
+  .map((e) => e.innerText)
+  .join("\\n");
+```
+
+---
+
 ## 📖 Reading Feishu Documents
 
 1. **Extract `DOC_TOKEN`** from the URL (e.g., `https://domain.feishu.cn/docx/A2KPd...` -> `A2KPd...`). _For `/wiki/` URLs, pass the token directly to the `/docx/v1/documents` API to bypass `wiki:node:read` permission issues._
