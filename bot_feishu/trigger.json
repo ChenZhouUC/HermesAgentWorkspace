@@ -1,0 +1,10 @@
+{
+  "events": {
+    "event_list": ["im.message.receive_v1"],
+    "subs_method": "Long connection"
+  },
+  "callbacks": {
+    "callback_list": ["card.action.trigger"],
+    "subs_method": "Long connection"
+  }
+}

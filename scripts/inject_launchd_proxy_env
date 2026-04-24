@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: inject_launchd_proxy_env [--proxy-url URL] [--no-proxy VALUE] [--probe-url URL] [--timeout SEC]
+
+Atomically inject proxy environment variables into all Hermes-related LaunchAgents:
+  - ai.hermes.gateway
+  - ai.hermes.vertex-refresh
+  - ai.hermes.vertex-wake
+
+Safety guarantees:
+  1. Probe the proxy with curl before touching any plist.
+  2. Build and validate all new plist files first.
+  3. Replace and reload all three LaunchAgents as a transaction.
+  4. If any step fails, restore all original plist files and reload the old services.
+
+Defaults:
+  --proxy-url  http://127.0.0.1:7897
+  --no-proxy   127.0.0.1,localhost
+  --probe-url  https://www.gstatic.com/generate_204
+  --timeout    15
+
+Examples:
+  ~/.hermes/scripts/inject_launchd_proxy_env
+  ~/.hermes/scripts/inject_launchd_proxy_env --proxy-url http://127.0.0.1:7897
+EOF
+}
+
+log() {
+    printf '[inject_launchd_proxy_env] %s\n' "$*"
+}
+
+require_cmd() {
+    command -v "$1" >/dev/null 2>&1 || {
+        echo "Missing required command: $1" >&2
+        exit 1
+    }
+}
+
+PROXY_URL="http://127.0.0.1:7897"
+NO_PROXY_VALUE="127.0.0.1,localhost"
+PROBE_URL="https://www.gstatic.com/generate_204"
+TIMEOUT=15
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --proxy-url)
+        [[ $# -ge 2 ]] || {
+            echo "Missing value for --proxy-url" >&2
+            exit 2
+        }
+        PROXY_URL="$2"
+        shift 2
+        ;;
+    --no-proxy)
+        [[ $# -ge 2 ]] || {
+            echo "Missing value for --no-proxy" >&2
+            exit 2
+        }
+        NO_PROXY_VALUE="$2"
+        shift 2
+        ;;
+    --probe-url)
+        [[ $# -ge 2 ]] || {
+            echo "Missing value for --probe-url" >&2
+            exit 2
+        }
+        PROBE_URL="$2"
+        shift 2
+        ;;
+    --timeout)
+        [[ $# -ge 2 ]] || {
+            echo "Missing value for --timeout" >&2
+            exit 2
+        }
+        TIMEOUT="$2"
+        shift 2
+        ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    *)
+        echo "Unknown argument: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+done
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "This script only supports macOS launchd." >&2
+    exit 1
+fi
+
+if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$TIMEOUT" -lt 1 ]]; then
+    echo "--timeout must be an integer >= 1" >&2
+    exit 2
+fi
+
+require_cmd curl
+require_cmd launchctl
+require_cmd plutil
+require_cmd python3
+
+PLIST_DIR="${HOME}/Library/LaunchAgents"
+BOOTSTRAP_DOMAIN="gui/$(id -u)"
+LABELS=(
+    "ai.hermes.gateway"
+    "ai.hermes.vertex-refresh"
+    "ai.hermes.vertex-wake"
+)
+PLISTS=(
+    "${PLIST_DIR}/ai.hermes.gateway.plist"
+    "${PLIST_DIR}/ai.hermes.vertex-refresh.plist"
+    "${PLIST_DIR}/ai.hermes.vertex-wake.plist"
+)
+
+for plist in "${PLISTS[@]}"; do
+    if [[ ! -f "$plist" ]]; then
+        echo "Required LaunchAgent plist is missing: $plist" >&2
+        echo "Install gateway / vertex refresh launchd first, then retry." >&2
+        exit 1
+    fi
+done
+
+log "Probing proxy ${PROXY_URL} via ${PROBE_URL}"
+HTTP_CODE="$(
+    curl \
+        --proxy "$PROXY_URL" \
+        --silent --show-error \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        --connect-timeout "$TIMEOUT" \
+        --max-time "$TIMEOUT" \
+        "$PROBE_URL"
+)"
+
+if [[ ! "$HTTP_CODE" =~ ^[23] ]]; then
+    echo "Proxy probe failed: ${PROBE_URL} returned HTTP ${HTTP_CODE} via ${PROXY_URL}" >&2
+    exit 1
+fi
+
+log "Proxy probe passed with HTTP ${HTTP_CODE}"
+
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hermes-launchd-proxy.XXXXXX")"
+BACKUP_DIR="${TMP_DIR}/backup"
+GENERATED_DIR="${TMP_DIR}/generated"
+mkdir -p "$BACKUP_DIR" "$GENERATED_DIR"
+
+cleanup() {
+    rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+
+for plist in "${PLISTS[@]}"; do
+    cp "$plist" "${BACKUP_DIR}/$(basename "$plist")"
+done
+
+for plist in "${PLISTS[@]}"; do
+    python3 - "$plist" "${GENERATED_DIR}/$(basename "$plist")" "$PROXY_URL" "$NO_PROXY_VALUE" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+proxy_url = sys.argv[3]
+no_proxy = sys.argv[4]
+
+with source.open("rb") as fh:
+    payload = plistlib.load(fh)
+
+env = dict(payload.get("EnvironmentVariables") or {})
+env["HTTP_PROXY"] = proxy_url
+env["HTTPS_PROXY"] = proxy_url
+env["ALL_PROXY"] = proxy_url
+env["NO_PROXY"] = no_proxy
+payload["EnvironmentVariables"] = env
+
+with dest.open("wb") as fh:
+    plistlib.dump(payload, fh, fmt=plistlib.FMT_XML, sort_keys=False)
+PY
+    plutil -lint "${GENERATED_DIR}/$(basename "$plist")" >/dev/null
+done
+
+rollback() {
+    log "Rolling back plist changes"
+    for plist in "${PLISTS[@]}"; do
+        cp "${BACKUP_DIR}/$(basename "$plist")" "$plist"
+    done
+    for plist in "${PLISTS[@]}"; do
+        launchctl bootout "$BOOTSTRAP_DOMAIN" "$plist" >/dev/null 2>&1 || true
+    done
+    for plist in "${PLISTS[@]}"; do
+        launchctl bootstrap "$BOOTSTRAP_DOMAIN" "$plist"
+    done
+}
+
+log "Installing updated plist files"
+for plist in "${PLISTS[@]}"; do
+    cp "${GENERATED_DIR}/$(basename "$plist")" "$plist"
+done
+
+log "Reloading LaunchAgents"
+for plist in "${PLISTS[@]}"; do
+    launchctl bootout "$BOOTSTRAP_DOMAIN" "$plist" >/dev/null 2>&1 || true
+done
+
+for plist in "${PLISTS[@]}"; do
+    if ! launchctl bootstrap "$BOOTSTRAP_DOMAIN" "$plist"; then
+        rollback
+        echo "Failed to reload $(basename "$plist"); restored all original plists." >&2
+        exit 1
+    fi
+done
+
+printf 'Injected proxy into LaunchAgents:\n'
+for label in "${LABELS[@]}"; do
+    printf '  %s\n' "$label"
+done
+printf '\n'
+printf 'Proxy settings:\n'
+printf '  HTTP_PROXY=%s\n' "$PROXY_URL"
+printf '  HTTPS_PROXY=%s\n' "$PROXY_URL"
+printf '  ALL_PROXY=%s\n' "$PROXY_URL"
+printf '  NO_PROXY=%s\n' "$NO_PROXY_VALUE"
+printf '\n'
+printf 'Inspect with:\n'
+printf '  launchctl print %s/ai.hermes.gateway\n' "$BOOTSTRAP_DOMAIN"
+printf '  launchctl print %s/ai.hermes.vertex-refresh\n' "$BOOTSTRAP_DOMAIN"
+printf '  launchctl print %s/ai.hermes.vertex-wake\n' "$BOOTSTRAP_DOMAIN"

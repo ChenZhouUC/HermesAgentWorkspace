@@ -371,6 +371,74 @@ macOS 下可安装一组独立的 LaunchAgent：
 
 > **launchd 环境说明**：后台 LaunchAgent 不会自动继承你交互式 shell 里的环境变量。当前脚本会主动从 `~/.hermes/.env` 读取 `GOOGLE_APPLICATION_CREDENTIALS` 和 `VERTEX_LOCATION`，因此这两个值必须实际写入 `.env`，不能只存在于 `.zshrc` / `.bashrc`。
 
+#### LaunchAgent 代理注入（Feishu / Vertex）
+
+若需要让 **gateway + Vertex refresh + wake watcher** 统一走本地代理（例如 Clash mixed port `7897`），可使用辅助脚本。对于 mixed port，推荐按 **HTTP 代理** 注入：
+
+```bash
+~/.hermes/scripts/inject_launchd_proxy_env --proxy-url http://127.0.0.1:7897
+```
+
+它会先用 `curl` 通过代理探测连通性；**探测成功后**才会把 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` 原子注入到以下 3 个 LaunchAgent 的 `EnvironmentVariables`，并重载服务：
+
+- `ai.hermes.gateway`
+- `ai.hermes.vertex-refresh`
+- `ai.hermes.vertex-wake`
+
+若中途任一步失败，脚本会自动回滚 3 个 plist 到原状，保证最终状态是“要么全部注入，要么全部不注入”。
+
+**默认注入的环境变量**：
+
+```bash
+HTTP_PROXY=http://127.0.0.1:7897
+HTTPS_PROXY=http://127.0.0.1:7897
+ALL_PROXY=http://127.0.0.1:7897
+NO_PROXY=127.0.0.1,localhost
+```
+
+**脚本成功的标志**：
+
+- 退出码为 `0`
+- 末尾打印 `Injected proxy into LaunchAgents:`
+- `gateway / vertex-refresh / vertex-wake` 三个 LaunchAgent 都完成 `bootout + bootstrap`
+
+脚本成功时**通常不需要额外手动重启**，因为它已经在成功路径中完成了重载。
+
+**建议的验证动作**：
+
+```bash
+# 查看 3 个 LaunchAgent 状态
+launchctl print gui/$(id -u)/ai.hermes.gateway
+launchctl print gui/$(id -u)/ai.hermes.vertex-refresh
+launchctl print gui/$(id -u)/ai.hermes.vertex-wake
+
+# 手动触发一次 Vertex refresh，验证刷新链路也能经代理走通
+launchctl kickstart -k gui/$(id -u)/ai.hermes.vertex-refresh
+
+# 观察日志
+tail -f ~/.hermes/logs/vertex-refresh.log
+tail -f ~/.hermes/logs/vertex-refresh.err.log
+tail -f ~/.hermes/logs/gateway.log
+```
+
+> **说明**：`ai.hermes.vertex-refresh` 是定时任务，平时显示“不在运行”是正常的；关键是 `kickstart` 后日志没有代理相关报错，并且 gateway / 飞书链路能正常响应。
+
+**原生回滚方式**（不使用额外 remove 脚本）：
+
+```bash
+# 1. 重新生成 gateway 官方 plist（覆盖掉已注入的代理环境变量）
+hermes gateway install --force
+
+# 2. 重新生成 Vertex refresh / wake 的官方 plist
+~/.hermes/scripts/install_vertex_refresh_launchd
+```
+
+如果你希望回滚时**只重建 LaunchAgent，不立刻触发一次 Vertex refresh**，第二步可改为：
+
+```bash
+~/.hermes/scripts/install_vertex_refresh_launchd --no-run-now
+```
+
 常用检查命令：
 
 ```bash
