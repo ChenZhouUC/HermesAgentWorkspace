@@ -15,4 +15,4 @@ When updating Feishu documents via API, properly handle newline characters to pr
 §
 Known Feishu Documents for user: 'AI Benchmark Report' (CjeZdC6XioH0VnxsRKscJb1LnVe), 'Edge/Cloud Architecture & VLM' (Mw6CdkF33oRZosx8L3WcgWU4nAc).
 §
-Write temporary files to ~/.hermes/tmp. File modifications outside ~/.hermes/ and Homebrew operations strictly require explicit user approval before execution.
+Write ALL temporary/intermediate files (JSON dumps, analysis, scripts) strictly to ~/.hermes/tmp. Never write to ~/ or outside ~/.hermes/ unless explicitly requested. Homebrew operations require explicit user approval.

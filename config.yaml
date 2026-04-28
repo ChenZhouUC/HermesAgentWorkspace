@@ -11,7 +11,10 @@ toolsets:
 agent:
   max_turns: 90
   gateway_timeout: 1800
-  restart_drain_timeout: 60
+  # Vertex token 刷新会触发 hermes gateway restart；长 Gemini Pro 任务可能跑 8-10 分钟。
+  # drain 给到 900s（15 min），让 in-flight agent 跑完再重启，避免被 SIGKILL 中断（"会话重置"）。
+  # 安全上限：刷新间隔 2700s + token 寿命 ~3600s ⇒ drain 窗口 ≤ 900s。
+  restart_drain_timeout: 900
   api_max_retries: 3
   service_tier: ''
   tool_use_enforcement: auto
@@ -295,3 +298,6 @@ web:
   backend: tavily
 plugins:
   enabled: []
+onboarding:
+  seen:
+    busy_input_prompt: true
