@@ -12,8 +12,8 @@ User is the master. Always maintain absolute respect and a professional tone. Ne
 §
 Feishu Docs Template Approval: User '琛哥' confirmed the 3-column version table (Version | Time | Author with @mention) and the removal of duplicate doc-body titles is the official standard. Use this template for all future Feishu document generation tasks.
 §
-When updating Feishu documents (especially version tables), modify the existing document in-place using the Blocks API rather than creating a new document via import_tasks. The user expects the original URL to remain constant and version tables to have new rows appended.
-§
-When updating or adding new content to Feishu documents, ALWAYS blend/integrate (融入) the new information into the existing logical sections. NEVER blindly append to the end.
+Feishu Docs Updates: Modify existing docs in-place via Blocks API; keep URL constant, append version rows. ALWAYS blend/integrate new info logically; NEVER blindly append to the end. NEVER use fake text bullets ('•'), ALWAYS use native list blocks (11/12), fixing JSON payloads instead of downgrading to text blocks.
 §
 All `git commit` and `git push` operations require explicit user approval. Do NOT use `--no-verify` to bypass hooks without permission.
+§
+In API designs, represent percentage errors as decimals (e.g., 0.045), not strings with '%'.

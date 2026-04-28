@@ -19,12 +19,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表          | 管理方式                                                                        |
-| -------------- | ------------- | ------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/2/4/7 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证            |
-| **工程外补丁** | PATCH-3       | `hermes-update.sh` Step 7 用 inline Python 就地重写，不经过 diff                |
-| **运行时补丁** | PATCH-6       | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行 |
-| **已上游合并** | PATCH-5/8     | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；本地冗余代码已移除            |
+| 类型           | 代表        | 管理方式                                                                                                                 |
+| -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **工程内补丁** | PATCH-1/2/7 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                     |
+| **工程外补丁** | PATCH-3     | `hermes-update.sh` Step 7 用 inline Python 就地重写，不经过 diff                                                         |
+| **运行时补丁** | PATCH-6     | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                          |
+| **已上游合并** | PATCH-4/5/8 | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -55,7 +55,7 @@ Step 8: Re-apply & Verify（核心）
   ├─ 8b. Behavioral verification
   │   ├─ PATCH-1: Python import + 调用 _resolve_skill_dir()，检查返回路径
   │   ├─ PATCH-2: grep _get_platform_tools in doctor.py
-  │   ├─ PATCH-4: grep _dist_index 签名 in main.py
+  │   ├─ PATCH-4: grep _web_ui_build_needed in main.py（✅ 已上游合并，仅验证）
   │   ├─ PATCH-5: grep override_acp_command + copilot-acp（✅ 已上游合并，仅验证）
   │   └─ PATCH-7: grep 'python-socks' in pyproject.toml
   │
@@ -120,7 +120,7 @@ Step 8c 中，如果所有 `PATCHED_FILES` 与上游 HEAD 无差异（`_REFRESHE
 | 局限                            | 说明                                                                                                                                                                                                                                                                                |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **单体 diff，不支持逐文件降级** | 所有 patch 在一个 diff 中。如果 5 个文件中只有 1 个冲突，整体 apply 失败，其余 4 个也不会被应用。`git apply --3way` 覆盖了大部分上下文偏移的情况；真冲突时需要手动 `git apply --reject` 逐文件处理。未来如果冲突频繁，考虑拆成 per-file diff 或改用 Python 脚本做更细粒度的 apply。 |
-| **行为化验证依赖特征字符串**    | PATCH-2/4/5 的验证是 grep 固定字符串。如果上游重构了函数但保留了行为，grep 会误报 "inactive"。PATCH-1 用了真实 Python import + 调用，是最稳的方式；其他 patch 条件允许时应向这个模式靠拢。                                                                                          |
+| **行为化验证依赖特征字符串**    | PATCH-2/5 的验证是 grep 固定字符串。如果上游重构了函数但保留了行为，grep 会误报 "inactive"。PATCH-1 用了真实 Python import + 调用，是最稳的方式；其他 patch 条件允许时应向这个模式靠拢。                                                                                            |
 | **工程外补丁无版本对齐**        | PATCH-3 的 inline Python 替换依赖 `hermes completion zsh` 输出的固定格式。如果上游改了补全生成逻辑但仍有 bug，替换可能失效。目前有 "skip if already correct" 逻辑兜底。                                                                                                             |
 
 ### 受 `PATCHED_FILES` 管理的文件
@@ -130,7 +130,6 @@ PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
-    "hermes_cli/main.py"
     "pyproject.toml"
 )
 ```
@@ -147,6 +146,24 @@ cd ~/.hermes && git restore --source=HEAD -- patches/local-patches.diff
 # 查看 patch 基于的上游版本
 cat ~/.hermes/patches/.local-patches.base
 ```
+
+---
+
+## v0.11.x (upstream `df51ad79` / 截至 2026-04-28)
+
+### [PATCH-4] hermes_cli/main.py — `hermes dashboard` 每次启动重复 build
+
+| 字段         | 内容                                                  |
+| ------------ | ----------------------------------------------------- |
+| **文件**     | `hermes_cli/main.py`                                  |
+| **状态**     | ✅ 已上游合并（v0.11.x，commit `5b5a53a1`）           |
+| **适用版本** | v0.9.0–v0.11.0 需要本地 patch；v0.11.x 之后已上游修复 |
+
+**问题**：`hermes dashboard` 每次启动都在 `HERMES_WEB_DIST` 未设置时直接调用 `_build_web_ui()`；即使构建产物已存在，也会重复执行 `npm install + npm run build`，导致启动耗时数十秒。
+
+**修复**：上游在 commit `5b5a53a155857e63ec7f7eeb373049ad224fc92f`（`fix(cli): check hermes_cli/web_dist/ not web/dist/ for build staleness`）中新增 `_web_ui_build_needed()` helper：以 `hermes_cli/web_dist/.vite/manifest.json`（fallback `index.html`）作 sentinel，并在 `_build_web_ui()` 内部判断 sentinel 是否新过所有 `.ts/.tsx/.js/.jsx/.css/.html/.vue` 源码及 `package.json/package-lock.json/vite.config.*` 等元数据；不需要重建直接早返。该实现比本地原 patch 更完整（额外覆盖 staleness），本地 PATCH-4 已退役，不再通过 `PATCHED_FILES` / `local-patches.diff` 管理。
+
+**上游追踪**：`hermes-update.sh` Step 8b 仍保留 grep `_web_ui_build_needed` 的存在性检查，用于在上游回滚时及时告警。
 
 ---
 
@@ -234,15 +251,13 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-4] hermes_cli/main.py — `hermes dashboard` 每次启动重复 build
 
-| 字段         | 内容                 |
-| ------------ | -------------------- |
-| **文件**     | `hermes_cli/main.py` |
-| **状态**     | 🟡 未上游合并        |
-| **适用版本** | ≥ v0.9.0             |
+| 字段         | 内容                                   |
+| ------------ | -------------------------------------- |
+| **文件**     | `hermes_cli/main.py`                   |
+| **状态**     | ✅ 已上游合并（详见上文 v0.11.x 节）   |
+| **适用版本** | v0.9.0–v0.11.0；v0.11.x 之后已上游修复 |
 
-**问题**：`hermes dashboard` 每次启动都在 `HERMES_WEB_DIST` 未设置时直接调用 `_build_web_ui()`；即使构建产物已存在，也会重复执行 `npm install + npm run build`，导致启动耗时数十秒。
-
-**修复**：在 `cmd_dashboard()` 中检查 `hermes_cli/web_dist/index.html`（Vite 实际输出路径）是否存在，存在则跳过 build 直接启动；不存在时仍正常 build。`hermes update` 路径不受影响（每次 update 仍会重新 build）。
+> 详细记录见上文 [v0.11.x](#v011x-upstream-df51ad79--截至-2026-04-28) 节。
 
 ---
 

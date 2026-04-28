@@ -598,7 +598,7 @@ bash ~/.hermes/hermes-update.sh
 | 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                               |
 | 6    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                                                                      |
 | 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本，自动重新应用 PATCH-3（`_arguments` 语法修复），清除 zcompdump 缓存                                                                                          |
-| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用（PATCH-1/2/4/7）；验证 PATCH-5 上游行为存活 + 本地补丁生效后才刷新 diff 文件；刷新时记录上游 base commit 到 `patches/.local-patches.base` |
+| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用（PATCH-1/2/7）；验证 PATCH-4/5 上游行为存活 + 本地补丁生效后才刷新 diff 文件；刷新时记录上游 base commit 到 `patches/.local-patches.base` |
 | 9    | `hermes doctor` + `hermes gateway status` | 验证更新结果，列出需手动处理的问题                                                                                                                                                 |
 
 > ⚠ **脚本维护提示**：若 hermes 上游大版本升级后更新流程发生变化（新增步骤、flags 变动、路径变更），需同步更新 `~/.hermes/hermes-update.sh`。脚本顶部有详细的"需关注场景"注释。
@@ -630,7 +630,7 @@ hermes gateway status
 
 本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。
 
-补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新应用工程外补丁（PATCH-3）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-4 dashboard build skip、PATCH-7 feishu python-socks 依赖；PATCH-5 / PATCH-8 已上游合并并退役），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新应用工程外补丁（PATCH-3）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-7 feishu python-socks 依赖；PATCH-4 / PATCH-5 / PATCH-8 已上游合并并退役，仅保留存在性 grep 验证），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
 
 手动恢复 `hermes-agent/` 内补丁：
 
@@ -1197,7 +1197,7 @@ hermes dashboard --no-open
 hermes dashboard --port 8080
 ```
 
-> **首次启动**会自动构建前端（需要 `npm`），约需 10–20 秒；之后启动会检测 `web_dist/index.html` 已存在而跳过构建（PATCH-4）。`hermes update` 每次更新都会重新构建前端。
+> **首次启动**会自动构建前端（需要 `npm`），约需 10–20 秒；上游 `_web_ui_build_needed()`（commit `5b5a53a1`）会基于 `hermes_cli/web_dist/.vite/manifest.json` sentinel + 源码 mtime 判断是否需要重建，已构建且未过期时跳过 `npm install` 与 Vite build（替代了已退役的 PATCH-4）。`hermes update` 每次更新都会触发 `npm ci` 重新构建。
 
 ### 功能页面
 

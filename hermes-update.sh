@@ -44,13 +44,13 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# PATCH-5 (delegate_tool) and PATCH-8 (Gemini thought_signature) were merged
-# upstream and removed from this list.
+# PATCH-5 (delegate_tool), PATCH-8 (Gemini thought_signature) and PATCH-4
+# (hermes_cli/main.py dashboard web-build skip) were merged upstream and
+# removed from this list.
 PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
-    "hermes_cli/main.py"
     "pyproject.toml"
 )
 
@@ -417,7 +417,6 @@ step "Re-applying local patches"
 VENV_PY="${HERMES_AGENT}/venv/bin/python3"
 SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
 DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
-MAIN_PY="${HERMES_AGENT}/hermes_cli/main.py"
 DELEGATE_TOOL="${HERMES_AGENT}/tools/delegate_tool.py"
 PYPROJECT="${HERMES_AGENT}/pyproject.toml"
 _PATCH_APPLY_OK=false
@@ -476,9 +475,10 @@ fi
 
 # -- 8b. Behavioral verification -----------------------------------------------
 # PATCH-5 (delegate ACP routing) was merged upstream in v0.10.0.
+# PATCH-4 (dashboard web-build skip) was merged upstream in v0.11.x via
+# upstream commit 5b5a53a1 introducing _web_ui_build_needed().
 _SKILL_PATCH_OK=false
 _DOCTOR_PATCH_OK=false
-_WEB_PATCH_OK=false
 _DELEGATE_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
 
@@ -516,16 +516,17 @@ else
     warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
 fi
 
+# PATCH-4 (dashboard web-build skip) was merged upstream via _web_ui_build_needed()
+# in commit 5b5a53a1; verify the upstream helper is present so we can detect
+# regressions, but no local patch is required.
+MAIN_PY="${HERMES_AGENT}/hermes_cli/main.py"
 if [[ -f "${MAIN_PY}" ]]; then
-    if grep -q '_dist_index = PROJECT_ROOT / "hermes_cli" / "web_dist" / "index.html"' "${MAIN_PY}" 2>/dev/null; then
-        ok "Dashboard web-build patch: active (existing web_dist skips rebuild)"
-        _WEB_PATCH_OK=true
+    if grep -q '_web_ui_build_needed' "${MAIN_PY}" 2>/dev/null; then
+        ok "Dashboard web-build skip: active (upstream merged, PATCH-4 retired)"
     else
-        warn "Dashboard web-build patch inactive — dashboard will rebuild frontend on every start"
-        add_act "Re-apply: see PATCHES.md § [PATCH-4] hermes_cli/main.py web-build skip"
+        warn "Upstream _web_ui_build_needed() missing — dashboard may rebuild on every start"
+        add_act "Check upstream: hermes_cli/main.py should define _web_ui_build_needed()"
     fi
-else
-    warn "Could not locate hermes_cli/main.py — skipping dashboard build check"
 fi
 
 # PATCH-5 (delegate ACP routing) was merged upstream in v0.10.0.
@@ -559,7 +560,7 @@ fi
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_WEB_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

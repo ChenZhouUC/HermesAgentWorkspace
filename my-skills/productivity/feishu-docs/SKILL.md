@@ -79,7 +79,7 @@ content = []
 for block in blocks:
     b_type = block.get("block_type")
     if b_type in range(1, 16):
-        key = {1: "text", 2: "heading1", 3: "heading2", 4: "heading3", 11: "bullet", 12: "ordered", 13: "code"}.get(b_type, "text")
+        key = {2: "text", 3: "heading1", 4: "heading2", 5: "heading3", 12: "bullet", 13: "ordered", 14: "code", 31: "table"}.get(b_type, "text")
         text = "".join([el.get("text_run", {}).get("content", "") for el in block.get(key, {}).get("elements", [])])
         if text.strip(): content.append(text)
 
@@ -120,13 +120,19 @@ ticket = json.loads(urllib.request.urlopen(import_req).read())["data"]["ticket"]
 
 ### 1. Inserting/Appending Content
 
-- **Read First:** Always fetch the children list first to find the correct logical insertion index.
+- **Max 50 Limit:** A single `POST .../blocks/{block_id}/children` request can insert a maximum of 50 blocks. If you have more, you MUST chunk the `children` array (e.g., 45 at a time) and send multiple sequential requests.
+- **Bulk Errors:** If a bulk insertion fails with `400` or `1770001`, test inserting the blocks one-by-one. Feishu will reject the entire batch if a single block has an invalid `block_type` or schema mismatch (e.g. a typo in `block_type: 12` vs `11`).
+- **Read First:** Always fetch the parent's `children` array to find the correct logical insertion index. To insert _before_ a specific block, use `index = parent_children.index(target_block_id)`.
 - **Append to End:** Omit the `index` key entirely in the `POST` payload. Providing an invalid/out-of-bounds index throws `1770001 invalid param`.
-- **Insert at Location:** Provide the exact integer `index`.
+- **Insert at Location & Bulk Index Shifting (400/429 Error Fix):** Provide the exact integer `index`. **CRITICAL:** When inserting multiple blocks at different locations, inserting a block shifts the indices of all subsequent blocks, which will cause `400 Bad Request` or place blocks in the wrong sections. You MUST:
+  1. Calculate all target integer indices _first_.
+  2. Sort the target indices in **descending** (reverse) order.
+  3. Insert from bottom to top so that index shifting only affects the bottom (already processed) parts of the document.
+  4. Add a slight delay (e.g., `time.sleep(0.5)`) between API calls to prevent `429 Too Many Requests` when doing bulk insertions.
 
 ### 2. Updating Text/Headings (Error 400 Fix)
 
-When patching existing text/heading blocks, **do not** use `replace_elements`. You **MUST** use `update_text_elements`.
+When patching existing text/heading blocks, **do not** use `replace_elements` or `replace_text`. You **MUST** use `update_text_elements` (wrong keys cause `400 Bad Request`).
 
 ```python
 # PATCH payload to update a heading or text block:
@@ -137,21 +143,31 @@ When patching existing text/heading blocks, **do not** use `replace_elements`. Y
 }
 ```
 
-**Ultimate Fallback:** If `PATCH` still fails with 400 (e.g., when trying to fix corrupted characters like literal `\n` that break validation), bypass the update entirely: `POST` a brand new block with the corrected text at the same `index`, then `DELETE` the old block via `batch_delete`.
+**Ultimate Fallback:** If `PATCH` still fails with 400 (e.g., when trying to fix corrupted characters like literal `\n` that break validation), bypass the update entirely: `POST` a brand new block with the corrected text at the same `index`, then delete the old block via `batch_delete` (requires HTTP `DELETE` to `/blocks/{parent_id}/children/batch_delete` with a JSON payload `{"start_index": int, "end_index": int}`, where `end_index` is exclusive).
 
 ### 3. Complex Lists (Error 1770001 Fix)
 
-Creating complex Bullet (`12`) or Numbered Lists (`14`) via API often fails strict validation.
-**Workaround:** Downgrade the list blocks to standard Text blocks (`block_type: 2`) and manually prepend bullet characters (`• `) or numbers (`1. `).
+Creating native Bullet (`12`) or Ordered Lists (`13`) via the `children` POST API often fails with `1770001 invalid param` due to strict nested element validation.
+**CRITICAL User Preference:** The user STRICTLY prefers **native list blocks** (`12` for bullet, `13` for ordered) over fake text bullets (like `• `). Do NOT fallback to text blocks. Ensure your payload exactly matches the nested schema:
 
-### 4. Tables: Appending Rows & Blank Cell Fix
+```json
+{ "block_type": 12, "bullet": { "elements": [{ "text_run": { "content": "Text" } }] } }
+```
+
+If you encounter manually typed fake bullets in a document, convert them to native list blocks to maintain strict formatting consistency.
+
+### 4. Tables: Structure, Appending & Blank Cell Fix
+
+**CRITICAL Structure Quirk:** A Table block's `children` array does NOT contain Row blocks. It directly contains the **Cell blocks** (`block_type: 34`) in a flattened, row-major 1D array. For a 2x3 table, `children[0..2]` are Row 0, and `children[3..5]` are Row 1. Do not try to index into rows.
 
 You **cannot** append a row directly to a table. You must:
 
 1. Recreate a **new** table block with `row_size` incremented. Schema quirk: `row_size`, `column_size`, `column_width` go inside the `property` object.
-2. Fill the new table with old + new data.
-3. **Empty Cell Quirk:** Feishu pre-populates new cells with an empty Text block. When you insert your content, call `batch_delete` (`start_index: 0, end_index: 1`) on the cell's children to remove the blank line.
-4. Delete the old table using `batch_delete`. (Remember to sort indices in reverse order when deleting multiple blocks).
+2. Fill the new table with old + new data by iterating over the flattened cell array.
+3. **Empty Cell Quirk:** Feishu pre-populates new cells with an empty Text block. When you insert your content into a cell (`POST .../blocks/{cell_id}/children`), you should delete the default empty text block to remove the blank line.
+   - **Best Practice for New Tables (e.g. Version Table):** Instead of inserting new blocks and deleting the empty ones, update the empty text blocks directly via `batch_update`. Fetch the new table's cells, then for each `cell_id`, fetch its children (`GET .../blocks/{cell_id}/children`) to reliably get the pre-populated empty text block ID. Then send a `PATCH .../blocks/batch_update` with `update_text_elements` for each text block. This avoids the 400 Bad Request issues common with `batch_get`.
+4. Delete the old table using `batch_delete` on the parent's children (HTTP `DELETE` with `{"start_index": int, "end_index": int}` payload).
+   - **CRITICAL Index Shift Pitfall**: If you inserted the new table at the `old_table_index`, the old table has been shifted down to `old_table_index + 1`. You MUST use `start_index: old_table_index + 1, end_index: old_table_index + 2` to avoid accidentally deleting your newly inserted table!
 
 ### 5. Version Table Standard Template
 
@@ -160,3 +176,22 @@ You **cannot** append a row directly to a table. You must:
 - **Time Format**: `YYYY-MM-DD HH:MM:SS UTC+8`
 - **Author**: Must use native `@小聪明蛋` mention (`{"mention_user": {"user_id": bot_open_id}}`)
 - **Column Widths**: `[150, 250, 150]` (Prevents timestamp wrapping).
+
+### 6. Math Equations (LaTeX)
+
+You can natively render mathematical formulas in Feishu Docs using the `equation` element inside any text, bullet, or heading block. This is highly recommended to improve professionalism.
+
+- Place `{"equation": {"content": "LaTeX_string"}}` alongside `{"text_run": ...}` inside the `elements` array.
+- **Example Payload:**
+
+```json
+{
+  "block_type": 12,
+  "bullet": {
+    "elements": [
+      { "text_run": { "content": "The threshold is determined by: " } },
+      { "equation": { "content": "\\tau^* = \\arg\\max_{\\tau} (TPR(\\tau) - FPR(\\tau))" } }
+    ]
+  }
+}
+```

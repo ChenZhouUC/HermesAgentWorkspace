@@ -42,6 +42,7 @@ _hermes() {
                 'debug:Debug tools — upload logs and system info for support'
                 'doctor:Check configuration and dependencies'
                 'dump:Dump setup summary for support/debugging'
+                'fallback:Manage fallback providers (tried when the primary model fail'
                 'gateway:Messaging gateway management'
                 'hooks:Inspect and manage shell-script hooks'
                 'import:Restore a Hermes backup from a zip file'
@@ -58,6 +59,7 @@ _hermes() {
                 'sessions:Manage session history (list, rename, export, prune, delete)'
                 'setup:Interactive setup wizard'
                 'skills:Search, install, configure, and manage skills'
+                'slack:Slack integration helpers (manifest generation, etc.)'
                 'status:Show status of all components'
                 'tools:Configure which tools are enabled per platform'
                 'uninstall:Uninstall Hermes Agent'
@@ -75,8 +77,11 @@ _hermes() {
                     auth_cmds=(
                     'add:Add a pooled credential'
                     'list:List pooled credentials'
+                    'logout:Log out a provider and clear stored auth state'
                     'remove:Remove a pooled credential by index, id, or label'
                     'reset:Clear exhaustion status for all credentials for a provider'
+                    'spotify:Authenticate Hermes with Spotify via PKCE'
+                    'status:Show auth status for a provider'
                     )
                     _describe 'auth command' auth_cmds
                     ;;
@@ -123,6 +128,16 @@ _hermes() {
                     'share:Upload debug report to a paste service and print a shareable'
                     )
                     _describe 'debug command' debug_cmds
+                    ;;
+                fallback)
+                    local -a fallback_cmds
+                    fallback_cmds=(
+                    'add:Pick a provider + model (same picker as `hermes model`) and '
+                    'clear:Remove all fallback entries'
+                    'list:Show the current fallback chain (default when no subcommand)'
+                    'remove:Pick an entry to delete from the chain'
+                    )
+                    _describe 'fallback command' fallback_cmds
                     ;;
                 gateway)
                     local -a gateway_cmds
@@ -248,6 +263,13 @@ _hermes() {
                     'update:Update installed hub skills'
                     )
                     _describe 'skills command' skills_cmds
+                    ;;
+                slack)
+                    local -a slack_cmds
+                    slack_cmds=(
+                    'manifest:Print or write a Slack app manifest with every gateway comma'
+                    )
+                    _describe 'slack command' slack_cmds
                     ;;
                 tools)
                     local -a tools_cmds

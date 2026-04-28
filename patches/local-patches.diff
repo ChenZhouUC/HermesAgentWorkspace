@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 064b1d68..cedcc58f 100644
+index dd9d2d16..271d471e 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1048,8 +1048,23 @@ def run_doctor(args):
+@@ -1083,8 +1083,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -28,30 +28,8 @@ index 064b1d68..cedcc58f 100644
          if api_disabled:
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
-diff --git a/hermes_cli/main.py b/hermes_cli/main.py
-index d7de3096..aebb0434 100644
---- a/hermes_cli/main.py
-+++ b/hermes_cli/main.py
-@@ -6573,8 +6573,15 @@ def cmd_dashboard(args):
-         sys.exit(1)
- 
-     if "HERMES_WEB_DIST" not in os.environ:
--        if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
--            sys.exit(1)
-+        # Skip build if dist already exists (e.g. built by hermes update);
-+        # only rebuild when dist is missing or explicitly via hermes update.
-+        _web_dir = PROJECT_ROOT / "web"
-+        _dist_index = PROJECT_ROOT / "hermes_cli" / "web_dist" / "index.html"
-+        if not _dist_index.exists():
-+            if not _build_web_ui(_web_dir, fatal=True):
-+                sys.exit(1)
-+        else:
-+            print("  ✓ Web UI already built — skipping rebuild")
- 
-     from hermes_cli.web_server import start_server
- 
 diff --git a/pyproject.toml b/pyproject.toml
-index 2b76537f..e56ba396 100644
+index 57a75287..fe79bbdf 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -77,7 +77,7 @@ termux = [
@@ -60,9 +38,9 @@ index 2b76537f..e56ba396 100644
  dingtalk = ["dingtalk-stream>=0.20,<1", "alibabacloud-dingtalk>=2.0.0", "qrcode>=7.0,<8"]
 -feishu = ["lark-oapi>=1.5.3,<2", "qrcode>=7.0,<8"]
 +feishu = ["lark-oapi>=1.5.3,<2", "qrcode>=7.0,<8", "python-socks>=2.0,<3"]
- web = ["fastapi>=0.104.0,<1", "uvicorn[standard]>=0.24.0,<1"]
- rl = [
-   "atroposlib @ git+https://github.com/NousResearch/atropos.git@c20c85256e5a45ad31edf8b7276e9c5ee1995a30",
+ google = [
+   # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
+   # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
 index 9918a826..367e4795 100644
 --- a/tests/tools/test_skill_manager_tool.py
@@ -114,10 +92,10 @@ index 9918a826..367e4795 100644
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index c28f421a..d86af7e2 100644
+index cece3f4f..4d804af2 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -224,10 +224,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -226,10 +226,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -156,7 +134,7 @@ index c28f421a..d86af7e2 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -368,7 +393,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -370,7 +395,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -169,7 +147,7 @@ index c28f421a..d86af7e2 100644
          "skill_md": str(skill_md),
      }
      if category:
-@@ -525,9 +554,12 @@ def _delete_skill(name: str) -> Dict[str, Any]:
+@@ -527,9 +556,12 @@ def _delete_skill(name: str) -> Dict[str, Any]:
      skill_dir = existing["path"]
      shutil.rmtree(skill_dir)
  
