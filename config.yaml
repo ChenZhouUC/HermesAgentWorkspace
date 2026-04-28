@@ -56,7 +56,9 @@ checkpoints:
 file_read_max_chars: 100000
 compression:
   enabled: true
-  threshold: 0.5
+  # 默认 0.5；提前到 0.35 触发，给压缩调用本身留余量，并降低超大 prompt 撞 Vertex 429 的概率。
+  # Hermes 没有"闲时后台压缩"，压缩只在每轮请求前同步触发，因此提前阈值是最直接的规避手段。
+  threshold: 0.35
   target_ratio: 0.2
   protect_last_n: 20
 bedrock:
@@ -86,9 +88,11 @@ auxiliary:
     api_key: ''
     timeout: 360
     extra_body: {}
+  # 把上下文压缩路由到 alibaba/qwen3-max：默认 auto 会复用主模型 Vertex 配额，
+  # 长会话压缩易撞 429 RESOURCE_EXHAUSTED，导致只能插入 fallback context marker。
   compression:
-    provider: auto
-    model: ''
+    provider: alibaba
+    model: qwen3-max
     base_url: ''
     api_key: ''
     timeout: 120
@@ -292,8 +296,8 @@ smart_model_routing:
   max_simple_words: 28
   cheap_model: {}
 fallback_model:
-  provider: gemini
-  model: gemini-3.1-pro-preview
+  provider: alibaba
+  model: qwen3-max
 web:
   backend: tavily
 plugins:
@@ -301,3 +305,4 @@ plugins:
 onboarding:
   seen:
     busy_input_prompt: true
+    openclaw_residue_cleanup: true
