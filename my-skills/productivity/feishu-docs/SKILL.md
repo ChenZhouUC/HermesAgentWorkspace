@@ -160,7 +160,13 @@ If you encounter manually typed fake bullets in a document, convert them to nati
 
 **CRITICAL Structure Quirk:** A Table block's `children` array does NOT contain Row blocks. It directly contains the **Cell blocks** (`block_type: 34`) in a flattened, row-major 1D array. For a 2x3 table, `children[0..2]` are Row 0, and `children[3..5]` are Row 1. Do not try to index into rows.
 
-You **cannot** append a row directly to a table. You must:
+**CRITICAL Creation Limits & Bugs:**
+
+1. **Row Limit**: A single `POST` request to create a table cannot have more than **9 rows**. For larger tables, you MUST logically split them into multiple consecutive tables (each <=9 rows).
+2. **Cell Population Bug**: When creating a table, you cannot reliably pass all cell content in the initial payload. The most stable method is to create the minimal table structure (or even a 1x1 table) first, and then use consecutive `POST` requests to `/blocks/{cell_id}/children` to fill each cell individually.
+3. **Mention Quirks**: Inserting user mentions (`mention_user`) inside table cells during creation works, but modifying an existing text block to become a mention later usually results in `400 Bad Request`. Always use plain text mentions (`@username`) if you cannot create the mention at the exact moment of block creation. You CANNOT add historical version rows with mentions to an existing version table; just leave it as plain text or rewrite the entire table from scratch.
+
+You **cannot** append a row directly to an existing table via `PATCH`. You must:
 
 1. Recreate a **new** table block with `row_size` incremented. Schema quirk: `row_size`, `column_size`, `column_width` go inside the `property` object.
 2. Fill the new table with old + new data by iterating over the flattened cell array.

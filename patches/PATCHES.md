@@ -149,6 +149,98 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+## v0.12.0 (upstream `e2e6b6ff` / release `v2026.4.30`)
+
+### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
+
+| 字段         | 内容                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                    |
+| **状态**     | 🟡 未上游合并（截至 upstream `e2e6b6ff`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **适用版本** | v0.12.0 仍需本地 patch                                                                     |
+
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.12.0 上游，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。
+
+**修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
+
+---
+
+### [PATCH-2] hermes_cli/doctor.py — issue count 过报
+
+| 字段         | 内容                   |
+| ------------ | ---------------------- |
+| **文件**     | `hermes_cli/doctor.py` |
+| **状态**     | 🟡 未上游合并          |
+| **适用版本** | v0.12.0 仍需本地 patch |
+
+**问题**：`hermes doctor` 将所有注册但缺少 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，导致虚报 `Found 1 issue(s) to address`。
+
+**修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
+
+---
+
+### [PATCH-3] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
+
+| 字段         | 内容                                                      |
+| ------------ | --------------------------------------------------------- |
+| **文件**     | `completions/_hermes`（工程外，不在 `PATCHED_FILES` 中）  |
+| **状态**     | 🟡 未上游合并                                             |
+| **适用版本** | 已验证 v0.12.0；上游 `hermes completion zsh` 输出同样错误 |
+
+**问题**：在任何新终端按 Tab 键补全 `hermes` 命令，提示符短暂出现 `...` 随即消失，无任何补全菜单。
+
+**根因**：`hermes completion zsh`（即上游二进制）生成的 `_arguments` 规格将互斥说明符 `(...)` 和替代语法 `{...}` 混用，这是无效语法：
+
+```zsh
+# 无效：zsh _arguments 不支持 (...){...} 组合写法
+'(-h --help){-h,--help}[Show help and exit]'
+```
+
+`_arguments` 解析时报 `invalid argument` 并立即退出，`$state` 未被设置，`case $state in` 块从未执行，函数返回零条补全。
+
+**修复**：将三处无效规格拆为独立规格：`-h/--help/-V/--version` 改用 `(- :)` 模式（出现时排除所有其他补全），`-p/--profile` 拆为两条：
+
+```zsh
+'(- :)-h[Show help and exit]'
+'(- :)--help[Show help and exit]'
+'(- :)-V[Show version and exit]'
+'(- :)--version[Show version and exit]'
+'(-p --profile)-p[Profile name]:profile:_hermes_profiles'
+'(-p --profile)--profile[Profile name]:profile:_hermes_profiles'
+```
+
+**升级处理**：`hermes-update.sh` Step 7 在重新生成补全脚本后自动检测并重新应用此修复；若上游已修正该语法，步骤自动跳过。
+
+---
+
+### [PATCH-6] npm audit fix — node_modules 已知漏洞自动修复
+
+| 字段         | 内容                                              |
+| ------------ | ------------------------------------------------- |
+| **文件**     | `node_modules/`（gitignored，非 `PATCHED_FILES`） |
+| **状态**     | 🟢 自动化（`hermes-update.sh` Step 4）            |
+| **适用版本** | ≥ v0.12.0                                         |
+
+**问题**：`hermes update` 安装 npm 依赖时使用 `npm install --no-audit`，不会自动修复已知安全漏洞。例如 `basic-ftp ≤5.2.2` 存在高危 DoS 漏洞（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报告 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。
+
+**修复**：在 `hermes-update.sh` Step 4 中，于 `hermes update` 完成后自动执行 `npm audit fix --quiet`。由于 `node_modules/` 被 gitignore，此修复不通过 `PATCHED_FILES` / `local-patches.diff` 管理，而是每次更新后重新执行。
+
+---
+
+### [PATCH-7] pyproject.toml — feishu extra 缺少 python-socks 依赖
+
+| 字段         | 内容                   |
+| ------------ | ---------------------- |
+| **文件**     | `pyproject.toml`       |
+| **状态**     | 🟡 未上游合并          |
+| **适用版本** | v0.12.0 仍需本地 patch |
+
+**问题**：`feishu` optional extra 只声明了 `lark-oapi` 和 `qrcode`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
+
+**修复**：在 `pyproject.toml` 的 `feishu` extra 中添加 `"python-socks>=2.0,<3"`。
+
+---
+
 ## v0.11.x (upstream `df51ad79` / 截至 2026-04-28)
 
 ### [PATCH-4] hermes_cli/main.py — `hermes dashboard` 每次启动重复 build
@@ -187,68 +279,6 @@ cat ~/.hermes/patches/.local-patches.base
 
 ## v0.10.0 (upstream `b05d3041`）
 
-### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
-
-| 字段         | 内容                                                                    |
-| ------------ | ----------------------------------------------------------------------- |
-| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py` |
-| **状态**     | 🟡 未上游合并（上游有 `_resolve_skill_dir` 但不读 `external_dirs`）     |
-| **适用版本** | ≥ v0.9.0                                                                |
-
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。上游 v0.10.0 新增了 `_resolve_skill_dir()` 函数，但仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。
-
-**修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配。
-
----
-
-### [PATCH-2] hermes_cli/doctor.py — issue count 过报
-
-| 字段         | 内容                   |
-| ------------ | ---------------------- |
-| **文件**     | `hermes_cli/doctor.py` |
-| **状态**     | 🟡 未上游合并          |
-| **适用版本** | ≥ v0.9.0               |
-
-**问题**：`hermes doctor` 将所有注册但缺少 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，导致虚报 `Found 1 issue(s) to address`。
-
-**修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
-
----
-
-### [PATCH-3] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
-
-| 字段         | 内容                                                      |
-| ------------ | --------------------------------------------------------- |
-| **文件**     | `completions/_hermes`（工程外，不在 `PATCHED_FILES` 中）  |
-| **状态**     | 🟡 未上游合并                                             |
-| **适用版本** | 已验证 v0.10.0；上游 `hermes completion zsh` 输出同样错误 |
-
-**问题**：在任何新终端按 Tab 键补全 `hermes` 命令，提示符短暂出现 `...` 随即消失，无任何补全菜单。
-
-**根因**：`hermes completion zsh`（即上游二进制）生成的 `_arguments` 规格将互斥说明符 `(...)` 和替代语法 `{...}` 混用，这是无效语法：
-
-```zsh
-# 无效：zsh _arguments 不支持 (...){...} 组合写法
-'(-h --help){-h,--help}[Show help and exit]'
-```
-
-`_arguments` 解析时报 `invalid argument` 并立即退出，`$state` 未被设置，`case $state in` 块从未执行，函数返回零条补全。
-
-**修复**：将三处无效规格拆为独立规格：`-h/--help/-V/--version` 改用 `(- :)` 模式（出现时排除所有其他补全），`-p/--profile` 拆为两条：
-
-```zsh
-'(- :)-h[Show help and exit]'
-'(- :)--help[Show help and exit]'
-'(- :)-V[Show version and exit]'
-'(- :)--version[Show version and exit]'
-'(-p --profile)-p[Profile name]:profile:_hermes_profiles'
-'(-p --profile)--profile[Profile name]:profile:_hermes_profiles'
-```
-
-**升级处理**：`hermes-update.sh` Step 7 在重新生成补全脚本后自动检测并重新应用此修复；若上游已修正该语法，步骤自动跳过。
-
----
-
 ### [PATCH-4] hermes_cli/main.py — `hermes dashboard` 每次启动重复 build
 
 | 字段         | 内容                                   |
@@ -272,33 +302,3 @@ cat ~/.hermes/patches/.local-patches.base
 **问题**：`delegate_task(acp_command="copilot")` 传入 ACP 命令后，子 agent 的 `provider` 仍继承父 agent（如 `gemini`），未切换为 `"copilot-acp"`。`AIAgent` 构造时只在 `provider == "copilot-acp"` 时启用 ACP subprocess 通道，导致 `acp_command`/`acp_args` 被存储但从未使用，子 agent 直接走父 agent 的 API（如 Gemini），最终超时失败。
 
 **修复**：在 `_build_child_agent()` 解析 `effective_acp_command` 之后，检测 `override_acp_command` 是否被显式设置：若是，强制 `effective_provider = "copilot-acp"`、`effective_base_url = "acp://copilot"`，确保 `AIAgent.__init__` 走 `CopilotACPClient` 子进程通道。
-
----
-
-### [PATCH-6] npm audit fix — node_modules 已知漏洞自动修复
-
-| 字段         | 内容                                              |
-| ------------ | ------------------------------------------------- |
-| **文件**     | `node_modules/`（gitignored，非 `PATCHED_FILES`） |
-| **状态**     | 🟢 自动化（`hermes-update.sh` Step 4）            |
-| **适用版本** | ≥ v0.9.0                                          |
-
-**问题**：`hermes update` 安装 npm 依赖时使用 `npm install --no-audit`，不会自动修复已知安全漏洞。例如 `basic-ftp ≤5.2.2` 存在高危 DoS 漏洞（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报告 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。
-
-**修复**：在 `hermes-update.sh` Step 4 中，于 `hermes update` 完成后自动执行 `npm audit fix --quiet`。由于 `node_modules/` 被 gitignore，此修复不通过 `PATCHED_FILES` / `local-patches.diff` 管理，而是每次更新后重新执行。
-
----
-
-### [PATCH-7] pyproject.toml — feishu extra 缺少 python-socks 依赖
-
-| 字段         | 内容             |
-| ------------ | ---------------- |
-| **文件**     | `pyproject.toml` |
-| **状态**     | 🟡 未上游合并    |
-| **适用版本** | ≥ v0.10.0        |
-
-**问题**：`feishu` optional extra 只声明了 `lark-oapi` 和 `qrcode`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
-
-**修复**：在 `pyproject.toml` 的 `feishu` extra 中添加 `"python-socks>=2.0,<3"`。
-
----

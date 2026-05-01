@@ -651,9 +651,32 @@ echo "$GW_FINAL"
 if gw_running; then
     ok "Gateway is running"
 else
-    fail "Gateway is not running"
-    add_act "Start gateway: hermes gateway start  (diagnose: hermes logs)"
-    FINAL_RC=1
+    note "Gateway not running after verification — attempting one automatic recovery..."
+    set +e
+    if echo "$GW_FINAL" | grep -q 'not loaded'; then
+        hermes gateway install --force >/dev/null 2>&1
+    fi
+    _GW_FINAL_RECOVER_OUT=$(hermes gateway start 2>&1)
+    _GW_FINAL_RECOVER_RC=$?
+    for _ in {1..12}; do
+        sleep 1
+        if gw_running; then
+            break
+        fi
+    done
+    set -e
+    if gw_running; then
+        ok "Gateway recovered after final restart"
+    else
+        fail "Gateway is not running"
+        if [[ -n "${_GW_FINAL_RECOVER_OUT:-}" ]]; then
+            add_warn "final gateway restart output: ${_GW_FINAL_RECOVER_OUT//$'\n'/ | }"
+        elif [[ ${_GW_FINAL_RECOVER_RC:-0} -ne 0 ]]; then
+            add_warn "final gateway restart exited ${_GW_FINAL_RECOVER_RC}"
+        fi
+        add_act "Start gateway: hermes gateway start  (diagnose: hermes logs)"
+        FINAL_RC=1
+    fi
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

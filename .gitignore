@@ -10,6 +10,9 @@ db_workspace/
 state.db
 state.db-shm
 state.db-wal
+kanban.db
+kanban.db-shm
+kanban.db-wal
 gateway.pid
 gateway_state.json
 auth.lock
@@ -28,6 +31,7 @@ __pycache__/
 models_dev_cache.json
 .skills_prompt_snapshot.json
 cache/
+state-snapshots/
 
 # ── 日志和会话 ──────────────────────────────────────────────────
 logs/
