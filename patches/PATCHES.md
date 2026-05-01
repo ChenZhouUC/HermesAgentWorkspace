@@ -279,18 +279,6 @@ cat ~/.hermes/patches/.local-patches.base
 
 ## v0.10.0 (upstream `b05d3041`）
 
-### [PATCH-4] hermes_cli/main.py — `hermes dashboard` 每次启动重复 build
-
-| 字段         | 内容                                   |
-| ------------ | -------------------------------------- |
-| **文件**     | `hermes_cli/main.py`                   |
-| **状态**     | ✅ 已上游合并（详见上文 v0.11.x 节）   |
-| **适用版本** | v0.9.0–v0.11.0；v0.11.x 之后已上游修复 |
-
-> 详细记录见上文 [v0.11.x](#v011x-upstream-df51ad79--截至-2026-04-28) 节。
-
----
-
 ### [PATCH-5] tools/delegate_tool.py — ACP 子进程路由缺失
 
 | 字段         | 内容                     |
