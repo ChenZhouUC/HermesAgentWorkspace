@@ -323,7 +323,7 @@ fallback_model:
 首次配置、切换 service account、或怀疑 token 已过期时，手动跑一次刷新：
 
 ```bash
-# 推荐：使用 wrapper 脚本（自动从 .env 读取凭据，刷新后重启 gateway）
+# 推荐：使用 wrapper 脚本（自动从 .env 读取凭据，刷新后计划内重启 gateway）
 ~/.hermes/scripts/refresh_vertex_and_restart_gateway
 
 # 仅刷新 token 不重启 gateway（需要 shell 中有 GOOGLE_APPLICATION_CREDENTIALS）
@@ -339,7 +339,7 @@ fallback_model:
 
 macOS 下可安装一组独立的 LaunchAgent：
 
-- 定时执行“刷新 Vertex token -> 重启 gateway”
+- 定时执行“刷新 Vertex token -> 等待 gateway 空闲 -> 计划内重启 gateway”
 - 监听系统从休眠恢复，并在 wake 后立即补跑一次刷新
 
 ```bash
@@ -366,8 +366,15 @@ macOS 下可安装一组独立的 LaunchAgent：
 
 定时任务和 wake watcher 触发时，都会先刷新 `VERTEX_ACCESS_TOKEN`（失败时自动重试最多 3 次，间隔 60 秒；3 次均失败会弹出 macOS 系统通知），然后：
 
-- 若 `ai.hermes.gateway` 已安装为 launchd 服务，则执行 `hermes gateway restart`；若 restart 失败则退回 `hermes gateway start`
+- 若 `ai.hermes.gateway` 已安装为 launchd 服务，则先等待 gateway 空闲（默认最多 600 秒，每 5 秒检查一次），再对 gateway PID 发送 `SIGUSR1` 触发 Hermes 的计划内 service restart；若计划内重启失败，才退回 `hermes gateway restart` / `hermes gateway start`
 - 若 gateway 尚未安装，则只刷新 token，不会替你安装 gateway
+
+可通过环境变量调整等待策略：
+
+```bash
+HERMES_VERTEX_RESTART_IDLE_WAIT_SECONDS=900
+HERMES_VERTEX_RESTART_IDLE_POLL_SECONDS=5
+```
 
 > **launchd 环境说明**：后台 LaunchAgent 不会自动继承你交互式 shell 里的环境变量。当前脚本会主动从 `~/.hermes/.env` 读取 `GOOGLE_APPLICATION_CREDENTIALS` 和 `VERTEX_LOCATION`，因此这两个值必须实际写入 `.env`，不能只存在于 `.zshrc` / `.bashrc`。
 
@@ -451,7 +458,7 @@ tail -f ~/.hermes/logs/vertex-wake.log
 #### 运维常用命令
 
 ```bash
-# 立即手动刷新一次 token，并重启 gateway
+# 立即手动刷新一次 token，并计划内重启 gateway
 ~/.hermes/scripts/refresh_vertex_and_restart_gateway
 
 # 通过 launchd 立刻触发一次后台任务
@@ -474,7 +481,7 @@ rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist \
 `hermes gateway install` 和上面的 Vertex 自动刷新是两个独立的 LaunchAgent，职责不同：
 
 - `hermes gateway install` 负责 Hermes gateway 常驻、自启动、维持飞书 WebSocket 和 cron；它不会自己去刷新 Vertex token
-- `install_vertex_refresh_launchd` 负责定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN`，并在系统 wake 后补跑一次刷新，再重启 gateway 让新 token 生效
+- `install_vertex_refresh_launchd` 负责定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN`，并在系统 wake 后补跑一次刷新，再计划内重启 gateway 让新 token 生效
 - 只做“单次刷新”时，新的 token 只会被之后新启动的 Hermes 进程读取；已经在跑的 gateway 不会自动热更新
 
 这些进程在 launchd 层面是**相互独立的兄弟服务**，不是长期父子关系：

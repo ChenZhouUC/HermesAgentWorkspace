@@ -1,6 +1,7 @@
 ---
 name: memory-management
 description: A guide for robustly handling memory tool errors, especially when content exceeds size limits or the memory state is unexpected.
+category: autonomous-ai-agents
 ---
 
 ## Trigger

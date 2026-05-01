@@ -88,6 +88,110 @@ fi
 
 MAX_RETRIES=3
 RETRY_INTERVAL=60
+RESTART_IDLE_WAIT_SECONDS="${HERMES_VERTEX_RESTART_IDLE_WAIT_SECONDS:-600}"
+RESTART_IDLE_POLL_SECONDS="${HERMES_VERTEX_RESTART_IDLE_POLL_SECONDS:-5}"
+
+is_uint() {
+    case "$1" in
+    '' | *[!0-9]*)
+        return 1
+        ;;
+    *)
+        return 0
+        ;;
+    esac
+}
+
+if ! is_uint "$RESTART_IDLE_WAIT_SECONDS"; then
+    RESTART_IDLE_WAIT_SECONDS=600
+fi
+if ! is_uint "$RESTART_IDLE_POLL_SECONDS" || [ "$RESTART_IDLE_POLL_SECONDS" -eq 0 ]; then
+    RESTART_IDLE_POLL_SECONDS=5
+fi
+
+python_bin() {
+    if [ -x "$ROOT/hermes-agent/venv/bin/python" ]; then
+        printf '%s\n' "$ROOT/hermes-agent/venv/bin/python"
+    elif command -v python3 >/dev/null 2>&1; then
+        command -v python3
+    else
+        command -v python
+    fi
+}
+
+gateway_service_target() {
+    printf 'gui/%s/ai.hermes.gateway\n' "$(id -u)"
+}
+
+gateway_service_installed() {
+    launchctl print "$(gateway_service_target)" >/dev/null 2>&1
+}
+
+gateway_pid() {
+    launchctl print "$(gateway_service_target)" 2>/dev/null |
+        awk '/^[[:space:]]*pid = [0-9]+/ { print $3; exit }'
+}
+
+gateway_active_agents() {
+    state_file="${HERMES_HOME}/gateway_state.json"
+    if [ ! -f "$state_file" ]; then
+        printf '0\n'
+        return 0
+    fi
+    py="$(python_bin)"
+    "$py" - "$state_file" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        state = json.load(f)
+    print(int(state.get("active_agents") or 0))
+except Exception:
+    print(0)
+PY
+}
+
+wait_for_gateway_idle() {
+    max_wait="$1"
+    poll="$2"
+    active="$(gateway_active_agents)"
+    if [ "$active" -le 0 ]; then
+        return 0
+    fi
+
+    log "Gateway has ${active} active agent(s); waiting up to ${max_wait}s before restart"
+    waited=0
+    while [ "$waited" -lt "$max_wait" ]; do
+        sleep "$poll"
+        waited=$((waited + poll))
+        active="$(gateway_active_agents)"
+        if [ "$active" -le 0 ]; then
+            log "Gateway is idle; continuing planned restart"
+            return 0
+        fi
+    done
+
+    log "Gateway still has ${active} active agent(s) after ${max_wait}s; requesting planned restart anyway"
+    return 1
+}
+
+request_planned_gateway_restart() {
+    pid="$(gateway_pid)"
+    if [ -z "$pid" ]; then
+        log "Gateway PID not found; cannot request planned restart"
+        return 1
+    fi
+
+    log "Requesting Hermes gateway planned restart via SIGUSR1 (pid ${pid})"
+    if kill -USR1 "$pid" 2>/dev/null; then
+        log "Hermes gateway planned restart requested"
+        return 0
+    fi
+
+    log "Failed to signal gateway PID ${pid}"
+    return 1
+}
 
 _refresh_ok=false
 for _attempt in $(seq 1 "$MAX_RETRIES"); do
@@ -109,14 +213,19 @@ if ! $_refresh_ok; then
     exit 1
 fi
 
-if launchctl list 2>/dev/null | grep -q "ai.hermes.gateway"; then
-    log "Restarting Hermes gateway"
-    if hermes gateway restart; then
-        log "Hermes gateway restarted"
+if gateway_service_installed; then
+    wait_for_gateway_idle "$RESTART_IDLE_WAIT_SECONDS" "$RESTART_IDLE_POLL_SECONDS" || true
+    if request_planned_gateway_restart; then
+        :
     else
-        log "Gateway restart failed, trying start"
-        hermes gateway start
-        log "Hermes gateway started"
+        log "Planned gateway restart failed, falling back to hermes gateway restart"
+        if hermes gateway restart; then
+            log "Hermes gateway restarted"
+        else
+            log "Gateway restart failed, trying start"
+            hermes gateway start
+            log "Hermes gateway started"
+        fi
     fi
 else
     log "Gateway launchd service not installed; skipped gateway restart"

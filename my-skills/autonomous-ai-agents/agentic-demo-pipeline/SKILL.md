@@ -1,7 +1,7 @@
 ---
 name: agentic-demo-pipeline
 description: "使用 Codex 和 Copilot 串联的双 Agent 自动化 Demo 开发流水线。支持深度调研、模块化代码生成、配套文档及阶段性进度汇报。"
-category: software-development
+category: autonomous-ai-agents
 ---
 
 # Agentic Demo Pipeline (双模型自动化研发流 v2.0)

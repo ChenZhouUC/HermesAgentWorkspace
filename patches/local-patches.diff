@@ -42,7 +42,7 @@ index a58e17279..4a54943cf 100644
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index 9fc8957f1..d70bb700b 100644
+index 00eaf51ea..22e06d1d9 100644
 --- a/tests/tools/test_skill_manager_tool.py
 +++ b/tests/tools/test_skill_manager_tool.py
 @@ -29,10 +29,12 @@ from tools.skill_manager_tool import (
@@ -92,10 +92,10 @@ index 9fc8957f1..d70bb700b 100644
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index cc8b0fed2..e708ab1cb 100644
+index e1b9a5f05..6859d5ff5 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -266,10 +266,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -269,10 +269,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -134,7 +134,7 @@ index cc8b0fed2..e708ab1cb 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -410,7 +435,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -413,7 +438,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -147,7 +147,7 @@ index cc8b0fed2..e708ab1cb 100644
          "skill_md": str(skill_md),
      }
      if category:
-@@ -571,9 +600,11 @@ def _delete_skill(name: str) -> Dict[str, Any]:
+@@ -574,9 +603,11 @@ def _delete_skill(name: str) -> Dict[str, Any]:
      skills_root = _containing_skills_root(skill_dir)
      shutil.rmtree(skill_dir)
  
