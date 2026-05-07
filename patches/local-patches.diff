@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index f0822bdce..85376be25 100644
+index fce4b533d..868515f3b 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1225,8 +1225,23 @@ def run_doctor(args):
+@@ -1308,8 +1308,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -29,7 +29,7 @@ index f0822bdce..85376be25 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/pyproject.toml b/pyproject.toml
-index a58e17279..4a54943cf 100644
+index 126854f00..47e2b0bd6 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -80,7 +80,7 @@ termux = [
@@ -42,7 +42,7 @@ index a58e17279..4a54943cf 100644
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index 00eaf51ea..22e06d1d9 100644
+index 96c3a361f..1b92b92ee 100644
 --- a/tests/tools/test_skill_manager_tool.py
 +++ b/tests/tools/test_skill_manager_tool.py
 @@ -29,10 +29,12 @@ from tools.skill_manager_tool import (
@@ -92,7 +92,7 @@ index 00eaf51ea..22e06d1d9 100644
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index e1b9a5f05..6859d5ff5 100644
+index ed4cb3f10..8eec6d30f 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
 @@ -269,10 +269,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
@@ -147,7 +147,7 @@ index e1b9a5f05..6859d5ff5 100644
          "skill_md": str(skill_md),
      }
      if category:
-@@ -574,9 +603,11 @@ def _delete_skill(name: str) -> Dict[str, Any]:
+@@ -594,9 +623,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
      skills_root = _containing_skills_root(skill_dir)
      shutil.rmtree(skill_dir)
  
@@ -160,4 +160,4 @@ index e1b9a5f05..6859d5ff5 100644
 +    if parent.resolve() not in protected and parent.exists() and not any(parent.iterdir()):
          parent.rmdir()
  
-     return {
+     message = f"Skill '{name}' deleted."

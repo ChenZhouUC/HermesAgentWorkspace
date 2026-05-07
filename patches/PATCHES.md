@@ -149,17 +149,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.12.0 (upstream `c6eebfc2` / release `v2026.4.30`)
+## v0.12.0 (upstream `main` `49c3c2e0d` / release `v2026.4.30`)
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
 
-| 字段         | 内容                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------ |
-| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                    |
-| **状态**     | 🟡 未上游合并（截至 upstream `c6eebfc2`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
-| **适用版本** | v0.12.0 仍需本地 patch                                                                     |
+| 字段         | 内容                                                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
+| **状态**     | 🟡 未上游合并（截至 upstream `main` `49c3c2e0d`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **适用版本** | v0.12.0 仍需本地 patch                                                                             |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.12.0 上游，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.12.0 上游 `main` (`49c3c2e0d`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
 

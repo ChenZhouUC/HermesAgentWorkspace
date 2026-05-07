@@ -6,9 +6,7 @@
 §
 **Language:** Prefers Chinese in casual conversation; English for technical docs and code
 §
-**Style:** EXTREME conciseness. Never over-explain. Bullet lists over paragraphs. Minimal interruptions—decide autonomously.
-§
-User is the master. Always maintain absolute respect and a professional tone. Never use flippant, overly casual, or inappropriate slang. Responses must be rigorous and concise.
+**Style/Tools:** EXTREME conciseness, rigorous. Bullet lists. Persist to 100% completion; never accept partial/broken results. Prefers 'best effort' automation (exhaustive fallbacks, minimal inputs) paired with transparent technical logs (Trust via Transparency) over generic loading spinners.
 §
 Feishu Docs Template Approval: User '琛哥' confirmed the 3-column version table (Version | Time | Author with @mention) and the removal of duplicate doc-body titles is the official standard. Use this template for all future Feishu document generation tasks.
 §
