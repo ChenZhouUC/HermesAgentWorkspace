@@ -16,6 +16,8 @@
 - [配置](#配置)
   - [.env 密钥文件](#env-密钥文件)
   - [config.yaml 主配置](#configyaml-主配置)
+  - [Thinking / Reasoning 配置](#thinking--reasoning-配置)
+  - [流式输出](#流式输出)
   - [Vertex Provider](#vertex-provider)
   - [飞书集成](#飞书集成)
 - [Gateway 服务](#gateway-服务)
@@ -287,7 +289,7 @@ open -a TextEdit ~/.hermes/.env
 关键配置节说明：
 
 ```yaml
-# 主模型
+# 主模型（走 Vertex OpenAI 兼容端点 + access token）
 model:
   provider: custom
   default: google/gemini-3.1-pro-preview
@@ -297,18 +299,77 @@ model:
 # 备用模型（主模型失败时自动切换）
 fallback_model:
   provider: alibaba
-  model: qwen3-max
+  model: qwen3.6-plus
+
+# 压缩辅助模型（与主/备模型对齐到 1M 上下文，可统一使用同一个 threshold）
+auxiliary:
+  compression:
+    provider: alibaba
+    model: qwen3.6-plus
+    extra_body:
+      enable_thinking: true # qwen 系开启 thinking 模式，让压缩更聪明
+
+# 上下文压缩门槛（主/fallback/压缩三方都是 1M context 时可放宽到 0.7）
+compression:
+  enabled: true
+  threshold: 0.7 # 触发时机 ≈ 700k tokens
+  target_ratio: 0.2
 ```
+
+> **三方对齐建议**：当主模型、fallback、压缩模型上下文窗口一致时，可使用统一 threshold；如果压缩模型容量小于主模型（例如压缩用 qwen3-max 256k、主模型 1M），Hermes 会在每次会话临时下调 threshold 到压缩模型容量并打 warning。当前配置三方都是 1M，因此 0.7 即可，无 auto-lower 警告。
 
 **常用配置项**：
 
-| 配置项                   | 默认值 | 说明                        |
-| ------------------------ | ------ | --------------------------- |
-| `agent.max_turns`        | 90     | 单次 session 最大轮数       |
-| `agent.gateway_timeout`  | 1800s  | Gateway 会话超时（30 分钟） |
-| `agent.reasoning_effort` | medium | 推理强度（low/medium/high） |
-| `display.personality`    | kawaii | 显示风格                    |
-| `approvals.mode`         | manual | 危险命令审批（manual/auto） |
+| 配置项                                             | 默认值       | 说明                                                                       |
+| -------------------------------------------------- | ------------ | -------------------------------------------------------------------------- |
+| `agent.max_turns`                                  | 90           | 单次 session 最大轮数                                                      |
+| `agent.gateway_timeout`                            | 1800s        | Gateway 会话超时（30 分钟）                                                |
+| `agent.reasoning_effort`                           | high         | 主 agent 推理强度（none/low/medium/high/xhigh）                            |
+| `delegation.reasoning_effort`                      | high         | 子 agent / orchestrator 推理强度（空字符串表示继承主 agent）               |
+| `display.personality`                              | kawaii       | 显示风格                                                                   |
+| `display.show_reasoning`                           | true         | 是否在 TUI / 飞书等前端展示 reasoning 内容（依赖模型返回 reasoning）       |
+| `display.streaming`                                | true         | 控制 **CLI/TUI 终端**逐 token 流式（仅终端，不影响平台前端）               |
+| `streaming.enabled`                                | false        | 控制**飞书等 IM 前端**逐 token edit 流式；当前关闭，避免 markdown 渲染失真 |
+| `compression.threshold`                            | 0.7          | 上下文占主模型容量比例触发压缩                                             |
+| `auxiliary.compression.model`                      | qwen3.6-plus | 压缩任务使用的辅助模型                                                     |
+| `auxiliary.compression.extra_body.enable_thinking` | true         | 压缩走 qwen thinking 模式                                                  |
+| `approvals.mode`                                   | manual       | 危险命令审批（manual/auto）                                                |
+
+### Thinking / Reasoning 配置
+
+把所有"能开 thinking"的位置都打开后，可见性的去向：
+
+| 位置                                      | 当前                  | 模型                           | TUI 可见  | 飞书可见                  |
+| ----------------------------------------- | --------------------- | ------------------------------ | --------- | ------------------------- |
+| 主 agent (`agent.reasoning_effort`)       | high                  | gemini-3.1-pro-preview         | ⚠️ 视通道 | ⚠️ 视通道                 |
+| 子 agent (`delegation.reasoning_effort`)  | high                  | 默认继承主模型                 | 同主      | 同主                      |
+| Fallback (`fallback_model`)               | —                     | qwen3.6-plus（reasoning=True） | ✅        | ✅（fallback 触发的会话） |
+| 压缩 (`auxiliary.compression.extra_body`) | enable_thinking: true | qwen3.6-plus                   | —         | —（后台任务，不前端展示） |
+| 显示开关 (`display.show_reasoning`)       | true                  | —                              | —         | —                         |
+
+**已知限制**：
+
+- 主模型走 `model.provider: custom` + Vertex OpenAI 兼容端点 (`aiplatform.googleapis.com/.../openapi`)。Hermes 上游 `agent/transports/chat_completions.py` 中 `_is_gemini_openai_compat_base_url()` 仅识别 `generativelanguage.googleapis.com/.../openai`，且 `_build_kwargs_*` 仅在 `provider_name == "gemini"` 时注入 `extra_body.google.thinking_config`。因此当前主模型的 thinking trace 不会在 TUI 流式里展开，飞书前端也只能看到 tool 调用 + 文本。
+- Fallback 触发后切到 qwen3.6-plus 的对话**会**完整展示 thinking 段落（前缀 `💭 **Reasoning:**`）。
+- 要让主模型 thinking 也能展示，需要写本地 patch 让 chat_completions transport 识别 vertex openai-compat 端点，并把 `provider == "custom"` + 该 base_url 视作 Gemini —— 暂未实现，记入 backlog。
+
+### 流式输出
+
+Hermes 有**两套独立的流式机制**，配置项分别落在不同的 namespace 下：
+
+| 配置                         | 控制对象                    | 当前值 | 说明                                                        |
+| ---------------------------- | --------------------------- | ------ | ----------------------------------------------------------- |
+| `display.streaming`          | CLI / TUI 终端逐 token 渲染 | true   | 仅影响终端展示，不影响 IM 平台                              |
+| `streaming.enabled`          | 飞书等 IM 平台逐 token edit | false  | 通过 `update_message` API 增量编辑同一条消息                |
+| `streaming.transport`        | 流式传输方式                | edit   | 当前仅 `edit`（progressive editMessageText）                |
+| `streaming.edit_interval`    | 飞书消息 edit 最小间隔      | 1.0s   | 太低（< 0.4s）会触发飞书 API 限流；太高（> 1.5s）流畅度下降 |
+| `streaming.buffer_threshold` | 累积多少字符强制 edit       | 40     | 与 `edit_interval` 互为兜底                                 |
+
+**为什么飞书流式当前关闭**：
+
+飞书 token 流式开启后会出现 markdown 渲染失真——根因是 `gateway/platforms/feishu.py` 的 `_build_outbound_payload()` 每次 edit 重新探测 markdown 痕迹（`_MARKDOWN_HINT_RE` 要求 `**bold**`、`1.`、` ``` ` 等成对/完整出现），但流式中间帧的 buffer 经常处在"半开"状态（如 `**Hel`、` ` ``hello `），探测失败 → 走 plain text → 飞书 `update_message` 不能切换 msg_type → 后续 edit 全部锁死成 text → 用户看到 markdown 原文。
+
+要重新开启流式且不丢格式，需要本地 patch（暂未实现）：让 `edit_message` 路径强制 `msg_type=post`，绕过 buffer-stage detection。在该 patch 落地前，飞书侧维持非流式整段输出，保留加粗/序号/列表渲染。
 
 ### Vertex Provider
 

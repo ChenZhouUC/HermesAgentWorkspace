@@ -19,7 +19,7 @@ agent:
   gateway_notify_interval: 600
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
-  reasoning_effort: medium
+  reasoning_effort: high
 terminal:
   backend: local
   modal_mode: auto
@@ -68,12 +68,19 @@ tool_output:
   max_line_length: 2000
 compression:
   enabled: true
-  threshold: 0.35
+  threshold: 0.7
   target_ratio: 0.2
   protect_last_n: 20
   hygiene_hard_message_limit: 400
 prompt_caching:
   cache_ttl: 5m
+streaming:
+  enabled: false
+  transport: edit
+  edit_interval: 1.0
+  buffer_threshold: 40
+  cursor: ' ▉'
+  fresh_final_after_seconds: 60.0
 bedrock:
   region: ''
   discovery:
@@ -103,11 +110,12 @@ auxiliary:
     extra_body: {}
   compression:
     provider: alibaba
-    model: qwen3-max
+    model: qwen3.6-plus
     base_url: ''
     api_key: ''
     timeout: 120
-    extra_body: {}
+    extra_body:
+      enable_thinking: true
   session_search:
     provider: auto
     model: ''
@@ -166,7 +174,7 @@ display:
   tui_auto_resume_recent: false
   bell_on_complete: false
   show_reasoning: true
-  streaming: false
+  streaming: true
   final_response_markdown: strip
   inline_diffs: true
   show_cost: false
@@ -252,7 +260,7 @@ delegation:
   inherit_mcp_toolsets: true
   max_iterations: 50
   child_timeout_seconds: 600
-  reasoning_effort: ''
+  reasoning_effort: high
   max_concurrent_children: 3
   max_spawn_depth: 1
   orchestrator_enabled: true
@@ -349,7 +357,7 @@ smart_model_routing:
   cheap_model: {}
 fallback_model:
   provider: alibaba
-  model: qwen3-max
+  model: qwen3.6-plus
 web:
   backend: tavily
 plugins:
