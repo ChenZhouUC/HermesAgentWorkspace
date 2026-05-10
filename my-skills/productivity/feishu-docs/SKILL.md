@@ -113,12 +113,55 @@ curl_cmd = ["curl", "-s", "-X", "POST", "https://open.feishu.cn/open-apis/drive/
 file_token = json.loads(subprocess.check_output(curl_cmd).decode())["data"]["file_token"]
 ```
 
-### 2. Create Import Task
+### 2. Create and Poll Import Task
 
 ```python
 import_req = urllib.request.Request("https://open.feishu.cn/open-apis/drive/v1/import_tasks", data=json.dumps({"file_extension": "md", "file_token": file_token, "type": "docx", "point": {"mount_type": 1, "mount_key": ""}}).encode(), headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
 ticket = json.loads(urllib.request.urlopen(import_req).read())["data"]["ticket"]
+
+# Poll for completion to get the final doc_token and URL
+import time
+for _ in range(15):
+    time.sleep(2)
+    poll_req = urllib.request.Request(f"https://open.feishu.cn/open-apis/drive/v1/import_tasks/{ticket}", headers={'Authorization': f'Bearer {token}'})
+    poll_res = json.loads(urllib.request.urlopen(poll_req).read())
+    if poll_res["data"]["result"]["job_status"] == 0: # 0 means success
+        doc_token = poll_res["data"]["result"]["token"]
+        doc_url = poll_res["data"]["result"]["url"]
+        break
 ```
+
+### 3. Granting Permissions (Public Link Sharing)
+
+### 3. Granting Permissions (Public Link Sharing)
+
+Bot-created documents are private by default. To allow the user to view/edit it, update the public permissions.
+**CRITICAL FIX**: Use the `v1` permissions API (`drive/v1/permissions/{doc_token}/public?type=docx`). The `v2` document-specific endpoint often returns a 404 error.
+
+```python
+perm_payload = {
+    "external_access": True,
+    "security_entity": "anyone_can_edit",
+    "comment_entity": "anyone_can_view",
+    "share_entity": "anyone",
+    "link_share_entity": "tenant_editable",
+    "invite_external": True
+}
+perm_req = urllib.request.Request(f"https://open.feishu.cn/open-apis/drive/v1/permissions/{doc_token}/public?type=docx",
+                                  data=json.dumps(perm_payload).encode(),
+                                  headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+                                  method='PATCH')
+perm_resp = json.loads(urllib.request.urlopen(perm_req).read())
+```
+
+### 4. Sending the Link & Environment Pitfalls
+
+- **Raw URLs Only**: When sending the final document URL to the user in Feishu chat, **always include the raw, unformatted URL** (e.g., `https://...`). Markdown links (`[text](url)`) often fail to render as clickable.
+- **Timezones in `execute_code`**: The `pytz` library is not available. Use native `from datetime import timezone, timedelta; tz = timezone(timedelta(hours=8))` for UTC+8.
+
+### 4. Sharing the Document Link (CRITICAL)
+
+**DO NOT RELY ON MARKDOWN LINKS!** When sending the final document URL to the user in chat, you MUST print the raw, unformatted URL string (e.g., `https://domain.feishu.cn/docx/XYZ...`). If you only use Markdown hyperlink syntax (`[Title](url)`), the Feishu client often strips or hides the link, causing the user to complain that no link was provided.
 
 ---
 
@@ -177,9 +220,11 @@ Ultimate Fallback: `POST` new block, then `batch_delete` old block.
 ### 4. Complex Lists & Tables (1770001 Fix)
 
 - **Lists:** Do NOT fallback to fake text bullets (`•`). Ensure payload matches native list schema exactly (Block type 12/13).
-- **Tables:** Table's `children` array is a flattened 1D array of Cell blocks (not rows).
+- **Tables (Reading):** When parsing existing tables from the blocks API, table dimensions are located at `block['table']['property']['row_size']` (and `column_size`). The flattened 1D array of cell block IDs is in `block['table']['cells']`. Iterate over `cells` and look up each cell's children to extract text. Note that cells are listed as IDs in the `cells` array, not block objects, so you must query the main blocks dictionary using these IDs.
+- **Tables (Creating):** When _creating_ a table, `row_size` and `column_size` belong at the `table` level, while `column_width` goes inside `property`: `{"table": {"row_size": 2, "column_size": 3, "property": {"column_width": [150, 250, 150]}}}`. The cell blocks go in the `children` array.
 - **Row Limit:** Max 9 rows per `POST`. For more, split into consecutive tables.
-- **Empty Cell Quirk:** Feishu pre-populates new cells with empty Text blocks. Delete or `batch_update` them when populating table cells.
+- **Empty Cell Quirk & 1770001 Error:** Feishu pre-populates new cells with empty Text blocks. Patching these empty blocks directly (e.g. via `replace_elements`) frequently throws HTTP 400 `1770001 invalid param`. **Reliable Workaround:** To populate a cell, `POST` a new text block to the cell's `/children` endpoint, then use `batch_update` (`delete_blocks_request`) on the root document to delete the original empty block.
+- **Table Column Widths (400 Error Fix):** When patching table properties like column width via the `/blocks/{block_id}` endpoint, the payload must be wrapped correctly or you will receive a 400 Bad Request. Currently, `update_table_property` via block patch is unstable; prefer creating the table with the correct width initially.
 
 ### 5. Version Table Standard Template
 

@@ -33,6 +33,7 @@ auth.json
 __pycache__/
 *.pyc
 models_dev_cache.json
+ollama_cloud_models_cache.json
 .skills_prompt_snapshot.json
 cache/
 state-snapshots/

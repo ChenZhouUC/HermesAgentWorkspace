@@ -1,10 +1,4 @@
-**Name:** Zhou Chen (周琛)
-§
-**What to call them:** 琛哥
-§
-**Timezone:** Asia/Shanghai
-§
-**Language:** Prefers Chinese in casual conversation; English for technical docs and code
+**Profile:** Zhou Chen (周琛 / 琛哥). TZ: Asia/Shanghai. Lang: CN casual, EN tech. Background: Math (Fudan) + Stats (UChicago) engineer. Prefers hardcore TCS/math AI papers (exact bounds, impossibility) over empirical benchmarks.
 §
 **Style/Tools:** EXTREME conciseness, rigorous. Bullet lists. Persist to 100% completion; never accept partial/broken results. Prefers 'best effort' automation (exhaustive fallbacks, minimal inputs) paired with transparent technical logs (Trust via Transparency) over generic loading spinners.
 §
