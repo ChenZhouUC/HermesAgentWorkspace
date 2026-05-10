@@ -17,12 +17,9 @@ _hermes() {
     typeset -A opt_args
 
     _arguments -C \
-        '(- :)-h[Show help and exit]' \
-        '(- :)--help[Show help and exit]' \
-        '(- :)-V[Show version and exit]' \
-        '(- :)--version[Show version and exit]' \
-        '(-p --profile)-p[Profile name]:profile:_hermes_profiles' \
-        '(-p --profile)--profile[Profile name]:profile:_hermes_profiles' \
+        '(-)'{-h,--help}'[Show help and exit]' \
+        '(-)'{-V,--version}'[Show version and exit]' \
+        '(-)'{-p,--profile}'[Profile name]:profile:_hermes_profiles' \
         '1:command:->commands' \
         '*::arg:->args'
 
@@ -37,6 +34,7 @@ _hermes() {
                 'checkpoints:Inspect / prune / clear ~/.hermes/checkpoints/'
                 'claw:OpenClaw migration tools'
                 'completion:Print shell completion script (bash, zsh, or fish)'
+                'computer-use:Manage the Computer Use (cua-driver) backend (macOS)'
                 'config:View and edit configuration'
                 'cron:Cron job management'
                 'curator:Background skill maintenance (curator) — status, run, pause,'
@@ -107,6 +105,14 @@ _hermes() {
                     )
                     _describe 'claw command' claw_cmds
                     ;;
+                computer-use)
+                    local -a computer_use_cmds
+                    computer_use_cmds=(
+                    'install:Install or repair the cua-driver binary (macOS)'
+                    'status:Print whether cua-driver is installed and on PATH'
+                    )
+                    _describe 'computer-use command' computer_use_cmds
+                    ;;
                 config)
                     local -a config_cmds
                     config_cmds=(
@@ -140,6 +146,7 @@ _hermes() {
                     curator_cmds=(
                     'archive:Manually archive a skill (move to .archive/, excluded from p'
                     'backup:Take a manual tar.gz snapshot of ~/.hermes/skills/ (curator '
+                    'list-archived:List archived skills'
                     'pause:Pause the curator until resumed'
                     'pin:Pin a skill so the curator never auto-transitions it'
                     'prune:Bulk-archive agent-created skills idle for >= N days (defaul'
@@ -174,6 +181,7 @@ _hermes() {
                     local -a gateway_cmds
                     gateway_cmds=(
                     'install:Install gateway as a systemd/launchd background service'
+                    'list:List all profiles and their gateway status'
                     'migrate-legacy:Remove legacy hermes.service units from pre-rename installs'
                     'restart:Restart gateway service'
                     'run:Run gateway in foreground (recommended for WSL, Docker, Term'
@@ -225,6 +233,7 @@ _hermes() {
                     'reclaim:Release an active worker claim on a running task'
                     'runs:Show attempt history for a task (one row per run: profile, o'
                     'show:Show a task with comments + events'
+                    'specify:Flesh out a triage-column task into a concrete spec (title +'
                     'stats:Per-status + per-assignee counts + oldest-ready age'
                     'tail:Follow a tasks event stream'
                     'unblock:Return one or more blocked tasks to ready'
@@ -291,9 +300,12 @@ _hermes() {
                         'delete:Delete a profile'
                         'export:Export a profile to archive'
                         'import:Import a profile from archive'
+                        'info:Show a profiles distribution manifest (version, requirements'
+                        'install:Install a profile distribution from a git URL or local direc'
                         'list:List all profiles'
                         'rename:Rename a profile'
                         'show:Show profile details'
+                        'update:Re-pull a distribution and apply updates (user data preserve'
                         'use:Set sticky default profile'
                             )
                             _describe 'profile command' profile_cmds

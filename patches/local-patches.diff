@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index fce4b533d..868515f3b 100644
+index aaa490a33..0593c7fe3 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1308,8 +1308,23 @@ def run_doctor(args):
+@@ -1566,8 +1566,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -29,11 +29,11 @@ index fce4b533d..868515f3b 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/pyproject.toml b/pyproject.toml
-index 126854f00..47e2b0bd6 100644
+index 15362c2df..a0037973a 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -80,7 +80,7 @@ termux = [
-   "hermes-agent[acp]",
+@@ -117,7 +117,7 @@ termux-all = [
+   "hermes-agent[web]",
  ]
  dingtalk = ["dingtalk-stream>=0.20,<1", "alibabacloud-dingtalk>=2.0.0", "qrcode>=7.0,<8"]
 -feishu = ["lark-oapi>=1.5.3,<2", "qrcode>=7.0,<8"]
@@ -92,7 +92,7 @@ index 96c3a361f..1b92b92ee 100644
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index ed4cb3f10..8eec6d30f 100644
+index d253cd2a7..366f748a5 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
 @@ -269,10 +269,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
@@ -134,7 +134,7 @@ index ed4cb3f10..8eec6d30f 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -413,7 +438,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -415,7 +440,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -147,7 +147,7 @@ index ed4cb3f10..8eec6d30f 100644
          "skill_md": str(skill_md),
      }
      if category:
-@@ -594,9 +623,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
+@@ -596,9 +625,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
      skills_root = _containing_skills_root(skill_dir)
      shutil.rmtree(skill_dir)
  

@@ -7,7 +7,7 @@
 > - 每次 `hermes update` 升级后，将该版本下新增的补丁条目移至对应版本节；若上游已合并某补丁，将状态改为 `✅ 已上游合并（vX.Y.Z）` 并从 `hermes-update.sh` 的 `PATCHED_FILES` 中移除对应文件。
 > - 新补丁格式：在当前版本节下复制一个 `### [PATCH-N]` 块并填写各字段。
 > - 版本升级时在顶部新增 `## vX.Y.Z（upstream COMMIT）` 节，未变化的补丁直接迁移过来。
-> - `completions/_hermes` 类补丁（不在 `hermes-agent/` 下）在 `hermes-update.sh` Step 7 中用 inline python 处理，不通过 `PATCHED_FILES` 管理。
+> - `completions/_hermes` 类补丁（不在 `hermes-agent/` 下）由 `hermes-update.sh` Step 7 在重新生成补全脚本后用 inline Python 检测并修复；如上游已修正生成器（如 PATCH-3 在 v0.13.0 后），脚本检测不到坏格式即跳过，detection 块作为回归 sentinel 保留。
 
 ---
 
@@ -19,12 +19,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表        | 管理方式                                                                                                                 |
-| -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **工程内补丁** | PATCH-1/2/7 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                     |
-| **工程外补丁** | PATCH-3     | `hermes-update.sh` Step 7 用 inline Python 就地重写，不经过 diff                                                         |
-| **运行时补丁** | PATCH-6     | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                          |
-| **已上游合并** | PATCH-4/5/8 | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；本地冗余代码已移除 |
+| 类型           | 代表          | 管理方式                                                                                                                                                                      |
+| -------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/2/7   | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                          |
+| **工程外补丁** | PATCH-3       | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                           |
+| **运行时补丁** | PATCH-6       | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                               |
+| **已上游合并** | PATCH-3/4/5/8 | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -55,6 +55,7 @@ Step 8: Re-apply & Verify（核心）
   ├─ 8b. Behavioral verification
   │   ├─ PATCH-1: Python import + 调用 _resolve_skill_dir()，检查返回路径
   │   ├─ PATCH-2: grep _get_platform_tools in doctor.py
+  │   ├─ PATCH-3: Step 7 中对 `){-h,--help}` / `){-V,--version}` / `){-p,--profile}` 做回归检测（✅ 已上游合并 v0.13.0）
   │   ├─ PATCH-4: grep _web_ui_build_needed in main.py（✅ 已上游合并，仅验证）
   │   ├─ PATCH-5: grep override_acp_command + copilot-acp（✅ 已上游合并，仅验证）
   │   └─ PATCH-7: grep 'python-socks' in pyproject.toml
@@ -149,17 +150,24 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.12.0 (upstream `main` `49c3c2e0d` / release `v2026.4.30`)
+## v0.13.0 (upstream `main` `44cdf555a` / release `v2026.5.7`)
+
+> 同步自 v0.12.0 → v0.13.0（490 commits）。`local-patches.diff` 通过 3-way merge 干净落地。
+>
+> **本版本变化**：
+>
+> - PATCH-3（zsh 补全 `_arguments` 语法）已被上游 commit `fe61d95b4` 修复（`fix(completion): use valid zsh _arguments exclusion-group syntax`），生成器已切换到 `'(-)'{-h,--help}'[...]'` 的标准 brace-expansion 写法。本地 detection 块继续保留作为回归 sentinel。
+> - PATCH-1/2/7 仍需本地 patch（上游对应位置无变化）。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
 
 | 字段         | 内容                                                                                               |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
-| **状态**     | 🟡 未上游合并（截至 upstream `main` `49c3c2e0d`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
-| **适用版本** | v0.12.0 仍需本地 patch                                                                             |
+| **状态**     | 🟡 未上游合并（截至 upstream `main` `44cdf555a`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **适用版本** | v0.13.0 仍需本地 patch                                                                             |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.12.0 上游 `main` (`49c3c2e0d`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.13.0 上游 `main` (`44cdf555a`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`（上游本周期内只在 `_find_skill` 上加了 `EXCLUDED_SKILL_DIRS` 过滤，未触及创建路径）。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
 
@@ -171,45 +179,42 @@ cat ~/.hermes/patches/.local-patches.base
 | ------------ | ---------------------- |
 | **文件**     | `hermes_cli/doctor.py` |
 | **状态**     | 🟡 未上游合并          |
-| **适用版本** | v0.12.0 仍需本地 patch |
+| **适用版本** | v0.13.0 仍需本地 patch |
 
 **问题**：`hermes doctor` 将所有注册但缺少 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，导致虚报 `Found 1 issue(s) to address`。
 
 **修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
 
+> v0.13.0 升级中 `doctor.py` 上下文位置由原 1308 行迁移到 1566 行（连接性检查并行化、Windows 适配等大规模重构），3-way merge 自动接住。
+
 ---
 
 ### [PATCH-3] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
 
-| 字段         | 内容                                                      |
-| ------------ | --------------------------------------------------------- |
-| **文件**     | `completions/_hermes`（工程外，不在 `PATCHED_FILES` 中）  |
-| **状态**     | 🟡 未上游合并                                             |
-| **适用版本** | 已验证 v0.12.0；上游 `hermes completion zsh` 输出同样错误 |
+| 字段         | 内容                                                                            |
+| ------------ | ------------------------------------------------------------------------------- |
+| **文件**     | `completions/_hermes`（工程外，不在 `PATCHED_FILES` 中）                        |
+| **状态**     | ✅ 已上游合并（v0.13.0，commit `fe61d95b4`）                                    |
+| **适用版本** | v0.9.0–v0.12.0 需要本地 patch；v0.13.0+ 上游 `hermes completion zsh` 输出已正确 |
 
-**问题**：在任何新终端按 Tab 键补全 `hermes` 命令，提示符短暂出现 `...` 随即消失，无任何补全菜单。
-
-**根因**：`hermes completion zsh`（即上游二进制）生成的 `_arguments` 规格将互斥说明符 `(...)` 和替代语法 `{...}` 混用，这是无效语法：
+**问题（历史）**：在任何新终端按 Tab 键补全 `hermes` 命令，提示符短暂出现 `...` 随即消失，无任何补全菜单。`hermes completion zsh` 生成的 `_arguments` 规格将互斥说明符 `(...)` 和替代语法 `{...}` 混用，是无效语法：
 
 ```zsh
 # 无效：zsh _arguments 不支持 (...){...} 组合写法
 '(-h --help){-h,--help}[Show help and exit]'
 ```
 
-`_arguments` 解析时报 `invalid argument` 并立即退出，`$state` 未被设置，`case $state in` 块从未执行，函数返回零条补全。
-
-**修复**：将三处无效规格拆为独立规格：`-h/--help/-V/--version` 改用 `(- :)` 模式（出现时排除所有其他补全），`-p/--profile` 拆为两条：
+**上游修复**：commit `fe61d95b4`（`fix(completion): use valid zsh _arguments exclusion-group syntax`，关闭 issue #22686）将生成器改为：
 
 ```zsh
-'(- :)-h[Show help and exit]'
-'(- :)--help[Show help and exit]'
-'(- :)-V[Show version and exit]'
-'(- :)--version[Show version and exit]'
-'(-p --profile)-p[Profile name]:profile:_hermes_profiles'
-'(-p --profile)--profile[Profile name]:profile:_hermes_profiles'
+'(-)'{-h,--help}'[Show help and exit]'
+'(-)'{-V,--version}'[Show version and exit]'
+'(-)'{-p,--profile}'[Profile name]:profile:_hermes_profiles'
 ```
 
-**升级处理**：`hermes-update.sh` Step 7 在重新生成补全脚本后自动检测并重新应用此修复；若上游已修正该语法，步骤自动跳过。
+利用 zsh brace expansion 把一行展开成两个独立规格，`(-)` 表示出现时排除其他所有选项。
+
+**本地处置**：`hermes-update.sh` Step 7 中针对旧坏格式的 `grep -q '){-h,--help}'`、`grep -q '){-V,--version}'`、`grep -q '){-p,--profile}'` 检测块作为回归 sentinel 保留。新格式不会触发匹配，脚本日志直接输出 `PATCH-3: upstream completion output already uses correct syntax — no fix needed`。如未来上游回滚到坏格式，inline Python rewrite 会自动重新介入。
 
 ---
 
@@ -233,7 +238,7 @@ cat ~/.hermes/patches/.local-patches.base
 | ------------ | ---------------------- |
 | **文件**     | `pyproject.toml`       |
 | **状态**     | 🟡 未上游合并          |
-| **适用版本** | v0.12.0 仍需本地 patch |
+| **适用版本** | v0.13.0 仍需本地 patch |
 
 **问题**：`feishu` optional extra 只声明了 `lark-oapi` 和 `qrcode`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
 
