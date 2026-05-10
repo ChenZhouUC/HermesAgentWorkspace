@@ -1,6 +1,7 @@
 ---
 name: cli-file-downloads
 description: Patterns and workarounds for downloading large or slow files via CLI within the agent's constraints (timeout handling, resuming, bypassing blocks).
+category: devops
 ---
 
 # CLI File Downloads
@@ -10,8 +11,7 @@ When downloading files using `curl` or `wget`, the agent's foreground terminal e
 ## Core Workflow for Large/Slow Downloads
 
 1. **Probe First (Optional):** Run a quick foreground `curl -I` or a fast download attempt to check if the server is responsive, verify headers, and get the expected file size.
-2. **Background the Task:** If the file is large or the server is heavily throttling (e.g., 60 KB/s), **never** leave it in the foreground. Use a background terminal call so you aren't blocked:
-   `call:terminal { background: true, notify_on_complete: true, command: "..." }`
+2. **Background the Task:** If the file is large or the server is heavily throttling (e.g., 60 KB/s), **never** leave it in the foreground. Invoke the `terminal` tool with `background=true` and `notify_on_complete=true` so the agent isn't blocked while the download runs.
 3. **Resume Partials:** If a foreground download timed out and left a partial file on disk, **always resume it** instead of starting over.
    - **`curl`:** Use the `-C -` flag (continue).
      **CRITICAL PITFALL**: You MUST combine `-C -` with `-f` (`--fail`). If the server returns a 50x/40x error page during a resume attempt, `curl` will normally append that HTML error page to your binary file, silently corrupting it. `-f` prevents this. Example: `curl -f -C - -L -o myfile.pdf "<URL>"`
@@ -23,7 +23,7 @@ If a server frequently drops connections, throttles aggressively, or returns int
 
 Instead of manual retries, use the provided robust loop script. It checks `curl` exit codes, correctly handles 503s vs partial disconnects, and loops persistently.
 
-- **Execute:** `call:terminal { background: true, notify_on_complete: true, command: "/Users/chenzhou/.hermes/my-skills/devops/cli-file-downloads/scripts/robust_curl_resume.sh \"<URL>\" \"<FILE>\" \"<REFERER>\"" }`
+- **Execute via the `terminal` tool** with `background=true`, `notify_on_complete=true`, and `command="/Users/chenzhou/.hermes/my-skills/devops/cli-file-downloads/scripts/robust_curl_resume.sh \"<URL>\" \"<FILE>\" \"<REFERER>\""`.
 
 ## Anti-Scraping / CDN Bypasses
 

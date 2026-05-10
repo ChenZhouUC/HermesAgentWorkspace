@@ -133,8 +133,6 @@ for _ in range(15):
 
 ### 3. Granting Permissions (Public Link Sharing)
 
-### 3. Granting Permissions (Public Link Sharing)
-
 Bot-created documents are private by default. To allow the user to view/edit it, update the public permissions.
 **CRITICAL FIX**: Use the `v1` permissions API (`drive/v1/permissions/{doc_token}/public?type=docx`). The `v2` document-specific endpoint often returns a 404 error.
 
@@ -156,12 +154,8 @@ perm_resp = json.loads(urllib.request.urlopen(perm_req).read())
 
 ### 4. Sending the Link & Environment Pitfalls
 
-- **Raw URLs Only**: When sending the final document URL to the user in Feishu chat, **always include the raw, unformatted URL** (e.g., `https://...`). Markdown links (`[text](url)`) often fail to render as clickable.
+- **Raw URLs Only (CRITICAL)**: When sending the final document URL to the user in Feishu chat, **always include the raw, unformatted URL string** (e.g., `https://domain.feishu.cn/docx/XYZ...`). If you only use Markdown hyperlink syntax (`[text](url)`), the Feishu client often strips or hides the link, causing the user to complain that no link was provided.
 - **Timezones in `execute_code`**: The `pytz` library is not available. Use native `from datetime import timezone, timedelta; tz = timezone(timedelta(hours=8))` for UTC+8.
-
-### 4. Sharing the Document Link (CRITICAL)
-
-**DO NOT RELY ON MARKDOWN LINKS!** When sending the final document URL to the user in chat, you MUST print the raw, unformatted URL string (e.g., `https://domain.feishu.cn/docx/XYZ...`). If you only use Markdown hyperlink syntax (`[Title](url)`), the Feishu client often strips or hides the link, causing the user to complain that no link was provided.
 
 ---
 

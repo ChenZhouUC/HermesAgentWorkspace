@@ -42,7 +42,7 @@ with urllib.request.urlopen(req) as response, open(save_path, 'wb') as out_file:
 print(f"Saved to {save_path}")
 ```
 
-3. **Return the image**: Once saved, present the image to the user using the native media markdown: `MEDIA:/Users/username/.hermes/tmp/generated_image.jpg` (substitute absolute path).
+3. **Return the image**: Once saved, present the image to the user using the native media markdown: `MEDIA:<absolute_path>` (substitute the actual absolute path printed by the script — typically `/Users/<your-user>/.hermes/tmp/generated_image.jpg`).
 
 ## Pitfalls
 

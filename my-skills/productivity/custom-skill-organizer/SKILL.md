@@ -1,6 +1,7 @@
 ---
 name: custom-skill-organizer
 description: Standard operating procedure for auditing, consolidating, and organizing the user's custom Hermes skills, strictly limited to ~/.hermes/my-skills/.
+category: productivity
 ---
 
 # Custom Skill Organizer

@@ -1,6 +1,7 @@
 ---
 name: libgen-downloader
 description: Robustly download books from Libgen/Anna's Archive using IPFS CID extraction and proxy fallback to bypass 503 errors and TLS blocking.
+category: productivity
 ---
 
 # Libgen/Anna's Archive Robust Downloader (GenFetch)
