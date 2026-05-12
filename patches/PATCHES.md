@@ -150,24 +150,27 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.13.0 (upstream `main` `44cdf555a` / release `v2026.5.7`)
+## v0.13.0 (upstream `main` `99ad2d1372` / release `v2026.5.7`，截至 2026-05-12)
 
-> 同步自 v0.12.0 → v0.13.0（490 commits）。`local-patches.diff` 通过 3-way merge 干净落地。
+> 基线刷新自 `44cdf555a` → `99ad2d1372`（174 commits）。`local-patches.diff` **干净 apply**（无 3-way merge 触发）。
 >
-> **本版本变化**：
+> **本次刷新涉及的上游变化**（仅细微漂移，无语义冲突）：
 >
-> - PATCH-3（zsh 补全 `_arguments` 语法）已被上游 commit `fe61d95b4` 修复（`fix(completion): use valid zsh _arguments exclusion-group syntax`），生成器已切换到 `'(-)'{-h,--help}'[...]'` 的标准 brace-expansion 写法。本地 detection 块继续保留作为回归 sentinel。
-> - PATCH-1/2/7 仍需本地 patch（上游对应位置无变化）。
+> - `tools/skill_manager_tool.py`：1 commit (`2ec8d2b42` ruff PLR6201 自动修复，tuple → set)。
+> - `hermes_cli/doctor.py`：2 commits (ruff PLR6201 + collapsible-else-if/dict.fromkeys 自动修复)，hunk 锚点从 1566 → 1560 行漂动。
+> - `pyproject.toml`：3 commits (`fix(deps): drop mistralai while PyPI quarantined` + `feat: hindsight-client extra` + `fix(windows): unbreak install`)，feishu extra 行从 117 → 121 漂动，但 PATCH-7 内容字节级未变。
+> - `hermes_cli/completion.py`：无改动 → PATCH-3 sentinel 继续维持"已上游合并"状态。
+> - 当前活跃 patch：**PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7**。PATCH-3 已在 v0.13.0 上游合并，移至下方 archive 节。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
 
-| 字段         | 内容                                                                                               |
-| ------------ | -------------------------------------------------------------------------------------------------- |
-| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
-| **状态**     | 🟡 未上游合并（截至 upstream `main` `44cdf555a`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
-| **适用版本** | v0.13.0 仍需本地 patch                                                                             |
+| 字段         | 内容                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                             |
+| **状态**     | 🟡 未上游合并（截至 upstream `main` `99ad2d1372`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **适用版本** | v0.13.0 仍需本地 patch                                                                              |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.13.0 上游 `main` (`44cdf555a`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`（上游本周期内只在 `_find_skill` 上加了 `EXCLUDED_SKILL_DIRS` 过滤，未触及创建路径）。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.13.0 上游 `main` (`99ad2d1372`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`（上游对该文件本周期内只做了一次 ruff PLR6201 自动修复，未触及创建路径）。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
 
@@ -185,36 +188,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
 
-> v0.13.0 升级中 `doctor.py` 上下文位置由原 1308 行迁移到 1566 行（连接性检查并行化、Windows 适配等大规模重构），3-way merge 自动接住。
-
----
-
-### [PATCH-3] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
-
-| 字段         | 内容                                                                            |
-| ------------ | ------------------------------------------------------------------------------- |
-| **文件**     | `completions/_hermes`（工程外，不在 `PATCHED_FILES` 中）                        |
-| **状态**     | ✅ 已上游合并（v0.13.0，commit `fe61d95b4`）                                    |
-| **适用版本** | v0.9.0–v0.12.0 需要本地 patch；v0.13.0+ 上游 `hermes completion zsh` 输出已正确 |
-
-**问题（历史）**：在任何新终端按 Tab 键补全 `hermes` 命令，提示符短暂出现 `...` 随即消失，无任何补全菜单。`hermes completion zsh` 生成的 `_arguments` 规格将互斥说明符 `(...)` 和替代语法 `{...}` 混用，是无效语法：
-
-```zsh
-# 无效：zsh _arguments 不支持 (...){...} 组合写法
-'(-h --help){-h,--help}[Show help and exit]'
-```
-
-**上游修复**：commit `fe61d95b4`（`fix(completion): use valid zsh _arguments exclusion-group syntax`，关闭 issue #22686）将生成器改为：
-
-```zsh
-'(-)'{-h,--help}'[Show help and exit]'
-'(-)'{-V,--version}'[Show version and exit]'
-'(-)'{-p,--profile}'[Profile name]:profile:_hermes_profiles'
-```
-
-利用 zsh brace expansion 把一行展开成两个独立规格，`(-)` 表示出现时排除其他所有选项。
-
-**本地处置**：`hermes-update.sh` Step 7 中针对旧坏格式的 `grep -q '){-h,--help}'`、`grep -q '){-V,--version}'`、`grep -q '){-p,--profile}'` 检测块作为回归 sentinel 保留。新格式不会触发匹配，脚本日志直接输出 `PATCH-3: upstream completion output already uses correct syntax — no fix needed`。如未来上游回滚到坏格式，inline Python rewrite 会自动重新介入。
+> v0.12.0 → v0.13.0 升级中 `doctor.py` 上下文位置由原 1308 行迁移到 1566 行（连接性检查并行化、Windows 适配等大规模重构），3-way merge 自动接住。2026-05-12 增量升级（`44cdf555a` → `99ad2d1372`）中又因 ruff 自动修复二次微调到 1560 行，干净 apply。
 
 ---
 
@@ -243,6 +217,37 @@ cat ~/.hermes/patches/.local-patches.base
 **问题**：`feishu` optional extra 只声明了 `lark-oapi` 和 `qrcode`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
 
 **修复**：在 `pyproject.toml` 的 `feishu` extra 中添加 `"python-socks>=2.0,<3"`。
+
+---
+
+## v0.13.0 archive — PATCH-3 上游合并
+
+### [PATCH-3] completions/\_hermes — Tab 补全无效（`_arguments` 无效参数语法）
+
+| 字段         | 内容                                                                            |
+| ------------ | ------------------------------------------------------------------------------- |
+| **文件**     | `completions/_hermes`（工程外，不在 `PATCHED_FILES` 中）                        |
+| **状态**     | ✅ 已上游合并（v0.13.0，commit `fe61d95b4`）                                    |
+| **适用版本** | v0.9.0–v0.12.0 需要本地 patch；v0.13.0+ 上游 `hermes completion zsh` 输出已正确 |
+
+**问题（历史）**：在任何新终端按 Tab 键补全 `hermes` 命令，提示符短暂出现 `...` 随即消失，无任何补全菜单。`hermes completion zsh` 生成的 `_arguments` 规格将互斥说明符 `(...)` 和替代语法 `{...}` 混用，是无效语法：
+
+```zsh
+# 无效：zsh _arguments 不支持 (...){...} 组合写法
+'(-h --help){-h,--help}[Show help and exit]'
+```
+
+**上游修复**：commit `fe61d95b4`（`fix(completion): use valid zsh _arguments exclusion-group syntax`，关闭 issue #22686）将生成器改为：
+
+```zsh
+'(-)'{-h,--help}'[Show help and exit]'
+'(-)'{-V,--version}'[Show version and exit]'
+'(-)'{-p,--profile}'[Profile name]:profile:_hermes_profiles'
+```
+
+利用 zsh brace expansion 把一行展开成两个独立规格，`(-)` 表示出现时排除其他所有选项。
+
+**本地处置**：`hermes-update.sh` Step 7 中针对旧坏格式的 `grep -q '){-h,--help}'`、`grep -q '){-V,--version}'`、`grep -q '){-p,--profile}'` 检测块作为回归 sentinel 保留。新格式不会触发匹配，脚本日志直接输出 `PATCH-3: upstream completion output already uses correct syntax — no fix needed`。如未来上游回滚到坏格式，inline Python rewrite 会自动重新介入。
 
 ---
 

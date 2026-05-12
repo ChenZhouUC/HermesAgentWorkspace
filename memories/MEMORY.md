@@ -17,3 +17,5 @@ Write ALL temp files strictly to ~/.hermes/tmp (never ~/ unless explicitly reque
 Avoid fragmenting skills. Before creating a new skill, use skills_list to see if the knowledge can be patched into an existing, broader skill in the same domain.
 §
 Env: `uv` data (python/tools) is in `~/.local/share/uv/` (not macOS default). User uses `pyenv` with `uv`.
+§
+User operates a 32-core, 64GB RAM machine for AI inference workloads (e.g., ONNX, FastReID).
