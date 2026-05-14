@@ -47,7 +47,7 @@ browser:
   inactivity_timeout: 120
   command_timeout: 30
   record_sessions: false
-  allow_private_urls: false
+  allow_private_urls: true
   auto_local_for_private_urls: true
   cdp_url: ''
   dialog_policy: must_respond
@@ -79,7 +79,7 @@ streaming:
   transport: edit
   edit_interval: 1.0
   buffer_threshold: 40
-  cursor: ' ▉'
+  cursor: " \u2589"
   fresh_final_after_seconds: 60.0
 bedrock:
   region: ''
@@ -308,7 +308,7 @@ hooks: {}
 hooks_auto_accept: false
 personalities: {}
 security:
-  allow_private_urls: false
+  allow_private_urls: true
   redact_secrets: true
   tirith_enabled: true
   tirith_path: tirith
