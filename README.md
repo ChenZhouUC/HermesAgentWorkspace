@@ -696,7 +696,7 @@ hermes gateway status
 
 ## 本地补丁记录
 
-本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `99ad2d1372`（Hermes `v0.13.0`，截至 2026-05-12 的 `main`）。
+本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `26933c2f5`（Hermes `v0.13.0`，截至 2026-05-14 的 `main`）。
 
 补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新生成补全脚本并对旧坏格式做回归 sentinel 检测（PATCH-3 已于 v0.13.0 上游合并 commit `fe61d95b4`，正常情况下检测不命中、直接跳过）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-7 feishu python-socks 依赖；PATCH-4 / PATCH-5 已上游合并并退役，仅保留存在性 grep 验证；PATCH-8 于 v0.11.0 上游合并，仅保留文档记录），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
 
@@ -1430,11 +1430,12 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 ## 版本记录
 
-| 版本               | 日期       | 说明                                                                                                                                                                                                          |
-| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v0.13.0            | 2026-05-12 | 基线滚动到 `99ad2d1372`（v0.13.0 仍是当前 release，174 commits 全是补丁修复）；`local-patches.diff` 干净 apply（无 3-way），仅 hunk 锚点行号漂移；PATCH-1/2/3/4/5/7 状态全部维持，PATCH-7 hunk 117→121 行漂动 |
-| v0.13.0            | 2026-05-10 | 上游 `main` 同步到 `44cdf555a`（release `v2026.5.7`，490 commits），3-way merge 干净落地；PATCH-3 经上游 commit `fe61d95b4` 合并并退役；继续保留 PATCH-1/2/6/7 + PATCH-3 sentinel                             |
-| v0.12.0            | 2026-05-07 | 上游 `main` 同步到 `49c3c2e0d`（release 仍 `v2026.4.30`），patch 基线刷新；继续保留 PATCH-1/2/3/6/7                                                                                                           |
-| v0.11.0            | 2026-04-23 | 上游升级，新增 Ink TUI / transport 层 / Bedrock / GPT-5.5 / Dashboard 主题扩展                                                                                                                                |
-| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能                                                                                                                                                          |
-| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                                                                                                                                                                                    |
+| 版本               | 日期       | 说明                                                                                                                                                                                                                                    |
+| ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v0.13.0            | 2026-05-14 | 基线滚动到 `26933c2f5`（v0.13.0，194 commits）；PATCH-7 因上游将 feishu extra 改为版本钉死（`lark-oapi==1.5.3` + `qrcode==7.4.2`）触发 3-way 冲突，重写为 `python-socks==2.8.1`；PATCH-1/2 干净 apply；PATCH-3/4/5/8 维持已上游合并状态 |
+| v0.13.0            | 2026-05-12 | 基线滚动到 `99ad2d1372`（v0.13.0 仍是当前 release，174 commits 全是补丁修复）；`local-patches.diff` 干净 apply（无 3-way），仅 hunk 锚点行号漂移；PATCH-1/2/3/4/5/7 状态全部维持，PATCH-7 hunk 117→121 行漂动                           |
+| v0.13.0            | 2026-05-10 | 上游 `main` 同步到 `44cdf555a`（release `v2026.5.7`，490 commits），3-way merge 干净落地；PATCH-3 经上游 commit `fe61d95b4` 合并并退役；继续保留 PATCH-1/2/6/7 + PATCH-3 sentinel                                                       |
+| v0.12.0            | 2026-05-07 | 上游 `main` 同步到 `49c3c2e0d`（release 仍 `v2026.4.30`），patch 基线刷新；继续保留 PATCH-1/2/3/6/7                                                                                                                                     |
+| v0.11.0            | 2026-04-23 | 上游升级，新增 Ink TUI / transport 层 / Bedrock / GPT-5.5 / Dashboard 主题扩展                                                                                                                                                          |
+| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能                                                                                                                                                                                    |
+| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                                                                                                                                                                                                              |

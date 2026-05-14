@@ -34,10 +34,13 @@ When downloading from strict or overloaded file-hosts (e.g., Libgen CDNs, academ
 - **Referer:** If the direct download link fails, it often requires the origin page as a referer. Use `-e "<referer_url>"` in `curl`.
 - **Redirects:** Always include `-L` in `curl` to follow `301/302` redirects, which are extremely common in CDNs.
 - **Shadow Libraries & Cloudflare Blocks (Anna's Archive, Libgen):**
-  - **USE THE `libgen-downloader` SKILL:** Instead of manual curl loops, load the `libgen-downloader` skill which automates CID extraction and proxy routing for Libgen.
+  - **IPFS CID Extraction:** For domains blocked by TLS/SNI at the ISP level (like Libgen), do NOT attempt to download the `.pdf`/`.epub` directly. Instead, extract the IPFS hash (`bafy...` or `Qm...`) from the page's HTML or via MD5 search.
+  - **IPFS Gateway Fallback:** Once the CID is acquired, download it from a public gateway via `curl -sL -f "https://ipfs.io/ipfs/<CID>"`. If `ipfs.io` fails, fallback to `cloudflare-ipfs.com/ipfs/` or `dweb.link/ipfs/`.
+  - **Local Proxy Enforcement:** If Python scripts hit `[SSL: UNEXPECTED_EOF_WHILE_READING]`, it means the domain is SNI-blocked. You MUST force requests through the local proxy (e.g. `curl -x http://127.0.0.1:7897` or Python `proxies={'http': 'http://127.0.0.1:7897', ...}`).
 
 ## Pitfalls & Edge Cases
 
+- **Verification after Download:** Always run `file <filename>` after downloading. If it reports HTML document text instead of PDF/EPUB, the download captured a 503 error page or Captcha wall. Delete it and switch mirrors.
 - **The "Fake Progress" / Dead Mirror Trap:** When dealing with extremely hostile or overloaded mirrors (like Libgen's `cdn*.booksdl.lc` nodes), the server might start returning a `200 OK` but instantly stall with 0 bytes transferred, or repeatedly drop the connection after only a few KB. If the robust loop script is stuck in an endless cycle of reconnecting without making meaningful progress, **do not keep looping**. Abandon the mirror and advise the user to switch to a healthier node (e.g., IPFS or Cloudflare mirrors).
 - **Silent File Corruption:** Never forget `-f` when using `-C -`. Without `-f`, a 503 error page will be seamlessly appended to a binary file by `curl`, breaking the file.
 - **Truncated PDFs & Corruption:** If a PDF download persistently fails near the very end (e.g., 95%+ complete), **DO NOT assume the file is usable**. While some lenient tools can render partial PDFs, strict readers will refuse to open them because the `xref` table and `%%EOF` marker are located at the absolute end of the file. If the file cannot be opened, you must either:

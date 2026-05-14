@@ -51,6 +51,7 @@ _hermes() {
                 'login:Authenticate with an inference provider'
                 'logout:Clear authentication for an inference provider'
                 'logs:View and filter Hermes log files'
+                'lsp:Language Server Protocol management'
                 'mcp:Manage MCP servers and run Hermes as an MCP server'
                 'memory:Configure external memory provider'
                 'model:Select default model and provider'
@@ -242,6 +243,18 @@ _hermes() {
                     )
                     _describe 'kanban command' kanban_cmds
                     ;;
+                lsp)
+                    local -a lsp_cmds
+                    lsp_cmds=(
+                    'install:Install a server binary'
+                    'install-all:Install every server with a known auto-install recipe'
+                    'list:List supported language servers'
+                    'restart:Tear down running LSP clients (next edit re-spawns)'
+                    'status:Show LSP service status'
+                    'which:Print binary path for a server'
+                    )
+                    _describe 'lsp command' lsp_cmds
+                    ;;
                 mcp)
                     local -a mcp_cmds
                     mcp_cmds=(
@@ -376,5 +389,5 @@ _hermes() {
     esac
 }
 
-_hermes "$@"
+compdef _hermes hermes
 

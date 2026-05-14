@@ -150,27 +150,27 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.13.0 (upstream `main` `99ad2d1372` / release `v2026.5.7`，截至 2026-05-12)
+## v0.13.0 (upstream `main` `26933c2f5` / release `v2026.5.7`，截至 2026-05-14)
 
-> 基线刷新自 `44cdf555a` → `99ad2d1372`（174 commits）。`local-patches.diff` **干净 apply**（无 3-way merge 触发）。
+> 基线刷新自 `99ad2d1372` → `26933c2f5`（194 commits）。`local-patches.diff` 因 `pyproject.toml` 上游版本钉死触发 3-way 冲突，PATCH-7 手工重写后通过。
 >
-> **本次刷新涉及的上游变化**（仅细微漂移，无语义冲突）：
+> **本次刷新涉及的上游变化**：
 >
-> - `tools/skill_manager_tool.py`：1 commit (`2ec8d2b42` ruff PLR6201 自动修复，tuple → set)。
-> - `hermes_cli/doctor.py`：2 commits (ruff PLR6201 + collapsible-else-if/dict.fromkeys 自动修复)，hunk 锚点从 1566 → 1560 行漂动。
-> - `pyproject.toml`：3 commits (`fix(deps): drop mistralai while PyPI quarantined` + `feat: hindsight-client extra` + `fix(windows): unbreak install`)，feishu extra 行从 117 → 121 漂动，但 PATCH-7 内容字节级未变。
-> - `hermes_cli/completion.py`：无改动 → PATCH-3 sentinel 继续维持"已上游合并"状态。
-> - 当前活跃 patch：**PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7**。PATCH-3 已在 v0.13.0 上游合并，移至下方 archive 节。
+> - `hermes_cli/doctor.py`：2 commits（`0c233e70f` MiMo `/models` 健康检查跳过、`c1eb2dcda` 供应链通告检查框架），PATCH-2 hunk 锚点从 1560 → 1646 行漂移，`git apply --3way` 自动接住。
+> - `pyproject.toml`：上游 commit `c1eb2dcda`（lazy-install 框架）+ `3955aefce`（`--extra all` 修复）将 feishu / dingtalk extras 改为完全钉死（`lark-oapi==1.5.3` + `qrcode==7.4.2`、`dingtalk-stream==0.24.3` 等），与旧 patch 的 `lark-oapi>=1.5.3,<2` 区间约束冲突。**新 PATCH-7 改为 `python-socks==2.8.1`**，跟随上游版本钉死风格。
+> - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：上游无改动，PATCH-1 干净 apply。
+> - `hermes_cli/completion.py`：上游 commit `8c4bec615` + `6d30b4a7e` 进一步加强 zsh 补全生成（包含回归测试）；PATCH-3 sentinel 继续维持"已上游合并"状态。
+> - 当前活跃 patch：**PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7**。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
 
-| 字段         | 内容                                                                                                |
-| ------------ | --------------------------------------------------------------------------------------------------- |
-| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                             |
-| **状态**     | 🟡 未上游合并（截至 upstream `main` `99ad2d1372`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
-| **适用版本** | v0.13.0 仍需本地 patch                                                                              |
+| 字段         | 内容                                                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
+| **状态**     | 🟡 未上游合并（截至 upstream `main` `26933c2f5`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **适用版本** | v0.13.0 仍需本地 patch                                                                             |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.13.0 上游 `main` (`99ad2d1372`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`（上游对该文件本周期内只做了一次 ruff PLR6201 自动修复，未触及创建路径）。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.13.0 上游 `main` (`26933c2f5`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`（本周期上游对该文件无改动）。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
 
@@ -188,7 +188,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
 
-> v0.12.0 → v0.13.0 升级中 `doctor.py` 上下文位置由原 1308 行迁移到 1566 行（连接性检查并行化、Windows 适配等大规模重构），3-way merge 自动接住。2026-05-12 增量升级（`44cdf555a` → `99ad2d1372`）中又因 ruff 自动修复二次微调到 1560 行，干净 apply。
+> 2026-05-14 增量升级（`99ad2d1372` → `26933c2f5`）中 hunk 锚点由 1560 行漂动到 1646 行（供应链通告框架 `c1eb2dcda` 在 doctor 顶部插入了大段新代码），`git apply --3way` 自动接住。
 
 ---
 
@@ -214,9 +214,11 @@ cat ~/.hermes/patches/.local-patches.base
 | **状态**     | 🟡 未上游合并          |
 | **适用版本** | v0.13.0 仍需本地 patch |
 
-**问题**：`feishu` optional extra 只声明了 `lark-oapi` 和 `qrcode`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
+**问题**：`feishu` optional extra 上游只声明了 `lark-oapi==1.5.3` 和 `qrcode==7.4.2`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
 
-**修复**：在 `pyproject.toml` 的 `feishu` extra 中添加 `"python-socks>=2.0,<3"`。
+**修复**：在 `pyproject.toml` 的 `feishu` extra 中追加 `"python-socks==2.8.1"`。版本钉死风格与上游 2026-05-14 起的 messaging extras 钉死约定保持一致（避免 `>=2.0,<3` 区间约束被 `uv lock --check` 检测为漂移）。
+
+> **2026-05-14 重写说明**：原 patch 内容为 `"python-socks>=2.0,<3"`，针对 `lark-oapi>=1.5.3,<2` 行追加。上游 commit `c1eb2dcda` + `3955aefce` 将 feishu 钉死为 `lark-oapi==1.5.3` + `qrcode==7.4.2` 后，`git apply --3way` 在该 hunk 报冲突；手工合并时采纳上游钉死风格，把 python-socks 改为 `==2.8.1`（与当前 venv 实际安装版本一致）。
 
 ---
 

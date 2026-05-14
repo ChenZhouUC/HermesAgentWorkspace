@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 13f58a850..2f78c58db 100644
+index a551d4d20..322368a3a 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1560,8 +1560,23 @@ def run_doctor(args):
+@@ -1643,8 +1643,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -29,15 +29,15 @@ index 13f58a850..2f78c58db 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/pyproject.toml b/pyproject.toml
-index 5d164b653..d34816c47 100644
+index a880bcb05..95be0ff57 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -121,7 +121,7 @@ termux-all = [
+@@ -147,7 +147,7 @@ termux-all = [
    "hermes-agent[web]",
  ]
- dingtalk = ["dingtalk-stream>=0.20,<1", "alibabacloud-dingtalk>=2.0.0", "qrcode>=7.0,<8"]
--feishu = ["lark-oapi>=1.5.3,<2", "qrcode>=7.0,<8"]
-+feishu = ["lark-oapi>=1.5.3,<2", "qrcode>=7.0,<8", "python-socks>=2.0,<3"]
+ dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
+-feishu = ["lark-oapi==1.5.3", "qrcode==7.4.2"]
++feishu = ["lark-oapi==1.5.3", "qrcode==7.4.2", "python-socks==2.8.1"]
  google = [
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
