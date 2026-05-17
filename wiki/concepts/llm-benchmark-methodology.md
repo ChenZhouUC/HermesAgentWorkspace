@@ -14,14 +14,10 @@ A systematic survey of AI Large Language Model benchmarking systems. Benchmark s
 
 ## Key Benchmarks
 
-- **MMLU (Massive Multitask Language Understanding)**: Evaluates comprehensive knowledge and reasoning across 57 subjects (approx. 14,049 test questions).[^1]] ]
+- **MMLU (Massive Multitask Language Understanding)**: Evaluates comprehensive knowledge and reasoning across 57 subjects (approx. 14,049 test questions).^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
 
 **Related:**
 
 - [[markdown-llm-protocol]]
 - [[llm-computational-complexity]]
 - [[agent-frameworks]]
-
----
-
-[^1]: [[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]
