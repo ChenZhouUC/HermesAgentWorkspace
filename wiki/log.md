@@ -53,3 +53,4 @@
 - 提炼了 Layer 2 概念页：concepts/ontology.md
 - 关联了相关文档：concepts/advanced-markdown-syntax.md, concepts/markdown-llm-protocol.md
 - 更新了：index.md
+  \n## [2026-05-17] update | 本体论架构重组：从概念到实体\n- 移除了本体论错误的流程化概念卡片：concepts/hermes-mac-ops.md\n- 基于 \_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md，重新提取并建立了软件实体页：entities/hermes-agent.md\n- 拆分建立了前代遗产软件实体页：entities/openclaw.md\n- 全面使用紧凑型内联语法重做了 Layer 2 溯源脚注\n- 更新了：index.md
