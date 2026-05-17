@@ -15,9 +15,13 @@ In Theoretical Computer Science (TCS), LLM emergent abilities are formulated as 
 ## Theoretical Foundations
 
 1. **Transformer Expressivity Boundaries**: Key papers map out the exact bounds of what a Transformer architecture can and cannot compute.
-2. **Chain of Thought (CoT)**: CoT fundamentally alters the computational capability of the model.^[ [[_living/TCS-and-Math/LLM-Computational-Complexity|LLM-Computational-Complexity]] ]] ]
+2. **Chain of Thought (CoT)**: CoT fundamentally alters the computational capability of the model.[^1]] ]
 
 **Related:**
 
 - [[set-theory-reading]]
 - [[llm-benchmark-methodology]]
+
+---
+
+[^1]: [[_living/TCS-and-Math/LLM-Computational-Complexity|LLM-Computational-Complexity]]

@@ -15,7 +15,7 @@ The mechanism by which Large Multimodal Models (LMMs) process user inputs (like 
 ## Architecture Evolution
 
 - **Pipeline Architecture**: Converts media to text via intermediate models (OCR, VQA, ASR) before sending to the LLM. Causes information loss.
-- **Native End-to-End (E2E)**: Models like GPT-4o and Gemini 1.5 Pro use dedicated encoders to map raw media directly to high-dimensional tokens. ^[ [[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]] ]] ]
+- **Native End-to-End (E2E)**: Models like GPT-4o and Gemini 1.5 Pro use dedicated encoders to map raw media directly to high-dimensional tokens. [^1]] ]
 
 ## Modality to Token Mapping
 
@@ -23,11 +23,11 @@ All modalities are reduced to a homogeneous token sequence:
 
 - **Image -> Visual Tokens**: Patching -> Vision Encoder -> Visual Tokens.
 - **Audio -> Audio Tokens**: Waveform -> Spectrogram -> Audio Encoder -> Audio Tokens.
-- **Video -> Spatiotemporal Tokens**: Frame Extraction + Audio Track -> Spatial & Audio Tokens + Timestamp Embeddings. ^[ [[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]] ]] ]
+- **Video -> Spatiotemporal Tokens**: Frame Extraction + Audio Track -> Spatial & Audio Tokens + Timestamp Embeddings. [^2]] ]
 
 ## Markdown sequence and Attention
 
-Transformer models consume tokens linearly. The physical layout in Markdown dictates the token sequence. Placing text adjacent to `![image]()` markers ensures Text Tokens and Visual Tokens are contiguous, maximizing Self-Attention correlation and reducing hallucinations. ^[ [[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]] ]] ]
+Transformer models consume tokens linearly. The physical layout in Markdown dictates the token sequence. Placing text adjacent to `![image]()` markers ensures Text Tokens and Visual Tokens are contiguous, maximizing Self-Attention correlation and reducing hallucinations. [^3]] ]
 
 ## Agent API Translation
 
@@ -35,9 +35,19 @@ LMM APIs do not parse Markdown UI sugar natively. Agents must:
 
 1. Parse the AST to identify media links.
 2. Extract and upload files to get system URIs.
-3. Construct a standard JSON Payload (Multi-part Array) preserving the chronological interleave of text and media. ^[ [[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]] ]] ]
+3. Construct a standard JSON Payload (Multi-part Array) preserving the chronological interleave of text and media. [^4]] ]
 
 **Related:**
 
 - [[markdown-llm-protocol]]
 - [[llm-computational-complexity]]
+
+---
+
+[^1]: [[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]]
+
+[^2]: [[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]]
+
+[^3]: [[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]]
+
+[^4]: [[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]]

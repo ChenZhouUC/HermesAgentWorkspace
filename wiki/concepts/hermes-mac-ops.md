@@ -16,7 +16,7 @@ Deployment and operational manual for Hermes Agent on macOS.
 
 1. **Pre-requisites**: Requires GCP Service Account JSON (Vertex AI) with `aiplatform.endpoints.predict` permissions.
 2. **Fallback Models**: Utilizes DashScope (Aliyun) API Keys for fallbacks.
-3. **Integration**: Requires migration of memory and skills from OpenClaw, and integrates with Feishu Bot endpoints.^[ [[_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]] ]] ]
+3. **Integration**: Requires migration of memory and skills from OpenClaw, and integrates with Feishu Bot endpoints.[^1]] ]
 
 ---
 
@@ -24,3 +24,7 @@ Deployment and operational manual for Hermes Agent on macOS.
 
 - [[agent-frameworks]]
 - [[markdown-llm-protocol]]
+
+---
+
+[^1]: [[_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]

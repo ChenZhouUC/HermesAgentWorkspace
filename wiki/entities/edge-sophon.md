@@ -20,9 +20,13 @@ Notable hardware includes the CV186AH/BM1688 and BM1684X.
 ## Key Capabilities
 
 - **TOPS Metric**: Often specified for INT8 precision workloads (e.g. 32T).
-- **Precision**: Handles INT8 (fast edge inference) and FP16/FP32 (training/high-precision inference).^[ [[_living/AI-Infrastructure/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]] ]] ]
+- **Precision**: Handles INT8 (fast edge inference) and FP16/FP32 (training/high-precision inference).[^1]] ]
 
 **Related:**
 
 - [[edge-rk3576]]
 - [[ruview]]
+
+---
+
+[^1]: [[_living/AI-Infrastructure/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]
