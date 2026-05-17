@@ -14,8 +14,9 @@ A critical engineering perspective on evaluating AI Agent frameworks. The term "
 
 ## Cognitive Clarification
 
-From an engineering standpoint, a true Agent Harness/OS expects the developer to provide only the Tools/API and the System Prompt, while the framework handles the autonomous reasoning and tool-calling loops.^[ _living/AI-Infrastructure/AI-Agent-Frameworks.md ]
+From an engineering standpoint, a true Agent Harness/OS expects the developer to provide only the Tools/API and the System Prompt, while the framework handles the autonomous reasoning and tool-calling loops.^[ [[_living/AI-Infrastructure/AI-Agent-Frameworks|AI-Agent-Frameworks]] ]] ]
 
 **Related:**
 
+- [[markdown-llm-protocol]]
 - [[hermes-mac-ops]]

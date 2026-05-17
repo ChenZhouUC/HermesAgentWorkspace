@@ -1,3 +1,9 @@
+---
+title: AI Agent Frameworks
+created: 2026-05-14
+updated: 2026-05-15
+---
+
 # AI Agent 框架分析与选型指南
 
 本文从工程开发视角梳理主流 AI Agent 框架的定位和适用场景。相关生态变化很快，具体版本能力应以各项目官方文档和最新发行说明为准。

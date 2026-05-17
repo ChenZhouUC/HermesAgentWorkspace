@@ -8,11 +8,9 @@ Feishu API Quirks: 1. Tables: flat cell list. Adding rows unsupported. Table max
 §
 When updating Feishu documents via API, properly handle newline characters to prevent literal '\\n' strings from being rendered as visible text in the final document.
 §
-Known Feishu Documents for user: 'AI Benchmark Report' (CjeZdC6XioH0VnxsRKscJb1LnVe), 'Edge/Cloud Architecture & VLM' (Mw6CdkF33oRZosx8L3WcgWU4nAc).
+Feishu Docs: 'AI Benchmark' (CjeZdC6XioH0VnxsRKscJb1LnVe), 'Edge/Cloud Arch' (Mw6CdkF33oRZosx8L3WcgWU4nAc), '老乡鸡评估' (N422deLZjopVCVxMfsMcJFHwnaf).
 §
 Write ALL temp files strictly to ~/.hermes/tmp (never ~/ unless explicitly requested). Subagents spawned via `delegate_task` lack session memory; explicitly pass this path rule and other constraints in their context/goal. Homebrew ops require user approval.
-§
-Avoid fragmenting skills. Before creating a new skill, use skills_list to see if the knowledge can be patched into an existing, broader skill in the same domain.
 §
 Env: `uv` data (python/tools) is in `~/.local/share/uv/` (not macOS default). User uses `pyenv` with `uv`.
 §
@@ -20,4 +18,4 @@ User operates a 32-core, 64GB RAM machine for AI inference workloads (e.g., ONNX
 §
 Edge AI nodes: RK3576 (private lab host, local credentials, NPU load: `cat /sys/kernel/debug/rknpu/load`), Sophgo 7.2T CV186AH/BM1688 (private lab host, local credentials, TPU util: `/opt/sophon/libsophon-current/bin/bm-smi`), Sophgo 32T BM1684X (private lab host, local credentials, TPU util: `.../bm-smi`).
 §
-LLM Wiki at `~/.hermes/wiki`. User updates living docs in `_living/`. On sync, do semantic diff to update Layer 2. If 'deep sync' requested, purge ghosts. Never execute 'deep sync' using static string overrides; always read file diffs genuinely.
+LLM Wiki ~/.hermes/wiki. \_living/ source docs use Title-Case-With-Hyphens, require NO semantic metadata (tags), and MUST NEVER be modified to contain [[wikilinks]]. Layer 2 (lowercase) extracts taxonomy and links unilaterally backward via ^[ [[_living/...]] ]. Deep sync purges ghosts.

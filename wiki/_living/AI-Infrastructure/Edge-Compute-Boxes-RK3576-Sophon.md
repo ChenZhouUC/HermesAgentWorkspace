@@ -1,3 +1,9 @@
+---
+title: Edge Compute Boxes RK3576 Sophon
+created: 2026-05-14
+updated: 2026-05-15
+---
+
 # AI 边缘计算盒子调研：RK3576 与算能系列
 
 本文记录三类边缘计算盒子的硬件参数、常用检测命令和现场排查方法，重点关注 RK3576、算能 CV186AH / BM1688 以及 BM1684X 系列。

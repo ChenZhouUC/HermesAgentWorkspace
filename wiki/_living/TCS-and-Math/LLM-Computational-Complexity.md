@@ -1,3 +1,9 @@
+---
+title: LLM Computational Complexity
+created: 2026-05-14
+updated: 2026-05-15
+---
+
 # 大语言模型的计算复杂性与理论基础
 
 在理论计算机科学（TCS）和纯数学领域，大语言模型（LLM）的“涌现能力”通常会被转化为计算复杂性理论中的边界问题。相比单纯依赖经验性 Benchmark 跑分，理论研究更关注严格的下界（Impossibility）和精确的能力刻画（Exact Characterization）。

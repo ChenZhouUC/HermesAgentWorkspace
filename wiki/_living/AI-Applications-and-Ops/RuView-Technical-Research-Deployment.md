@@ -1,3 +1,9 @@
+---
+title: RuView Technical Research Deployment
+created: 2026-05-14
+updated: 2026-05-15
+---
+
 # RuView 技术调研与部署手册
 
 > 调研日期：2026-04-20  
@@ -50,14 +56,14 @@ RuView 是一个 **WiFi 感知平台**，利用 WiFi 信号的 Channel State Inf
 ### 1.3 能力边界（诚实矩阵）
 
 | 能力       | 单节点 ESP32 | 3 节点 Mesh | 6 节点 Mesh | 仅 RSSI (笔记本 WiFi) |
-| ---------- | ------------ | ---------- | ---------- | -------------------- |
-| 存在检测   | Good         | Excellent  | Excellent  | 可用 (90-95%)        |
-| 粗粒度运动 | Good         | Excellent  | Excellent  | 可用 (85-90%)        |
-| 房间级定位 | 无           | Good       | Excellent  | 不可用               |
-| 呼吸检测   | Marginal     | Good       | Good       | 不可用               |
-| 心率检测   | Poor         | Poor       | Marginal   | 不可用               |
-| 多人计数   | 无           | Marginal   | Good       | 不可用               |
-| 姿态估计   | 无           | Poor       | Marginal   | 不可用               |
+| ---------- | ------------ | ----------- | ----------- | --------------------- |
+| 存在检测   | Good         | Excellent   | Excellent   | 可用 (90-95%)         |
+| 粗粒度运动 | Good         | Excellent   | Excellent   | 可用 (85-90%)         |
+| 房间级定位 | 无           | Good        | Excellent   | 不可用                |
+| 呼吸检测   | Marginal     | Good        | Good        | 不可用                |
+| 心率检测   | Poor         | Poor        | Marginal    | 不可用                |
+| 多人计数   | 无           | Marginal    | Good        | 不可用                |
+| 姿态估计   | 无           | Poor        | Marginal    | 不可用                |
 
 **重要**：没有 ESP32 硬件时，可以用模拟数据跑通整个流水线，验证信号处理算法的正确性。
 
@@ -231,7 +237,7 @@ RuView/
 
 | 设备              | 架构                  | GPU               | 显存/内存       | 适合角色                        |
 | ----------------- | --------------------- | ----------------- | --------------- | ------------------------------- |
-| MacBook M 系列     | ARM64 (Apple Silicon) | Metal/MPS         | 8-64GB 统一内存 | 开发环境 + Rust 编译 + 轻量推理 |
+| MacBook M 系列    | ARM64 (Apple Silicon) | Metal/MPS         | 8-64GB 统一内存 | 开发环境 + Rust 编译 + 轻量推理 |
 | Nvidia T4 服务器  | x86_64                | Turing, 2560 CUDA | 16GB GDDR6      | GPU 推理服务 + Docker 全栈      |
 | Nvidia Jetson TX1 | ARM64 (aarch64)       | Maxwell, 256 CUDA | 4GB LPDDR4      | 边缘部署聚合器                  |
 
@@ -554,13 +560,13 @@ node scripts/benchmark-ruvllm.js --model models/csi-ruvllm
 
 ### 7.2 TX1 硬件约束
 
-| 参数    | 值                      | 影响                                |
-| ------- | ----------------------- | ----------------------------------- |
-| CPU     | 4-core ARM Cortex-A57   | 编译慢，运行时够用                  |
-| GPU     | 256 CUDA Maxwell        | 能跑 PyTorch 但显存小               |
+| 参数    | 值                      | 影响                                  |
+| ------- | ----------------------- | ------------------------------------- |
+| CPU     | 4-core ARM Cortex-A57   | 编译慢，运行时够用                    |
+| GPU     | 256 CUDA Maxwell        | 能跑 PyTorch 但显存小                 |
 | RAM     | 4GB LPDDR4 (共享)       | **限制因素**，不能同时跑大模型 + 服务 |
-| 存储    | 16GB eMMC               | 需要 SD 卡扩展                      |
-| JetPack | 4.x (基于 Ubuntu 18.04) | 软件版本较老                        |
+| 存储    | 16GB eMMC               | 需要 SD 卡扩展                        |
+| JetPack | 4.x (基于 Ubuntu 18.04) | 软件版本较老                          |
 
 ### 7.3 环境准备
 

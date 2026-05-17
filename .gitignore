@@ -62,3 +62,10 @@ bin/
 
 # ── 项目缓存 ────────────────────────────────────────────────────
 /tmp
+
+
+# ── Obsidian ────────────────────────────────────────────────────
+wiki/.obsidian/workspace.json
+wiki/.obsidian/workspace-mobile.json
+wiki/.obsidian/graph.json
+wiki/.obsidian/core-plugins-galore.json

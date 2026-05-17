@@ -14,8 +14,9 @@ An edge AI computing box powered by an NPU.
 
 ## Device Details
 
-Part of the edge computing portfolio. Measured heavily against INT8 operations for throughput optimization.^[ _living/AI-Infrastructure/Edge-Compute-Boxes-RK3576-Sophon.md ]
+Part of the edge computing portfolio. Measured heavily against INT8 operations for throughput optimization.^[ [[_living/AI-Infrastructure/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]] ]] ]
 
 **Related:**
 
 - [[edge-sophon]]
+- [[ruview]]

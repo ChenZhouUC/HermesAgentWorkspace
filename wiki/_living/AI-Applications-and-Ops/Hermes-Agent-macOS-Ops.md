@@ -1,3 +1,9 @@
+---
+title: Hermes Agent macOS Ops
+created: 2026-05-14
+updated: 2026-05-15
+---
+
 # Hermes Agent macOS 安装与运维手册
 
 > 适用系统：macOS 13+（Apple Silicon / Intel 均可）
