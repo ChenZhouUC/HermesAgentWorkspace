@@ -1,3 +1,13 @@
+---
+title: Wiki Log
+created: 2026-05-14
+updated: 2026-05-17
+type: summary
+tags: [wiki, tool]
+sources: []
+confidence: high
+---
+
 # Wiki Log
 
 > 知识库操作追踪日志 (Append-only)
@@ -44,7 +54,13 @@
 
 - Action: Full linkage sync across all living docs, concepts, and entities.
 - Detail: Injected missing `[[wikilinks]]` at the bottom of 17 legacy files to weave the Knowledge Graph.
-  \n## [2026-05-17] ingest | Markdown 进阶语法与 Obsidian 解析机制\n- 创建了源文档：\_living/AI-Infrastructure/Advanced-Markdown-Syntax.md\n- 更新了 Layer 2 概念页：concepts/advanced-markdown-syntax.md\n- 关联了相关文档：concepts/markdown-llm-protocol.md\n- 更新了：index.md
+
+## [2026-05-17] ingest | Markdown 进阶语法与 Obsidian 解析机制
+
+- 创建了源文档：`_living/AI-Infrastructure/Advanced-Markdown-Syntax.md`
+- 更新了 Layer 2 概念页：`concepts/advanced-markdown-syntax.md`
+- 关联了相关文档：`concepts/markdown-llm-protocol.md`
+- 更新了：`index.md`
 
 ## [2026-05-17] ingest | 知识图谱的技术演进：从符号主义到大语言模型
 
@@ -53,4 +69,21 @@
 - 提炼了 Layer 2 概念页：concepts/ontology.md
 - 关联了相关文档：concepts/advanced-markdown-syntax.md, concepts/markdown-llm-protocol.md
 - 更新了：index.md
-  \n## [2026-05-17] update | 本体论架构重组：从概念到实体\n- 移除了本体论错误的流程化概念卡片：concepts/hermes-mac-ops.md\n- 基于 \_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md，重新提取并建立了软件实体页：entities/hermes-agent.md\n- 拆分建立了前代遗产软件实体页：entities/openclaw.md\n- 全面使用紧凑型内联语法重做了 Layer 2 溯源脚注\n- 更新了：index.md
+
+## [2026-05-17] update | 本体论架构重组：从概念到实体
+
+- 移除了本体论错误的流程化概念卡片：`concepts/hermes-mac-ops.md`
+- 基于 `_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md`，重新提取并建立了软件实体页：`entities/hermes-agent.md`
+- 拆分建立了前代遗产软件实体页：`entities/openclaw.md`
+- 全面使用紧凑型内联语法重做了 Layer 2 溯源脚注
+- 更新了：`index.md`
+
+## [2026-05-17] lint | Schema compliance and ghost-node repair
+
+- Removed zero-byte ghost pages: `hermes-mac-ops.md`, `set-theory-reading.md`
+- Repointed stale wikilinks to active Layer 2 nodes: `[[hermes-agent]]`, `[[openclaw]]`, `[[set-theory]]`
+- Added missing `sources` frontmatter to affected Layer 2 pages
+- Registered `math` and `logic` in `SCHEMA.md` tag taxonomy
+- Reconciled `index.md` page count and normalized malformed log section formatting
+- Pruned nonexistent entries from `.obsidian/workspace.json` last-open state
+- Linked `index.md`, `SCHEMA.md`, and `log.md` to reduce meta-page graph isolation

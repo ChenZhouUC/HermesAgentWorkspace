@@ -4,6 +4,7 @@ created: 2026-05-17
 updated: 2026-05-17
 type: entity
 tags: [agent, ops]
+sources: [_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md]
 confidence: high
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: LLM Computational Complexity
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-05-17
 type: concept
 tags: [tcs, complexity, llm, proof]
 sources: [_living/TCS-and-Math/LLM-Computational-Complexity.md]
@@ -19,5 +19,5 @@ In Theoretical Computer Science (TCS), LLM emergent abilities are formulated as 
 
 **Related:**
 
-- [[set-theory-reading]]
+- [[set-theory]]
 - [[llm-benchmark-methodology]]

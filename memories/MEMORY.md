@@ -1,4 +1,4 @@
-Config repo: git@github.com:ChenZhouUC/HermesAgentWorkspace.git
+Repo: git@github.com:ChenZhouUC/HermesAgentWorkspace.git. NEVER auto-commit/push without explicit user request. Run `~/.config/git/hooks/copilot-git-approve commit` (or push) first. No --no-verify.
 §
 **400 cascade fix**: If 400 errors loop, run `hermes sessions list` then `hermes sessions delete SESSION_ID` to remove the broken session.
 §
@@ -18,4 +18,4 @@ User operates a 32-core, 64GB RAM machine for AI inference workloads (e.g., ONNX
 §
 Edge AI nodes: RK3576 (private lab host, local credentials, NPU load: `cat /sys/kernel/debug/rknpu/load`), Sophgo 7.2T CV186AH/BM1688 (private lab host, local credentials, TPU util: `/opt/sophon/libsophon-current/bin/bm-smi`), Sophgo 32T BM1684X (private lab host, local credentials, TPU util: `.../bm-smi`).
 §
-LLM Wiki ~/.hermes/wiki. \_living/ source docs use Title-Case-With-Hyphens, require NO semantic metadata (tags), and MUST NEVER be modified to contain [[wikilinks]]. Layer 2 (lowercase) extracts taxonomy and links unilaterally backward via ^[ [[_living/...]] ]. Deep sync purges ghosts.
+LLM Wiki `~/.hermes/wiki`. L1 (\_living/) has NO tags/wikilinks. L2 extracts NOUNS (entities/theories) only. NEVER extract processes/manuals as L2 nodes; extract core entities instead. Link backward to L1 manual via COMPACT inline footnote: `^[[[_living/...|Alias]]]` (NO SPACES). Deep sync purges ghosts.

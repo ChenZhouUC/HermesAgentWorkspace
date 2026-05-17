@@ -1,7 +1,7 @@
 ---
 title: AI Agent Frameworks Selection
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-05-17
 type: concept
 tags: [agent, ops]
 sources: [_living/AI-Infrastructure/AI-Agent-Frameworks.md]
@@ -19,4 +19,5 @@ From an engineering standpoint, a true Agent Harness/OS expects the developer to
 **Related:**
 
 - [[markdown-llm-protocol]]
-- [[hermes-mac-ops]]
+- [[hermes-agent]]
+- [[openclaw]]

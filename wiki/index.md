@@ -1,8 +1,19 @@
+---
+title: Wiki Index
+created: 2026-05-14
+updated: 2026-05-17
+type: summary
+tags: [wiki, tool]
+sources: []
+confidence: high
+---
+
 # Wiki Index
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 在检索和新增前，Agent 会优先阅读此文件以确定上下文。
-> Last updated: 2026-05-17 | Total pages: 11
+> Last updated: 2026-05-17 | Total pages: 15
+> 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
 ## Entities (实体：模型/公司/硬件/框架)
 
@@ -24,7 +35,7 @@
 - [[lmm-input-mechanics]] - LMM (多模态大模型) 从 Markdown 到 Token 的处理机制
 - [[markdown-llm-protocol]] - Markdown 在 LLM 交互场景下的格式协议架构
 - [[ontology]] - 知识工程中的本体论概念及其规范边界
-- [[set-theory-reading]] - 集合论历史演变与相关哲学书单
+- [[set-theory]] - 集合论基础、公理体系与异见理论
 - [[traditional-knowledge-graph]] - 大模型爆发前的符号主义知识图谱架构（KG）及三元组原理
 
 ## Comparisons (横向对比表)

@@ -4,6 +4,7 @@ created: 2026-05-17
 updated: 2026-05-17
 type: concept
 tags: [architecture, tcs]
+sources: [_living/AI-Infrastructure/Evolution-of-Knowledge-Graphs.md]
 confidence: high
 ---
 

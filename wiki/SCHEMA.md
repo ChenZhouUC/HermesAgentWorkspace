@@ -1,3 +1,13 @@
+---
+title: Wiki Schema
+created: 2026-05-14
+updated: 2026-05-17
+type: summary
+tags: [wiki, tool]
+sources: []
+confidence: high
+---
+
 # Wiki Schema
 
 ## Domain
@@ -41,12 +51,13 @@ _新增标签前必须在此处注册_
 - **模型与架构 (Models & Arch):** `architecture`, `llm`, `vlm`, `transformer`, `state-space`
 - **优化与工程 (Optimization):** `quantization`, `tensorrt`, `onnx`, `system-prompt`, `alignment`
 - **全栈与运维 (Applications & Ops):** `agent`, `macos`, `ops`, `gateway`
-- **算法与数学 (Algorithms & Math):** `tcs`, `statistics`, `proof`, `complexity`, `algorithm`
+- **算法与数学 (Algorithms & Math):** `tcs`, `statistics`, `proof`, `complexity`, `algorithm`, `math`, `logic`
 - **知识管理与工具 (Knowledge Management & Tools):** `wiki`, `markdown`, `obsidian`, `tool`
 - **元数据 (Meta):** `comparison`, `benchmark`, `paper`
 
 ## Page Thresholds (页面创建标准)
 
+- **实体与流程解耦 (Entity-Process Decoupling)**：严格区分名词与动词。软件、硬件、理论（名词）应作为独立的 Entity 或 Concept 提取；操作手册、部署流程、业务流水线（动词/流程）应保留在 Layer 1 中。**绝不能**将“XX 操作指南”直接打包为一个图谱节点，提取时必须“粉碎重组”出核心实体，并让这些实体单向溯源至该流程文档。
 - **创建页面：** 实体/概念在独立文献中作为核心探讨，或在多个文档中出现 2 次以上。
 - **拆分页面：** 页面超过 200 行时，按子主题拆分。
 - **归档页面：** 内容被完全推翻或过时，移入 `_archive/` 并从 index 移除。
