@@ -11,9 +11,19 @@ confidence: high
 # Wiki Index
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
-> 在检索和新增前，Agent 会优先阅读此文件以确定上下文。
+> 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
 > Last updated: 2026-05-17 | Total pages: 15
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
+
+<!--
+Registry Rules
+1. 仅登记 active Layer 2 节点；不登记 `_living/`、`_archive/`、root ghost pages 或 meta pages。
+2. 每个 active 节点必须且只能出现一次，且分区必须与目录/`type` 一致。
+3. 条目格式固定为：- `[[slug]]` - 一句话摘要
+4. 各分区按 slug 字母序排列。
+5. rename / replace / archive / delete 时，必须在同一变更中同步更新本文件。
+6. `Total pages` 是派生字段，必须精确等于下方已登记 active 节点数。
+-->
 
 ## Entities (实体：模型/公司/硬件/框架)
 

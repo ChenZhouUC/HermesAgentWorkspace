@@ -87,3 +87,10 @@ confidence: high
 - Reconciled `index.md` page count and normalized malformed log section formatting
 - Pruned nonexistent entries from `.obsidian/workspace.json` last-open state
 - Linked `index.md`, `SCHEMA.md`, and `log.md` to reduce meta-page graph isolation
+
+## [2026-05-17] update | Strengthen Layer 2 schema and registry rules
+
+- Scoped hard constraints explicitly to Active Layer 2 pages (`entities/`, `concepts/`, `comparisons/`, `queries/`)
+- Added strict invariants for unique slugs, non-empty `sources`/`tags`, resolved wikilinks, and directory-to-type matching
+- Added lifecycle rules for create / rename / replace / split / merge / archive / delete
+- Declared `index.md` the single registry for active Layer 2 nodes and formalized registration rules

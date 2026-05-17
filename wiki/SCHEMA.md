@@ -17,31 +17,51 @@ AI 算法工程与统计学习 (Algorithm Engineering & Statistical Learning)
 全栈 AI 应用与软硬件运维 (AI Applications, Edge/Cloud & HW/SW Ops)
 理论计算机科学与数学推导 (TCS & Math in AI)
 
+## Scope (规则作用域)
+
+- **Layer 1 / Source of Truth:** `_living/**` 由用户维护，作为原材料层。除本节与 `Living Documents Policy` 外，下文硬约束**默认不作用于 Layer 1**。
+- **Layer 2 / Active Knowledge Nodes:** `entities/*.md`、`concepts/*.md`、`comparisons/*.md`、`queries/*.md`。这些页面由 Agent 维护，必须满足下文全部硬约束。
+- **Meta Pages:** `SCHEMA.md`、`index.md`、`log.md`。这些页面也必须有 frontmatter，但不参与 Layer 2 节点计数。
+- **Archive Pages:** `_archive/**/*.md`。归档页不属于 active graph，不得继续作为 Layer 2 的正常目标节点被引用。
+
 ## Conventions
 
 - File names: 小写字母，连字符分隔，无空格 (e.g., `model-quantization-ptq.md`)
-- 所有页面必须以 YAML frontmatter 开头
-- 使用 `[[wikilinks]]` 进行双向链接（每页至少 2 个出链）
-- 更新页面时，必须更新 `updated` 字段
-- 所有新页面必须注册到 `index.md` 的对应区块下
-- 核心操作记录需追加至 `log.md`
+- Active Layer 2 页面只允许放在 `entities/`、`concepts/`、`comparisons/`、`queries/` 下；**不得**漂浮在仓库根目录
+- Active Layer 2 slug 必须全库唯一；**禁止**出现同名节点
+- 所有 Active Layer 2 与 Meta 页面必须以 YAML frontmatter 开头；Layer 1 只要求保持最小必要元数据
+- Active Layer 2 页面使用 `[[wikilinks]]` 进行图谱连线，且每页至少 2 个**已解析**出链；指向 `_living` 的溯源脚注**不计入**出链数
+- Active Layer 2 页面中，所有非代码块/非行内代码中的 `[[wikilinks]]` 都必须能解析到现存页面；**禁止 unresolved links**
+- Active Layer 2 页面更新正文、frontmatter、slug 或出链时，必须同步更新 `updated` 字段
+- 所有 Active Layer 2 页面必须注册到 `index.md` 的对应区块下，且**恰好出现一次**
+- create / rename / replace / split / merge / archive / delete 这类核心操作需追加至 `log.md`
 - **Provenance markers (溯源标记):** 当页面综合了 3 个以上来源时，在段落末尾添加 `^[raw/papers/source-file.md]` 以实现精确溯源。
 
 ## Frontmatter
+
+_下列模板适用于 Active Layer 2 页面。Meta pages 可使用 `type: summary` 且允许 `sources: []`。_
 
 ```yaml
 ---
 title: Page Title
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
-type: entity | concept | comparison | query | summary
+type: entity | concept | comparison | query
 tags: [必须从下方 Taxonomy 中选择]
-sources: [raw/papers/source-name.md]
+sources: [_living/path/to/source.md or raw/papers/source-name.md]
 confidence: high | medium | low
-contested: true
+contested: true | false
 contradictions: [other-page-slug]
 ---
 ```
+
+### Frontmatter Invariants
+
+- `type` 必须与目录一致：`entities/ -> entity`，`concepts/ -> concept`，`comparisons/ -> comparison`，`queries/ -> query`
+- `tags` 对 Active Layer 2 页面必须为**非空列表**，且所有标签都必须已注册到下方 Taxonomy
+- `sources` 对 Active Layer 2 页面必须为**非空列表**
+- `updated` 必须在每次内容、结构或链接变更时同步刷新
+- `contradictions` 中的 slug 必须存在，且应指向 active 页面而非 archive 页面
 
 ## Tag Taxonomy (标签库)
 
@@ -61,6 +81,67 @@ _新增标签前必须在此处注册_
 - **创建页面：** 实体/概念在独立文献中作为核心探讨，或在多个文档中出现 2 次以上。
 - **拆分页面：** 页面超过 200 行时，按子主题拆分。
 - **归档页面：** 内容被完全推翻或过时，移入 `_archive/` 并从 index 移除。
+
+## Layer 2 Graph Invariants
+
+- Active Layer 2 页面中的语义连线目标，默认应为其他 Active Layer 2 页面
+- 示例代码、语法展示中的 `[[...]]` 必须放在代码块或行内代码中；**只有这样**才不参与 unresolved-link 校验
+- Active Layer 2 页面不得引用零字节节点、根目录幽灵页或已被替换的旧 slug
+- 已归档节点不得继续作为 active 页面中的正常关联目标
+
+## Node Lifecycle (节点生命周期)
+
+### Create
+
+创建 Active Layer 2 节点时，必须在同一变更中完成以下动作：
+
+1. 新建到正确目录，并使用全库唯一 slug
+2. 写入完整 frontmatter（含非空 `sources`）
+3. 添加至少 2 个已解析的 Layer 2 出链
+4. 注册到 `index.md`
+5. 追加 `log.md`
+
+### Rename
+
+重命名 Active Layer 2 节点时，必须在同一变更中完成：
+
+1. 重命名文件本身
+2. 全库更新旧 slug 的所有引用（正文 wikilinks、`contradictions`、`index.md`、相关 meta 页面）
+3. 删除旧文件
+
+**禁止**保留空文件、占位跳转页或零字节旧 slug 作为“兼容层”。
+
+### Replace / Split / Merge
+
+当一个旧节点被一个或多个新节点替代时，必须在同一变更中：
+
+1. 建立新节点
+2. 将所有 active 页面中的旧引用改指向新节点
+3. 更新 `index.md`
+4. 记录到 `log.md`
+
+如果旧节点只是误建、过薄或被更精确节点完全吸收，优先直接删除，不要保留幽灵残骸。
+
+### Archive / Delete
+
+- **误建页、零字节页、短命 ghost page：** 直接删除，**不要归档**
+- **确有历史价值但不再 active 的页面：** 移入 `_archive/`，并同时：
+  1. 从 `index.md` 移除
+  2. 清除所有来自 active Layer 2 页面的引用
+  3. 确保不再作为 graph 的正常目标节点
+
+## Validation Invariants (强校验清单)
+
+每次同步、重构或批量生成后，至少满足以下条件：
+
+1. `entities/`、`concepts/`、`comparisons/`、`queries/` 中不存在零字节 Markdown 文件
+2. 仓库根目录不存在漂浮的 Active Layer 2 节点
+3. Active Layer 2 slug 全库唯一
+4. Active Layer 2 页面全部具备完整 frontmatter，且 `sources`、`tags` 非空
+5. Active Layer 2 页面中不存在 unresolved wikilinks（代码块/行内代码中的示例除外）
+6. 每个 Active Layer 2 页面在 `index.md` 中**恰好登记一次**
+7. `index.md` 不得登记不存在、已归档或已被替换的 slug
+8. 若 `index.md` 维护 `Total pages` 字段，则该值必须等于已登记的 Active Layer 2 节点数
 
 ## Update Policy (更新策略)
 
