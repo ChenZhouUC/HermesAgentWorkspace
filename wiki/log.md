@@ -94,3 +94,15 @@ confidence: high
 - Added strict invariants for unique slugs, non-empty `sources`/`tags`, resolved wikilinks, and directory-to-type matching
 - Added lifecycle rules for create / rename / replace / split / merge / archive / delete
 - Declared `index.md` the single registry for active Layer 2 nodes and formalized registration rules
+
+## [2026-05-18] lint | Registry sync after Obsidian mechanics ingest
+
+- Replaced stale `[[advanced-markdown-syntax]]` links with `[[wikilinks]]`
+- Added missing `sources` frontmatter to `concepts/wikilinks.md`, `concepts/graph-centrality.md`, and `entities/obsidian.md`
+- Registered `[[obsidian]]`, `[[graph-centrality]]`, and `[[wikilinks]]` in `index.md`
+- Removed deleted `[[advanced-markdown-syntax]]` from `index.md` and reconciled total page count
+
+## [2026-05-18] tooling | Add wiki Layer 2 consistency linter
+
+- Added `scripts/wiki_lint.py` as the canonical post-maintenance validator for Layer 2 graph consistency
+- Updated `SCHEMA.md` to require `python3 scripts/wiki_lint.py` after wiki sync, rebuild, or batch generation

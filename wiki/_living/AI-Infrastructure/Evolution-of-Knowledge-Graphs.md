@@ -31,7 +31,7 @@ updated: 2026-05-17
 
 现代基于 LLM 和 Markdown 的知识架构（如 Karpathy's LLM Wiki 模式）对传统 KG 实现了“降维打击”，其核心差异体现在对上下文（Context）和模糊性（Ambiguity）的容忍度上：
 
-- **知识压缩 vs. 知识保留**：传统 KG 将丰富的自然语言强制压缩成离散的 SPO 三元组，极易丢失“特定历史条件”、“概率不确定性”等语境；而 LLM Wiki 保留了全量 Markdown 上下文，仅通过 `[[Wikilinks]]` 提供弱类型寻址。
+- **知识压缩 vs. 知识保留**：传统 KG 将丰富的自然语言强制压缩成离散的 SPO 三元组，极易丢失“特定历史条件”、“概率不确定性”等语境；而 LLM Wiki 保留了全量 Markdown 上下文，仅通过 `\[\[Wikilinks\]\]` 提供弱类型寻址。
 - **构建成本的断崖式下降**：无需训练专门的 NER/RE 模型，无需设计死板的 Ontology。只需将 raw text 喂给 LLM 即可提取核心 Concepts。
 - **计算复杂性视角的转换**：从图同构 (Subgraph Isomorphism) 这种 TCS 领域的强逻辑判定，转向了连续高维空间中的概率采样生成。
 

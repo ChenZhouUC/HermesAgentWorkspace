@@ -22,4 +22,4 @@ confidence: high
 **相关概念**:
 
 - 隶属于 [[traditional-knowledge-graph]]
-- 对比于免 Schema 的图谱连线设计：[[advanced-markdown-syntax]]
+- 对比于免 Schema 的图谱连线设计：[[wikilinks]]

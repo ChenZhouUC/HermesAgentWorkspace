@@ -30,8 +30,8 @@ AI 算法工程与统计学习 (Algorithm Engineering & Statistical Learning)
 - Active Layer 2 页面只允许放在 `entities/`、`concepts/`、`comparisons/`、`queries/` 下；**不得**漂浮在仓库根目录
 - Active Layer 2 slug 必须全库唯一；**禁止**出现同名节点
 - 所有 Active Layer 2 与 Meta 页面必须以 YAML frontmatter 开头；Layer 1 只要求保持最小必要元数据
-- Active Layer 2 页面使用 `[[wikilinks]]` 进行图谱连线，且每页至少 2 个**已解析**出链；指向 `_living` 的溯源脚注**不计入**出链数
-- Active Layer 2 页面中，所有非代码块/非行内代码中的 `[[wikilinks]]` 都必须能解析到现存页面；**禁止 unresolved links**
+- Active Layer 2 页面使用 `\[\[wikilinks\]\]` 进行图谱连线，且每页至少 2 个**已解析**出链；指向 `_living` 的溯源脚注**不计入**出链数
+- Active Layer 2 页面中，所有非代码块/非行内代码中的 `\[\[wikilinks\]\]` 都必须能解析到现存页面；**禁止 unresolved links**
 - Active Layer 2 页面更新正文、frontmatter、slug 或出链时，必须同步更新 `updated` 字段
 - 所有 Active Layer 2 页面必须注册到 `index.md` 的对应区块下，且**恰好出现一次**
 - create / rename / replace / split / merge / archive / delete 这类核心操作需追加至 `log.md`
@@ -132,7 +132,13 @@ _新增标签前必须在此处注册_
 
 ## Validation Invariants (强校验清单)
 
-每次同步、重构或批量生成后，至少满足以下条件：
+每次同步、重构或批量生成后，必须从仓库根目录运行：
+
+```bash
+python3 scripts/wiki_lint.py
+```
+
+该脚本必须返回 `wiki_lint: OK` 且退出码为 0。它至少校验以下条件：
 
 1. `entities/`、`concepts/`、`comparisons/`、`queries/` 中不存在零字节 Markdown 文件
 2. 仓库根目录不存在漂浮的 Active Layer 2 节点
@@ -156,7 +162,7 @@ _新增标签前必须在此处注册_
 对于外部持续更新的个人笔记或配置文档：
 
 1. **绝不放入 `raw/`**：统一存放或镜像至 `_living/` 目录，且不添加 `sha256` 校验。
-2. **保持高内聚，禁止污染源文档 (单向引用原则)**：`_living` 目录下的文档作为原材料 (Source of Truth)，必须保持纯净，由用户手动维护。Agent **绝不允许**向 `_living` 下的文档底部或正文中主动写入任何指向图谱的 `[[wikilinks]]` 或隔离线。
+2. **保持高内聚，禁止污染源文档 (单向引用原则)**：`_living` 目录下的文档作为原材料 (Source of Truth)，必须保持纯净，由用户手动维护。Agent **绝不允许**向 `_living` 下的文档底部或正文中主动写入任何指向图谱的 `\[\[wikilinks\]\]` 或隔离线。
 3. **原材料元数据极简化 (No Semantic Metadata in Layer 1)**：`_living` 中的文档不需要（也不推荐）包含上层知识图谱的结构化元数据（如 `tags`, `type`, 或显式的 `concepts` 链接）。原材料只需陈述事实和业务逻辑。知识体系的分类（Tags）和概念提炼（Concepts）完全由 Agent 在同步时于 Layer 2 自行负责构建。
 4. **通过 Layer 2 溯源建立图谱关系**：所有的知识网状连线，必须由 Layer 2 (Concepts/Entities) 页面通过**紧凑的内联脚注语法**（例如：`^[[[_living/xxx/xxx|显示别名]]]`）**单向、主动地指向** Layer 1。
    - **核心红线**：在 `^[` 和 `[[` 之间，以及 `]]` 和 `]` 之间，**绝对不允许有任何空格**。空格会触发 Obsidian 渲染器的 Bug 导致显示残留的 `] ]`。

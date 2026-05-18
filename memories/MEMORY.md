@@ -18,4 +18,4 @@ User operates a 32-core, 64GB RAM machine for AI inference workloads (e.g., ONNX
 §
 Edge AI nodes: RK3576 (private lab host, local credentials, NPU load: `cat /sys/kernel/debug/rknpu/load`), Sophgo 7.2T CV186AH/BM1688 (private lab host, local credentials, TPU util: `/opt/sophon/libsophon-current/bin/bm-smi`), Sophgo 32T BM1684X (private lab host, local credentials, TPU util: `.../bm-smi`).
 §
-LLM Wiki `~/.hermes/wiki`. L1 (\_living/) has NO tags/wikilinks. L2 extracts NOUNS (entities/theories) only. NEVER extract processes/manuals as L2 nodes; extract core entities instead. Link backward to L1 manual via COMPACT inline footnote: `^[[[_living/...|Alias]]]` (NO SPACES). Deep sync purges ghosts.
+LLM Wiki `~/.hermes/wiki`. L1 (\_living/): NO tags/links. L2: nouns only, link L1 via `^[[[_living/...|Alias]]]` (NO SPACES). ALWAYS read `SCHEMA.md` before graph changes. Run `python3 scripts/wiki_lint.py` from `~/.hermes`. Vis: Juggl plugin.

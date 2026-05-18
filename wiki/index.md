@@ -1,7 +1,7 @@
 ---
 title: Wiki Index
 created: 2026-05-14
-updated: 2026-05-17
+updated: 2026-05-18
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last updated: 2026-05-17 | Total pages: 15
+> Last updated: 2026-05-18 | Total pages: 17
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
 <!--
@@ -33,13 +33,14 @@ Registry Rules
 - [[edge-sophon]] - 算能 (Sophgo) 边缘 TPU 盒子系列
 - [[esp32-s3]] - WiFi CSI 信号采集核心微控制器
 - [[hermes-agent]] - 多模态 Agent 端到端框架，包含 macOS 核心网关与 Fallback 机制
+- [[obsidian]] - 本地 Markdown 知识库与双链图谱工具
 - [[openclaw]] - 早期的智能体前代框架（现已被 Hermes 继承并自动迁移）
 - [[ruview]] - 基于 WiFi CSI 的穿墙无感知检测平台
 
 ## Concepts (概念：机制/算法/理论)
 
-- [[advanced-markdown-syntax]] - Markdown 进阶语法（双向链接与脚注）及 Obsidian 底层渲染引擎解析
 - [[agent-frameworks]] - 什么是真正的 Agent 框架及深度选型分析
+- [[graph-centrality]] - 网络中心性算法及其在知识图谱分析中的应用
 - [[llm-benchmark-methodology]] - AI 大模型基准测试系统调研
 - [[llm-computational-complexity]] - 大语言模型在 TCS 领域的计算复杂性与严格下界
 - [[lmm-input-mechanics]] - LMM (多模态大模型) 从 Markdown 到 Token 的处理机制
@@ -47,6 +48,7 @@ Registry Rules
 - [[ontology]] - 知识工程中的本体论概念及其规范边界
 - [[set-theory]] - 集合论基础、公理体系与异见理论
 - [[traditional-knowledge-graph]] - 大模型爆发前的符号主义知识图谱架构（KG）及三元组原理
+- [[wikilinks]] - Wikilinks 与内联脚注等 Markdown 扩展语法机制
 
 ## Comparisons (横向对比表)
 

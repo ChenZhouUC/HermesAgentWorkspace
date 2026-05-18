@@ -1,7 +1,7 @@
 ---
 title: Markdown as LLM Protocol
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-05-18
 type: concept
 tags: [architecture, llm]
 sources: [_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs.md]
@@ -21,4 +21,4 @@ Markdown is increasingly becoming the preferred format for LLM interactions, rep
 
 - [[llm-benchmark-methodology]]
 - [[lmm-input-mechanics]]
-- [[advanced-markdown-syntax]]
+- [[wikilinks]]
