@@ -406,7 +406,8 @@ macOS 下可安装一组独立的 LaunchAgent：
 ```bash
 ~/.hermes/scripts/install_vertex_refresh_launchd
 
-# 可选：改为每 45 分钟刷新一次
+# 可选：改为每 45 分钟刷新一次（会更频繁触发计划内 gateway 重启，因此飞书里看到
+# “Gateway restarting — Your current task will be interrupted” 属于正常现象）
 ~/.hermes/scripts/install_vertex_refresh_launchd --interval-seconds 2700
 ```
 
@@ -660,7 +661,7 @@ bash ~/.hermes/hermes-update.sh
 | ---- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                                                                |
 | 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash）                                                                                  |
-| 3    | `hermes update`                           | git pull · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                                                           |
+| 3    | `hermes update`                           | git pull · 关键文件语法校验/失败自动回滚 · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                           |
 | 4    | `npm audit fix`                           | 修复 hermes update 安装 npm 依赖后遗留的已知安全漏洞（PATCH-6）                                                                                                                         |
 | 4b   | Skills 镜像同步                           | `rsync --delete` 使 `skills/` 完全镜像上游 `hermes-agent/skills/`：新增 skill 自动添加、上游删除的 skill 自动清理；用户自定义 skill 存于 `my-skills/`，不受影响                         |
 | 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                                    |
@@ -696,7 +697,7 @@ hermes gateway status
 
 ## 本地补丁记录
 
-本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `26933c2f5`（Hermes `v0.13.0`，截至 2026-05-14 的 `main`）。
+本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `f1254b1bc`（截至 2026-05-19 的 `main`）。
 
 补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新生成补全脚本并对旧坏格式做回归 sentinel 检测（PATCH-3 已于 v0.13.0 上游合并 commit `fe61d95b4`，正常情况下检测不命中、直接跳过）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-7 feishu python-socks 依赖；PATCH-4 / PATCH-5 已上游合并并退役，仅保留存在性 grep 验证；PATCH-8 于 v0.11.0 上游合并，仅保留文档记录），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
 
@@ -1432,6 +1433,7 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 | 版本               | 日期       | 说明                                                                                                                                                                                                                                    |
 | ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v0.14.0            | 2026-05-19 | 基线滚动到 `f1254b1bc`（较 `a0bd11d02` 再前进 13 commits）；`hermes update` 新增 post-pull 关键文件语法校验/失败自动回滚；`local-patches.diff` 干净 apply 并刷新基线；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态            |
 | v0.13.0            | 2026-05-14 | 基线滚动到 `26933c2f5`（v0.13.0，194 commits）；PATCH-7 因上游将 feishu extra 改为版本钉死（`lark-oapi==1.5.3` + `qrcode==7.4.2`）触发 3-way 冲突，重写为 `python-socks==2.8.1`；PATCH-1/2 干净 apply；PATCH-3/4/5/8 维持已上游合并状态 |
 | v0.13.0            | 2026-05-12 | 基线滚动到 `99ad2d1372`（v0.13.0 仍是当前 release，174 commits 全是补丁修复）；`local-patches.diff` 干净 apply（无 3-way），仅 hunk 锚点行号漂移；PATCH-1/2/3/4/5/7 状态全部维持，PATCH-7 hunk 117→121 行漂动                           |
 | v0.13.0            | 2026-05-10 | 上游 `main` 同步到 `44cdf555a`（release `v2026.5.7`，490 commits），3-way merge 干净落地；PATCH-3 经上游 commit `fe61d95b4` 合并并退役；继续保留 PATCH-1/2/6/7 + PATCH-3 sentinel                                                       |

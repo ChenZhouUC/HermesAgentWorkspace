@@ -44,10 +44,10 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.13.0 (upstream commit fe61d95b4), `hermes completion zsh` already
-# emits the canonical `'(-)'{-h,--help}'[...]'` form, so step 7's regression
-# sentinel doesn't fire. The detection block stays as a guard against future
-# upstream regression.
+# As of v0.14.0 / main f1254b1bc, `hermes completion zsh` still emits the
+# canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
+# dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
+# against future upstream regression.
 # PATCH-5 (delegate_tool), PATCH-8 (Gemini thought_signature) and PATCH-4
 # (hermes_cli/main.py dashboard web-build skip) were merged upstream and
 # removed from this list.

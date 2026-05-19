@@ -1,6 +1,6 @@
 Profile: Zhou Chen. Married (wife in gov). TZ: Asia/Shanghai. CN/EN. Math+Stats engineer (Fudan/UChicago, AI/edge/cloud/TCS). Prefers hardcore TCS/math papers. Estimates: PD ints. Prefers EXTREME conciseness, rigour, bullet lists, 100% completion.
 §
-Feishu Docs: 1. Clean titles. 2. Version table (@小聪明蛋); append new row on EVERY edit. 3. Chicago refs for research. 4. Revise in-place. If explicitly asked to create new doc, immediately set link_share_entity to tenant_editable. 5. Native blocks.
+Feishu Docs: 1. Clean titles. 2. Version table YYYYMMDD.XXed, UTC+8, native @小聪明蛋; new row each edit. 3. Chicago refs; cite wiki as 周琛。4. Separate docs for distinct projects. 5. Native blocks.
 §
 Git: No `--no-verify`. Follow `~/.copilot/instructions/20-git-guardrail.instructions.md` & run `copilot-git-approve <commit|push>` first.
 §
@@ -10,4 +10,6 @@ Feishu Links: Always include raw unformatted URLs in plain text. Markdown hyperl
 §
 Product Recs: Use star ratings (descending) & tables for spec combos/prices.
 §
-Tools: Persist to 100% completion; never accept partial/broken results. Prefers 'best effort' automation (exhaustive fallbacks, minimal inputs) paired with transparent technical logs (Trust via Transparency) over generic loading spinners.
+Tools: Persist to 100% completion. Prefer exhaustive fallbacks & transparent logs over generic spinners. M2 to M5 Migration: Wants zero-friction environment rebuilds (dotfiles, brew bundle, App Support) over blind full-disk copy.
+§
+In hardware/deployment lists, prefers full comparative tables showing both unchanged items ('[✅ 无变更]') and degraded/removed items ('[⚠️ 减配/移除]'), rather than lists that only show the diffs.

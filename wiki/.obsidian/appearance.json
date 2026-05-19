@@ -1,3 +1,7 @@
 {
-  "accentColor": "#75140c"
+  "accentColor": "#75140c",
+  "monospaceFontFamily": "RecMonoCasual Nerd Font Mono,ComicShannsMono Nerd Font Mono",
+  "interfaceFontFamily": "JetBrainsMono Nerd Font Mono,0xProto Nerd Font Mono",
+  "textFontFamily": "Monaspace Neon,Source Han Sans SC",
+  "showRibbon": true
 }

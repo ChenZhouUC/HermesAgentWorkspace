@@ -67,6 +67,18 @@ def merge_docs(token, source_doc_token, target_doc_token):
         for k in keys_to_copy:
             if k in b:
                 node[k] = b[k]
+                if isinstance(node[k], dict) and "style" in node[k]:
+                    del node[k]["style"]
+        if "text" in node or "bullet" in node or "ordered" in node:
+            for k in ["text", "bullet", "ordered"]:
+                if k in node:
+                    for el in node[k].get("elements", []):
+                        if "text_run" in el and "text_element_style" in el["text_run"]:
+                            el["text_run"]["text_element_style"] = {
+                                k2: v2 for k2, v2 in el["text_run"]["text_element_style"].items() if v2
+                            }
+                            if not el["text_run"]["text_element_style"]:
+                                del el["text_run"]["text_element_style"]
 
         if b["block_type"] == 31:  # Table
             node["table"] = {
@@ -93,11 +105,25 @@ def merge_docs(token, source_doc_token, target_doc_token):
     chunks = [temp_children[i : i + chunk_size] for i in range(0, len(temp_children), chunk_size)]
 
     for chunk_ids in chunks:
+        # We need to maintain order. We can't batch non-tables at the end of the chunk
+        # if there are tables mixed in. So we will batch non-tables until we hit a table,
+        # then POST the batch, then POST the table, then continue.
         payload_chunk = []
-        # Normal blocks vs Tables processing
+
+        def flush_payload():
+            if payload_chunk:
+                do_req(
+                    token,
+                    f"https://open.feishu.cn/open-apis/docx/v1/documents/{target_doc_token}/blocks/{target_doc_token}/children",
+                    method="POST",
+                    payload={"children": payload_chunk, "index": -1},
+                )
+                payload_chunk.clear()
+
         for cid in chunk_ids:
             b = block_map[cid]
             if b["block_type"] == 31:
+                flush_payload()
                 # Handle Table splitting (>9 rows limit)
                 col_size = b["table"]["property"]["column_size"]
                 col_width = b["table"]["property"].get("column_width")
@@ -136,23 +162,19 @@ def merge_docs(token, source_doc_token, target_doc_token):
                                     method="POST",
                                     payload={"children": cell_payload, "index": -1},
                                 )
-                        # Delete default empty block in new cell
-                        do_req(
-                            token,
-                            f"https://open.feishu.cn/open-apis/docx/v1/documents/{target_doc_token}/blocks/{new_cell_id}/children/batch_delete",
-                            method="DELETE",
-                            payload={"start_index": 0, "end_index": 1},
-                        )
+                        try:
+                            # Delete default empty block in new cell
+                            do_req(
+                                token,
+                                f"https://open.feishu.cn/open-apis/docx/v1/documents/{target_doc_token}/blocks/{new_cell_id}/children/batch_delete",
+                                method="DELETE",
+                                payload={"start_index": 0, "end_index": 1},
+                            )
+                        except Exception as ignore:
+                            pass
 
                     cells_processed += curr_rows * col_size
             else:
                 payload_chunk.append(build_tree(cid))
 
-        # Insert non-table blocks in batch
-        if payload_chunk:
-            do_req(
-                token,
-                f"https://open.feishu.cn/open-apis/docx/v1/documents/{target_doc_token}/blocks/{target_doc_token}/children",
-                method="POST",
-                payload={"children": payload_chunk, "index": -1},
-            )
+        flush_payload()

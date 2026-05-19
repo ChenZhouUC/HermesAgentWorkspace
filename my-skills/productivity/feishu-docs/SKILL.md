@@ -94,6 +94,26 @@ payload = {"update_text_elements": {"elements": [{"mention_user": {"user_id": "o
 
 ---
 
+## 🔨 Rebuild Document From Scratch (Clear + Re-import)
+
+When the user says "清理旧内容并按规范重写" or asks for a full doc overhaul (new title, fresh version table, new content), DO NOT attempt incremental patches. Use this atomic rebuild workflow:
+
+1. **Clear all old content**: GET the root block to find its `children`, then `batch_delete` them all at once:
+   ```python
+   res = do_req(token, f".../documents/{DOC_TOKEN}/blocks/{DOC_TOKEN}")
+   children = res["data"]["block"].get("children", [])
+   if children:
+       do_req(token, f".../blocks/{DOC_TOKEN}/children/batch_delete", method="DELETE",
+              payload={"start_index": 0, "end_index": len(children)})
+   ```
+2. **Update Title**: PATCH the root block's text elements with `update_text_elements`.
+3. **Create Version Table from scratch**: POST a new table block at `index: 0`. For each cell, POST the text block as a child, then `batch_delete` the default empty text block (index 0) from that cell. The user's `open_id` for `@小聪明蛋` is `ou_0091f5c50226a4ee0dc8a6d51665db0f` — use `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}`.
+4. **Import and merge Markdown**: Upload the MD file via `curl`, poll the import task to get a temp doc token, then call `merge_docs(token, temp_doc_token, DOC_TOKEN)` from `scripts/merge_markdown_blocks.py`.
+
+**Fully automated**: A ready-to-run script at `<SKILL_DIR>/scripts/rebuild_doc_from_md.py` implements this entire pipeline end-to-end. Usage: `python rebuild_doc_from_md.py <target_doc_token> <md_file_path>`.
+
+---
+
 ## 🧩 Updating Existing Documents & Precise Indexing
 
 ### 1. Deleting Blocks (batch_delete)
@@ -113,6 +133,19 @@ del_req = urllib.request.Request(
 
 The standard Version Table has 3 columns: `Version` | `Time` | `Author`
 Column Widths: `[150, 250, 150]`
+
+**Data Format Rules (CRITICAL):**
+
+- `Version`: Must follow `YYYYMMDD.XXed` (e.g., `20260518.01ed`).
+- `Time`: Must be `YYYY-MM-DD HH:MM:SS UTC+8`.
+- `Author`: MUST be a native mention card (`@小聪明蛋` -> `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}`), NOT plain text.
+
+**CRITICAL: Adding a row to an existing table is NOT natively supported.** You MUST replace the table:
+
+- `Version`: `YYYYMMDD.XXed` format (e.g., `20260518.01ed`). Increment the suffix (`01ed`, `02ed`, `03ed`...) per edit session.
+- `Time`: `YYYY-MM-DD HH:MM:SS UTC+8` format.
+- `Author`: Native `@小聪明蛋` mention card via `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}`. **Never plain text.**
+- Append a NEW row on EVERY modification. Never replace or collapse old rows.
 
 **CRITICAL: Adding a row to an existing table is NOT natively supported.** You MUST replace the table:
 
@@ -136,7 +169,7 @@ new_table_payload = {
 
 3. Fetch the new table's auto-generated cell IDs (`res['data']['children'][0]['table']['cells']`).
 4. `POST` your text blocks (including the old ones and your new row) to each cell's `/children` endpoint.
-5. Use `batch_delete` (as shown above) to delete the old table block from the document, and delete the default empty text block (index 0) from each new cell.
+5. Use `batch_delete` (as shown above) to delete the old table block from the document, and delete the default empty text block (index 0) from each new cell (**wrap the cell deletion in a `try...except` block**, as Feishu may return `HTTP 404 (1770002)` if the block is already absent or processed).
 
 ### 3. Complex Lists (1770001 Fix)
 
@@ -158,7 +191,9 @@ To merge large Markdown content into an existing document with perfect native fo
    - **Strip all `block_id`s.**
    - **Tables:** ONLY copy `row_size`, `column_size`, and `column_width`. Do NOT include `cells` or `merge_info` in the payload. Split tables if they exceed the 9-row limit.
 4. Insert top-level blocks in chunks (e.g., 40 at a time) to avoid payload size/timeout errors.
-5. Re-map the newly created auto-generated cell IDs and sequentially POST their nested children. (See `scripts/merge_markdown_blocks.py` for a robust implementation of this exact block-mapping and table-splitting workflow).
+5. Re-map the newly created auto-generated cell IDs and sequentially POST their nested children. (See `scripts/merge_markdown_blocks.py` for the block-mapping implementation. For a fully automated end-to-end wrapper, run: `python <SKILL_DIR>/scripts/append_md_to_doc.py <target_doc_token> <md_file_path>`).
+
+**CRITICAL ORDERING PITFALL (Table/Text interleaving):** When the Markdown contains alternating headings, text, and tables, the original `merge_markdown_blocks.py` would batch ALL non-table blocks and POST them AFTER the tables in each chunk, destroying document order (headings ended up below their tables). The fix: use a `flush_payload()` mechanism that immediately POSTs accumulated non-table blocks whenever a table is encountered, then POSTs the table individually, then continues. This preserves strict source-order insertion. The patched script at `scripts/merge_markdown_blocks.py` already implements this — do NOT revert to the old batch-at-end-of-chunk pattern.
 
 ---
 
@@ -166,12 +201,13 @@ To merge large Markdown content into an existing document with perfect native fo
 
 If the native `feishu_doc_read` tool fails with `Feishu client not available (not in a Feishu comment context)`, use the bundled extraction scripts via the Open API.
 
-- **Canonical extractor**: `python <SKILL_DIR>/scripts/extract_docx_to_markdown.py <doc_token>`
+- **Canonical extractor**: `uv run --with requests python <SKILL_DIR>/scripts/extract_docx_to_markdown.py <doc_token>`
   Handles nested blocks, tables, lists, and wiki-token-to-doc-token resolution automatically.
-- **Lightweight fallback**: `python <SKILL_DIR>/scripts/read_docx_to_markdown.py <doc_token>`
+- **Lightweight fallback**: `uv run --with requests python <SKILL_DIR>/scripts/read_docx_to_markdown.py <doc_token>`
   Useful when you only need a straightforward block dump to Markdown.
-- **Compatibility helper**: `python <SKILL_DIR>/scripts/download_docx_to_md.py <doc_token>`
+- **Compatibility helper**: `uv run --with requests python <SKILL_DIR>/scripts/download_docx_to_md.py <doc_token>`
   Keeps older workflows working when the lightweight extraction path is sufficient.
+- **Dependency note**: All three scripts require the `requests` Python package. The base system Python does NOT have it installed. You MUST prefix with `uv run --with requests` (or ensure `requests` is available) to avoid `ModuleNotFoundError`.
 - **Wiki vs Docx Pitfall**: If the target URL is a Feishu Wiki link (`https://domain.feishu.cn/wiki/TOKEN`), the application MUST have `wiki:wiki:readonly` or `wiki:node:read` permissions. If it only has document permissions, the API will reject it with a `99991672 Access denied` error. Ask the user to grant the Wiki scope or provide the underlying standard `.docx` link.
 
 ## 🎙️ Reading Feishu Minutes (飞书妙记)

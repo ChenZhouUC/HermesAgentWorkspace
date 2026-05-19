@@ -150,16 +150,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.13.0 (upstream `main` `26933c2f5` / release `v2026.5.7`，截至 2026-05-14)
+## v0.14.0 (upstream `main` `f1254b1bc`，截至 2026-05-19)
 
-> 基线刷新自 `99ad2d1372` → `26933c2f5`（194 commits）。`local-patches.diff` 因 `pyproject.toml` 上游版本钉死触发 3-way 冲突，PATCH-7 手工重写后通过。
+> 基线刷新自 `a0bd11d02` → `f1254b1bc`（13 commits）。`local-patches.diff` 干净 apply 并随更新刷新；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态。`hermes update` 在 pull 后会先做关键文件语法校验，若 critical file 解析失败会自动回滚到 pre-pull SHA。
 >
 > **本次刷新涉及的上游变化**：
 >
-> - `hermes_cli/doctor.py`：2 commits（`0c233e70f` MiMo `/models` 健康检查跳过、`c1eb2dcda` 供应链通告检查框架），PATCH-2 hunk 锚点从 1560 → 1646 行漂移，`git apply --3way` 自动接住。
-> - `pyproject.toml`：上游 commit `c1eb2dcda`（lazy-install 框架）+ `3955aefce`（`--extra all` 修复）将 feishu / dingtalk extras 改为完全钉死（`lark-oapi==1.5.3` + `qrcode==7.4.2`、`dingtalk-stream==0.24.3` 等），与旧 patch 的 `lark-oapi>=1.5.3,<2` 区间约束冲突。**新 PATCH-7 改为 `python-socks==2.8.1`**，跟随上游版本钉死风格。
-> - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：上游无改动，PATCH-1 干净 apply。
+> - `hermes_cli/doctor.py`：PATCH-2 继续存在，更新后仍干净 apply；当前版本下 hunk 由 update 脚本行为化校验。
+> - `pyproject.toml`：PATCH-7 继续活跃，`feishu` extra 仍额外声明 `python-socks==2.8.1`。
+> - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：PATCH-1 继续活跃，更新后干净 apply。
 > - `hermes_cli/completion.py`：上游 commit `8c4bec615` + `6d30b4a7e` 进一步加强 zsh 补全生成（包含回归测试）；PATCH-3 sentinel 继续维持"已上游合并"状态。
+> - `hermes_cli/main.py`：上游新增 `hermes update` 的 post-pull 语法校验与失败自动回滚；脚本更新后当前版本语义与文档一致。
 > - 当前活跃 patch：**PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7**。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
@@ -167,10 +168,10 @@ cat ~/.hermes/patches/.local-patches.base
 | 字段         | 内容                                                                                               |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
-| **状态**     | 🟡 未上游合并（截至 upstream `main` `26933c2f5`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
-| **适用版本** | v0.13.0 仍需本地 patch                                                                             |
+| **状态**     | 🟡 未上游合并（截至 upstream `main` `f1254b1bc`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **适用版本** | v0.14.0 仍需本地 patch                                                                             |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.13.0 上游 `main` (`26933c2f5`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`（本周期上游对该文件无改动）。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.14.0 上游 `main` (`f1254b1bc`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
 
@@ -182,13 +183,13 @@ cat ~/.hermes/patches/.local-patches.base
 | ------------ | ---------------------- |
 | **文件**     | `hermes_cli/doctor.py` |
 | **状态**     | 🟡 未上游合并          |
-| **适用版本** | v0.13.0 仍需本地 patch |
+| **适用版本** | v0.14.0 仍需本地 patch |
 
 **问题**：`hermes doctor` 将所有注册但缺少 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，导致虚报 `Found 1 issue(s) to address`。
 
 **修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
 
-> 2026-05-14 增量升级（`99ad2d1372` → `26933c2f5`）中 hunk 锚点由 1560 行漂动到 1646 行（供应链通告框架 `c1eb2dcda` 在 doctor 顶部插入了大段新代码），`git apply --3way` 自动接住。
+> 2026-05-19 更新中该 patch 仍可干净 apply；如未来上游继续改 doctor 结构，保留 `git apply --3way` 作为兜底。
 
 ---
 
@@ -212,7 +213,7 @@ cat ~/.hermes/patches/.local-patches.base
 | ------------ | ---------------------- |
 | **文件**     | `pyproject.toml`       |
 | **状态**     | 🟡 未上游合并          |
-| **适用版本** | v0.13.0 仍需本地 patch |
+| **适用版本** | v0.14.0 仍需本地 patch |
 
 **问题**：`feishu` optional extra 上游只声明了 `lark-oapi==1.5.3` 和 `qrcode==7.4.2`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
 

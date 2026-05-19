@@ -30,6 +30,7 @@ _hermes() {
                 'acp:Run Hermes Agent as an ACP (Agent Client Protocol) server'
                 'auth:Manage pooled provider credentials'
                 'backup:Back up Hermes home directory to a zip file'
+                'bundles:Create, list, and manage skill bundles (aliases for multiple'
                 'chat:Interactive chat with the agent'
                 'checkpoints:Inspect / prune / clear ~/.hermes/checkpoints/'
                 'claw:OpenClaw migration tools'
@@ -57,7 +58,10 @@ _hermes() {
                 'model:Select default model and provider'
                 'pairing:Manage DM pairing codes for user authorization'
                 'plugins:Manage plugins — install, update, remove, list'
+                'postinstall:Bootstrap non-Python deps for pip installs (node, browser, r'
                 'profile:Manage profiles — multiple isolated Hermes instances'
+                'proxy:Local OpenAI-compatible proxy to OAuth providers'
+                'send:Send a message to a configured platform (scripts, cron jobs,'
                 'sessions:Manage session history (list, rename, export, prune, delete)'
                 'setup:Interactive setup wizard'
                 'skills:Search, install, configure, and manage skills'
@@ -86,6 +90,17 @@ _hermes() {
                     'status:Show auth status for a provider'
                     )
                     _describe 'auth command' auth_cmds
+                    ;;
+                bundles)
+                    local -a bundles_cmds
+                    bundles_cmds=(
+                    'create:Create a new skill bundle'
+                    'delete:Delete a skill bundle'
+                    'list:List installed skill bundles'
+                    'reload:Re-scan the bundles directory and report changes'
+                    'show:Show one bundles contents'
+                    )
+                    _describe 'bundles command' bundles_cmds
                     ;;
                 checkpoints)
                     local -a checkpoints_cmds
@@ -218,6 +233,7 @@ _hermes() {
                     'context:Print the full context a worker sees for a task (title + bod'
                     'create:Create a new task'
                     'daemon:DEPRECATED — dispatcher now runs in the gateway. Use `hermes'
+                    'decompose:Decompose a triage-column task into a graph of child tasks r'
                     'diagnostics:List active diagnostics on the current board'
                     'dispatch:One dispatcher pass: reclaim stale, promote ready, spawn wor'
                     'edit:Edit recovery fields on an already-completed task'
@@ -233,11 +249,13 @@ _hermes() {
                     'reassign:Reassign a task to a different profile, optionally reclaimin'
                     'reclaim:Release an active worker claim on a running task'
                     'runs:Show attempt history for a task (one row per run: profile, o'
+                    'schedule:Park one or more tasks in Scheduled (waiting on time, not hu'
                     'show:Show a task with comments + events'
                     'specify:Flesh out a triage-column task into a concrete spec (title +'
                     'stats:Per-status + per-assignee counts + oldest-ready age'
+                    'swarm:Create a Kanban Swarm v1 graph (parallel workers → verifier '
                     'tail:Follow a tasks event stream'
-                    'unblock:Return one or more blocked tasks to ready'
+                    'unblock:Return one or more blocked/scheduled tasks to ready'
                     'unlink:Remove a parent->child dependency'
                     'watch:Live-stream task_events to the terminal (Ctrl+C to exit)'
                     )
@@ -311,6 +329,7 @@ _hermes() {
                         'alias:Manage wrapper scripts'
                         'create:Create a new profile'
                         'delete:Delete a profile'
+                        'describe:Read or set a profiles description (used by the kanban orche'
                         'export:Export a profile to archive'
                         'import:Import a profile from archive'
                         'info:Show a profiles distribution manifest (version, requirements'
@@ -324,6 +343,15 @@ _hermes() {
                             _describe 'profile command' profile_cmds
                             ;;
                     esac
+                    ;;
+                proxy)
+                    local -a proxy_cmds
+                    proxy_cmds=(
+                    'providers:List available proxy upstream providers'
+                    'start:Run the proxy in the foreground'
+                    'status:Show which proxy upstreams are ready'
+                    )
+                    _describe 'proxy command' proxy_cmds
                     ;;
                 sessions)
                     local -a sessions_cmds

@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index a551d4d20..322368a3a 100644
+index 613815025..2abdca68b 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1643,8 +1643,23 @@ def run_doctor(args):
+@@ -1776,8 +1776,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -29,10 +29,10 @@ index a551d4d20..322368a3a 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/pyproject.toml b/pyproject.toml
-index a880bcb05..95be0ff57 100644
+index e8faf8a24..8f796f568 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -147,7 +147,7 @@ termux-all = [
+@@ -148,7 +148,7 @@ termux-all = [
    "hermes-agent[web]",
  ]
  dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
@@ -42,7 +42,7 @@ index a880bcb05..95be0ff57 100644
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index 96c3a361f..1b92b92ee 100644
+index 33efbb98a..29f8159c8 100644
 --- a/tests/tools/test_skill_manager_tool.py
 +++ b/tests/tools/test_skill_manager_tool.py
 @@ -29,10 +29,12 @@ from tools.skill_manager_tool import (
