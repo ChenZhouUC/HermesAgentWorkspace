@@ -25,6 +25,8 @@ processes.json
 .update_check
 .tick.lock
 .hermes_history
+.clean_shutdown
+.restart_last_processed.json
 
 # ── 密钥缓存（含明文 API key，绝对不入库）─────────────────────────
 auth.json

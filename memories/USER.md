@@ -10,6 +10,6 @@ Feishu Links: Always include raw unformatted URLs in plain text. Markdown hyperl
 §
 Product Recs: Use star ratings (descending) & tables for spec combos/prices.
 §
-Tools: Persist to 100% completion. Prefer exhaustive fallbacks & transparent logs over generic spinners. M2 to M5 Migration: Wants zero-friction environment rebuilds (dotfiles, brew bundle, App Support) over blind full-disk copy.
+Tools: Persist to 100% completion; execute commands to find actual answers instead of giving tutorials (e.g., checking git origin). Prefer exhaustive fallbacks/logs. M2->M5 Migration: zero-friction rebuilds over blind copy.
 §
 In hardware/deployment lists, prefers full comparative tables showing both unchanged items ('[✅ 无变更]') and degraded/removed items ('[⚠️ 减配/移除]'), rather than lists that only show the diffs.

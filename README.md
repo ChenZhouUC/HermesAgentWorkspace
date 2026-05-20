@@ -13,6 +13,7 @@
   - [全新安装](#全新安装)
   - [可选依赖（Optional Extras）](#可选依赖optional-extras)
   - [从 OpenClaw 迁移](#从-openclaw-迁移)
+  - [整机迁移：旧机停用，新机接管](#整机迁移旧机停用新机接管)
 - [配置](#配置)
   - [.env 密钥文件](#env-密钥文件)
   - [config.yaml 主配置](#configyaml-主配置)
@@ -244,6 +245,96 @@ FEISHU_APP_SECRET=your_secret
 FEISHU_DOMAIN=feishu
 FEISHU_CONNECTION_MODE=websocket
 ```
+
+### 整机迁移：旧机停用，新机接管
+
+适用于把一台机器上已经正常运行的 Hermes 环境整体迁到另一台机器：先让旧机停止所有 Hermes 及相关后台进程，再把 `~/.hermes/` 整目录复制到新机，最后在新机重新安装/启动服务。
+
+> ⚠️ `~/.hermes/` 里包含 `.env`、`credentials/`、会话、数据库、缓存等敏感或私有数据。只复制到你信任的新机器，并使用可信传输方式。
+
+#### 1. 在旧机停止 Hermes 相关服务
+
+先停止并卸载 gateway，避免飞书 WebSocket、cron 或 gateway 在两台机器上同时运行：
+
+```bash
+hermes gateway stop || true
+hermes gateway uninstall || true
+```
+
+如果启用了 Vertex token 自动刷新，也要卸载对应的 LaunchAgent，避免旧机继续刷新 token 或自动重启 gateway：
+
+```bash
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist 2>/dev/null || true
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.hermes.vertex-wake.plist 2>/dev/null || true
+rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist \
+      ~/Library/LaunchAgents/ai.hermes.vertex-wake.plist
+```
+
+确认旧机已经没有 Hermes 相关进程：
+
+```bash
+launchctl list | grep -Ei 'hermes|vertex|feishu|gateway' || true
+ps -axo pid=,ppid=,stat=,command= | grep -Ei 'hermes|vertex_wake|feishu|gateway|bot_feishu' | grep -v grep || true
+```
+
+如果仍看到残留进程，先记录 PID，再按 PID 停止：
+
+```bash
+kill -TERM <PID>
+```
+
+停止后可清理运行期 PID/lock 文件，避免把旧机的进程状态带到新机：
+
+```bash
+rm -f ~/.hermes/gateway.pid ~/.hermes/gateway.lock
+```
+
+#### 2. 复制 `~/.hermes/` 到新机
+
+推荐用 `rsync` 保留目录结构和权限：
+
+```bash
+rsync -aH --delete ~/.hermes/ new-host:~/.hermes/
+```
+
+也可以用外置磁盘、局域网共享或其他可信方式复制；关键是目标路径保持为新机的 `~/.hermes/`。
+
+#### 3. 在新机恢复可执行环境
+
+先安装基础依赖（见“前置条件”），再重建虚拟环境。即使复制过来的 `venv/` 看起来存在，也建议在新机重建，避免 Python 版本、CPU 架构或动态库路径不一致：
+
+```bash
+cd ~/.hermes/hermes-agent
+rm -rf venv
+uv venv --python 3.11 venv
+source venv/bin/activate
+uv pip install -e ".[all]"
+
+mkdir -p ~/.local/bin
+ln -sf ~/.hermes/hermes-agent/venv/bin/hermes ~/.local/bin/hermes
+```
+
+如果使用 Vertex Provider，先刷新一次 token：
+
+```bash
+~/.hermes/scripts/refresh_vertex_access_token
+```
+
+最后安装并启动新机的后台服务：
+
+```bash
+hermes doctor
+hermes gateway install --force
+hermes gateway start
+
+# 如果需要 Vertex token 自动刷新 / wake 后补刷
+~/.hermes/scripts/install_vertex_refresh_launchd
+
+hermes gateway status
+launchctl list | grep -Ei 'hermes|vertex'
+```
+
+迁移完成后，旧机应保持 gateway 与 Vertex LaunchAgent 卸载状态；如果只是临时切换机器，回切前也按同样流程先停掉当前机器，再启动另一台。
 
 ---
 
