@@ -35,7 +35,9 @@ Step 2: Save & Clean
   └─ 设置 _PATCHES_REVERTED=true（EXIT trap 用）
 
 Step 3: hermes update
-  └─ 在干净工作区上跑 git pull + deps + web build + restart
+  ├─ 先 stash PATCHED_FILES 之外的额外改动（含 untracked）
+  ├─ 在干净工作区上跑 git pull + deps + web build + restart
+  └─ update 后 pop 回额外改动；若冲突则保留 stash 供手动恢复
 
 Step 4b: Skills 镜像同步
   └─ rsync -a --delete hermes-agent/skills/ → ~/.hermes/skills/
@@ -58,7 +60,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-3: Step 7 中对 `){-h,--help}` / `){-V,--version}` / `){-p,--profile}` 做回归检测（✅ 已上游合并 v0.13.0）
   │   ├─ PATCH-4: grep _web_ui_build_needed in main.py（✅ 已上游合并，仅验证）
   │   ├─ PATCH-5: grep override_acp_command + copilot-acp（✅ 已上游合并，仅验证）
-  │   └─ PATCH-7: grep 'python-socks' in pyproject.toml
+  │   └─ PATCH-7: grep 'python-socks' in pyproject.toml + tools/lazy_deps.py
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -102,17 +104,21 @@ Step 8a 开头先扫描 `local-patches.diff` 自身是否含 conflict marker（`
 
 Step 2 还原 patch 后设置 `_PATCHES_REVERTED=true`。若脚本在 Step 3 之前崩溃，EXIT trap 会自动尝试 `git apply` 恢复补丁，防止因脚本中途退出导致 hermes-agent 处于裸奔状态。Step 3 完成后清除该标志。
 
-#### 5. 上游 base commit 追踪
+#### 5. 额外改动保护
+
+Step 3 只负责 `PATCHED_FILES` 之外的临时改动。脚本会用 `git stash push -u` 保存这些额外改动（包含 untracked 文件），再运行 `hermes update`；如果 stash 失败，脚本直接停止且不执行清理，避免误删未跟踪文件。若 update 后 `stash pop` 与上游冲突，脚本保留 stash 并提示用 `git stash list` 手动恢复。
+
+#### 6. 上游 base commit 追踪
 
 每次 Step 8c 成功刷新 diff 后，将当前 `hermes-agent` 的 HEAD SHA + UTC 时间戳写入 `patches/.local-patches.base`。当下次 update 补丁 apply 失败时，可以对比这个 base 和新的 HEAD 来定位是哪些上游 commit 引入了冲突：
 
 ```bash
 # 查看自上次 patch 刷新以来上游改了哪些相关文件
 BASE=$(cut -d' ' -f1 ~/.hermes/patches/.local-patches.base)
-cd ~/.hermes/hermes-agent && git log --oneline ${BASE}..HEAD -- tools/skill_manager_tool.py hermes_cli/doctor.py hermes_cli/main.py tools/delegate_tool.py
+cd ~/.hermes/hermes-agent && git log --oneline ${BASE}..HEAD -- tools/skill_manager_tool.py tests/tools/test_skill_manager_tool.py hermes_cli/doctor.py pyproject.toml tools/lazy_deps.py
 ```
 
-#### 6. 上游吸收检测
+#### 7. 上游吸收检测
 
 Step 8c 中，如果所有 `PATCHED_FILES` 与上游 HEAD 无差异（`_REFRESHED` 为空），说明补丁可能已被上游合并。脚本会提示清理 `PATCHED_FILES` 列表和本文档中的对应条目，避免后续更新反复 apply 一个空 diff。
 
@@ -132,6 +138,7 @@ PATCHED_FILES=(
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
     "pyproject.toml"
+    "tools/lazy_deps.py"
 )
 ```
 
@@ -150,17 +157,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.14.0 (upstream `main` `f1254b1bc`，截至 2026-05-19)
+## v0.14.0 (upstream `main` `6a6766fb8`，截至 2026-05-20)
 
-> 基线刷新自 `a0bd11d02` → `f1254b1bc`（13 commits）。`local-patches.diff` 干净 apply 并随更新刷新；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态。`hermes update` 在 pull 后会先做关键文件语法校验，若 critical file 解析失败会自动回滚到 pre-pull SHA。
+> 新机恢复时克隆最新官方 `main` 到 `6a6766fb8`。`local-patches.diff` 干净 apply 并随恢复刷新；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态。上游当前 `pyproject.toml` 的 `requires-python = ">=3.11"`；本次 venv 使用本机 pyenv `3.12.7`，这是满足约束的本地选择，不是文档硬性版本。
 >
 > **本次刷新涉及的上游变化**：
 >
 > - `hermes_cli/doctor.py`：PATCH-2 继续存在，更新后仍干净 apply；当前版本下 hunk 由 update 脚本行为化校验。
-> - `pyproject.toml`：PATCH-7 继续活跃，`feishu` extra 仍额外声明 `python-socks==2.8.1`。
+> - `pyproject.toml` / `tools/lazy_deps.py`：PATCH-7 继续活跃。上游已将 Feishu 从 `[all]` 移到 lazy backend，补丁现在同时覆盖 `feishu` extra 和 `LAZY_DEPS["platform.feishu"]`，避免常规安装与首次 lazy install 两条路径缺 `python-socks`。
 > - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：PATCH-1 继续活跃，更新后干净 apply。
 > - `hermes_cli/completion.py`：上游 commit `8c4bec615` + `6d30b4a7e` 进一步加强 zsh 补全生成（包含回归测试）；PATCH-3 sentinel 继续维持"已上游合并"状态。
-> - `hermes_cli/main.py`：上游新增 `hermes update` 的 post-pull 语法校验与失败自动回滚；脚本更新后当前版本语义与文档一致。
+> - `hermes_cli/main.py`：上游 `hermes update` 当前会安装 `.[all]` 并刷新已激活 lazy backend；本地 `hermes-update.sh` 仍负责补丁保存/恢复、npm audit fix、skills 镜像、补全刷新和 post-patch gateway restart。
 > - 当前活跃 patch：**PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7**。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
@@ -168,10 +175,10 @@ cat ~/.hermes/patches/.local-patches.base
 | 字段         | 内容                                                                                               |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
-| **状态**     | 🟡 未上游合并（截至 upstream `main` `f1254b1bc`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **状态**     | 🟡 未上游合并（截至 upstream `main` `6a6766fb8`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
 | **适用版本** | v0.14.0 仍需本地 patch                                                                             |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.14.0 上游 `main` (`f1254b1bc`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.14.0 上游 `main` (`6a6766fb8`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。上游已支持 external skill 原地 edit/patch/delete，但 create 仍有测试明确要求写入本地官方 root，因此本地 patch 仍是有意定制。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
 
@@ -207,19 +214,21 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-7] pyproject.toml — feishu extra 缺少 python-socks 依赖
+### [PATCH-7] feishu 依赖声明缺少 python-socks
 
-| 字段         | 内容                   |
-| ------------ | ---------------------- |
-| **文件**     | `pyproject.toml`       |
-| **状态**     | 🟡 未上游合并          |
-| **适用版本** | v0.14.0 仍需本地 patch |
+| 字段         | 内容                                   |
+| ------------ | -------------------------------------- |
+| **文件**     | `pyproject.toml`, `tools/lazy_deps.py` |
+| **状态**     | 🟡 未上游合并                          |
+| **适用版本** | v0.14.0 仍需本地 patch                 |
 
-**问题**：`feishu` optional extra 上游只声明了 `lark-oapi==1.5.3` 和 `qrcode==7.4.2`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
+**问题**：`feishu` optional extra 和 `tools/lazy_deps.py` 的 `platform.feishu` 上游都只声明了 `lark-oapi==1.5.3` 和 `qrcode==7.4.2`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
 
-**修复**：在 `pyproject.toml` 的 `feishu` extra 中追加 `"python-socks==2.8.1"`。版本钉死风格与上游 2026-05-14 起的 messaging extras 钉死约定保持一致（避免 `>=2.0,<3` 区间约束被 `uv lock --check` 检测为漂移）。
+**修复**：在 `pyproject.toml` 的 `feishu` extra 和 `tools/lazy_deps.py` 的 `LAZY_DEPS["platform.feishu"]` 中都追加 `"python-socks==2.8.1"`。这样手动安装 `.[feishu]`、本地迁移安装 `.[all,feishu]`、以及上游 lazy install 首次启用 Feishu 三条路径都能拿到 SOCKS 支持。版本钉死风格与上游 2026-05-14 起的 messaging extras 钉死约定保持一致（避免 `>=2.0,<3` 区间约束被 `uv lock --check` 检测为漂移）。
 
 > **2026-05-14 重写说明**：原 patch 内容为 `"python-socks>=2.0,<3"`，针对 `lark-oapi>=1.5.3,<2` 行追加。上游 commit `c1eb2dcda` + `3955aefce` 将 feishu 钉死为 `lark-oapi==1.5.3` + `qrcode==7.4.2` 后，`git apply --3way` 在该 hunk 报冲突；手工合并时采纳上游钉死风格，把 python-socks 改为 `==2.8.1`（与当前 venv 实际安装版本一致）。
+
+> **2026-05-20 扩展说明**：上游 `[all]` 已瘦身，Feishu 等平台后端改为 `tools/lazy_deps.py` 首次使用时安装；因此 PATCH-7 新增 `tools/lazy_deps.py` hunk，避免未来 clean venv 只经 lazy install 启用 Feishu 时漏装 `python-socks`。
 
 ---
 

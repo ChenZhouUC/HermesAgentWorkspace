@@ -29,7 +29,7 @@ index 613815025..2abdca68b 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/pyproject.toml b/pyproject.toml
-index e8faf8a24..8f796f568 100644
+index 2f3ad1ae3..66a19449f 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -148,7 +148,7 @@ termux-all = [
@@ -91,6 +91,18 @@ index 33efbb98a..29f8159c8 100644
      def test_create_duplicate_blocked(self, tmp_path):
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
+diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
+index 1a8708ef2..70bd61cf1 100644
+--- a/tools/lazy_deps.py
++++ b/tools/lazy_deps.py
+@@ -147,6 +147,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
+     "platform.feishu": (
+         "lark-oapi==1.5.3",
+         "qrcode==7.4.2",
++        "python-socks==2.8.1",
+     ),
+ 
+     # ─── Terminal backends ─────────────────────────────────────────────────
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
 index caa30f321..b5d140699 100644
 --- a/tools/skill_manager_tool.py

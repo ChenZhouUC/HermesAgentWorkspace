@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent macOS Ops
 created: 2026-05-14
-updated: 2026-05-15
+updated: 2026-05-20
 ---
 
 # Hermes Agent macOS 安装与运维手册
@@ -9,8 +9,8 @@ updated: 2026-05-15
 > 适用系统：macOS 13+（Apple Silicon / Intel 均可）
 > 主模型：公司 **Vertex AI**（service account 换 token，OpenAI 兼容端点）
 > Fallback：**阿里云 Qwen / DashScope**（百炼）
-> 适用版本：Hermes Agent **v0.13.0**（upstream `44cdf555a` / release `v2026.5.7`）
-> **本手册使用纯上游官方代码，不打任何本地 patch**
+> 适用版本：Hermes Agent **v0.14.0**（upstream `6a6766fb8` / latest `main` as of 2026-05-20）
+> 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置 Vertex + Qwen → Vertex Token 自动刷新 → 飞书接入 → 内容迁移 → 日常运维
 
@@ -61,14 +61,14 @@ Apple Silicon（M 系芯片）首次装 brew 后追加：
 echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc && source ~/.zshrc
 ```
 
-继续装 Python / git / uv / Xcode CLT：
+继续装 Python 管理工具 / git / uv / ripgrep / Xcode CLT：
 
 ```bash
-brew install python@3.11 git uv
+brew install pyenv git uv ripgrep
 xcode-select --install 2>/dev/null || echo "✓ Xcode CLT 已安装"
 ```
 
-> Hermes v0.13.0 要求 Python ≥ 3.11；推荐 3.11/3.12。
+> Hermes 的 Python 版本以 `hermes-agent/pyproject.toml` 的 `requires-python` 为准；当前上游 v0.14.0 为 `>=3.11`，本机恢复时使用 pyenv `3.12.7`。
 > `uv` 是 Astral 出品的高速 Python 包管理器，`hermes update` 会用到。
 > Xcode CLT 用于编译 Vertex 唤醒监听器（Swift 脚本）。
 
@@ -187,23 +187,22 @@ git clone https://github.com/NousResearch/hermes-agent.git ~/.hermes/hermes-agen
 cd ~/.hermes/hermes-agent
 ```
 
-> 本手册基于 v0.13.0（release `v2026.5.7`，upstream commit `44cdf555a`）；如需固定到该版本，可在 clone 后追加 `git checkout v0.13.0` 或对应 commit。
+> 本手册当前基于 v0.14.0（upstream `6a6766fb8`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
 
 ### 3.2 创建虚拟环境并安装依赖
 
 ```bash
-uv venv --python 3.11 venv
+rg '^requires-python' pyproject.toml
+PYTHON_VERSION=3.12.7  # 示例：选择任意满足 requires-python 的本机 Python
+uv venv --python "$PYTHON_VERSION" venv
 source venv/bin/activate
-uv pip install -e ".[feishu,web,cron,cli,mcp,pty]"
-
-# 飞书 + SOCKS 代理环境必装（见下方说明）
-uv pip install 'python-socks>=2.0,<3'
+uv pip install -e ".[all,feishu]"
 ```
 
-> 这套 extras 覆盖：飞书集成、Web Dashboard、cron 定时任务（v0.13.0 起 cron 已并入核心，extra 留作向后兼容）、CLI 工具集、MCP 协议、PTY 终端。日常使用足够，**无需任何本地源码 patch**。
+> 这套安装组合覆盖：上游 `[all]` 的常用 CLI / Gateway / Web / MCP / PTY 能力，以及本机常驻需要的飞书集成。Python 版本不要写死，按当前 `pyproject.toml` 的 `requires-python` 与本机可用版本选择；2026-05-20 新机恢复使用的是 pyenv `3.12.7`。
 > 想启用本地 STT / 语音消息时再追加 `voice` extra；想启用 Computer Use 时再追加 `computer-use`（需要后续 `hermes tools` 装 cua-driver）。
 >
-> **关于 `python-socks`（飞书 + 代理网络必装，等价于本地 PATCH-7）**：上游 v0.13.0 的 `feishu` extra 只声明了 `lark-oapi` 和 `qrcode`，不包含 `python-socks`。当你的网络环境需要走 SOCKS 代理（公司 Clash/V2Ray）时，`lark-oapi` 的 WebSocket 长连接会启动失败并报 `connecting through a SOCKS proxy requires python-socks`，gateway 启动后反复重连。**直装 SOCKS 代理（如 `socks5://...`）或没有代理的环境可以省略这条**；HTTP/HTTPS 正向代理走 `httpx` 不需要它。本手册第 5.4 节会注入 `HTTP_PROXY/HTTPS_PROXY` 到 LaunchAgent，那是 HTTP 代理路径；如果实际走 SOCKS，请保留这一行 `python-socks` 安装。
+> **关于 `python-socks`（飞书 + 代理网络必装，PATCH-7）**：上游 v0.14.0 的 `feishu` extra 与 `tools/lazy_deps.py` 的 Feishu lazy backend 都未声明 `python-socks`。本机通过 PATCH-7 同时补到 `pyproject.toml` 和 `tools/lazy_deps.py`，因此不要再手动安装宽松区间约束；补丁固定为当前验证过的 `python-socks==2.8.1`。
 
 ### 3.3 暴露 hermes 命令
 
@@ -243,7 +242,7 @@ hermes --version
 hermes doctor
 ```
 
-应能看到 `Hermes Agent v0.13.0 (2026.5.7)`；`hermes doctor` 此时会提示缺 token / fallback key（下一章解决）。
+应能看到 `Hermes Agent v0.14.0 (2026.5.16)` 或更新版本；`hermes doctor` 此时会提示缺 token / fallback key（下一章解决）。
 
 ---
 
@@ -344,7 +343,7 @@ auxiliary:
 ```
 
 > v0.12.x 的老手册建议把 `compression.threshold` 调到 0.35 提前触发压缩——那是因为压缩当时还在抢 Vertex 配额。
-> v0.13.0 起把压缩路由到 Qwen 后就**不再有 429 风险**，可以保留 `compression.threshold` 默认值 0.7。
+> 当前配置把压缩路由到 Qwen 后就**不再抢 Vertex 配额**，可以保留 `compression.threshold` 默认值 0.7。
 
 也可以纯命令行：
 
@@ -728,22 +727,13 @@ hermes tools list
 
 ### 9.10 升级 hermes-agent 到最新
 
-`hermes update` 在 v0.13.0 中已经做完整套：`git pull` → `uv pip install` → web build → skills 同步 → config 迁移确认 → gateway 重启。
+日常升级优先使用本仓库封装脚本，而不是直接跑裸 `hermes update`。封装脚本会保存/恢复本地补丁、保护 PATCHED_FILES 之外的额外 untracked 改动、执行 `npm audit fix`、镜像同步 upstream skills、刷新补全并在补丁重放后重启 gateway。
 
 ```bash
-hermes update
-
-# 装完 / 升完都跑一次（等价于本地 PATCH-6/7），无副作用：
-cd ~/.hermes/hermes-agent
-source venv/bin/activate
-uv pip install 'python-socks>=2.0,<3'    # 飞书 + SOCKS 代理才需要；上游 feishu extra 不带
-npm audit fix --quiet || true            # 修 hermes update 后的 npm 已知漏洞
-deactivate
-cd -
-hermes gateway restart
+bash ~/.hermes/hermes-update.sh
 ```
 
-> `hermes update` 会重新 `uv pip install -e ".[feishu,...]"`，**有可能把 `python-socks` 卸掉**（因为 upstream extras 列表不包含它）。所以每次 update 后都要补装一次。如果嫌烦可以把这一行写进 `~/.hermes/post-update.sh` 自己手动跑，或者放到下面 9.11 中的更新封装脚本。
+> 封装脚本会在 Step 8 验证 PATCH-7：`pyproject.toml` 和 `tools/lazy_deps.py` 都必须包含 `python-socks==2.8.1`，否则会提示重新应用补丁。
 > `hermes update --backup` / `--no-backup` 控制是否做升级前快照；详见 `hermes update --help`。
 > 升级后 Vertex token 仍有效；想立即跑一次刷新：`launchctl kickstart -k gui/$(id -u)/ai.hermes.vertex-refresh`。
 
@@ -753,8 +743,7 @@ hermes gateway restart
 cd ~/.hermes/hermes-agent
 git checkout <commit-sha>     # 或 git checkout v0.12.0
 source venv/bin/activate
-uv pip install -e ".[feishu,web,cron,cli,mcp,pty]"
-uv pip install 'python-socks>=2.0,<3'    # 飞书 + SOCKS 代理才需要
+uv pip install -e ".[all,feishu]"
 npm audit fix --quiet || true
 deactivate
 hermes gateway restart
@@ -824,9 +813,9 @@ rm -rf ~/.hermes
 | 修改 `config.yaml` 后不生效                                                                  | 后台 gateway 必须 `hermes gateway restart`；前台 chat 用 `/reload`                                                                                                                                                                                                                           |
 | 飞书任务跑到一半"突然没反应"/会话重置                                                        | 大概率是 Vertex 刷新触发 `gateway restart`，但 in-flight 长任务超过 `agent.restart_drain_timeout` 被 SIGKILL。看 `grep "drain timed out" ~/.hermes/logs/errors.log` 是否有命中。修复：把 `restart_drain_timeout` 调大到 900s（见第四章 agent 段示例），上限受 `(token 寿命 - 刷新间隔)` 约束 |
 | 长会话报 `Compression summary failed: 429 Resource exhausted` / 插入 fallback context marker | 默认 `auxiliary.compression.provider=auto` 会复用主模型的 Vertex 配额。修复：`hermes config set auxiliary.compression.provider alibaba && hermes config set auxiliary.compression.model qwen3.6-plus && hermes gateway restart`，让压缩走 DashScope 独立配额                                 |
-| 升级代码后 bot 无法启动（`ModuleNotFoundError`）                                             | `cd ~/.hermes/hermes-agent && source venv/bin/activate && uv pip install -e ".[feishu,web,cron,cli,mcp,pty]" && uv pip install 'python-socks>=2.0,<3' && deactivate && hermes gateway restart`                                                                                               |
+| 升级代码后 bot 无法启动（`ModuleNotFoundError`）                                             | `cd ~/.hermes/hermes-agent && source venv/bin/activate && uv pip install -e ".[all,feishu]" && deactivate && hermes gateway restart`；若缺的是 Feishu SOCKS 支持，先确认 PATCH-7 已应用到 `pyproject.toml` 和 `tools/lazy_deps.py`                                                           |
 | 想限定特定飞书用户访问                                                                       | `.env` 注释掉 `GATEWAY_ALLOW_ALL_USERS=true`，改为 `FEISHU_ALLOWED_USERS=ou_用户ID1,ou_用户ID2`（用户 ID 在飞书开放平台「通讯录」查到）                                                                                                                                                      |
-| `Found N issue(s) to address` 误报未启用的 toolset（如 moa / rl）                            | v0.13.0 上游 doctor 仍会把所有"注册但缺 API key"的 toolset 算作 issue。**只用官方代码时**这是预期行为；可以忽略，或在 `config.yaml.toolsets` 中只列出确实启用的 toolset                                                                                                                      |
+| `Found N issue(s) to address` 误报未启用的 toolset（如 moa / rl）                            | 本机 PATCH-2 已过滤未启用平台 toolset；若仍出现，先跑 `hermes doctor` 看是否是真缺凭据，再检查 `hermes_cli/doctor.py` 中 `_get_platform_tools` 补丁是否还在                                                                                                                                  |
 | 飞书每 50min 收到 ⚠ Gateway restarting 通知                                                  | 这是 `vertex-refresh` 触发的 planned restart（默认 3000s 周期），属于预期行为。想降低提醒频率可 `--interval-seconds 3300` 拉长到 55min                                                                                                                                                       |
 | 完全清理                                                                                     | 见 §9.14                                                                                                                                                                                                                                                                                     |
 
@@ -845,7 +834,7 @@ launchd
 
 ---
 
-_文档更新时间：2026-05-10_
-_对应 Hermes Agent 版本：**v0.13.0**（upstream `44cdf555a` / release `v2026.5.7`）_
+_文档更新时间：2026-05-20_
+_对应 Hermes Agent 版本：**v0.14.0**（upstream `6a6766fb8` / latest `main` as of 2026-05-20）_
 _主模型：Vertex AI（公司 SA）Fallback：阿里云 Qwen / DashScope（`qwen3.6-plus`）_
-_本手册仅使用上游官方代码，不应用任何本地 patch。_
+_本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_

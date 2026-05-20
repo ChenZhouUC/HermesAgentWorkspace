@@ -44,7 +44,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.14.0 / main f1254b1bc, `hermes completion zsh` still emits the
+# As of v0.14.0 / main 6a6766fb8, `hermes completion zsh` still emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -56,6 +56,7 @@ PATCHED_FILES=(
     "tests/tools/test_skill_manager_tool.py"
     "hermes_cli/doctor.py"
     "pyproject.toml"
+    "tools/lazy_deps.py"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -190,24 +191,27 @@ cd - >/dev/null
 # Handles: pull · deps · web · skills · config migration · restart
 # Tree should be clean after step 2 (patches reverted). However, other
 # uncommitted changes outside PATCHED_FILES can still trigger hermes update's
-# interactive stash prompt.  To avoid this, fully clean the hermes-agent tree
-# before invoking hermes update: stash everything (including untracked),
-# pull cleanly, then pop the stash with "theirs" strategy (upstream wins for
-# any overlap — our patches are re-applied from the saved diff in step 8).
+# interactive stash prompt. To avoid this, stash unrelated extra changes
+# (including untracked files) before invoking hermes update, then restore them
+# afterwards. If stash/pop fails, keep the stash for manual recovery rather than
+# deleting untracked work.
 step "Updating Hermes  [pull · deps · web · skills · restart]"
 echo ""
 
 cd "${HERMES_AGENT}"
-_EXTRA_STASH_REF=""
+_EXTRA_STASHED=false
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-    _EXTRA_STASH_REF=$(git stash create 2>/dev/null || true)
-    if [[ -n "${_EXTRA_STASH_REF}" ]]; then
-        git stash store -m "hermes-update-extra-$(date +%Y%m%d-%H%M%S)" "${_EXTRA_STASH_REF}"
-        note "Stashed extra uncommitted changes → ${_EXTRA_STASH_REF:0:12}"
+    if git stash push -u -m "hermes-update-extra-$(date +%Y%m%d-%H%M%S)" >/dev/null 2>&1; then
+        _EXTRA_STASHED=true
+        ok "Stashed extra uncommitted changes (including untracked files)"
+    else
+        warn "Could not stash extra changes — leaving tree untouched"
+        add_warn "hermes-agent has extra uncommitted changes that could not be stashed"
+        add_act "Review: cd ${HERMES_AGENT} && git status --short"
+        FINAL_RC=1
+        cd - >/dev/null
+        exit $FINAL_RC
     fi
-    git checkout -- . 2>/dev/null || true
-    git clean -fd 2>/dev/null || true
-    ok "hermes-agent tree is fully clean"
 fi
 cd - >/dev/null
 
@@ -226,7 +230,7 @@ fi
 # If we stashed extra changes above, silently pop them back.
 # Conflicts are expected (upstream may have changed same files); use checkout
 # --theirs to prefer upstream, since our patches are re-applied from the diff.
-if [[ -n "${_EXTRA_STASH_REF}" ]]; then
+if $_EXTRA_STASHED; then
     cd "${HERMES_AGENT}"
     if git stash pop --quiet 2>/dev/null; then
         ok "Restored extra changes from stash"
@@ -423,6 +427,7 @@ SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
 DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
 DELEGATE_TOOL="${HERMES_AGENT}/tools/delegate_tool.py"
 PYPROJECT="${HERMES_AGENT}/pyproject.toml"
+LAZY_DEPS_PY="${HERMES_AGENT}/tools/lazy_deps.py"
 _PATCH_APPLY_OK=false
 
 # -- 8a. Apply saved diff -------------------------------------------------------
@@ -548,16 +553,17 @@ else
     warn "Could not locate tools/delegate_tool.py — skipping delegate patch check"
 fi
 
-if [[ -f "${PYPROJECT}" ]]; then
-    if grep -q 'python-socks' "${PYPROJECT}" 2>/dev/null; then
-        ok "Feishu python-socks dep patch: active (proxy support in feishu extra)"
+if [[ -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
+    if grep -q 'python-socks' "${PYPROJECT}" 2>/dev/null &&
+        grep -q 'python-socks' "${LAZY_DEPS_PY}" 2>/dev/null; then
+        ok "Feishu python-socks dep patch: active (feishu extra + lazy platform deps)"
         _FEISHU_DEPS_PATCH_OK=true
     else
         warn "Feishu python-socks dep patch inactive — feishu gateway may fail behind proxy"
-        add_act "Re-apply: see PATCHES.md § [PATCH-7] pyproject.toml feishu python-socks"
+        add_act "Re-apply: see PATCHES.md § [PATCH-7] feishu python-socks"
     fi
 else
-    warn "Could not locate pyproject.toml — skipping feishu deps check"
+    warn "Could not locate pyproject.toml or tools/lazy_deps.py — skipping feishu deps check"
 fi
 
 # -- 8c. Refresh saved diff only after full verification -----------------------

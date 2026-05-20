@@ -110,11 +110,11 @@
 
 ### 前置条件
 
-| 依赖   | 版本要求 | 安装方式                                           |
-| ------ | -------- | -------------------------------------------------- |
-| Python | ≥ 3.11   | `brew install python@3.11` 或 `pyenv`              |
-| uv     | 最新     | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| git    | 任意     | macOS 自带                                         |
+| 依赖   | 版本要求                                                                          | 安装方式                                           |
+| ------ | --------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Python | 以 `hermes-agent/pyproject.toml` 的 `requires-python` 为准（当前上游为 `>=3.11`） | `pyenv` 或 Homebrew Python                         |
+| uv     | 最新                                                                              | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| git    | 任意                                                                              | macOS 自带                                         |
 
 ### 全新安装
 
@@ -124,12 +124,14 @@ mkdir -p ~/.hermes
 git clone https://github.com/NousResearch/hermes-agent.git ~/.hermes/hermes-agent
 cd ~/.hermes/hermes-agent
 
-# 2. 创建虚拟环境（指定 Python 3.11）
-uv venv --python 3.11 venv
+# 2. 查看上游 Python 约束，并选择一个满足约束的本机 Python
+rg '^requires-python' pyproject.toml
+PYTHON_VERSION=3.12.7  # 示例：选择任意满足 requires-python 的本机版本
+uv venv --python "$PYTHON_VERSION" venv
 source venv/bin/activate
 
-# 3. 安装所有依赖
-uv pip install -e ".[all]"
+# 3. 安装本配置需要的依赖（当前上游 [all] 不包含飞书）
+uv pip install -e ".[all,feishu]"
 
 # 4. 创建 symlink（确保 ~/.local/bin 在 PATH 中）
 mkdir -p ~/.local/bin
@@ -163,51 +165,53 @@ uv pip install -e ".[feishu]"
 # 同时安装多个 extras（逗号分隔）
 uv pip install -e ".[feishu,cron,voice,mcp]"
 
-# 安装全部 extras（约 171MB+，含所有平台和工具）
+# 安装上游 broad install 组合（不含多数 lazy backend，如 feishu/voice/bedrock）
 uv pip install -e ".[all]"
 ```
 
-> **注意**：`uv pip install -e ".[xxx]"` 会增量安装，不影响已有依赖。如需在更新脚本中固化，可编辑 `hermes-update.sh` 的 Step 3 安装命令。
+> **注意**：`uv pip install -e ".[xxx]"` 会增量安装，不影响已有依赖。若不激活 `venv`，可改用 `uv pip install --python venv/bin/python -e ".[xxx]"`。当前上游把 Feishu、voice、bedrock、modal/daytona 等 opt-in 后端移到 `tools/lazy_deps.py` 首次使用时安装；本配置因 gateway 常驻飞书，仍显式安装 `feishu` extra。
 
 #### Extras 一览
 
-| Extra             | 功能                                 | 主要依赖包                                                                          | 说明                                                         |
-| ----------------- | ------------------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| **feishu**        | 飞书 IM 集成（WebSocket 长连接）     | `lark-oapi`, `qrcode`, `python-socks`                                               | **当前已安装** ✅ 。代理网络环境需 `python-socks`（PATCH-7） |
-| **cron**          | Cron 定时任务调度                    | `croniter`                                                                          | Gateway 使用，不装则 `hermes cron` 不可用                    |
-| **messaging**     | Telegram + Discord + Slack + 飞书 QR | `python-telegram-bot`, `discord.py`, `aiohttp`, `slack-bolt`, `slack-sdk`, `qrcode` | 全平台 IM 一把梭；若只用飞书可单独装 `feishu`                |
-| **slack**         | Slack 集成                           | `slack-bolt`, `slack-sdk`                                                           | `messaging` 的子集                                           |
-| **matrix**        | Matrix 协议集成                      | `mautrix[encryption]`, `Markdown`, `aiosqlite`, `asyncpg`                           | ⚠️ macOS 上 `python-olm` 构建可能失败                        |
-| **voice**         | 本地语音输入（STT）                  | `faster-whisper`, `sounddevice`, `numpy`                                            | 需要麦克风权限；包含 `ctranslate2` 等重型依赖                |
-| **tts-premium**   | 高级语音合成（ElevenLabs）           | `elevenlabs`                                                                        | 需 ElevenLabs API key；基础 TTS（Edge TTS）已在 base 中      |
-| **mcp**           | Model Context Protocol 支持          | `mcp`                                                                               | 外部工具/数据源接入标准                                      |
-| **acp**           | Agent Client Protocol                | `agent-client-protocol`                                                             | Agent 间委托通信协议                                         |
-| **cli**           | 交互式 TUI 选择器                    | `simple-term-menu`                                                                  | `hermes model` 等 TUI 选择器依赖                             |
-| **pty**           | 伪终端支持                           | `ptyprocess` (macOS/Linux) / `pywinpty` (Windows)                                   | 终端工具增强                                                 |
-| **honcho**        | Honcho 外部记忆 Provider             | `honcho-ai`                                                                         | 需配合 `hermes memory setup` 使用                            |
-| **modal**         | Modal 云端执行                       | `modal`                                                                             | 远程沙箱执行                                                 |
-| **daytona**       | Daytona 开发环境                     | `daytona`                                                                           | 远程开发环境集成                                             |
-| **mistral**       | Mistral AI Provider                  | `mistralai`                                                                         | 使用 Mistral 模型时需要                                      |
-| **bedrock**       | AWS Bedrock Provider                 | `boto3`                                                                             | 使用 AWS 托管模型时需要                                      |
-| **dingtalk**      | 钉钉 IM 集成                         | `dingtalk-stream`, `alibabacloud-dingtalk`, `qrcode`                                | 钉钉企业应用                                                 |
-| **web**           | Web Dashboard + REST API             | `fastapi`, `uvicorn[standard]`                                                      | **当前已安装** ✅ 。`hermes dashboard` 命令依赖              |
-| **homeassistant** | Home Assistant 集成                  | `aiohttp`                                                                           | 智能家居控制                                                 |
-| **sms**           | SMS 消息支持                         | `aiohttp`                                                                           | 短信通知                                                     |
-| **dev**           | 开发/测试工具                        | `debugpy`, `pytest`, `pytest-asyncio`, `pytest-xdist`, `mcp`                        | 贡献代码或调试时使用                                         |
-| **termux**        | Android Termux 平台                  | Telegram + cron + cli + pty + mcp + honcho + acp                                    | 专为 Termux 环境裁剪，排除不兼容的 voice                     |
-| **rl**            | 强化学习实验                         | `atroposlib`, `tinker`, `fastapi`, `wandb`                                          | 研究用途                                                     |
-| **yc-bench**      | YC Bench 评测                        | `yc-bench`                                                                          | 需要 Python ≥ 3.12                                           |
-| **all**           | 全部安装                             | 上述所有（除 matrix 在非 Linux 上跳过）                                             | 最完整但最重，适合开发/测试环境                              |
+| Extra             | 功能                                 | 主要依赖包                                                                                    | 说明                                                                      |
+| ----------------- | ------------------------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **feishu**        | 飞书 IM 集成（WebSocket 长连接）     | `lark-oapi`, `qrcode`, `python-socks`                                                         | **当前已安装** ✅ 。代理网络环境需 `python-socks`（PATCH-7）              |
+| **cron**          | Cron 定时任务调度                    | `croniter`                                                                                    | Gateway 使用，不装则 `hermes cron` 不可用                                 |
+| **messaging**     | Telegram + Discord + Slack + 飞书 QR | `python-telegram-bot`, `discord.py`, `aiohttp`, `slack-bolt`, `slack-sdk`, `qrcode`           | 全平台 IM 一把梭；若只用飞书可单独装 `feishu`                             |
+| **slack**         | Slack 集成                           | `slack-bolt`, `slack-sdk`                                                                     | `messaging` 的子集                                                        |
+| **matrix**        | Matrix 协议集成                      | `mautrix[encryption]`, `Markdown`, `aiosqlite`, `asyncpg`                                     | ⚠️ macOS 上 `python-olm` 构建可能失败                                     |
+| **voice**         | 本地语音输入（STT）                  | `faster-whisper`, `sounddevice`, `numpy`                                                      | 需要麦克风权限；包含 `ctranslate2` 等重型依赖                             |
+| **tts-premium**   | 高级语音合成（ElevenLabs）           | `elevenlabs`                                                                                  | 需 ElevenLabs API key；基础 TTS（Edge TTS）已在 base 中                   |
+| **mcp**           | Model Context Protocol 支持          | `mcp`                                                                                         | 外部工具/数据源接入标准                                                   |
+| **acp**           | Agent Client Protocol                | `agent-client-protocol`                                                                       | Agent 间委托通信协议                                                      |
+| **cli**           | 交互式 TUI 选择器                    | `simple-term-menu`                                                                            | `hermes model` 等 TUI 选择器依赖                                          |
+| **pty**           | 伪终端支持                           | `ptyprocess` (macOS/Linux) / `pywinpty` (Windows)                                             | 终端工具增强                                                              |
+| **honcho**        | Honcho 外部记忆 Provider             | `honcho-ai`                                                                                   | 需配合 `hermes memory setup` 使用                                         |
+| **modal**         | Modal 云端执行                       | `modal`                                                                                       | 远程沙箱执行                                                              |
+| **daytona**       | Daytona 开发环境                     | `daytona`                                                                                     | 远程开发环境集成                                                          |
+| **mistral**       | Mistral AI Provider                  | `mistralai`                                                                                   | 使用 Mistral 模型时需要                                                   |
+| **bedrock**       | AWS Bedrock Provider                 | `boto3`                                                                                       | 使用 AWS 托管模型时需要                                                   |
+| **dingtalk**      | 钉钉 IM 集成                         | `dingtalk-stream`, `alibabacloud-dingtalk`, `qrcode`                                          | 钉钉企业应用                                                              |
+| **web**           | Web Dashboard + REST API             | `fastapi`, `uvicorn[standard]`                                                                | **当前已安装** ✅ 。`hermes dashboard` 命令依赖                           |
+| **homeassistant** | Home Assistant 集成                  | `aiohttp`                                                                                     | 智能家居控制                                                              |
+| **sms**           | SMS 消息支持                         | `aiohttp`                                                                                     | 短信通知                                                                  |
+| **dev**           | 开发/测试工具                        | `debugpy`, `pytest`, `pytest-asyncio`, `pytest-xdist`, `mcp`                                  | 贡献代码或调试时使用                                                      |
+| **termux**        | Android Termux 平台                  | Telegram + cron + cli + pty + mcp + honcho + acp                                              | 专为 Termux 环境裁剪，排除不兼容的 voice                                  |
+| **rl**            | 强化学习实验                         | `atroposlib`, `tinker`, `fastapi`, `wandb`                                                    | 研究用途                                                                  |
+| **yc-bench**      | YC Bench 评测                        | `yc-bench`                                                                                    | 需要 Python ≥ 3.12                                                        |
+| **all**           | 上游 broad install 组合              | `cron`, `cli`, `dev`, `pty`, `mcp`, `homeassistant`, `sms`, `acp`, `google`, `web`, `youtube` | 当前不包含 Feishu、Telegram/Discord/Slack、voice、bedrock 等 lazy backend |
 
 #### 当前环境已安装的 Extras
 
 ```
-base (核心依赖) ✅
-feishu           ✅  ← 飞书 WebSocket + SOCKS 代理
-web              ✅  ← Dashboard 后端（fastapi + uvicorn）
+.[all,feishu]    ✅  ← 本次迁移恢复使用的安装组合
+feishu           ✅  ← 飞书 WebSocket + SOCKS 代理（PATCH-7 覆盖 extra + lazy deps）
+web              ✅  ← Dashboard 后端（fastapi + uvicorn，来自 [all]）
+cron/cli/mcp/pty ✅  ← 常用 CLI / Gateway 能力（来自 [all]）
+dev/google/youtube/acp/homeassistant/sms ✅  ← 来自 [all]
 ```
 
-其余 extras 均未安装。如需启用更多功能（如 `cron`、`voice`、`mcp`），按上方安装方式追加即可。
+未主动安装的 opt-in backend（如 Telegram/Discord/Slack、voice、bedrock、modal/daytona、tts-premium）会按上游 lazy install 机制在首次使用时补装；也可以按上方安装方式提前安装。
 
 #### 推荐安装组合
 
@@ -306,18 +310,22 @@ rsync -aH --delete ~/.hermes/ new-host:~/.hermes/
 ```bash
 cd ~/.hermes/hermes-agent
 rm -rf venv
-uv venv --python 3.11 venv
+rg '^requires-python' pyproject.toml
+PYTHON_VERSION=3.12.7  # 示例：选择任意满足 requires-python 的本机版本
+uv venv --python "$PYTHON_VERSION" venv
 source venv/bin/activate
-uv pip install -e ".[all]"
+uv pip install -e ".[all,feishu]"
 
 mkdir -p ~/.local/bin
 ln -sf ~/.hermes/hermes-agent/venv/bin/hermes ~/.local/bin/hermes
 ```
 
+`PYTHON_VERSION` 不写死，按当前 `pyproject.toml` 的约束和本机已安装版本选择即可。2026-05-20 这次新机恢复使用的是本机 `pyenv` 的 `3.12.7`，满足当时上游 `requires-python = ">=3.11"`。
+
 如果使用 Vertex Provider，先刷新一次 token：
 
 ```bash
-~/.hermes/scripts/refresh_vertex_access_token
+~/.hermes/scripts/refresh_vertex_and_restart_gateway
 ```
 
 最后安装并启动新机的后台服务：
@@ -751,7 +759,7 @@ bash ~/.hermes/hermes-update.sh
 | 步骤 | 操作                                      | 说明                                                                                                                                                                                    |
 | ---- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                                                                |
-| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD（使 git pull 无需 stash）                                                                                  |
+| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD；PATCHED_FILES 之外的额外改动在 update 前用 `git stash push -u` 保护，避免 untracked 文件被清理            |
 | 3    | `hermes update`                           | git pull · 关键文件语法校验/失败自动回滚 · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                           |
 | 4    | `npm audit fix`                           | 修复 hermes update 安装 npm 依赖后遗留的已知安全漏洞（PATCH-6）                                                                                                                         |
 | 4b   | Skills 镜像同步                           | `rsync --delete` 使 `skills/` 完全镜像上游 `hermes-agent/skills/`：新增 skill 自动添加、上游删除的 skill 自动清理；用户自定义 skill 存于 `my-skills/`，不受影响                         |
@@ -788,9 +796,9 @@ hermes gateway status
 
 ## 本地补丁记录
 
-本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `f1254b1bc`（截至 2026-05-19 的 `main`）。
+本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `6a6766fb8`（截至 2026-05-20 的 `main`）。
 
-补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新生成补全脚本并对旧坏格式做回归 sentinel 检测（PATCH-3 已于 v0.13.0 上游合并 commit `fe61d95b4`，正常情况下检测不命中、直接跳过）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-7 feishu python-socks 依赖；PATCH-4 / PATCH-5 已上游合并并退役，仅保留存在性 grep 验证；PATCH-8 于 v0.11.0 上游合并，仅保留文档记录），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新生成补全脚本并对旧坏格式做回归 sentinel 检测（PATCH-3 已于 v0.13.0 上游合并 commit `fe61d95b4`，正常情况下检测不命中、直接跳过）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-7 feishu python-socks 依赖，覆盖 `pyproject.toml` 与 `tools/lazy_deps.py`；PATCH-4 / PATCH-5 已上游合并并退役，仅保留存在性 grep 验证；PATCH-8 于 v0.11.0 上游合并，仅保留文档记录），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
 
 手动恢复 `hermes-agent/` 内补丁：
 
@@ -1065,7 +1073,7 @@ Agent 会**无需你要求、自动判断**何时该更新记忆，包括：
 **✅ 告诉它你的环境**：第一次使用新机器或新项目时，简单介绍一下。
 
 ```
-我这台机器用 macOS + zsh，Python 用 pyenv 管理，现在的版本是 3.11
+我这台机器用 macOS + zsh，Python 用 pyenv 管理；Hermes venv 的版本按 hermes-agent/pyproject.toml 的 requires-python 选择
 ```
 
 **✅ 定期检查**：记忆空间有限（2200 + 1375 字符），条目多了会被压缩合并。偶尔看一眼是否有过时内容：
@@ -1522,13 +1530,14 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 ## 版本记录
 
-| 版本               | 日期       | 说明                                                                                                                                                                                                                                    |
-| ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v0.14.0            | 2026-05-19 | 基线滚动到 `f1254b1bc`（较 `a0bd11d02` 再前进 13 commits）；`hermes update` 新增 post-pull 关键文件语法校验/失败自动回滚；`local-patches.diff` 干净 apply 并刷新基线；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态            |
-| v0.13.0            | 2026-05-14 | 基线滚动到 `26933c2f5`（v0.13.0，194 commits）；PATCH-7 因上游将 feishu extra 改为版本钉死（`lark-oapi==1.5.3` + `qrcode==7.4.2`）触发 3-way 冲突，重写为 `python-socks==2.8.1`；PATCH-1/2 干净 apply；PATCH-3/4/5/8 维持已上游合并状态 |
-| v0.13.0            | 2026-05-12 | 基线滚动到 `99ad2d1372`（v0.13.0 仍是当前 release，174 commits 全是补丁修复）；`local-patches.diff` 干净 apply（无 3-way），仅 hunk 锚点行号漂移；PATCH-1/2/3/4/5/7 状态全部维持，PATCH-7 hunk 117→121 行漂动                           |
-| v0.13.0            | 2026-05-10 | 上游 `main` 同步到 `44cdf555a`（release `v2026.5.7`，490 commits），3-way merge 干净落地；PATCH-3 经上游 commit `fe61d95b4` 合并并退役；继续保留 PATCH-1/2/6/7 + PATCH-3 sentinel                                                       |
-| v0.12.0            | 2026-05-07 | 上游 `main` 同步到 `49c3c2e0d`（release 仍 `v2026.4.30`），patch 基线刷新；继续保留 PATCH-1/2/3/6/7                                                                                                                                     |
-| v0.11.0            | 2026-04-23 | 上游升级，新增 Ink TUI / transport 层 / Bedrock / GPT-5.5 / Dashboard 主题扩展                                                                                                                                                          |
-| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能                                                                                                                                                                                    |
-| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                                                                                                                                                                                                              |
+| 版本               | 日期       | 说明                                                                                                                                                                                                                                                                                              |
+| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v0.14.0            | 2026-05-20 | 新机恢复时克隆最新官方 `main` 到 `6a6766fb8`；按 `pyproject.toml` 的 `requires-python >=3.11` 选择本机 pyenv `3.12.7` 重建 venv；安装 `.[all,feishu]`；PATCH-7 扩展到 `tools/lazy_deps.py` 以覆盖 Feishu lazy install 路径；`hermes-update.sh` 改为用 `git stash push -u` 保护额外 untracked 改动 |
+| v0.14.0            | 2026-05-19 | 基线滚动到 `f1254b1bc`（较 `a0bd11d02` 再前进 13 commits）；`hermes update` 新增 post-pull 关键文件语法校验/失败自动回滚；`local-patches.diff` 干净 apply 并刷新基线；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态                                                                      |
+| v0.13.0            | 2026-05-14 | 基线滚动到 `26933c2f5`（v0.13.0，194 commits）；PATCH-7 因上游将 feishu extra 改为版本钉死（`lark-oapi==1.5.3` + `qrcode==7.4.2`）触发 3-way 冲突，重写为 `python-socks==2.8.1`；PATCH-1/2 干净 apply；PATCH-3/4/5/8 维持已上游合并状态                                                           |
+| v0.13.0            | 2026-05-12 | 基线滚动到 `99ad2d1372`（v0.13.0 仍是当前 release，174 commits 全是补丁修复）；`local-patches.diff` 干净 apply（无 3-way），仅 hunk 锚点行号漂移；PATCH-1/2/3/4/5/7 状态全部维持，PATCH-7 hunk 117→121 行漂动                                                                                     |
+| v0.13.0            | 2026-05-10 | 上游 `main` 同步到 `44cdf555a`（release `v2026.5.7`，490 commits），3-way merge 干净落地；PATCH-3 经上游 commit `fe61d95b4` 合并并退役；继续保留 PATCH-1/2/6/7 + PATCH-3 sentinel                                                                                                                 |
+| v0.12.0            | 2026-05-07 | 上游 `main` 同步到 `49c3c2e0d`（release 仍 `v2026.4.30`），patch 基线刷新；继续保留 PATCH-1/2/3/6/7                                                                                                                                                                                               |
+| v0.11.0            | 2026-04-23 | 上游升级，新增 Ink TUI / transport 层 / Bedrock / GPT-5.5 / Dashboard 主题扩展                                                                                                                                                                                                                    |
+| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能                                                                                                                                                                                                                                              |
+| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                                                                                                                                                                                                                                                                        |
