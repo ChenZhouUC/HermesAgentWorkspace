@@ -22,6 +22,7 @@
   - [Vertex Provider](#vertex-provider)
   - [飞书集成](#飞书集成)
 - [Gateway 服务](#gateway-服务)
+- [用户插件 (Plugins)](#用户插件-plugins)
 - [Logi Options+ 看门狗 (可选)](#logi-options-看门狗-可选)
 - [Shell 集成](#shell-集成)
 - [更新](#更新)
@@ -66,6 +67,7 @@
 | `memories/MEMORY.md`         | Agent 的结构化记忆（短期），自动注入每次会话             |
 | `memories/USER.md`           | 用户画像（偏好、时区、语言等）                           |
 | `my-skills/`                 | 自定义 Skills（随主仓库入库）                            |
+| `plugins/`                   | 用户插件（每个子目录 = 一个插件，随主仓库入库）          |
 | `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用）         |
 | `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）               |
 | `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）                 |
@@ -95,6 +97,8 @@
 │   └── USER.md            # 用户画像（入库）
 ├── skills/                # Hub 官方 Skills（.gitignore 排除，更新时由 rsync 镜像上游）
 ├── my-skills/             # 自定义 Skills（随主仓库入库）
+├── plugins/               # 用户插件（入库；每个子目录 = 一个插件，走官方 register(ctx) API）
+│   └── sandbox/           # 飞书会话级工具沙盒（主 DM 满血、其他会话仅搜/视觉/绘图）
 ├── patches/               # hermes-agent 本地补丁（入库，供 hermes-update.sh 使用）
 │   ├── local-patches.diff # 所有本地 patch 的 unified diff，更新时自动重新应用
 │   └── PATCHES.md         # 补丁详细记录（问题 / 根因 / 修复方案）
@@ -714,6 +718,105 @@ hermes logs
 # 或直接查看
 tail -f ~/.hermes/logs/gateway.log
 ```
+
+---
+
+## 用户插件 (Plugins)
+
+Hermes 内置插件系统支持四个发现源（详见 `hermes-agent/hermes_cli/plugins.py` 顶部 docstring）：
+
+1. Bundled — `hermes-agent/plugins/<name>/`（随官方仓库分发）
+2. **User — `~/.hermes/plugins/<name>/`**（本仓库管理，**入库**）
+3. Project — `./.hermes/plugins/<name>/`（仅在 `HERMES_ENABLE_PROJECT_PLUGINS` 时启用）
+4. Pip — 通过 entry-point `hermes_agent.plugins` 注册
+
+后发现源覆盖前发现源（同名 user plugin 会替换 bundled）。本仓库的 `plugins/` 目录就是 User 这一层。
+
+### 用户插件结构
+
+每个插件必须包含 `plugin.yaml` 清单 + `__init__.py`（暴露 `register(ctx)` 函数）。通过 `ctx.register_hook(name, callback)` 挂载 `VALID_HOOKS` 里登记的生命周期钩子，常用的包括：
+
+| 钩子                   | 触发时机                               | 返回值用途                                   |
+| ---------------------- | -------------------------------------- | -------------------------------------------- |
+| `pre_gateway_dispatch` | 每条入站消息（鉴权前）                 | `{action: skip/rewrite/allow}` 影响后续派发  |
+| `pre_tool_call`        | 任意工具执行前                         | `{action: block, message: ...}` 拦截该次调用 |
+| `post_tool_call`       | 工具执行后                             | 观察 / 副作用                                |
+| `on_session_*`         | 会话生命周期（start / end / finalize） | 观察 / 副作用                                |
+
+完整清单见 `hermes_cli/plugins.py` 中 `VALID_HOOKS`。
+
+### 通用启用 / 禁用流程
+
+用户插件**默认是"发现但不启用"**——`hermes plugins list` 会列出来但显示 `not enabled`，必须显式启用一次：
+
+```bash
+hermes plugins list                # 查看所有已发现的插件及启用状态
+hermes plugins enable <name>       # 启用单个插件（一次性，状态会持久化）
+hermes plugins disable <name>      # 禁用（保留代码，下次启动跳过）
+hermes gateway restart             # 重启 gateway 加载插件
+```
+
+启用状态生效后，后续修改插件代码 / 配置只需 `hermes gateway restart`，不需要再 `enable`。
+
+### sandbox：飞书会话级工具沙盒
+
+**位置**：`plugins/sandbox/`（`plugin.yaml` + `__init__.py` + `config.yaml`）
+
+**作用**：bot 同一个 Feishu 应用账号同时服务多个会话时，按 `chat_id` 区分工具权限——配置中列出的 owner DM 拥有完整工具集，其他 Feishu 会话（群聊、与其他人的 DM）只能调用一个小白名单。非 Feishu 来源（CLI/TUI、cron 调度器、内部事件）一律放行不拦截。
+
+**为什么需要它**：hermes 原生 toolset 粒度是 _平台级_（`platform_toolsets.feishu`），同一个 Feishu bot 下所有 chat 共享一份工具列表。若把 bot 拉进群或被别人加为联系人，对方可以直接让 bot 调 `terminal` / `read_file` 等危险工具。`allowed_chats` 白名单虽然能限制响应范围，但代价是其他会话完全得不到响应；要在"允许其他人聊天/搜索/问图"和"禁止其他人碰系统"之间取折衷，原生配置做不到。本插件通过官方 `pre_gateway_dispatch` + `pre_tool_call` 钩子做按会话裁剪，零源码修改。
+
+**机制（要点）**：
+
+- `pre_gateway_dispatch` 把入站消息的 `(platform, chat_id)` 写入 `contextvars.ContextVar`，asyncio 会自动把该 context 传到所有后续 `await` / `create_task` 子任务里，所以下游每次工具调用都能看到当前会话身份。并发会话各自带自己的 context，不串扰。
+- `pre_tool_call` 读取 ContextVar：若 `platform != "feishu"` 直接放行；若 `chat_id` 在 owner 白名单里直接放行；否则只允许 `allowed_tools_for_outsiders` 中的工具，其余返回 `{action: block, message: ...}`。
+- 不用 `threading.local`（asyncio 多协程同线程会串），不用 `set_thread_tool_whitelist`（同样问题），坚持 ContextVar。
+
+**配置**（`plugins/sandbox/config.yaml`）：
+
+```yaml
+owner_feishu_chat_ids:
+  - oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx # 你和 bot 的主 DM chat_id；可填多个
+allowed_tools_for_outsiders:
+  - web_search
+  - web_extract
+  - vision_analyze
+  - image_generate
+block_message: "本会话不支持该工具。当前会话仅开放：聊天问答 / 联网搜索 / 网页正文抓取 / 图片理解 / 图片生成。"
+```
+
+获取自己主 DM 的 `chat_id`：在主 DM 里发送 `/whoami` 查看回执；或翻 `~/.hermes/sessions/session_*.json` 找 `platform: feishu` 的最近会话取其 `chat_id` 字段。
+
+**首次部署**：
+
+```bash
+# 1. 编辑 owner_feishu_chat_ids 填入主 DM 的 chat_id
+$EDITOR ~/.hermes/plugins/sandbox/config.yaml
+
+# 2. 启用插件（仅首次需要）
+hermes plugins enable sandbox
+
+# 3. 重启 gateway
+hermes gateway restart
+
+# 4. 验证：查 agent.log 应有 sandbox: registered (active=True, owner_chats=[...], allowed=[...])
+grep "sandbox: registered" ~/.hermes/logs/agent.log | tail -1
+```
+
+`active=True` 且 `owner_chats` 非空表示生效；若 `active=False` 说明 `config.yaml` 没有有效的 owner，插件 fail-open（不拦截任何东西，等同未启用）。
+
+**运维与扩展**：
+
+- 增加特权会话：编辑 `config.yaml` 的 `owner_feishu_chat_ids` 数组追加新 chat_id，重启 gateway。
+- 调整放行工具：编辑 `allowed_tools_for_outsiders`；工具名见 `hermes tools` 或 `hermes-agent/toolsets.py` 的 `_HERMES_CORE_TOOLS`。
+- 临时关闭：`hermes plugins disable sandbox && hermes gateway restart`，下次开启重新 `enable` 即可。
+- 反面测试：临时把 `owner_feishu_chat_ids` 改成一个不存在的 chat_id 并重启，然后在主 DM 让 bot 跑 `terminal`——应该被拦下并回 `block_message`；验完改回去再重启。
+
+**已知限制 / 注意点**：
+
+- 用户插件在 `~/.hermes/plugins/`，与 `hermes-agent/` 源码完全分离，`hermes update` / 升级官方仓库**不会**影响插件。但官方若改动 `VALID_HOOKS` 的 kwargs 签名（大版本概率事件），插件需要同步小修。
+- 插件靠 ContextVar 跨 `await` 边界传 `chat_id`，hermes 当前 asyncio 单线程架构下安全。若上游改为把 agent 跑在 `loop.run_in_executor` worker 线程里且不显式 `copy_context()`，会失效；目前没有这种使用方式，但属于升级时要留意的"前提"。
+- block 是工具级别的，模型回复里仍然可以聊天/搜网/看图/画图——这是设计预期，不是 bug。
 
 ---
 
@@ -1674,14 +1777,15 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 ## 版本记录
 
-| 版本               | 日期       | 说明                                                                                                                                                                                                                                                                                              |
-| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v0.14.0            | 2026-05-20 | 新机恢复时克隆最新官方 `main` 到 `6a6766fb8`；按 `pyproject.toml` 的 `requires-python >=3.11` 选择本机 pyenv `3.12.7` 重建 venv；安装 `.[all,feishu]`；PATCH-7 扩展到 `tools/lazy_deps.py` 以覆盖 Feishu lazy install 路径；`hermes-update.sh` 改为用 `git stash push -u` 保护额外 untracked 改动 |
-| v0.14.0            | 2026-05-19 | 基线滚动到 `f1254b1bc`（较 `a0bd11d02` 再前进 13 commits）；`hermes update` 新增 post-pull 关键文件语法校验/失败自动回滚；`local-patches.diff` 干净 apply 并刷新基线；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态                                                                      |
-| v0.13.0            | 2026-05-14 | 基线滚动到 `26933c2f5`（v0.13.0，194 commits）；PATCH-7 因上游将 feishu extra 改为版本钉死（`lark-oapi==1.5.3` + `qrcode==7.4.2`）触发 3-way 冲突，重写为 `python-socks==2.8.1`；PATCH-1/2 干净 apply；PATCH-3/4/5/8 维持已上游合并状态                                                           |
-| v0.13.0            | 2026-05-12 | 基线滚动到 `99ad2d1372`（v0.13.0 仍是当前 release，174 commits 全是补丁修复）；`local-patches.diff` 干净 apply（无 3-way），仅 hunk 锚点行号漂移；PATCH-1/2/3/4/5/7 状态全部维持，PATCH-7 hunk 117→121 行漂动                                                                                     |
-| v0.13.0            | 2026-05-10 | 上游 `main` 同步到 `44cdf555a`（release `v2026.5.7`，490 commits），3-way merge 干净落地；PATCH-3 经上游 commit `fe61d95b4` 合并并退役；继续保留 PATCH-1/2/6/7 + PATCH-3 sentinel                                                                                                                 |
-| v0.12.0            | 2026-05-07 | 上游 `main` 同步到 `49c3c2e0d`（release 仍 `v2026.4.30`），patch 基线刷新；继续保留 PATCH-1/2/3/6/7                                                                                                                                                                                               |
-| v0.11.0            | 2026-04-23 | 上游升级，新增 Ink TUI / transport 层 / Bedrock / GPT-5.5 / Dashboard 主题扩展                                                                                                                                                                                                                    |
-| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能                                                                                                                                                                                                                                              |
-| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                                                                                                                                                                                                                                                                        |
+| 版本               | 日期       | 说明                                                                                                                                                                                                                                                                                                            |
+| ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v0.14.0            | 2026-05-22 | 新增 `plugins/sandbox` 用户插件：通过官方 `pre_gateway_dispatch` + `pre_tool_call` 钩子，按 Feishu `chat_id` 做工具沙盒——配置中的 owner DM 拥有完整工具集，其他 Feishu 会话只剩 `web_search` / `web_extract` / `vision_analyze` / `image_generate`，非 Feishu 来源（CLI/TUI、cron、内部事件）不拦截。零源码修改 |
+| v0.14.0            | 2026-05-20 | 新机恢复时克隆最新官方 `main` 到 `6a6766fb8`；按 `pyproject.toml` 的 `requires-python >=3.11` 选择本机 pyenv `3.12.7` 重建 venv；安装 `.[all,feishu]`；PATCH-7 扩展到 `tools/lazy_deps.py` 以覆盖 Feishu lazy install 路径；`hermes-update.sh` 改为用 `git stash push -u` 保护额外 untracked 改动               |
+| v0.14.0            | 2026-05-19 | 基线滚动到 `f1254b1bc`（较 `a0bd11d02` 再前进 13 commits）；`hermes update` 新增 post-pull 关键文件语法校验/失败自动回滚；`local-patches.diff` 干净 apply 并刷新基线；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态                                                                                    |
+| v0.13.0            | 2026-05-14 | 基线滚动到 `26933c2f5`（v0.13.0，194 commits）；PATCH-7 因上游将 feishu extra 改为版本钉死（`lark-oapi==1.5.3` + `qrcode==7.4.2`）触发 3-way 冲突，重写为 `python-socks==2.8.1`；PATCH-1/2 干净 apply；PATCH-3/4/5/8 维持已上游合并状态                                                                         |
+| v0.13.0            | 2026-05-12 | 基线滚动到 `99ad2d1372`（v0.13.0 仍是当前 release，174 commits 全是补丁修复）；`local-patches.diff` 干净 apply（无 3-way），仅 hunk 锚点行号漂移；PATCH-1/2/3/4/5/7 状态全部维持，PATCH-7 hunk 117→121 行漂动                                                                                                   |
+| v0.13.0            | 2026-05-10 | 上游 `main` 同步到 `44cdf555a`（release `v2026.5.7`，490 commits），3-way merge 干净落地；PATCH-3 经上游 commit `fe61d95b4` 合并并退役；继续保留 PATCH-1/2/6/7 + PATCH-3 sentinel                                                                                                                               |
+| v0.12.0            | 2026-05-07 | 上游 `main` 同步到 `49c3c2e0d`（release 仍 `v2026.4.30`），patch 基线刷新；继续保留 PATCH-1/2/3/6/7                                                                                                                                                                                                             |
+| v0.11.0            | 2026-04-23 | 上游升级，新增 Ink TUI / transport 层 / Bedrock / GPT-5.5 / Dashboard 主题扩展                                                                                                                                                                                                                                  |
+| v0.10.0            | 2026-04-22 | 上游升级，新增 hooks / plugins / orchestrator 等功能                                                                                                                                                                                                                                                            |
+| v0.9.0 (2026.4.13) | 2026-04-14 | 初始安装，从 OpenClaw 迁移                                                                                                                                                                                                                                                                                      |

@@ -1,0 +1,7 @@
+name: sandbox
+version: 0.1.0
+description: "Per-chat tool restriction for Feishu. Only the owner's main DM gets the full toolset; every other Feishu chat is limited to a small safe allowlist. Non-Feishu sources (CLI/TUI, cron, internal events) are untouched."
+author: "周琛"
+hooks:
+  - pre_gateway_dispatch
+  - pre_tool_call
