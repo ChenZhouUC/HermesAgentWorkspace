@@ -756,6 +756,8 @@ tail -f ~/.hermes/logs/gateway.log
 - plist 路径：
   - `~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist`
   - `~/Library/LaunchAgents/ai.hermes.logi-display-reactor.plist`
+- 轮询间隔（Layer 2）：1s
+- 去抖窗口（Layer 3）：30s
 - 业务日志（两个共享）：`~/.hermes/logs/logi-watchdog.log` —— 启动 / 重启动作 / 显示事件触发都写在这里
 - launchd 捕获的 stdout/stderr：
   - `logi-watchdog.stdout.log` + `logi-watchdog.err.log`
@@ -783,14 +785,16 @@ bash 长驻循环，每个间隔执行 `pgrep -f "logioptionsplus_agent --launch
 
 #### Layer 3: 显示反应器
 
-Swift 进程订阅 `CGDisplayRegisterReconfigurationCallback`（CoreGraphics），收到 DP Alt Mode 重协商等显示事件就**直接 SIGKILL** `logioptionsplus_agent`，让 Layer 1 + Layer 2 接力把它拉回来。
+Swift 进程订阅 macOS `NSWorkspace.didWakeNotification` 和 `DistributedNotificationCenter` 上的 `com.apple.screenIsUnlocked`，捕获屏幕唤醒事件后**直接 SIGKILL** `logioptionsplus_agent`，让 Layer 1 + Layer 2 接力把它拉回来。
 
 关键设计：
 
 - **只 kill 不 restart**：反应器只负责"破"，"立"留给 Layer 1/2 —— 责任清晰，不重复
-- **去抖（debounce）**：单次跳屏可能触发多个 callback 事件，3 秒内只反应一次，避免连续多次 kill 阻断恢复
-- **跳过 begin 事件**：CG callback 在 reconfig 开始/结束各触发一次，反应器只看结束帧（has actual change flags），避免提前介入
+- **双信号源**：`screenIsUnlocked` 在解锁瞬间最早触发，`didWake` 几十秒后由系统电源管理器补一发；订阅两个保证一定能捕获到
+- **去抖（debounce）**：默认 30 秒。同一次唤醒会发出 `screenIsUnlocked` + `didWake` 两条通知（时差可达 30 秒），统一视为一次事件，只 kill 一次。这个参数与"恢复延迟"无关 —— Logi 永远在 SIGKILL 后 1-2 秒被拉回，debounce 只是阻止冗余 kill
 - **空闲 CPU 占用 0%**：完全事件驱动，不轮询
+
+> **早期实现尝试过 `CGDisplayRegisterReconfigurationCallback`**（更精确的"显示重协商"事件），但在 launchd 启动的 `swift -interpret` 上下文里 CG 回调无法到达进程（缺乏 WindowServer bootstrap，即使加 `NSApplication.run()` 也不行）。改用 NSWorkspace 通知后稳定可工作 —— 这条机制跟 `vertex_wake_watcher.swift` 同源。
 
 ### 运维常用命令
 
@@ -810,7 +814,9 @@ date +%s.%N ; pkill -9 -f "logioptionsplus_agent --launchd"
 while ! pgrep -f "logioptionsplus_agent --launchd" >/dev/null; do : ; done
 date +%s.%N
 
-# 手动触发 Layer 3 (反应器)：插拔显示器/切换分辨率/睡眠唤醒外接屏，观察日志是否多出 'display reconfig' 一行
+# 手动触发 Layer 3 (反应器)：让屏幕睡眠 1 秒再唤醒
+pmset displaysleepnow ; sleep 2 ; caffeinate -u -t 1
+# 几秒后日志应该多出 'screenIsUnlocked → SIGKILL Logi agent' 一行
 
 # 调整参数（重新运行 installer 即可，会自动 bootout + bootstrap 两个 agent）
 ~/.hermes/scripts/install_logi_watchdog_launchd --interval-seconds 2 --debounce-seconds 5
@@ -824,14 +830,15 @@ rm -f ~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist \
 
 日志里典型行：
 
-| 日志行                                                | 含义                                           |
-| ----------------------------------------------------- | ---------------------------------------------- |
-| `watchdog started (interval=1s)`                      | Layer 2 启动                                   |
-| `logi-display-reactor started (debounce=3s)`          | Layer 3 启动                                   |
-| `display reconfig (flags=0x...) → SIGKILL Logi agent` | Layer 3 触发了一次（跳屏发生了）               |
-| `restarted via launchctl kickstart`                   | Layer 2 检测到进程消失并拉回（Layer 1 没接住） |
-| `restarted via open -a`                               | Layer 2 kickstart 失败、退而 fallback 启 .app  |
-| `restart attempts failed`                             | 两条路径都失败 —— 检查 Logi 安装是否完整       |
+| 日志行                                                  | 含义                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------- |
+| `watchdog started (interval=1s)`                        | Layer 2 启动                                                        |
+| `logi-display-reactor started (debounce=30s, mode=...)` | Layer 3 启动                                                        |
+| `screenIsUnlocked → SIGKILL Logi agent`                 | Layer 3 在解锁瞬间触发                                              |
+| `didWake → SIGKILL Logi agent`                          | Layer 3 在系统唤醒事件触发（如果 30s 内已被 unlock 触发，则被去抖） |
+| `restarted via launchctl kickstart`                     | Layer 2 检测到进程消失并拉回（Layer 1 没接住）                      |
+| `restarted via open -a`                                 | Layer 2 kickstart 失败、退而 fallback 启 .app                       |
+| `restart attempts failed`                               | 两条路径都失败 —— 检查 Logi 安装是否完整                            |
 
 ### 与 Logi 自带 LaunchAgent 的关系
 
@@ -846,7 +853,8 @@ rm -f ~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist \
 ### 已知限制
 
 - 跳屏本身不能消除 —— 仅缩短 Logi 失效窗口
-- 反应器对 Logi 状态损坏的判定是**保守的**（只要跳屏就 kill），代价是每次跳屏都强制一次 Logi 重启（1-2s）。如果你的环境跳屏频繁且 Logi 其实没坏，可以把 debounce 调大或卸载 Layer 3 保留 Layer 2。
+- 反应器对 Logi 状态损坏的判定是**保守的**（只要解锁/唤醒就 kill），代价是每次唤醒都强制一次 Logi 重启（1-2s）。如果你的环境唤醒频繁且 Logi 其实没坏，可以把 debounce 调大或卸载 Layer 3 保留 Layer 2。
+- 30 秒去抖窗口内若发生第二次独立的唤醒事件（罕见，例如 30s 内主动让屏幕睡眠后又唤醒），会被静默吞掉一次 —— 万一 Logi 在那次坏掉，得等到 Layer 2 / 下次唤醒救
 - pgrep 模式匹配依赖 `logioptionsplus_agent --launchd` 命令行，Logi 升级如改了启动参数需同步更新 `scripts/logi_options_watchdog` 中的 `AGENT_PATTERN`
 - 反应器需要进程在 GUI session（Aqua）中才能订阅 CG 回调；plist 已 bootstrap 到 `gui/$(id -u)` domain，正常使用无须额外配置
 

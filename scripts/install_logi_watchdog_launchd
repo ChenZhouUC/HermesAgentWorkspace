@@ -4,7 +4,7 @@ set -euo pipefail
 POLL_LABEL="ai.hermes.logi-watchdog"
 REACTOR_LABEL="ai.hermes.logi-display-reactor"
 INTERVAL_SECONDS=1
-DEBOUNCE_SECONDS=3
+DEBOUNCE_SECONDS=30
 
 usage() {
     cat <<'EOF'
@@ -33,7 +33,9 @@ Options:
   --interval-seconds N  Poll cadence inside the bash watchdog
                         (default: 1, minimum: 1).
   --debounce-seconds N  Minimum gap between reactor SIGKILLs after rapid
-                        display events (default: 3, minimum: 1).
+                        wake events (default: 30, minimum: 1). Coalesces
+                        the screenIsUnlocked + didWake notification pair
+                        that fires for a single physical wake cycle.
   -h, --help            Show this help
 EOF
 }

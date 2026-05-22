@@ -22,7 +22,7 @@ Use this skill when diagnosing why background applications, menu bar utilities, 
   ```
 - **Automated recovery**: This repo ships an optional pair of LaunchAgents (`~/.hermes/scripts/install_logi_watchdog_launchd`):
   - `ai.hermes.logi-watchdog` — bash polling (1s) for "really dead" case.
-  - `ai.hermes.logi-display-reactor` — Swift `CGDisplayRegisterReconfigurationCallback` subscriber that SIGKILLs the agent on every display reconfig, handling the "alive but broken" case.
+  - `ai.hermes.logi-display-reactor` — Swift NSWorkspace subscriber (`didWakeNotification` + `screenIsUnlocked` distributed notification) that SIGKILLs the agent on every screen wake / unlock, handling the "alive but broken" case. 30s debounce to coalesce the unlock+wake notification pair.
 
   See `README.md` → "Logi Options+ 看门狗 (可选)" for install / ops. Once installed, manual intervention is rarely needed.
 

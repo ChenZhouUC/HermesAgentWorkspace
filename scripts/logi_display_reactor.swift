@@ -1,21 +1,26 @@
 #!/usr/bin/env swift
 
-// Subscribes to macOS display reconfiguration events
-// (CGDisplayRegisterReconfigurationCallback). When the external display link
-// renegotiates -- the same event that causes the Logi Options+ daemon to
-// silently enter a broken state -- this script SIGKILLs logioptionsplus_agent
-// so the existing recovery layers (Logi's own KeepAlive + ai.hermes.logi-watchdog)
-// bring up a fresh, healthy process.
+// Watches for macOS screen wake events via NSWorkspace notifications.
+// When the external display link renegotiates (e.g. after an Amphetamine
+// session ends, or when the screen returns from sleep), SIGKILLs
+// logioptionsplus_agent so the existing recovery layers (Logi's own
+// KeepAlive + ai.hermes.logi-watchdog) bring up a fresh, healthy process.
 //
 // Pairs with scripts/logi_options_watchdog (PID-based polling) for full
 // coverage of both "really dead" and "alive but broken" failure modes.
+//
+// History: an earlier version tried CGDisplayRegisterReconfigurationCallback
+// for tighter timing, but the callbacks did not arrive in our launchd
+// `swift -interpret` execution context (no WindowServer bootstrap, even
+// with NSApplication.run()). NSWorkspace notifications travel through the
+// distributed notification center and are known to work from background
+// daemons — vertex_wake_watcher.swift uses the same mechanism.
 
 import AppKit
-import CoreGraphics
 import Foundation
 
 let agentPattern = "logioptionsplus_agent --launchd"
-let defaultDebounceSeconds: TimeInterval = 3.0
+let defaultDebounceSeconds: TimeInterval = 30.0
 
 let env = ProcessInfo.processInfo.environment
 
@@ -65,39 +70,47 @@ func log(_ message: String) {
     fflush(stdout)
 }
 
-final class DisplayReactor {
-    static let shared = DisplayReactor()
+final class WakeReactor {
+    static let shared = WakeReactor()
     private var lastReaction: Date?
+    private var observers: [NSObjectProtocol] = []
 
-    func handle(flags: CGDisplayChangeSummaryFlags) {
-        // The callback fires twice per reconfiguration cycle: once with
-        // beginConfigurationFlag set (before changes), and once after with
-        // the actual change flags. We only react to the "after" event.
-        if flags.contains(.beginConfigurationFlag) {
-            return
+    func start() {
+        // Two complementary wake signals (verified empirically 2026-05-22):
+        //   - dnc:com.apple.screenIsUnlocked fires immediately on unlock
+        //   - NSWorkspace.didWakeNotification fires ~seconds later from
+        //     the system power manager
+        // Both belong to the same physical wake event; the 30s debounce
+        // coalesces them so we SIGKILL Logi exactly once per wake cycle.
+        let nc = NSWorkspace.shared.notificationCenter
+        let didWakeObserver = nc.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: OperationQueue.main
+        ) { [weak self] _ in
+            self?.handle(eventName: "didWake")
         }
+        observers.append(didWakeObserver)
 
-        let relevant: CGDisplayChangeSummaryFlags = [
-            .setModeFlag,
-            .addFlag,
-            .removeFlag,
-            .enabledFlag,
-            .disabledFlag,
-            .setMainFlag,
-            .desktopShapeChangedFlag,
-        ]
-        if flags.intersection(relevant).isEmpty {
-            return
+        let dnc = DistributedNotificationCenter.default()
+        let unlockObserver = dnc.addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"),
+            object: nil,
+            queue: OperationQueue.main
+        ) { [weak self] _ in
+            self?.handle(eventName: "screenIsUnlocked")
         }
+        observers.append(unlockObserver)
+    }
 
+    func handle(eventName: String) {
         let now = Date()
         if let last = lastReaction, now.timeIntervalSince(last) < debounceSeconds {
             return
         }
         lastReaction = now
 
-        let hex = String(flags.rawValue, radix: 16)
-        log("display reconfig (flags=0x\(hex)) → SIGKILL Logi agent")
+        log("\(eventName) → SIGKILL Logi agent")
         forceKillAgent()
     }
 
@@ -119,17 +132,8 @@ final class DisplayReactor {
     }
 }
 
-let callback: CGDisplayReconfigurationCallBack = { _, flags, _ in
-    DisplayReactor.shared.handle(flags: flags)
-}
-
-log("logi-display-reactor started (debounce=\(Int(debounceSeconds))s)")
-
-let regError = CGDisplayRegisterReconfigurationCallback(callback, nil)
-if regError != .success {
-    log("CGDisplayRegisterReconfigurationCallback failed: \(regError.rawValue)")
-    exit(1)
-}
+log("logi-display-reactor started (debounce=\(Int(debounceSeconds))s, mode=NSWorkspace)")
+WakeReactor.shared.start()
 
 let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
 sigtermSource.setEventHandler {
@@ -147,4 +151,8 @@ sigintSource.setEventHandler {
 sigintSource.resume()
 signal(SIGINT, SIG_IGN)
 
+// NSWorkspace notifications are delivered to the main RunLoop. Unlike
+// CGDisplayReconfigurationCallback, they do NOT require an NSApplication
+// bootstrap or WindowServer connection — they ride the distributed
+// notification center, which works fine from a background launchd daemon.
 RunLoop.main.run()
