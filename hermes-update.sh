@@ -18,6 +18,7 @@
 #      8b. Behavioral verification
 #      8c. Refresh saved diff
 #      8d. Gateway restart         (reload patched Python modules into running process)
+#   8e. User-plugin compatibility checks (plugins/*/verify.sh)
 #   9. Health verification         (hermes doctor + gateway status)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
@@ -28,6 +29,9 @@
 #      The saved diff lives at ~/.hermes/patches/local-patches.diff and is
 #      tracked in the config repo. If a patch conflicts with upstream after an
 #      update, follow the instructions in the summary or see README.md § 本地补丁.
+#    - Step 8e runs verify.sh for each user plugin under ~/.hermes/plugins/.
+#      When adding a new plugin, register its verify.sh in the
+#      PLUGIN_VERIFIERS array below. See README.md § 用户插件 (Plugins).
 #    Referenced from README.md § 更新
 #
 # Usage:
@@ -635,6 +639,37 @@ if $_PATCH_APPLY_OK; then
     fi
     set -e
 fi
+
+# ── 8e. Verify user plugins ──────────────────────────────────────────────────
+# User plugins under ~/.hermes/plugins/ are owned by THIS config repo, not
+# upstream hermes-agent. They hook into upstream APIs (VALID_HOOKS, fire
+# sites in gateway/run.py + model_tools.py). After an upstream update, run
+# each plugin's verify.sh to confirm the contract still holds — if upstream
+# renames a hook or changes kwargs, the plugin will silently no-op until
+# patched.
+#
+# Currently active plugins:
+#   - sandbox  (per-chat Feishu tool restriction; see README § 用户插件)
+#
+# Add new plugins here by appending another conditional block.
+PLUGIN_VERIFIERS=("${HERMES_HOME}/plugins/sandbox/verify.sh")
+for verifier in "${PLUGIN_VERIFIERS[@]}"; do
+    if [[ -x "${verifier}" ]]; then
+        plugin_name=$(basename "$(dirname "${verifier}")")
+        step "Verifying user plugin: ${plugin_name}"
+        set +e
+        _PV_OUT=$(bash "${verifier}" 2>&1)
+        _PV_RC=$?
+        set -e
+        echo "${_PV_OUT}"
+        if [[ ${_PV_RC} -eq 0 ]]; then
+            ok "${plugin_name} compatibility OK"
+        else
+            warn "${plugin_name} compatibility check failed"
+            add_act "Inspect ${verifier} output and patch plugins/${plugin_name}/__init__.py if upstream changed hook kwargs/names"
+        fi
+    fi
+done
 
 # ── 9. Verify ─────────────────────────────────────────────────────────────────
 step "Verifying"
