@@ -157,17 +157,20 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.14.0 (upstream `main` `6a6766fb8`，截至 2026-05-20)
+## v0.14.0 (upstream `main` `d61785889`，截至 2026-05-22)
 
-> 新机恢复时克隆最新官方 `main` 到 `6a6766fb8`。`local-patches.diff` 干净 apply 并随恢复刷新；PATCH-1/2/7 继续活跃，PATCH-3/4/5/8 维持已上游合并状态。上游当前 `pyproject.toml` 的 `requires-python = ">=3.11"`；本次 venv 使用本机 pyenv `3.12.7`，这是满足约束的本地选择，不是文档硬性版本。
+> 基线从 `6a6766fb8` 滚动到 `d61785889`（+112 commits）；release 字符串仍为 `v0.14.0 (2026.5.16)`，属于版本号未跳的累积修复段。`local-patches.diff` 干净 apply，hunk 锚点行号仅 5/5 漂移，PATCH-1/2/7 行为均经 update 脚本 Step 8b 验证存活；PATCH-3/4/5/8 维持已上游合并状态。本次 update 同时落地以下与补丁/上游解耦的本仓库改动：
+>
+> - **`plugins/sandbox`**（用户插件，非 hermes-agent 源码 patch）：通过官方 `pre_gateway_dispatch` + `pre_tool_call` 钩子做按 Feishu `chat_id` 的工具沙盒。配套 `plugins/sandbox/verify.sh` 被 `hermes-update.sh` 新增 Step 8e 自动调用；本次 update 后 Step 8e 全绿首跑通过。详见 [`README.md` § 用户插件 (Plugins)](../README.md#用户插件-plugins)。
+> - **`hermes-update.sh` uv-pyenv fallback**：在 uv ≥ 0.11 + pyenv 环境下 `hermes update` 内部的 `uv pip install -e .` 因找不到 uv 自管 Python (`~/.local/share/uv/python`) 报错；脚本现在 tee 捕获输出，识别该特定错误后自动重试 `uv pip install --python venv/bin/python -e ".[all,feishu]"`，成功则清零 UPDATE_RC。
 >
 > **本次刷新涉及的上游变化**：
 >
-> - `hermes_cli/doctor.py`：PATCH-2 继续存在，更新后仍干净 apply；当前版本下 hunk 由 update 脚本行为化校验。
-> - `pyproject.toml` / `tools/lazy_deps.py`：PATCH-7 继续活跃。上游已将 Feishu 从 `[all]` 移到 lazy backend，补丁现在同时覆盖 `feishu` extra 和 `LAZY_DEPS["platform.feishu"]`，避免常规安装与首次 lazy install 两条路径缺 `python-socks`。
-> - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：PATCH-1 继续活跃，更新后干净 apply。
-> - `hermes_cli/completion.py`：上游 commit `8c4bec615` + `6d30b4a7e` 进一步加强 zsh 补全生成（包含回归测试）；PATCH-3 sentinel 继续维持"已上游合并"状态。
-> - `hermes_cli/main.py`：上游 `hermes update` 当前会安装 `.[all]` 并刷新已激活 lazy backend；本地 `hermes-update.sh` 仍负责补丁保存/恢复、npm audit fix、skills 镜像、补全刷新和 post-patch gateway restart。
+> - `hermes_cli/doctor.py`：PATCH-2 仍干净 apply；当前版本下 hunk 由 update 脚本行为化校验。
+> - `pyproject.toml` / `tools/lazy_deps.py`：PATCH-7 仍干净 apply，feishu extra 与 lazy install 两条路径继续被覆盖。
+> - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：PATCH-1 仍干净 apply；上游 112 commits 未触及 `_resolve_skill_dir()`。
+> - `hermes_cli/completion.py`：上游 `hermes completion zsh` 输出继续正确，PATCH-3 sentinel 未触发；本次 update 后 `_hermes` 补全新增 16 行（上游新增 slash command / `_arguments` 条目）。
+> - 依赖：pydantic 2.12.5 → 2.13.4 / pydantic-core 2.41.5 → 2.46.4；上游裁掉 22 个 skill（`hermes-update.sh` Step 4b 通过 `rsync --delete` 同步）。
 > - 当前活跃 patch：**PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7**。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
@@ -175,10 +178,10 @@ cat ~/.hermes/patches/.local-patches.base
 | 字段         | 内容                                                                                               |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
-| **状态**     | 🟡 未上游合并（截至 upstream `main` `6a6766fb8`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **状态**     | 🟡 未上游合并（截至 upstream `main` `d61785889`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
 | **适用版本** | v0.14.0 仍需本地 patch                                                                             |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.14.0 上游 `main` (`6a6766fb8`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。上游已支持 external skill 原地 edit/patch/delete，但 create 仍有测试明确要求写入本地官方 root，因此本地 patch 仍是有意定制。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.14.0 上游 `main` (`d61785889`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。上游已支持 external skill 原地 edit/patch/delete，但 create 仍有测试明确要求写入本地官方 root，因此本地 patch 仍是有意定制。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
 
