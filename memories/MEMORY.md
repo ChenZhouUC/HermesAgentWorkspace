@@ -4,7 +4,7 @@ Repo: git@github.com:ChenZhouUC/HermesAgentWorkspace.git. NEVER auto-commit/push
 §
 Feishu gateway terminal approval works natively; no need to bypass security via Python for sensitive commands.
 §
-Feishu API Quirks: 1. Tables: flat cell list, max 9 rows, no direct row append. 2. Skip H1 insert. 3. POST /children 'index' relative to parent. 4. DELETE /blocks/{id} gives 404; use parent batch_delete. 5. Bullets are block_type 12. Domain: whales.feishu.cn. Bot @小聪明蛋 open_id: ou_0091f5c50226a4ee0dc8a6d51665db0f.
+Feishu API Quirks: 1. Tables: flat cell list, max 9 rows, no direct row append. 2. Skip H1 insert. 3. POST /children 'index' relative to parent. 4. DELETE /blocks/{id} gives 404; use parent batch_delete. 5. Bullets are block_type 12. Domain: whales.feishu.cn. Bot @木马牛 open_id: ou_0091f5c50226a4ee0dc8a6d51665db0f.
 §
 When updating Feishu documents via API, properly handle newline characters to prevent literal '\\n' strings from being rendered as visible text in the final document.
 §

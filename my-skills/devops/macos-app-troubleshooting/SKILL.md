@@ -28,7 +28,7 @@ Use this skill when diagnosing why background applications, menu bar utilities, 
 
 ## Amphetamine
 
-- **Quirk**: If Amphetamine is configured to handle Screen Lock or Screen Saver overrides (e.g., "Lock Screen After Inactivity", "Allow Display Sleep When Screen Is Locked"), its transitions can cause a "black screen flash" and instantly crash sensitive input daemons like Logi Options+.
+- **Quirk**: If Amphetamine is configured to handle Screen Lock or Screen Saver overrides (e.g., "Lock Screen After Inactivity", "Allow Display Sleep When Screen Is Locked"), its transitions can cause a "black screen flash" and instantly crash sensitive input daemons like Logi Options+. See `references/amphetamine-logi-options-crash.md` for the exact plist keys and recovery commands.
 - **Diagnostics**:
   Read the active plist configuration to see if lock/sleep interventions are enabled:
   ```bash
