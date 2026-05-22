@@ -55,12 +55,14 @@ _hermes() {
                 'lsp:Language Server Protocol management'
                 'mcp:Manage MCP servers and run Hermes as an MCP server'
                 'memory:Configure external memory provider'
+                'migrate:Migrate configuration for retired models or deprecated setti'
                 'model:Select default model and provider'
                 'pairing:Manage DM pairing codes for user authorization'
                 'plugins:Manage plugins — install, update, remove, list'
                 'postinstall:Bootstrap non-Python deps for pip installs (node, browser, r'
                 'profile:Manage profiles — multiple isolated Hermes instances'
                 'proxy:Local OpenAI-compatible proxy to OAuth providers'
+                'secrets:Manage external secret sources (Bitwarden Secrets Manager)'
                 'send:Send a message to a configured platform (scripts, cron jobs,'
                 'sessions:Manage session history (list, rename, export, prune, delete)'
                 'setup:Interactive setup wizard'
@@ -296,6 +298,13 @@ _hermes() {
                     )
                     _describe 'memory command' memory_cmds
                     ;;
+                migrate)
+                    local -a migrate_cmds
+                    migrate_cmds=(
+                    'xai:Migrate xAI models scheduled for retirement on May 15, 2026'
+                    )
+                    _describe 'migrate command' migrate_cmds
+                    ;;
                 pairing)
                     local -a pairing_cmds
                     pairing_cmds=(
@@ -352,6 +361,13 @@ _hermes() {
                     'status:Show which proxy upstreams are ready'
                     )
                     _describe 'proxy command' proxy_cmds
+                    ;;
+                secrets)
+                    local -a secrets_cmds
+                    secrets_cmds=(
+                    'bitwarden:Bitwarden Secrets Manager integration'
+                    )
+                    _describe 'secrets command' secrets_cmds
                     ;;
                 sessions)
                     local -a sessions_cmds

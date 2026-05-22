@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 613815025..2abdca68b 100644
+index df75ac686..092e2521b 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1776,8 +1776,23 @@ def run_doctor(args):
+@@ -1802,8 +1802,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -29,10 +29,10 @@ index 613815025..2abdca68b 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/pyproject.toml b/pyproject.toml
-index 2f3ad1ae3..66a19449f 100644
+index ae2472b7a..83108b04f 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -148,7 +148,7 @@ termux-all = [
+@@ -152,7 +152,7 @@ termux-all = [
    "hermes-agent[web]",
  ]
  dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
@@ -104,7 +104,7 @@ index 1a8708ef2..70bd61cf1 100644
  
      # ─── Terminal backends ─────────────────────────────────────────────────
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index caa30f321..b5d140699 100644
+index 547167a66..d746a1404 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
 @@ -269,10 +269,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st

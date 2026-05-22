@@ -219,11 +219,41 @@ if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
 fi
 cd - >/dev/null
 
+_UPDATE_LOG=$(mktemp -t hermes-update.XXXXXX)
 set +e
-hermes update
-UPDATE_RC=$?
+hermes update 2>&1 | tee "${_UPDATE_LOG}"
+UPDATE_RC=${PIPESTATUS[0]}
 set -e
 echo ""
+
+# uv-pyenv recovery: on machines where uv (≥0.11) is installed but Python is
+# managed by pyenv, `uv pip install -e .` inside `hermes update` ignores the
+# activated venv and looks for a uv-managed Python at
+# `~/.local/share/uv/python`. If that path is empty (as it is on this user's
+# setup — see USER.md memory entry on uv/pyenv), the install fails with
+# "No virtual environment or system Python installation found for path …".
+# Retry once with explicit --python pointing at the project venv before
+# giving up. Restricting to this specific error message keeps the fallback
+# from masking unrelated install regressions.
+if [[ $UPDATE_RC -ne 0 ]] &&
+    grep -qF "No virtual environment or system Python installation found for path" "${_UPDATE_LOG}"; then
+    note "Detected uv python-path mismatch — retrying install with --python venv/bin/python"
+    set +e
+    (
+        cd "${HERMES_AGENT}" &&
+            uv pip install --python venv/bin/python -e ".[all,feishu]"
+    )
+    _RETRY_RC=$?
+    set -e
+    if [[ $_RETRY_RC -eq 0 ]]; then
+        ok "Install recovered via explicit --python fallback"
+        UPDATE_RC=0
+    else
+        warn "Fallback install also failed (rc=${_RETRY_RC})"
+        add_act "Investigate manually: cd ${HERMES_AGENT} && uv pip install --python venv/bin/python -e \".[all,feishu]\""
+    fi
+fi
+rm -f "${_UPDATE_LOG}"
 
 if [[ $UPDATE_RC -ne 0 ]]; then
     fail "hermes update exited $UPDATE_RC — review output above"
