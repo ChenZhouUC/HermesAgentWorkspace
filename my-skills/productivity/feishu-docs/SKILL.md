@@ -74,6 +74,8 @@ urllib.request.urlopen(title_req)
 If you absolutely MUST create a new document (e.g., explicitly forced), you MUST explicitly grant edit permissions so the user isn't locked out.
 PATCH to `https://open.feishu.cn/open-apis/drive/v1/permissions/{doc_token}/public?type=docx`
 
+_(Note: If explicitly forced to create a new doc from markdown, you can use the bundled script `uv run python <SKILL_DIR>/scripts/create_new_doc_from_md.py <md_file_path> <title>` which handles upload, import, title renaming, permission patching, and native mention resolution automatically.)_
+
 ```json
 {
   "external_access_entity": "anyone_can_edit",
@@ -182,7 +184,13 @@ new_table_payload = {
 When patching existing text blocks, you **MUST** use `update_text_elements`:
 `{"update_text_elements": {"elements": [{"text_run": {"content": "New Text"}}]}}`
 
-### 5. Copying Content (Import Temp Doc -> Existing Doc)
+**Deep Traversal Pitfall (Tables & Cells):** When searching for text to patch (e.g., to fix plain text `@小聪明蛋` mentions), be aware that Table (31) and Cell (32) blocks might not reliably expose `has_child: true` in the parent's `/children` API response. You MUST explicitly check for `block_type in (31, 32)` and recursively fetch their children to reach the nested Text (2) blocks.
+
+### 5. Document Metadata & Creation Time
+
+The `documents/{doc_token}` API does NOT return `created_at` or `update_time` directly. To get a document's creation time (especially for Wiki docs), query the Wiki API `wiki/v2/spaces/get_node?token={wiki_token}` and read `obj_create_time` or `node_create_time` (Unix timestamp).
+
+### 6. Copying Content (Import Temp Doc -> Existing Doc)
 
 To merge large Markdown content into an existing document with perfect native formatting:
 
@@ -210,6 +218,45 @@ If the native `feishu_doc_read` tool fails with `Feishu client not available (no
   Keeps older workflows working when the lightweight extraction path is sufficient.
 - **Dependency note**: All three scripts require the `requests` Python package. The base system Python does NOT have it installed. You MUST prefix with `uv run --with requests` (or ensure `requests` is available) to avoid `ModuleNotFoundError`.
 - **Wiki vs Docx Pitfall**: If the target URL is a Feishu Wiki link (`https://domain.feishu.cn/wiki/TOKEN`), the application MUST have `wiki:wiki:readonly` or `wiki:node:read` permissions. If it only has document permissions, the API will reject it with a `99991672 Access denied` error. Ask the user to grant the Wiki scope or provide the underlying standard `.docx` link.
+
+---
+
+## 🔄 Converting Feishu Docs to Local LLM Wiki Markdown
+
+When the user asks to extract a Feishu Document and save it into their local LLM Wiki (`~/.hermes/wiki/_living/` or similar), follow this specific transformation pipeline to bridge the two formats:
+
+1. **Extract Raw Markdown**:
+   Use the extraction script to get the Feishu document content:
+   `uv run --with requests python <SKILL_DIR>/scripts/extract_docx_to_markdown.py <doc_token>`
+
+2. **Clean Feishu Artifacts**:
+   - **Extract Dates**: Before deleting the Version Table, extract the creation date (first row) and update date (last row) to use in the YAML frontmatter.
+   - **Remove the Version Table**: Delete the Markdown table at the top of the document that tracks `Version | Time | Author`. This is a Feishu-specific artifact that pollutes the static wiki.
+   - **Remove Native Mentions**: Clean up any `@小聪明蛋` or similar Feishu user mentions, converting them to plain text (e.g., "周琛") or removing them if redundant.
+
+3. **Add Wiki YAML Frontmatter (CRITICAL)**:
+   Prepend standard LLM Wiki frontmatter to the top of the file. You MUST include `type`, `tags`, and `sources` per the `llm-wiki` schema.
+
+   ```yaml
+   ---
+   title: <Clean Professional Title>
+   created: <YYYY-MM-DD>
+   updated: <YYYY-MM-DD>
+   type: <entity | concept | comparison | summary>
+   tags: [<applicable tags from wiki taxonomy>]
+   sources: [Feishu Doc URL or Token]
+   ---
+   ```
+
+   _(Keep the original `# <Title>` H1 header below the frontmatter as well)._
+
+4. **Save to Wiki**:
+   Determine the appropriate subdirectory in `~/.hermes/wiki/_living/` (e.g., `AI-Infrastructure/`, `AI-Applications-and-Ops/`, `TCS-and-Math/`).
+   Write the file using `write_file` with lowercase, hyphenated naming: `~/.hermes/wiki/_living/<Category>/<title-with-hyphens>.md`.
+
+5. **Update Wiki Navigation (CRITICAL)**:
+   - **Index**: You MUST append a one-line summary and wikilink to `~/.hermes/wiki/index.md` under the appropriate section.
+   - **Log**: You MUST append an entry to `~/.hermes/wiki/log.md` recording the ingest action (`## [YYYY-MM-DD] ingest | Feishu Doc: <Title>`).
 
 ## 🎙️ Reading Feishu Minutes (飞书妙记)
 

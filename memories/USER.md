@@ -10,6 +10,6 @@ Feishu Links: Always include raw unformatted URLs in plain text. Markdown hyperl
 §
 Product Recs: Use star ratings (descending) & tables for spec combos/prices.
 §
-Tools: Persist to 100% completion; execute commands to find actual answers instead of giving tutorials (e.g., checking git origin). Prefer exhaustive fallbacks/logs. M2->M5 Migration: zero-friction rebuilds over blind copy.
+Tools: Persist 100%; execute to find answers. If asked "how to do X" locally (e.g., chown), just give the command directly without running discovery tools (find/mdfind). Monitor RAM via iStat. M2->M5: rebuild over blind copy.
 §
 In hardware/deployment lists, prefers full comparative tables showing both unchanged items ('[✅ 无变更]') and degraded/removed items ('[⚠️ 减配/移除]'), rather than lists that only show the diffs.

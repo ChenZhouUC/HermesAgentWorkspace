@@ -22,6 +22,7 @@
   - [Vertex Provider](#vertex-provider)
   - [飞书集成](#飞书集成)
 - [Gateway 服务](#gateway-服务)
+- [Logi Options+ 看门狗 (可选)](#logi-options-看门狗-可选)
 - [Shell 集成](#shell-集成)
 - [更新](#更新)
 - [本地补丁记录](#本地补丁记录)
@@ -56,21 +57,21 @@
 
 本仓库存储的内容：
 
-| 文件/目录                    | 说明                                             |
-| ---------------------------- | ------------------------------------------------ |
-| `config.yaml`                | 主配置：模型、工具集、gateway 超时、显示风格等   |
-| `.env.example`               | 密钥配置模板（实际 `.env` 不入库）               |
-| `credentials/`               | 本地 service-account JSON 等凭据（不入库）       |
-| `completions/_hermes`        | zsh 补全脚本（#compdef 格式，通过 fpath 加载）   |
-| `memories/MEMORY.md`         | Agent 的结构化记忆（短期），自动注入每次会话     |
-| `memories/USER.md`           | 用户画像（偏好、时区、语言等）                   |
-| `my-skills/`                 | 自定义 Skills（随主仓库入库）                    |
-| `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用） |
-| `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）       |
-| `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）         |
-| `scripts/`                   | Vertex token 刷新与 launchd 安装脚本             |
-| `SOUL.md`                    | Agent 人格与语气配置                             |
-| `README.md`                  | 本文档                                           |
+| 文件/目录                    | 说明                                                     |
+| ---------------------------- | -------------------------------------------------------- |
+| `config.yaml`                | 主配置：模型、工具集、gateway 超时、显示风格等           |
+| `.env.example`               | 密钥配置模板（实际 `.env` 不入库）                       |
+| `credentials/`               | 本地 service-account JSON 等凭据（不入库）               |
+| `completions/_hermes`        | zsh 补全脚本（#compdef 格式，通过 fpath 加载）           |
+| `memories/MEMORY.md`         | Agent 的结构化记忆（短期），自动注入每次会话             |
+| `memories/USER.md`           | 用户画像（偏好、时区、语言等）                           |
+| `my-skills/`                 | 自定义 Skills（随主仓库入库）                            |
+| `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用）         |
+| `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）               |
+| `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）                 |
+| `scripts/`                   | Vertex token 刷新、Logi watchdog 等 LaunchAgent 助手脚本 |
+| `SOUL.md`                    | Agent 人格与语气配置                                     |
+| `README.md`                  | 本文档                                                   |
 
 **不跟踪的内容**：官方源码（`hermes-agent/`）、密钥（`.env`）、数据库（`state.db`）、日志、会话、Hub Skills（`skills/`，更新时自动镜像上游）。
 
@@ -86,7 +87,7 @@
 ├── credentials/           # service-account JSON 等本地凭据（.gitignore 排除）
 ├── config.yaml            # 主配置（入库）
 ├── SOUL.md                # Agent 人格（入库）
-├── scripts/               # Vertex token 刷新 / launchd 安装脚本（入库）
+├── scripts/               # Vertex token 刷新 / Logi watchdog 等 LaunchAgent 助手脚本（入库）
 ├── completions/
 │   └── _hermes            # zsh 补全脚本（#compdef 格式，fpath 加载）
 ├── memories/
@@ -713,6 +714,92 @@ hermes logs
 # 或直接查看
 tail -f ~/.hermes/logs/gateway.log
 ```
+
+---
+
+## Logi Options+ 看门狗 (可选)
+
+`scripts/logi_options_watchdog` 是本仓库提供的本地辅助 LaunchAgent，监控 `logioptionsplus_agent` 进程并在它崩溃后秒级拉回。**默认不安装**，按需启用。
+
+### 适用场景
+
+外接显示器通过 Dock / Hub 接 Mac 时，每次 Amphetamine session 结束（或其他释放系统级电源 assertion 的场景）会触发 macOS 对外接显示器的 DP Alt Mode 重协商：表现为屏幕黑屏 1-2 秒。重协商过程中 Logi Options+ 的后台 daemon (`logioptionsplus_agent`) 经常崩溃，崩溃后蓝牙鼠标退回 macOS 原生 HID 驱动，丢失 Smooth Scrolling、按键映射等高级功能。
+
+Logi 自带的 LaunchAgent (`com.logi.cp-dev-mgr`) 已设 `KeepAlive` + `SuccessfulExit: false`，但因为 launchd 节流和 crashpad 处理路径，实测崩溃后往往不会自动恢复，需要手动重启 Logi Options+。
+
+> **根因不可治**：黑屏来自 macOS 协议层 DP Alt Mode 重协商，无法消除；Logi 崩溃是上游 daemon bug。本看门狗只缩短失效窗口（**目标 3 秒内恢复**），不修复根因。
+
+### 为什么放在 Hermes 配置仓库
+
+- 触发场景（Amphetamine session）都是为 Hermes 工作开的，与 Hermes 使用习惯绑定
+- `scripts/` 下已有 vertex 系列 LaunchAgent 助手脚本，命名空间 / 日志路径 / install 模式都已建立，新插件复用约定
+- 看门狗本身是 OS 服务，生命周期独立于 Hermes 进程（Hermes 不在时也照常工作）
+
+### 安装
+
+```bash
+~/.hermes/scripts/install_logi_watchdog_launchd
+
+# 可选：自定义轮询间隔（默认 1s）
+~/.hermes/scripts/install_logi_watchdog_launchd --interval-seconds 2
+```
+
+默认行为：
+
+- LaunchAgent Label：`ai.hermes.logi-watchdog`
+- plist：`~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist`
+- 轮询间隔：`1` 秒（最小 1）
+- 业务日志：`~/.hermes/logs/logi-watchdog.log`（watchdog 写入：启动 / 重启动作 / 终止）
+- 启动 stdout / stderr：`~/.hermes/logs/logi-watchdog.stdout.log` 与 `logi-watchdog.err.log`（launchd 写入）
+
+### 工作机制
+
+watchdog 是一个 KeepAlive 长驻 shell 循环，每个间隔执行 `pgrep -f "logioptionsplus_agent --launchd"`：
+
+- 存在 → 静默继续
+- 不存在 → 依次尝试：
+  1. `launchctl kickstart -k gui/<uid>/com.logi.cp-dev-mgr` 踢 Logi 自己的 service
+  2. 1 秒后仍无进程 → fallback `open -a` 启动 .app bundle
+  3. 仍失败 → 记录 `restart attempts failed`，下一轮重试
+
+1 秒检测 + 1-2 秒重启 = 总恢复时间 2-3 秒。CPU 负载 < 0.5%（pgrep ≈ 5ms × 1 次/秒）。
+
+### 运维常用命令
+
+```bash
+# 状态检查
+launchctl print gui/$(id -u)/ai.hermes.logi-watchdog | head
+
+# 实时观察恢复日志
+tail -f ~/.hermes/logs/logi-watchdog.log
+
+# 手动验证恢复时长
+date +%s.%N ; pkill -9 -f "logioptionsplus_agent --launchd"
+while ! pgrep -f "logioptionsplus_agent --launchd" >/dev/null; do : ; done
+date +%s.%N
+
+# 调整轮询间隔（重新运行 installer 即可，会自动 bootout + bootstrap）
+~/.hermes/scripts/install_logi_watchdog_launchd --interval-seconds 2
+
+# 卸载
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist
+rm -f ~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist
+```
+
+### 与 Logi 自带 LaunchAgent 的关系
+
+`com.logi.cp-dev-mgr`（Logi 自带）和 `ai.hermes.logi-watchdog`（本看门狗）是两个独立 LaunchAgent，互不替代、互不冲突：
+
+- Logi 自带负责正常启动和大多数情况的 KeepAlive
+- 本看门狗作为**外层兜底**，在 launchd 节流或被判为「成功退出」的边界情况下补救
+
+`launchctl kickstart` 对已存在的 service 是幂等的，不会产生重复进程。
+
+### 已知限制
+
+- 跳屏本身不能消除 —— 仅缩短 Logi 失效窗口
+- 看门狗只监控 daemon 进程存活，不感知“虽然在跑但内部状态损坏”的情况（罕见，未观察到）
+- pgrep 模式匹配依赖 `logioptionsplus_agent --launchd` 命令行，Logi 升级如改了启动参数需同步更新脚本中的 `AGENT_PATTERN`
 
 ---
 

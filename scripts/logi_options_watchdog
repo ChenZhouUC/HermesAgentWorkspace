@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Watchdog for Logi Options+ background agent.
+# Restarts logioptionsplus_agent when it dies (commonly after display
+# sleep/wake events triggered by Amphetamine session end on external displays).
+# Intended to be supervised by ai.hermes.logi-watchdog LaunchAgent.
+
+set -uo pipefail
+
+AGENT_LABEL="com.logi.cp-dev-mgr"
+AGENT_APP="/Library/Application Support/Logitech.localized/LogiOptionsPlus/logioptionsplus_agent.app"
+AGENT_PATTERN="logioptionsplus_agent --launchd"
+INTERVAL="${LOGI_WATCHDOG_INTERVAL_SECONDS:-1}"
+LOG_FILE="${HERMES_HOME:-$HOME/.hermes}/logs/logi-watchdog.log"
+
+mkdir -p "$(dirname "$LOG_FILE")"
+
+log() {
+    printf '[%s] %s\n' "$(date +%Y-%m-%dT%H:%M:%S%z)" "$*" >>"$LOG_FILE"
+}
+
+revive() {
+    if launchctl kickstart -k "gui/$(id -u)/${AGENT_LABEL}" >/dev/null 2>&1; then
+        sleep 1
+        if pgrep -f "$AGENT_PATTERN" >/dev/null; then
+            log "restarted via launchctl kickstart"
+            return 0
+        fi
+    fi
+    if open -a "$AGENT_APP" >/dev/null 2>&1; then
+        sleep 1
+        if pgrep -f "$AGENT_PATTERN" >/dev/null; then
+            log "restarted via open -a"
+            return 0
+        fi
+    fi
+    log "restart attempts failed"
+    return 1
+}
+
+trap 'log "watchdog terminated"; exit 0' SIGTERM SIGINT
+
+log "watchdog started (interval=${INTERVAL}s)"
+while true; do
+    if ! pgrep -f "$AGENT_PATTERN" >/dev/null; then
+        revive
+    fi
+    sleep "$INTERVAL"
+done

@@ -153,11 +153,11 @@
     "min": 1,
     "max": 2
   },
-  "nodesColorColormap": "YlOrBr",
+  "nodesColorColormap": "Spectral_r",
   "nodesColorFunction": "authority",
   "graphStatsDirection": "normal",
   "linksSizeFunction": "Jaccard",
-  "linksColorColormap": "YlOrBr",
+  "linksColorColormap": "Spectral_r",
   "linksColorFunction": "Jaccard",
   "recomputeStatsOnGraphChange": true,
   "zoomFactor": 2,
