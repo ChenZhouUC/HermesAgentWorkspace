@@ -11,13 +11,20 @@ Use this skill when diagnosing why background applications, menu bar utilities, 
 ## Logitech Options+ (`logioptionsplus_agent`)
 
 - **Quirk**: Highly sensitive to macOS system power assertions and display sleep transitions. Often crashes or hangs when the Mac wakes from sleep, or when third-party power-management apps (like Amphetamine) force system state changes (e.g., locking the screen or forcing display sleep).
-- **Symptom**: Custom mouse/keyboard bindings stop working silently; the mouse tracking feels "laggy" or drops back to default macOS drivers.
-- **Diagnostics**: Run `ps -ef | grep -i logi` or `pgrep -il logi` to check if `logioptionsplus_agent` has recently crashed or restarted.
-- **Fix/Workaround**: Instead of rebooting or reinstalling, restart the daemon via terminal:
+- **Symptom**: Custom mouse/keyboard bindings stop working silently; the mouse tracking feels "laggy" or drops back to default macOS drivers. Two failure modes:
+  1. **Really dead** — `logioptionsplus_agent` process is gone.
+  2. **Alive but broken** — process is still running (visible in `pgrep`) but internal state (Bluetooth session, key mapping context) was corrupted by a display reconfiguration event. `pgrep` alone misses this case; the only fix is to force-restart.
+- **Diagnostics**: Run `ps -ef | grep -i logi` or `pgrep -il logi` to check if `logioptionsplus_agent` is alive. If it is alive but bindings still don't work, you are in the "alive but broken" mode — proceed to force-restart.
+- **Fix/Workaround**: Instead of rebooting or reinstalling, force-restart the daemon. This handles both failure modes (kill is a no-op if process is already dead):
   ```bash
-  killall logioptionsplus_agent && open -a "Logi Options+"
+  pkill -9 -f "logioptionsplus_agent --launchd"
+  # Logi's own KeepAlive (or the watchdog below) will bring it back in 1-2s.
   ```
-- **Automated recovery**: This repo ships an optional LaunchAgent watchdog (`~/.hermes/scripts/install_logi_watchdog_launchd`) that polls every second and restarts the daemon within 2–3 seconds. See `README.md` → "Logi Options+ 看门狗 (可选)". Once installed, the manual `killall` step above is unnecessary.
+- **Automated recovery**: This repo ships an optional pair of LaunchAgents (`~/.hermes/scripts/install_logi_watchdog_launchd`):
+  - `ai.hermes.logi-watchdog` — bash polling (1s) for "really dead" case.
+  - `ai.hermes.logi-display-reactor` — Swift `CGDisplayRegisterReconfigurationCallback` subscriber that SIGKILLs the agent on every display reconfig, handling the "alive but broken" case.
+
+  See `README.md` → "Logi Options+ 看门狗 (可选)" for install / ops. Once installed, manual intervention is rarely needed.
 
 ## Amphetamine
 

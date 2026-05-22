@@ -719,87 +719,136 @@ tail -f ~/.hermes/logs/gateway.log
 
 ## Logi Options+ 看门狗 (可选)
 
-`scripts/logi_options_watchdog` 是本仓库提供的本地辅助 LaunchAgent，监控 `logioptionsplus_agent` 进程并在它崩溃后秒级拉回。**默认不安装**，按需启用。
+本仓库提供两个互补的 LaunchAgent，处理 Logi Options+ 在外接显示器场景下的两种故障模式。**默认不安装**，一次安装两个：`~/.hermes/scripts/install_logi_watchdog_launchd`。
+
+| 组件       | 文件                                          | LaunchAgent Label                | 负责故障模式                                   |
+| ---------- | --------------------------------------------- | -------------------------------- | ---------------------------------------------- |
+| 轮询看门狗 | `scripts/logi_options_watchdog`（bash）       | `ai.hermes.logi-watchdog`        | **真死掉** —— Logi agent 进程消失              |
+| 显示反应器 | `scripts/logi_display_reactor.swift`（Swift） | `ai.hermes.logi-display-reactor` | **假活着** —— 进程在跑但内部状态被显示事件搞坏 |
 
 ### 适用场景
 
-外接显示器通过 Dock / Hub 接 Mac 时，每次 Amphetamine session 结束（或其他释放系统级电源 assertion 的场景）会触发 macOS 对外接显示器的 DP Alt Mode 重协商：表现为屏幕黑屏 1-2 秒。重协商过程中 Logi Options+ 的后台 daemon (`logioptionsplus_agent`) 经常崩溃，崩溃后蓝牙鼠标退回 macOS 原生 HID 驱动，丢失 Smooth Scrolling、按键映射等高级功能。
+外接显示器通过 Dock / Hub 接 Mac 时，每次 Amphetamine session 结束（或其他释放系统级电源 assertion 的场景）会触发 macOS 对外接显示器的 DP Alt Mode 重协商：表现为屏幕黑屏 1-2 秒。重协商过程中 Logi Options+ 的后台 daemon (`logioptionsplus_agent`) 会以两种方式出问题：
 
-Logi 自带的 LaunchAgent (`com.logi.cp-dev-mgr`) 已设 `KeepAlive` + `SuccessfulExit: false`，但因为 launchd 节流和 crashpad 处理路径，实测崩溃后往往不会自动恢复，需要手动重启 Logi Options+。
+1. **真死掉**：进程崩溃消失。Logi 自带的 `KeepAlive`（`com.logi.cp-dev-mgr`，`SuccessfulExit: false`）大多数时候能恢复，但 launchd 节流或 crashpad 走 exit 0 路径时会失效。
+2. **假活着**：进程没崩，但内部状态机被显示事件打乱（丢失蓝牙会话、按键映射上下文等）。表现为蓝牙鼠标退回 macOS 原生 HID 驱动，Smooth Scrolling、按键映射等高级功能失效，但 `pgrep` 看进程还在。
 
-> **根因不可治**：黑屏来自 macOS 协议层 DP Alt Mode 重协商，无法消除；Logi 崩溃是上游 daemon bug。本看门狗只缩短失效窗口（**目标 3 秒内恢复**），不修复根因。
+> **根因不可治**：黑屏来自 macOS 协议层 DP Alt Mode 重协商，无法消除；Logi 崩溃/状态错乱是上游 daemon bug。本插件只缩短失效窗口（**目标 3 秒内恢复**），不修复根因。
 
 ### 为什么放在 Hermes 配置仓库
 
 - 触发场景（Amphetamine session）都是为 Hermes 工作开的，与 Hermes 使用习惯绑定
-- `scripts/` 下已有 vertex 系列 LaunchAgent 助手脚本，命名空间 / 日志路径 / install 模式都已建立，新插件复用约定
-- 看门狗本身是 OS 服务，生命周期独立于 Hermes 进程（Hermes 不在时也照常工作）
+- `scripts/` 下已有 vertex 系列双 LaunchAgent 模式（refresh + wake），命名空间 / 日志路径 / install 模式可直接复用
+- 这两个 LaunchAgent 都是 OS 服务，生命周期独立于 Hermes 进程（Hermes 不在时也照常工作）
 
 ### 安装
 
 ```bash
 ~/.hermes/scripts/install_logi_watchdog_launchd
 
-# 可选：自定义轮询间隔（默认 1s）
-~/.hermes/scripts/install_logi_watchdog_launchd --interval-seconds 2
+# 可选：调轮询间隔（默认 1s）或反应器去抖时长（默认 3s）
+~/.hermes/scripts/install_logi_watchdog_launchd --interval-seconds 2 --debounce-seconds 5
 ```
 
 默认行为：
 
-- LaunchAgent Label：`ai.hermes.logi-watchdog`
-- plist：`~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist`
-- 轮询间隔：`1` 秒（最小 1）
-- 业务日志：`~/.hermes/logs/logi-watchdog.log`（watchdog 写入：启动 / 重启动作 / 终止）
-- 启动 stdout / stderr：`~/.hermes/logs/logi-watchdog.stdout.log` 与 `logi-watchdog.err.log`（launchd 写入）
+- LaunchAgent labels：`ai.hermes.logi-watchdog` + `ai.hermes.logi-display-reactor`
+- plist 路径：
+  - `~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist`
+  - `~/Library/LaunchAgents/ai.hermes.logi-display-reactor.plist`
+- 业务日志（两个共享）：`~/.hermes/logs/logi-watchdog.log` —— 启动 / 重启动作 / 显示事件触发都写在这里
+- launchd 捕获的 stdout/stderr：
+  - `logi-watchdog.stdout.log` + `logi-watchdog.err.log`
+  - `logi-display-reactor.stdout.log` + `logi-display-reactor.err.log`
 
 ### 工作机制
 
-watchdog 是一个 KeepAlive 长驻 shell 循环，每个间隔执行 `pgrep -f "logioptionsplus_agent --launchd"`：
+#### 三层防御
+
+```
+Logi 出问题
+   ├─ Layer 1: com.logi.cp-dev-mgr KeepAlive（Logi 自带，毫秒级，干净崩溃时）
+   ├─ Layer 2: ai.hermes.logi-watchdog（1s 轮询，PID 视角；处理 Layer 1 节流/失效）
+   └─ Layer 3: ai.hermes.logi-display-reactor（显示事件触发，处理"进程活着但状态坏"）
+```
+
+#### Layer 2: 轮询看门狗
+
+bash 长驻循环，每个间隔执行 `pgrep -f "logioptionsplus_agent --launchd"`：
 
 - 存在 → 静默继续
-- 不存在 → 依次尝试：
-  1. `launchctl kickstart -k gui/<uid>/com.logi.cp-dev-mgr` 踢 Logi 自己的 service
-  2. 1 秒后仍无进程 → fallback `open -a` 启动 .app bundle
-  3. 仍失败 → 记录 `restart attempts failed`，下一轮重试
+- 不存在 → 依次尝试 `launchctl kickstart -k gui/<uid>/com.logi.cp-dev-mgr` → `open -a` fallback → 失败记 `restart attempts failed`
 
-1 秒检测 + 1-2 秒重启 = 总恢复时间 2-3 秒。CPU 负载 < 0.5%（pgrep ≈ 5ms × 1 次/秒）。
+1s 检测 + 1-2s 重启 = 2-3s 恢复。CPU 负载 < 0.5%。
+
+#### Layer 3: 显示反应器
+
+Swift 进程订阅 `CGDisplayRegisterReconfigurationCallback`（CoreGraphics），收到 DP Alt Mode 重协商等显示事件就**直接 SIGKILL** `logioptionsplus_agent`，让 Layer 1 + Layer 2 接力把它拉回来。
+
+关键设计：
+
+- **只 kill 不 restart**：反应器只负责"破"，"立"留给 Layer 1/2 —— 责任清晰，不重复
+- **去抖（debounce）**：单次跳屏可能触发多个 callback 事件，3 秒内只反应一次，避免连续多次 kill 阻断恢复
+- **跳过 begin 事件**：CG callback 在 reconfig 开始/结束各触发一次，反应器只看结束帧（has actual change flags），避免提前介入
+- **空闲 CPU 占用 0%**：完全事件驱动，不轮询
 
 ### 运维常用命令
 
 ```bash
-# 状态检查
+# 状态检查（两个都看）
 launchctl print gui/$(id -u)/ai.hermes.logi-watchdog | head
+launchctl print gui/$(id -u)/ai.hermes.logi-display-reactor | head
 
-# 实时观察恢复日志
+# 实时跟所有 Logi 相关动作（共享日志）
 tail -f ~/.hermes/logs/logi-watchdog.log
 
-# 手动验证恢复时长
+# 看反应器自己的启动日志（与跳屏事件对应）
+tail -f ~/.hermes/logs/logi-display-reactor.stdout.log
+
+# 手动验证 Layer 2 (轮询) 恢复时长
 date +%s.%N ; pkill -9 -f "logioptionsplus_agent --launchd"
 while ! pgrep -f "logioptionsplus_agent --launchd" >/dev/null; do : ; done
 date +%s.%N
 
-# 调整轮询间隔（重新运行 installer 即可，会自动 bootout + bootstrap）
-~/.hermes/scripts/install_logi_watchdog_launchd --interval-seconds 2
+# 手动触发 Layer 3 (反应器)：插拔显示器/切换分辨率/睡眠唤醒外接屏，观察日志是否多出 'display reconfig' 一行
 
-# 卸载
+# 调整参数（重新运行 installer 即可，会自动 bootout + bootstrap 两个 agent）
+~/.hermes/scripts/install_logi_watchdog_launchd --interval-seconds 2 --debounce-seconds 5
+
+# 卸载（installer 末尾也会打印这三行）
 launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist
-rm -f ~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.hermes.logi-display-reactor.plist
+rm -f ~/Library/LaunchAgents/ai.hermes.logi-watchdog.plist \
+      ~/Library/LaunchAgents/ai.hermes.logi-display-reactor.plist
 ```
+
+日志里典型行：
+
+| 日志行                                                | 含义                                           |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| `watchdog started (interval=1s)`                      | Layer 2 启动                                   |
+| `logi-display-reactor started (debounce=3s)`          | Layer 3 启动                                   |
+| `display reconfig (flags=0x...) → SIGKILL Logi agent` | Layer 3 触发了一次（跳屏发生了）               |
+| `restarted via launchctl kickstart`                   | Layer 2 检测到进程消失并拉回（Layer 1 没接住） |
+| `restarted via open -a`                               | Layer 2 kickstart 失败、退而 fallback 启 .app  |
+| `restart attempts failed`                             | 两条路径都失败 —— 检查 Logi 安装是否完整       |
 
 ### 与 Logi 自带 LaunchAgent 的关系
 
-`com.logi.cp-dev-mgr`（Logi 自带）和 `ai.hermes.logi-watchdog`（本看门狗）是两个独立 LaunchAgent，互不替代、互不冲突：
+`com.logi.cp-dev-mgr`（Logi 自带）、`ai.hermes.logi-watchdog`、`ai.hermes.logi-display-reactor` 是三个独立 LaunchAgent，互不替代、互不冲突：
 
-- Logi 自带负责正常启动和大多数情况的 KeepAlive
-- 本看门狗作为**外层兜底**，在 launchd 节流或被判为「成功退出」的边界情况下补救
+- Logi 自带负责正常启动和绝大多数干净崩溃的 KeepAlive（毫秒级）
+- 轮询看门狗作为**外层兜底**，在 Logi KeepAlive 节流或被判为「成功退出」时补救
+- 显示反应器主动**触发**重启，处理 Logi 进程没崩但状态坏掉的情况
 
-`launchctl kickstart` 对已存在的 service 是幂等的，不会产生重复进程。
+`launchctl kickstart` 和 `pkill` 对同一个 service / 进程都是幂等的，不会产生重复进程。
 
 ### 已知限制
 
 - 跳屏本身不能消除 —— 仅缩短 Logi 失效窗口
-- 看门狗只监控 daemon 进程存活，不感知“虽然在跑但内部状态损坏”的情况（罕见，未观察到）
-- pgrep 模式匹配依赖 `logioptionsplus_agent --launchd` 命令行，Logi 升级如改了启动参数需同步更新脚本中的 `AGENT_PATTERN`
+- 反应器对 Logi 状态损坏的判定是**保守的**（只要跳屏就 kill），代价是每次跳屏都强制一次 Logi 重启（1-2s）。如果你的环境跳屏频繁且 Logi 其实没坏，可以把 debounce 调大或卸载 Layer 3 保留 Layer 2。
+- pgrep 模式匹配依赖 `logioptionsplus_agent --launchd` 命令行，Logi 升级如改了启动参数需同步更新 `scripts/logi_options_watchdog` 中的 `AGENT_PATTERN`
+- 反应器需要进程在 GUI session（Aqua）中才能订阅 CG 回调；plist 已 bootstrap 到 `gui/$(id -u)` domain，正常使用无须额外配置
 
 ---
 
