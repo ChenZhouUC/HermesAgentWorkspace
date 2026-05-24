@@ -143,7 +143,9 @@
   "syncDefaultState": false,
   "saveConfigsWithState": false,
   "customColorMaps": {},
-  "imageProperties": ["image"],
+  "imageProperties": [
+    "image"
+  ],
   "borderFactor": 0.06,
   "allowExternalImages": false,
   "allowExternalLocalImages": false,
@@ -277,7 +279,9 @@
   },
   "fadeInElements": false,
   "externalLinks": "none",
-  "externalLinksProperties": ["url"],
+  "externalLinksProperties": [
+    "url"
+  ],
   "externalLinkOpenMode": "note",
   "showPinIcon": true,
   "allowMultipleLinkTypes": false,
@@ -309,14 +313,18 @@
   "nameVerticalOffset": 0,
   "dynamicVerticalOffset": false,
   "showNamesWhenNeighborHighlighted": false,
-  "iconProperties": [""],
+  "iconProperties": [
+    ""
+  ],
   "usePluginForIcon": true,
   "usePluginForIconColor": true,
   "useParentIcon": false,
   "backgroundOpacityWithIcon": 0,
   "useIconColorForBackgroud": true,
   "borderWidthWithIcon": 0,
-  "layerProperties": ["layer"],
+  "layerProperties": [
+    "layer"
+  ],
   "numberOfActiveLayers": 4,
   "layersOrder": "ASC",
   "displayLabelsInUI": true,

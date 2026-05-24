@@ -4,5 +4,6 @@
   "interfaceFontFamily": "JetBrainsMono Nerd Font Mono,0xProto Nerd Font Mono",
   "textFontFamily": "Monaspace Neon,Source Han Sans SC",
   "showRibbon": true,
-  "theme": "system"
+  "theme": "system",
+  "cssTheme": "Minimal"
 }

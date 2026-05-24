@@ -1,0 +1,122 @@
+{
+  "shouldShowStatusBar": false,
+  "shouldUseSeparateThemeSettings": true,
+  "themes": {
+    "base": {
+      "color": {
+        "h": 0,
+        "s": 100,
+        "l": 50
+      },
+      "behavior": "increment",
+      "shouldCycleColorOnLoad": false,
+      "timer": {
+        "isTimerEnabled": false,
+        "timerSeconds": ""
+      },
+      "increment": {
+        "startAngle": 0,
+        "degrees": 30,
+        "saturation": 100,
+        "lightness": 50
+      },
+      "random": {
+        "isHueRandom": true,
+        "isSaturationRandom": false,
+        "isLightnessRandom": false,
+        "hue": 0,
+        "saturation": 100,
+        "lightness": 50
+      },
+      "preset": {
+        "currentPresetIndex": 0,
+        "colorList": [
+          {
+            "h": 0,
+            "s": 100,
+            "l": 25
+          },
+          {
+            "h": 357,
+            "s": 52,
+            "l": 42
+          }
+        ]
+      }
+    },
+    "dark": {
+      "color": {
+        "h": 0,
+        "s": 51,
+        "l": 56
+      },
+      "behavior": "preset",
+      "shouldCycleColorOnLoad": false,
+      "timer": {
+        "isTimerEnabled": false,
+        "timerSeconds": ""
+      },
+      "increment": {
+        "startAngle": 0,
+        "degrees": 30,
+        "saturation": 100,
+        "lightness": 50
+      },
+      "random": {
+        "isHueRandom": true,
+        "isSaturationRandom": false,
+        "isLightnessRandom": false,
+        "hue": 0,
+        "saturation": 100,
+        "lightness": 50
+      },
+      "preset": {
+        "currentPresetIndex": 0,
+        "colorList": [
+          {
+            "h": 0,
+            "s": 51,
+            "l": 56
+          }
+        ]
+      }
+    },
+    "light": {
+      "color": {
+        "h": 0,
+        "s": 100,
+        "l": 50
+      },
+      "behavior": "preset",
+      "shouldCycleColorOnLoad": false,
+      "timer": {
+        "isTimerEnabled": false,
+        "timerSeconds": ""
+      },
+      "increment": {
+        "startAngle": 0,
+        "degrees": 30,
+        "saturation": 100,
+        "lightness": 50
+      },
+      "random": {
+        "isHueRandom": true,
+        "isSaturationRandom": false,
+        "isLightnessRandom": false,
+        "hue": 0,
+        "saturation": 100,
+        "lightness": 50
+      },
+      "preset": {
+        "currentPresetIndex": 0,
+        "colorList": [
+          {
+            "h": 0,
+            "s": 100,
+            "l": 25
+          }
+        ]
+      }
+    }
+  }
+}
