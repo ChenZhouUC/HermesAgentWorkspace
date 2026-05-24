@@ -19,6 +19,12 @@ category: autonomous-ai-agents
 2.  **清理沉旧 Fallback**：大模型基座更新很快，很多“因为原生工具坏了所以绕道去外部 API”的 Fallback 技能（如低端生图或爬虫）通常已过时，应果断判定删除。
 3.  **使用标准工具**：使用 `skill_manage(action='delete')` 删除冗余技能，使用 `action='patch'` 修改。遇到必须保留被删除技能中某一段逻辑时，务必将那段逻辑先追加到目标大技能中，然后再删除。
 
+### 识别自定义技能 (Identifying Custom Skills)
+
+当被问及“哪些是我自定义的技能”时，不要直接凭感觉猜。
+使用终端执行 `cd ~/.hermes/skills && git log --author="<User>" --name-only` 或检查 `git remote -v`。
+由于该目录作为 `HermesAgentWorkspace.git` 的一部分受到版本控制，任何带有纯中文描述、特定硬件记录、私有服务（如飞书、元宝）绑定、或由用户账号提交的变更，均是识别用户私有技能的可靠依据。
+
 ---
 
 ## 二、记忆系统管理 (Memory Management)

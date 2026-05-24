@@ -59,6 +59,7 @@ _hermes() {
                 'model:Select default model and provider'
                 'pairing:Manage DM pairing codes for user authorization'
                 'plugins:Manage plugins — install, update, remove, list'
+                'portal:Nous Portal status, subscription, and Tool Gateway routing'
                 'postinstall:Bootstrap non-Python deps for pip installs (node, browser, r'
                 'profile:Manage profiles — multiple isolated Hermes instances'
                 'proxy:Local OpenAI-compatible proxy to OAuth providers'
@@ -248,6 +249,7 @@ _hermes() {
                     'notify-list:List notification subscriptions (optionally for a single tas'
                     'notify-subscribe:Subscribe a gateway source to a tasks terminal events (used '
                     'notify-unsubscribe:Remove a gateway subscription from a task'
+                    'promote:Manually move one or more todo/blocked tasks to ready (recov'
                     'reassign:Reassign a task to a different profile, optionally reclaimin'
                     'reclaim:Release an active worker claim on a running task'
                     'runs:Show attempt history for a task (one row per run: profile, o'
@@ -326,6 +328,15 @@ _hermes() {
                     'update:Pull latest changes for an installed plugin'
                     )
                     _describe 'plugins command' plugins_cmds
+                    ;;
+                portal)
+                    local -a portal_cmds
+                    portal_cmds=(
+                    'open:Open the Portal subscription page in your default browser'
+                    'status:Show Portal auth + Tool Gateway routing summary (default)'
+                    'tools:List Tool Gateway tools and which are routed via Nous'
+                    )
+                    _describe 'portal command' portal_cmds
                     ;;
                 profile)
                     case ${line[2]} in

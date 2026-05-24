@@ -157,20 +157,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.14.0 (upstream `main` `d61785889`，截至 2026-05-22)
+## v0.14.0 (upstream `main` `3bace071b`，截至 2026-05-24)
 
-> 基线从 `6a6766fb8` 滚动到 `d61785889`（+112 commits）；release 字符串仍为 `v0.14.0 (2026.5.16)`，属于版本号未跳的累积修复段。`local-patches.diff` 干净 apply，hunk 锚点行号仅 5/5 漂移，PATCH-1/2/7 行为均经 update 脚本 Step 8b 验证存活；PATCH-3/4/5/8 维持已上游合并状态。本次 update 同时落地以下与补丁/上游解耦的本仓库改动：
->
-> - **`plugins/sandbox`**（用户插件，非 hermes-agent 源码 patch）：通过官方 `pre_gateway_dispatch` + `pre_tool_call` 钩子做按 Feishu `chat_id` 的工具沙盒。配套 `plugins/sandbox/verify.sh` 被 `hermes-update.sh` 新增 Step 8e 自动调用；本次 update 后 Step 8e 全绿首跑通过。详见 [`README.md` § 用户插件 (Plugins)](../README.md#用户插件-plugins)。
-> - **`hermes-update.sh` uv-pyenv fallback**：在 uv ≥ 0.11 + pyenv 环境下 `hermes update` 内部的 `uv pip install -e .` 因找不到 uv 自管 Python (`~/.local/share/uv/python`) 报错；脚本现在 tee 捕获输出，识别该特定错误后自动重试 `uv pip install --python venv/bin/python -e ".[all,feishu]"`，成功则清零 UPDATE_RC。
+> 基线从 `d61785889` 滚动到 `3bace071b`（+177 commits）；release 字符串仍为 `v0.14.0 (2026.5.16)`，仍属版本号未跳的累积修复段。本批上游补丁集中在三块：(a) Feishu / QQBot / Discord / MS Graph / Dingtalk / Svix webhook 全面收紧鉴权（#30200/#30737-46/#30169/#31378 等），与本仓库 Feishu 集成路径相关；(b) gateway 流式响应路径修复 `response_transformed` 传播（确保 plugin `transform_llm_output` hook 输出不被流式吞掉）—— 与 `plugins/sandbox` 一致地受益；(c) state store 文件权限收紧 (`3bace071b`)。`local-patches.diff` 干净 apply，hunk 锚点行号自动漂移 5/5，PATCH-1/2/7 行为均经 update 脚本 Step 8b 验证存活；PATCH-3/4/5/8 维持已上游合并状态。**唯一触碰本地 patch 范围的上游 commit 是 `d3c167b64`（PR #31290，cross-profile soft guard），改动 `tools/skill_manager_tool.py` 的 `_skill_not_found_error` 与 file_tools 接线，区域与 PATCH-1 的 `_resolve_skill_dir()` 不重叠，直接 clean apply。**
 >
 > **本次刷新涉及的上游变化**：
 >
-> - `hermes_cli/doctor.py`：PATCH-2 仍干净 apply；当前版本下 hunk 由 update 脚本行为化校验。
-> - `pyproject.toml` / `tools/lazy_deps.py`：PATCH-7 仍干净 apply，feishu extra 与 lazy install 两条路径继续被覆盖。
-> - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：PATCH-1 仍干净 apply；上游 112 commits 未触及 `_resolve_skill_dir()`。
-> - `hermes_cli/completion.py`：上游 `hermes completion zsh` 输出继续正确，PATCH-3 sentinel 未触发；本次 update 后 `_hermes` 补全新增 16 行（上游新增 slash command / `_arguments` 条目）。
-> - 依赖：pydantic 2.12.5 → 2.13.4 / pydantic-core 2.41.5 → 2.46.4；上游裁掉 22 个 skill（`hermes-update.sh` Step 4b 通过 `rsync --delete` 同步）。
+> - `hermes_cli/doctor.py`：PATCH-2 仍干净 apply；上游 commit `b4ba42550` 新增 "xAI Model Retirement" 区块，与 PATCH-2 所在 "Count disabled tools with API key requirements" 块互不冲突。
+> - `pyproject.toml` / `tools/lazy_deps.py`：PATCH-7 仍干净 apply，feishu extra 与 lazy install 两条路径继续被覆盖；`pydantic` 由 `2.12.5/2.13.4` 路径再次刷新（上游 commit `57a61057f` 钉为 2.13.4 防止 pydantic-core 线程 segfault）。
+> - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：PATCH-1 仍干净 apply；上游 `d3c167b64` 引入 cross-profile 写保护、`3fde8c153` 修了 skill scanner 依赖目录裁剪，均与 `_resolve_skill_dir()` 不冲突。
+> - `hermes_cli/completion.py`：上游 `hermes completion zsh` 输出继续正确，PATCH-3 sentinel 未触发；本次 update 后 `_hermes` 补全新增 `portal` 顶层子命令（subscription / Tool Gateway 路由）和 `tasks promote` 子命令。
+> - 依赖：`pydantic` 2.13.4 钉死；上游裁掉若干 skill（rsync `--delete` 同步：4 个移除 / 2 个更新）。
 > - 当前活跃 patch：**PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7**。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
@@ -178,10 +175,10 @@ cat ~/.hermes/patches/.local-patches.base
 | 字段         | 内容                                                                                               |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
-| **状态**     | 🟡 未上游合并（截至 upstream `main` `d61785889`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
+| **状态**     | 🟡 未上游合并（截至 upstream `main` `3bace071b`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
 | **适用版本** | v0.14.0 仍需本地 patch                                                                             |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.14.0 上游 `main` (`d61785889`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。上游已支持 external skill 原地 edit/patch/delete，但 create 仍有测试明确要求写入本地官方 root，因此本地 patch 仍是有意定制。
+**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.14.0 上游 `main` (`3bace071b`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。上游已支持 external skill 原地 edit/patch/delete，但 create 仍有测试明确要求写入本地官方 root，因此本地 patch 仍是有意定制。
 
 **修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
 

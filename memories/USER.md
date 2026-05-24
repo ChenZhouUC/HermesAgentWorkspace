@@ -2,7 +2,7 @@ Profile: Zhou Chen. Married (wife in gov). TZ: Asia/Shanghai. CN/EN. Math+Stats 
 §
 Feishu Docs: 1. Clean titles. 2. Version table YYYYMMDD.XXed, UTC+8, native @木马牛; new row each edit. 3. Chicago refs; cite wiki as 周琛。4. Separate docs for distinct projects. 5. Native blocks.
 §
-Git: No `--no-verify`. Follow `~/.copilot/instructions/20-git-guardrail.instructions.md` & run `copilot-git-approve <commit|push>` first.
+Git: Run copilot-git-approve first. Uses FVM for Flutter/Dart.
 §
 In API designs, represent percentage errors as decimals (e.g., 0.045), not strings with '%'.
 §
