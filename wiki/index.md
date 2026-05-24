@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last updated: 2026-05-18 | Total pages: 17
+> Last updated: 2026-05-24 | Total pages: 21
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
 <!--
@@ -40,16 +40,21 @@ Registry Rules
 ## Concepts (概念：机制/算法/理论)
 
 - [[agent-frameworks]] - 什么是真正的 Agent 框架及深度选型分析
+- [[chain-of-thought]] - 思维链提示词族（CoT/Zero-shot/Self-Consistency/ToT/ReAct）
 - [[graph-centrality]] - 网络中心性算法及其在知识图谱分析中的应用
 - [[llm-benchmark-methodology]] - AI 大模型基准测试系统调研
 - [[llm-computational-complexity]] - 大语言模型在 TCS 领域的计算复杂性与严格下界
 - [[lmm-input-mechanics]] - LMM (多模态大模型) 从 Markdown 到 Token 的处理机制
 - [[markdown-llm-protocol]] - Markdown 在 LLM 交互场景下的格式协议架构
 - [[ontology]] - 知识工程中的本体论概念及其规范边界
+- [[reasoning-effort-control]] - 推理努力程度/思考预算控制及过度思考与逆向扩展
 - [[set-theory]] - 集合论基础、公理体系与异见理论
+- [[test-time-compute-scaling]] - 推理时计算扩展范式与推理模型的 RL 训练实现
 - [[traditional-knowledge-graph]] - 大模型爆发前的符号主义知识图谱架构（KG）及三元组原理
 - [[wikilinks]] - Wikilinks 与内联脚注等 Markdown 扩展语法机制
 
 ## Comparisons (横向对比表)
+
+- [[reasoning-model-apis]] - 各厂商推理模型「思考/努力」API 参数与档位横向对比
 
 ## Queries (深度问答/探索存档)

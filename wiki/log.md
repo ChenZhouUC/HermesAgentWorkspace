@@ -106,3 +106,30 @@ confidence: high
 
 - Added `scripts/wiki_lint.py` as the canonical post-maintenance validator for Layer 2 graph consistency
 - Updated `SCHEMA.md` to require `python3 scripts/wiki_lint.py` after wiki sync, rebuild, or batch generation
+
+## [2026-05-24] ingest | LLM Reasoning: Thinking 与 Effort 全景调研
+
+- 创建了源文档：`_living/AI-Infrastructure/LLM-Reasoning-Thinking-and-Effort.md`（含发展历史、实现思路、最新研究、各厂商实践）
+- 提炼了 Layer 2 概念页：`concepts/chain-of-thought.md`、`concepts/test-time-compute-scaling.md`、`concepts/reasoning-effort-control.md`
+- 提炼了 Layer 2 对比页：`comparisons/reasoning-model-apis.md`（首个填充 Comparisons 区块的节点）
+- 在 `SCHEMA.md` 标签库与 `scripts/wiki_lint.py` 的 ALLOWED_TAGS 中注册了新标签 `reasoning`
+- 关联了相关文档：`concepts/agent-frameworks.md`、`concepts/llm-benchmark-methodology.md`、`concepts/llm-computational-complexity.md`
+- 更新了：`index.md`（Total pages 17 → 21）
+
+## [2026-05-24] update | Graph review: reciprocal links + re-ingest thin pages
+
+- 修复 reasoning 集群「单向桥」：在 `llm-computational-complexity`、`agent-frameworks`、`llm-benchmark-methodology` 补反向链接至 `chain-of-thought` / `test-time-compute-scaling`
+- 深度重提炼 `concepts/llm-computational-complexity.md`：补全四篇核心论文（Merrill&Sabharwal TC0/P、Li et al. 串行下界、Faith and Fate、Hahn 形式语言限制）及溯源脚注
+- 深度重提炼 `concepts/llm-benchmark-methodology.md`：从单一 MMLU 扩展为评测方法学原语 + 六类基准分类法 + 厂商偏好 + 推理预算新挑战
+- 给 `concepts/agent-frameworks.md` 补 `llm` 标签
+- 未改动 `_living/` 任何源文档（严守单向引用原则）
+
+## [2026-05-24] update | 全库 Layer1↔Layer2 覆盖度审计 + 欠提炼修补
+
+- 审计：逐一比对全部 11 个 `_living` 源文档与对应 Layer 2 页面的覆盖度
+- 重写 `concepts/agent-frameworks.md`：从仅认知澄清段，扩为五大阵营 14 框架全景 + 7 场景化选型
+- 重写 `concepts/markdown-llm-protocol.md`：补全三受众场景（AI 读/人机共读/人读）与三层数据流转架构
+- 补全 `entities/edge-rk3576.md`、`entities/edge-sophon.md` 的核心规格表（CPU/TOPS/内存/型号定位）
+- 补全 `concepts/graph-centrality.md` 漏掉的「紧密中心性 (Closeness Centrality)」
+- 修复 `entities/edge-sophon.md` 重复的 `updated` frontmatter 键
+- 未改动 `_living/` 任何源文档；`wiki_lint: OK`

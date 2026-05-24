@@ -37,6 +37,7 @@ ALLOWED_TAGS = {
     "vlm",
     "transformer",
     "state-space",
+    "reasoning",
     "quantization",
     "tensorrt",
     "onnx",
