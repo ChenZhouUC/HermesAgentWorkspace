@@ -12,4 +12,4 @@ Tools: Execute fully. Local commands direct. Monitor RAM: iStat. M2->M5: rebuild
 §
 In hardware/deployment lists, prefers full comparative tables showing both unchanged items ('[✅ 无变更]') and degraded/removed items ('[⚠️ 减配/移除]'), rather than lists that only show the diffs.
 §
-Feishu open_id: ou_33eeacfbd0c0559b7b734f83503719ab
+Feishu user open_id: ou_33eeacfbd0c0559b7b734f83503719ab (useful for assigning permissions, tagging, or routing).
