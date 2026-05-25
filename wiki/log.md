@@ -133,3 +133,16 @@ confidence: high
 - 补全 `concepts/graph-centrality.md` 漏掉的「紧密中心性 (Closeness Centrality)」
 - 修复 `entities/edge-sophon.md` 重复的 `updated` frontmatter 键
 - 未改动 `_living/` 任何源文档；`wiki_lint: OK`
+
+## [2026-05-25] refactor | ReID & Customer Flow: 整体重组
+
+- 审计：上一轮 ingest 把 8 篇飞书文档原文堆在 `_living/Computer-Vision/ReID/` 目录，并把 `_living/` 路径直接登记到 `index.md` Queries 区，违反 SCHEMA（Layer 2 注册表不得登记 `_living/` 节点）；wiki_lint 报 9 个 stale_index_entries + 1 个 duplicate_index_entry
+- \_living 重组：删除整个 `_living/Computer-Vision/` 目录；将可复用知识合并为两篇位于 `_living/AI-Applications-and-Ops/` 下的文档：`ReID-Pipeline-Architecture.md`、`Customer-Flow-Post-Processing.md`
+- 命名风格统一：Title-Case-With-Hyphens.md，与现有 `Hermes-Agent-macOS-Ops.md` / `RuView-Technical-Research-Deployment.md` 对齐
+- 内容裁剪（第一轮）：剔除具体表名/字段名/SQL/分区脚本/单店实验细节/项目排期甘特图等实现专属信息，保留架构、方法学、效果总结
+- 内容裁剪（第二轮，深度脱敏）：进一步剔除所有项目内私有命名（如 `hidalgo_*` 表名、`cloth_detection` / `entrance_embed` 等模型节点名、`seq_sn_threshold` / `clstentrance_pars` 等配置键）、所有具体数值阈值（聚类阈值、时间窗、像素距离、6 维评分规则参数）、具体维度（768 维 / 2048 维）、具体效果数字（AUC / 准确率范围 / 去重率）、具体产品/库版本（Milvus / pgvector / Airflow / KubernetesExecutor / Spark 等）；保留可复现的架构、范式、设计原则
+- Layer 2 提炼：创建 `concepts/reid-pipeline.md`、`concepts/multi-stage-clustering.md`、`concepts/customer-flow-post-processing.md`（3 个 concepts，无 entity——该系统无专有产品名）
+- 关联性审计：删除 3 条牵强的跨主题域出链（`hermes-agent` / `ruview` / `graph-centrality`）；ReID 3 个 concept 形成闭合三角，不向其他主题域强行牵线
+- 标签注册：在 `SCHEMA.md` 标签库与 `scripts/wiki_lint.py` 的 ALLOWED_TAGS 中新增 `computer-vision`、`reid`、`clustering`、`pipeline`
+- 索引同步：移除 `index.md` Queries 区 9 条 `_living/` 误注册项；在 Concepts 区按字母序新增 3 条；`Total pages` 21 → 24
+- 未改动 `_living/` 中已有的非 ReID 文档；`wiki_lint: OK`
