@@ -45,3 +45,18 @@ category: autonomous-ai-agents
 ### 🚨 绝对红线
 
 **绝对不要盲目清空所有记忆！** 记忆中包含了诸如“Docker 环境是否用免密”、“Feishu 的特定 Quirks”等极其宝贵的系统排雷经验，盲目全删会导致后续反复掉坑。
+
+---
+
+## 三、Gateway 与权限管理 (Gateway & Authorization)
+
+**使用场景**：当在 Feishu 中点击终端执行的审批卡片（Approval Cards）没有任何反应，或者尝试执行危险命令被静默拒绝时。
+
+### 审批卡片无响应 (Terminal Approval Fails Silently)
+
+1. **诊断**: 检查 `~/.hermes/logs/gateway.log`。如果看到 `[Feishu] Unauthorized approval click by ou_xxxx...`，说明点击卡片的用户不在网关的审批白名单中。
+2. **根因**: Hermes 网关（Gateway）对高危操作把控极严，要求审批者的 Feishu `open_id` 必须明确配置。
+3. **修复**:
+   - 代理无法直接写入修改受保护的 `~/.hermes/.env` 系统凭证文件。
+   - 必须引导用户**手动编辑**配置文件（例如 `nano ~/.hermes/.env`），添加 `FEISHU_ALLOWED_USERS=ou_xxxx...` (填入被拦截的实际 ID)。
+   - 指导用户执行 `hermes gateway restart` 以使白名单生效。

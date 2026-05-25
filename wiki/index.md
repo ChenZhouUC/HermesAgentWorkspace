@@ -47,10 +47,10 @@ Registry Rules
 - [[llm-computational-complexity]] - 大语言模型在 TCS 领域的计算复杂性与严格下界
 - [[lmm-input-mechanics]] - LMM (多模态大模型) 从 Markdown 到 Token 的处理机制
 - [[markdown-llm-protocol]] - Markdown 在 LLM 交互场景下的格式协议架构
-- [[multi-stage-clustering]] - 多阶段降维分治聚类：由严到松的四阶段聚合策略
+- [[multi-stage-clustering]] - 轨迹相似度图上的多层级连通分量聚合（由严到松、由同向到异向）
 - [[ontology]] - 知识工程中的本体论概念及其规范边界
 - [[reasoning-effort-control]] - 推理努力程度/思考预算控制及过度思考与逆向扩展
-- [[reid-pipeline]] - 行人重识别系统的前后端解耦架构与角色过滤策略
+- [[reid-pipeline]] - 行人重识别系统的"采集/计算/编排"三段分层与三模式对偶架构
 - [[set-theory]] - 集合论基础、公理体系与异见理论
 - [[test-time-compute-scaling]] - 推理时计算扩展范式与推理模型的 RL 训练实现
 - [[traditional-knowledge-graph]] - 大模型爆发前的符号主义知识图谱架构（KG）及三元组原理

@@ -146,3 +146,25 @@ confidence: high
 - 标签注册：在 `SCHEMA.md` 标签库与 `scripts/wiki_lint.py` 的 ALLOWED_TAGS 中新增 `computer-vision`、`reid`、`clustering`、`pipeline`
 - 索引同步：移除 `index.md` Queries 区 9 条 `_living/` 误注册项；在 Concepts 区按字母序新增 3 条；`Total pages` 21 → 24
 - 未改动 `_living/` 中已有的非 ReID 文档；`wiki_lint: OK`
+
+## [2026-05-25] update | ReID 知识库基于真实代码事实核查 + 重写
+
+- 触发：用户指出 ReID 实际实现位于 `~/Documents/GithubRepo/VisitorTRACE-REID/hidalgo/`，让我据此核对并修正前一轮基于二手飞书文档构建的知识库
+- 代码审计：通过 general-purpose agent 通读 `hidalgo/` 包的 17 个核心源文件并产出结构化报告，覆盖管线形态 / 聚类算法 / 角色过滤 / 接待识别 / 客流过滤 / 模型推理 / 存储 / 调度 / 评估指标 9 大维度
+- 关键修正：
+  - **管线形态**：从二手文档假设的"Kafka 流式管线"修正为**离线批处理函数** `(店铺, 时间窗, 模式) → 结果`；上游感知（模型推理 / 底库相似度查询）与下游编排（DAG 调度）都在本系统职责外
+  - **聚类结构**：从假设的"4 阶段（在线 / 离线 / 属性约束 / 兜底）"修正为底层是**相似度图连通分量** + 多层级 tier（Entrance 7 层 / Interior 5 档 / Coupling 4 阶段）；明确不是经典 HAC 的 single linkage
+  - **三模式对偶**：补全此前完全缺失的 Entrance / Interior / Coupling 三模式架构（Coupling 是生产主模式）
+  - **角色判定两阶段**：把单纯的"前置过滤"修正为**预判 + 后重判**（聚类后按簇取众数 + 徽章比例覆写 + 融合分兜底）
+  - **接待识别 / 假人 / 嵌套过滤**：在 hidalgo 代码中**完全不存在**——只有小门框过店过滤是真实的（loc_x/loc_y_filter + 单调方向检测）。在 customer-flow-post-processing 的 \_living 和 Layer 2 中加上"代码边界说明"，明确这部分来源是二手设计/测试报告（独立下游服务，不在 hidalgo 仓库），confidence 改为 medium
+  - **存储**：确认 PG + pgvector，**Milvus 在该仓库未运行时调用**（处理器存在但不被调用），底库相似度查询发生在更上游
+  - **调度**：确认 Airflow DAG **不在本仓库**，外部调度器 + 本地轻量任务进度表是分工边界
+  - **评估指标**：删除 `Rank-N / mAP / mCP`——这些**不在 hidalgo 实现**（可能在训练侧仓库）；本系统只评角色精/召 + 双向熵
+- 补全此前漏掉的设计模式：按店参数覆写表（JSON 列 + deep merge）、有偏下采样（保进店、采出店）、推理服务共享内存优化、多套环境配置中心、历史变体与实验代码并存
+- 文档操作：
+  - 重写 `_living/AI-Applications-and-Ops/ReID-Pipeline-Architecture.md`（含三模式对偶 / 角色两阶段 / 按店覆写 / 反作弊采样 等新章节）
+  - 重写 `_living/AI-Applications-and-Ops/Customer-Flow-Post-Processing.md`，顶部加上"代码边界说明"
+  - 重写 `concepts/reid-pipeline.md`、`concepts/multi-stage-clustering.md`、`concepts/customer-flow-post-processing.md`，对齐新事实
+  - `concepts/customer-flow-post-processing.md` 的 `confidence` 由 `high` 降为 `medium`
+  - 更新 `index.md` 中 `reid-pipeline` 与 `multi-stage-clustering` 的一句话摘要
+- `wiki_lint: OK`

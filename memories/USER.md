@@ -8,8 +8,8 @@ Feishu Links: Always include raw unformatted URLs in plain text. Markdown hyperl
 §
 Product Recs: Use star ratings (descending) & tables for spec combos/prices.
 §
-Tools: Execute fully. Local commands direct. Monitor RAM: iStat. M2->M5: rebuild. Wiki ops: ALWAYS skill_view(llm-wiki) before ANY read/write.
+Tools: Execute fully. Local commands direct. Monitor RAM: iStat. Wiki ops: ALWAYS skill_view(llm-wiki) before read/write. When refactoring skills, strictly ensure actual execution capabilities are not degraded.
 §
-In hardware/deployment lists, prefers full comparative tables showing both unchanged items ('[✅ 无变更]') and degraded/removed items ('[⚠️ 减配/移除]'), rather than lists that only show the diffs.
+In hardware/training docs, prefers full comparative tables, real cloud SKUs, and 'for reference only' math formulas. In CV architectures, favors Edge Extract + Cloud ReID match over Face ID for privacy.
 §
 Feishu user open_id: ou_33eeacfbd0c0559b7b734f83503719ab (useful for assigning permissions, tagging, or routing).

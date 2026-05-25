@@ -2,7 +2,7 @@ Repo: git@github.com:ChenZhouUC/HermesAgentWorkspace.git. Never auto-commit. Pri
 §
 **400 cascade fix**: If 400 errors loop, run `hermes sessions list` then `hermes sessions delete SESSION_ID` to remove the broken session.
 §
-Feishu API Quirks: Tables max 9 rows, no direct append. Skip H1 insert. POST index relative. DELETE gives 404 (use batch). Bullets=12. Domain: whales.feishu.cn. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Manage newlines carefully. User: ou_33eeacfbd0c0559b7b734f83503719ab.
+Feishu API Quirks: Max 9-row tables, no direct append. Skip H1. POST index relative. DELETE gives 404 (use batch). Bullets=12. Domain: whales.feishu.cn. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. User: ou_33eeacfbd0c0559b7b734f83503719ab. No trailing dots in Markdown URLs.
 §
 Feishu Docs: 'AI Benchmark' (CjeZdC6XioH0VnxsRKscJb1LnVe), 'Edge/Cloud Arch' (Mw6CdkF33oRZosx8L3WcgWU4nAc), '老乡鸡评估' (N422deLZjopVCVxMfsMcJFHwnaf).
 §
@@ -16,6 +16,6 @@ Edge AI nodes: RK3576 (private lab host, local credentials, NPU load: `cat /sys/
 §
 LLM Wiki `~/.hermes/wiki`. Bipartite Graph: L1 (\_living/) = Hubs. L2 (entities/concepts) = Authorities. L2 cites L1 via `^[[[_living/...|Alias]]]`. Use HITS & Bipartite Projection (Jaccard) for topology. Run `python3 ~/.hermes/scripts/wiki_lint.py`.
 §
-Products: SpaceSight, Echo (PaaS). Maintains dict catalog: KeepAgile/dicts.
+Products: SpaceSight, Echo (PaaS). Maintains dict catalog: KeepAgile/dicts. Feishu MD Quirk: Never place punctuation immediately after a raw URL, or the link breaks.
 §
 Skill maintenance preference: Prioritize agent execution efficiency. Keep SKILL.md concise by extracting inline scripts into separate files under a scripts/ directory to reduce token load. Prefers generic, scalable directory names (e.g., 'editor-configs' instead of 'macvim-ops').
