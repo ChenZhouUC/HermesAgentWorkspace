@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index df75ac686..092e2521b 100644
+index 9cac0678c..6c64962d7 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1802,8 +1802,23 @@ def run_doctor(args):
+@@ -1886,8 +1886,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -28,6 +28,22 @@ index df75ac686..092e2521b 100644
          if api_disabled:
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
+diff --git a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
+index d9d53a97a..21e884798 100644
+--- a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
++++ b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
+@@ -2410,11 +2410,6 @@ class Migrator:
+         self.record("gateway-config", "openclaw.json gateway.*", "archive/gateway-config.json",
+                     "archived", "Gateway config archived. Use 'hermes gateway' to configure.")
+ 
+-        # Extract gateway auth token to .env if present
+-        auth = gateway.get("auth") or {}
+-        if auth.get("token") and self.migrate_secrets:
+-            self._set_env_var("HERMES_GATEWAY_TOKEN", auth["token"], "gateway.auth.token")
+-
+     # ── Session config ────────────────────────────────────────
+     def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
+         config = config or self.load_openclaw_config()
 diff --git a/pyproject.toml b/pyproject.toml
 index ae2472b7a..83108b04f 100644
 --- a/pyproject.toml
@@ -173,3 +189,15 @@ index 4ce5f06e4..b6689d3b3 100644
          parent.rmdir()
  
      message = f"Skill '{name}' deleted."
+diff --git a/website/docs/guides/migrate-from-openclaw.md b/website/docs/guides/migrate-from-openclaw.md
+index e56aff32d..b5108910c 100644
+--- a/website/docs/guides/migrate-from-openclaw.md
++++ b/website/docs/guides/migrate-from-openclaw.md
+@@ -155,7 +155,6 @@ TTS settings are read from **two** OpenClaw config locations with this priority:
+ | Browser CDP URL | `browser.cdpUrl` | `config.yaml` → `browser.cdp_url` | |
+ | Browser headless | `browser.headless` | `config.yaml` → `browser.headless` | |
+ | Brave search key | `tools.web.search.brave.apiKey` | `.env` → `BRAVE_API_KEY` | Requires `--migrate-secrets` |
+-| Gateway auth token | `gateway.auth.token` | `.env` → `HERMES_GATEWAY_TOKEN` | Requires `--migrate-secrets` |
+ | Working directory | `agents.defaults.workspace` | `.env` → `MESSAGING_CWD` | |
+ 
+ ### Archived (no direct Hermes equivalent)

@@ -241,9 +241,8 @@ hermes claw migrate
 
 > **已知 Bug（截至 v0.9.0）**：`hermes claw migrate` 对 `.env` 的写入有三处问题，迁移完成后**必须**手动校对：
 >
-> 1. `HERMES_GATEWAY_TOKEN` 会被写成 OpenClaw 内部序列化格式 `{'source': 'env', ...}`，需替换为实际 token 值
-> 2. `GOOGLE_API_KEY=${GEMINI_API_KEY}` — dotenv 不展开变量，需替换为实际 key 值
-> 3. `BAILIAN_API_KEY=${BAILIAN_API_KEY}` — 自循环引用，需替换为实际 key 值（注：当前配置已改用内置 `alibaba` provider，`BAILIAN_API_KEY` 不再需要，仅迁移时需注意）
+> 1. `GOOGLE_API_KEY=${GEMINI_API_KEY}` — dotenv 不展开变量，需替换为实际 key 值
+> 2. `BAILIAN_API_KEY=${BAILIAN_API_KEY}` — 自循环引用，需替换为实际 key 值（注：当前配置已改用内置 `alibaba` provider，`BAILIAN_API_KEY` 不再需要，仅迁移时需注意）
 
 **飞书迁移**（迁移工具不支持，需手动配置）：
 
@@ -374,7 +373,7 @@ open -a TextEdit ~/.hermes/.env
 | DashScope 国内端点      | `DASHSCOPE_BASE_URL`                                     | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | 飞书                    | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`                    | 飞书开放平台获取                                    |
 | 飞书推送频道            | `FEISHU_HOME_CHANNEL`                                    | cron / 通知默认投递的群或会话 ID                    |
-| Gateway 访问控制        | `GATEWAY_ALLOW_ALL_USERS=true`                           | 个人 bot 必须设置，否则拒绝所有用户                 |
+| Gateway 访问控制        | `FEISHU_ALLOWED_USERS` / `GATEWAY_ALLOW_ALL_USERS=false` | 默认使用飞书白名单；仅明确开放时才设为 `true`       |
 
 **当前主模型的加载机制：**
 
@@ -1026,7 +1025,7 @@ bash ~/.hermes/hermes-update.sh
 | 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                                    |
 | 6    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                                                                           |
 | 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本；若上游回滚到坏的 `_arguments` 语法则自动重新应用 PATCH-3（v0.13.0 起上游已修复 commit `fe61d95b4`，detection 块作为回归 sentinel 保留），随后清除 zcompdump 缓存 |
-| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用（PATCH-1/2/7）；验证 PATCH-3/4/5 上游行为存活 + 本地补丁生效后才刷新 diff 文件；刷新时记录上游 base commit 到 `patches/.local-patches.base`    |
+| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用（PATCH-1/2/7/9）；验证 PATCH-3/4/5 上游行为存活 + 本地补丁生效后才刷新 diff 文件；刷新时记录上游 base commit 到 `patches/.local-patches.base`  |
 | 8e   | **Verify user plugins**                   | 对 `plugins/*/verify.sh` 逐一执行：检查依赖的 `VALID_HOOKS` 钩子名仍在上游、fire site 仍存在、`agent.log` 里能找到 `<plugin>: registered (active=True, …)`。任一硬失败计入 ACTS         |
 | 9    | `hermes doctor` + `hermes gateway status` | 验证更新结果；若 gateway 因 update / post-patch restart 处于未加载状态，脚本会自动补一次最终恢复（`install --force` / `start`）后再判定                                                 |
 
@@ -1057,9 +1056,9 @@ hermes gateway status
 
 ## 本地补丁记录
 
-本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `3bace071b`（截至 2026-05-24 的 `main`，较 `d61785889` 前进 177 commits）。
+本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `b288de8bf`（截至 2026-05-25 的 `main`，较 `3bace071b` 前进 96 commits）。
 
-补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新生成补全脚本并对旧坏格式做回归 sentinel 检测（PATCH-3 已于 v0.13.0 上游合并 commit `fe61d95b4`，正常情况下检测不命中、直接跳过）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-7 feishu python-socks 依赖，覆盖 `pyproject.toml` 与 `tools/lazy_deps.py`；PATCH-4 / PATCH-5 已上游合并并退役，仅保留存在性 grep 验证；PATCH-8 于 v0.11.0 上游合并，仅保留文档记录），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新生成补全脚本并对旧坏格式做回归 sentinel 检测（PATCH-3 已于 v0.13.0 上游合并 commit `fe61d95b4`，正常情况下检测不命中、直接跳过）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-7 feishu python-socks 依赖、PATCH-9 OpenClaw 迁移不再写入废弃 gateway token；PATCH-4 / PATCH-5 已上游合并并退役，仅保留存在性 grep 验证；PATCH-8 于 v0.11.0 上游合并，仅保留文档记录），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
 
 手动恢复 `hermes-agent/` 内补丁：
 
@@ -1694,7 +1693,7 @@ hermes gateway status
 
 **Gateway 拒绝所有消息（日志出现 `unauthorized user`）**：
 
-确认 `.env` 中设置了 `GATEWAY_ALLOW_ALL_USERS=true`，然后重启 gateway。
+确认 `.env` 中的 `FEISHU_ALLOWED_USERS` 包含实际发送者 ID；如果确实要开放所有用户，清空平台白名单并设置 `GATEWAY_ALLOW_ALL_USERS=true`，然后重启 gateway。
 
 **会话出现 400 级联错误**：
 
@@ -1793,6 +1792,7 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 | 版本               | 日期       | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| v0.14.0            | 2026-05-25 | 基线滚动到上游 `b288de8bf`（较 `3bace071b` 前进 96 commits，版本字符串仍为 `v0.14.0 (2026.5.16)`）。上游重点：Docker / container runtime 迁移到 s6-overlay 监督并强化多架构/CI；credential 与 file-safety 继续收紧（OAuth、pairing、session capture 等）；CLI / gateway 修复 resume 编号选择、resume recap、Telegram topic/reconnect、Matrix E2EE、plugin extras 连接门控；TUI skinny status rule 修复。`hermes-update.sh` 成功走 uv `--python venv/bin/python` fallback；`local-patches.diff` 干净 apply 并刷新 7 个文件，PATCH-1/2/7/9 全部活跃；PATCH-3 sentinel 未触发；Skills mirror 同步 +1 / ~1 / -9；sandbox verify、doctor、gateway status 均通过                                                                                                                                                               |
 | v0.14.0            | 2026-05-24 | 基线滚动到上游 `3bace071b`（较 `d61785889` 前进 177 commits，版本字符串仍为 `v0.14.0 (2026.5.16)`）。上游主线集中在三类修复：(a) Feishu / QQBot / Discord / MS Graph / Dingtalk / Svix 全面收紧 webhook 鉴权 (#30200/#30737-46/#30169 等)；(b) gateway 流式响应路径修复 `response_transformed` 传播，确保 plugin `transform_llm_output` hook 输出不被流式吞掉（与 `plugins/sandbox` 一致受益）；(c) state store 文件权限收紧 (`3bace071b`)、`pydantic` 钉为 2.13.4 防 pydantic-core 线程 segfault。`local-patches.diff` 干净 apply（无 3-way），PATCH-1/2/7 全部活跃；唯一触碰 patch 范围的上游 commit `d3c167b64`（PR #31290，cross-profile soft guard）与 PATCH-1 在 `skill_manager_tool.py` 不同区域，直接 clean apply。`_hermes` 补全新增 `portal` / `tasks promote` 子命令；skills mirror 同步：4 个移除 / 2 个更新 |
 | v0.14.0            | 2026-05-22 | 基线滚动到上游 `d61785889`（较 `6a6766fb8` 前进 112 commits，版本字符串仍为 `v0.14.0 (2026.5.16)`）。**新增 `hermes-update.sh` uv-pyenv 兼容性 fallback**：在 uv ≥ 0.11 + pyenv 环境下 `hermes update` 内部的 `uv pip install -e .` 会因找不到 uv 自管 Python（`~/.local/share/uv/python` 不存在）报错；脚本现在通过 `tee` 捕获输出，识别该错误后自动重试 `uv pip install --python venv/bin/python -e ".[all,feishu]"`，成功则把 UPDATE_RC 清零。本次 update 沿用 PATCH-1/2/7（PATCH-3 上游已修复仍保留 sentinel）；pydantic 2.12.5 → 2.13.4 / pydantic-core 2.41.5 → 2.46.4；上游裁掉了 22 个 skill。Step 8e 的 sandbox verify 全绿通过                                                                                                                                                                                 |
 | v0.14.0            | 2026-05-22 | 新增 `plugins/sandbox` 用户插件：通过官方 `pre_gateway_dispatch` + `pre_tool_call` 钩子，按 Feishu `chat_id` 做工具沙盒——配置中的 owner DM 拥有完整工具集，其他 Feishu 会话只剩 `web_search` / `web_extract` / `vision_analyze` / `image_generate`，非 Feishu 来源（CLI/TUI、cron、内部事件）不拦截。零源码修改。配套 `plugins/sandbox/verify.sh` 检查上游 hook 名 / fire site / 运行时 `active=True` 三项，`hermes-update.sh` Step 8e 每次官方更新后自动调用                                                                                                                                                                                                                                                                                                                                                            |

@@ -1,8 +1,8 @@
-Repo: git@github.com:ChenZhouUC/HermesAgentWorkspace.git. Never auto-commit/push. Run ~/.config/git/hooks/copilot-git-approve first. Private skills in ~/.hermes/my-skills/, official in ~/.hermes/skills/.
+Repo: git@github.com:ChenZhouUC/HermesAgentWorkspace.git. Never auto-commit. Private skills in ~/.hermes/my-skills/, official in ~/.hermes/skills/.
 §
 **400 cascade fix**: If 400 errors loop, run `hermes sessions list` then `hermes sessions delete SESSION_ID` to remove the broken session.
 §
-Feishu terminal approval works natively; no need to bypass via Python.
+Feishu approval cards: if unresponsive, check gateway.log for Unauthorized clicks. User must manually add open_id to allowlist config (agents cannot patch it).
 §
 Feishu API Quirks: 1. Tables: flat cell list, max 9 rows, no direct row append. 2. Skip H1 insert. 3. POST /children 'index' relative to parent. 4. DELETE /blocks/{id} gives 404; use parent batch_delete. 5. Bullets are block_type 12. Domain: whales.feishu.cn. Bot @木马牛 open_id: ou_0091f5c50226a4ee0dc8a6d51665db0f.
 §

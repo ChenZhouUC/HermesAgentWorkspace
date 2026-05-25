@@ -85,7 +85,7 @@
       "color": {
         "h": 0,
         "s": 100,
-        "l": 50
+        "l": 25
       },
       "behavior": "preset",
       "shouldCycleColorOnLoad": false,

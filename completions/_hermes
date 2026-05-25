@@ -64,6 +64,7 @@ _hermes() {
                 'profile:Manage profiles — multiple isolated Hermes instances'
                 'proxy:Local OpenAI-compatible proxy to OAuth providers'
                 'secrets:Manage external secret sources (Bitwarden Secrets Manager)'
+                'security:Supply-chain audit (OSV.dev) for venv, plugins, and MCP serv'
                 'send:Send a message to a configured platform (scripts, cron jobs,'
                 'sessions:Manage session history (list, rename, export, prune, delete)'
                 'setup:Interactive setup wizard'
@@ -379,6 +380,13 @@ _hermes() {
                     'bitwarden:Bitwarden Secrets Manager integration'
                     )
                     _describe 'secrets command' secrets_cmds
+                    ;;
+                security)
+                    local -a security_cmds
+                    security_cmds=(
+                    'audit:Run a one-shot supply-chain audit'
+                    )
+                    _describe 'security command' security_cmds
                     ;;
                 sessions)
                     local -a sessions_cmds

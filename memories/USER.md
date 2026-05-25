@@ -4,12 +4,12 @@ Feishu Docs: 1. Clean titles. 2. Version table YYYYMMDD.XXed, UTC+8, native @木
 §
 Git: Run copilot-git-approve first. Uses FVM for Flutter/Dart.
 §
-In API designs, represent percentage errors as decimals (e.g., 0.045), not strings with '%'.
-§
 Feishu Links: Always include raw unformatted URLs in plain text. Markdown hyperlinks alone are often stripped/hidden by the client.
 §
 Product Recs: Use star ratings (descending) & tables for spec combos/prices.
 §
-Tools: Persist 100%; execute to find answers. If asked "how to do X" locally (e.g., chown), just give the command directly without running discovery tools (find/mdfind). Monitor RAM via iStat. M2->M5: rebuild over blind copy.
+Tools: Execute fully. Local commands direct. Monitor RAM: iStat. M2->M5: rebuild. Wiki ops: ALWAYS skill_view(llm-wiki) before ANY read/write.
 §
 In hardware/deployment lists, prefers full comparative tables showing both unchanged items ('[✅ 无变更]') and degraded/removed items ('[⚠️ 减配/移除]'), rather than lists that only show the diffs.
+§
+Feishu open_id: ou_33eeacfbd0c0559b7b734f83503719ab

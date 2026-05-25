@@ -61,6 +61,8 @@ PATCHED_FILES=(
     "hermes_cli/doctor.py"
     "pyproject.toml"
     "tools/lazy_deps.py"
+    "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
+    "website/docs/guides/migrate-from-openclaw.md"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -524,6 +526,7 @@ _SKILL_PATCH_OK=false
 _DOCTOR_PATCH_OK=false
 _DELEGATE_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
+_OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -600,11 +603,25 @@ else
     warn "Could not locate pyproject.toml or tools/lazy_deps.py — skipping feishu deps check"
 fi
 
+OPENCLAW_MIGRATOR="${HERMES_AGENT}/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
+OPENCLAW_MIGRATION_DOC="${HERMES_AGENT}/website/docs/guides/migrate-from-openclaw.md"
+if [[ -f "${OPENCLAW_MIGRATOR}" && -f "${OPENCLAW_MIGRATION_DOC}" ]]; then
+    if ! grep -Eq 'HERMES_GATEWAY_TOKEN|gateway\.auth\.token|Gateway auth token' "${OPENCLAW_MIGRATOR}" "${OPENCLAW_MIGRATION_DOC}" 2>/dev/null; then
+        ok "OpenClaw gateway token patch: active (unused HERMES_GATEWAY_TOKEN not migrated)"
+        _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=true
+    else
+        warn "OpenClaw gateway token patch inactive — migration may recreate unused HERMES_GATEWAY_TOKEN"
+        add_act "Re-apply: see PATCHES.md § [PATCH-9] OpenClaw gateway token"
+    fi
+else
+    warn "Could not locate OpenClaw migration files — skipping gateway token patch check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

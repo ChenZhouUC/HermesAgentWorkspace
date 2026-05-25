@@ -44,3 +44,21 @@ As long as swapping/paging is low (Memory Pressure is "Green"), the system is pe
   ```bash
   top -l 1 -s 0 -o cpu -n 15 | awk '/^PID/{p=1} p'
   ```
+
+## 4. Screen State (Lock & Sleep) Diagnostics
+
+To determine if the macOS system is currently locked (useful for knowing if the user is active, or if certain background tasks might be suspended):
+
+- **Command (pmset - User Activity)**:
+
+  ```bash
+  pmset -g useractivity
+  ```
+
+  _Indicator_: `Level = 'PresentActive'` means the user is currently active (unlocked).
+
+- **Command (Quartz - GUI Session)**:
+  ```bash
+  /usr/bin/python3 -c "import Quartz; print(Quartz.CGSessionCopyCurrentDictionary().get('CGSSessionScreenIsLocked', 'Unlocked'))"
+  ```
+  _Pitfall_: You **must** use the macOS system Python (`/usr/bin/python3`) to run this. If you use a custom `uv` or `pyenv` virtual environment, it will crash with `ModuleNotFoundError` because it lacks the built-in `pyobjc` (`Quartz`) framework.
