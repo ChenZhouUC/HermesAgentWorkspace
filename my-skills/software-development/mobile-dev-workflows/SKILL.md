@@ -1,9 +1,10 @@
 ---
-name: flutter-development
-description: Flutter development workflows, SDK management via FVM, and project setup.
+name: mobile-dev-workflows
+description: Mobile development workflows, SDK management via FVM, and project setup.
+category: software-development
 ---
 
-# Flutter Development
+# Mobile Development Workflows
 
 ## SDK Management (FVM)
 

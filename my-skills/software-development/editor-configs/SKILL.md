@@ -1,14 +1,18 @@
 ---
-name: macvim-ops
-description: "MacVim GUI configuration techniques, specifically toolbar customization and guioptions."
+name: editor-configs
+description: "Editor and IDE configuration workflows (MacVim GUI, VS Code, etc)."
 category: software-development
 ---
 
-# MacVim Operations and Customization
+# Editor Configurations
 
-This skill covers techniques for configuring MacVim GUI elements via `~/.gvimrc` (or `if has("gui_running")` in `~/.vimrc`), which differ from standard terminal Vim.
+This skill covers techniques for configuring editors, starting with MacVim GUI.
 
-## GUI Options (`guioptions`)
+## MacVim Operations and Customization
+
+This covers techniques for configuring MacVim GUI elements via `~/.gvimrc` (or `if has("gui_running")` in `~/.vimrc`), which differ from standard terminal Vim.
+
+### GUI Options (`guioptions`)
 
 MacVim's GUI components are toggled using single-character flags in the `guioptions` (or `go`) setting.
 A typical user configuration might look like: `set guioptions+=Taegbrk`
@@ -24,11 +28,9 @@ A typical user configuration might look like: `set guioptions+=Taegbrk`
 To hide the toolbar completely to save screen space, remove the `T`:
 `set guioptions-=T`
 
-## Customizing the Toolbar (ToolBar Menu)
+### Customizing the Toolbar (ToolBar Menu)
 
 The MacVim toolbar cannot be customized via macOS "Right-click -> Customize Toolbar". It is controlled via standard Vim menu commands targeting the special `ToolBar` menu.
-
-### Commands
 
 1. **Remove existing buttons**: `aunmenu`
    ```vim

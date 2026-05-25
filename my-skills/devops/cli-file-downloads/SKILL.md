@@ -23,7 +23,7 @@ If a server frequently drops connections, throttles aggressively, or returns int
 
 Instead of manual retries, use the provided robust loop script. It checks `curl` exit codes, correctly handles 503s vs partial disconnects, and loops persistently.
 
-- **Execute via the `terminal` tool** with `background=true`, `notify_on_complete=true`, and `command="/Users/chenzhou/.hermes/my-skills/devops/cli-file-downloads/scripts/robust_curl_resume.sh \"<URL>\" \"<FILE>\" \"<REFERER>\""`.
+- **Execute via the `terminal` tool** with `background=true`, `notify_on_complete=true`, and `command="bash ~/.hermes/my-skills/devops/cli-file-downloads/scripts/robust_curl_resume.sh \"<URL>\" \"<FILE>\" \"<REFERER>\""`.
 
 ## Anti-Scraping / CDN Bypasses
 

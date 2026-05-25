@@ -26,94 +26,38 @@ Use this skill whenever you need to read, summarize, create, or update documents
 
 ## ✍️ Creating: Markdown to Perfect Feishu Docx
 
-### 1. Upload the file to Drive (Use `curl` NOT `requests`)
-
-**CRITICAL FIX**: Feishu's Import API strictly checks the `file_name` extension during upload. You MUST upload it with a `.md` extension (e.g. `file_name=temp.md`).
-_Do not_ attempt to set the professional title during the curl upload.
-**CRITICAL FIX 2**: Using `requests` with `multipart/form-data` for the upload API often fails with `1061002 params error` or boundaries issues. You MUST use the `curl` CLI through `subprocess` for the upload step.
-
-```python
-file_size = os.path.getsize(file_path)
-curl_cmd = [
-    "curl", "-s", "-X", "POST",
-    "https://open.feishu.cn/open-apis/drive/v1/files/upload_all",
-    "-H", f"Authorization: Bearer {token}",
-    "-H", "Content-Type: multipart/form-data",
-    "-F", f"file=@{file_path}",
-    "-F", "file_name=temp.md",
-    "-F", f"size={file_size}",
-    "-F", "parent_type=explorer",
-    "-F", "parent_node=" # empty string for personal space root
-]
-```
-
-### 1.5 Rename the Document Title (Post-Creation)
-
-Because you uploaded it as `temp.md`, the resulting document title will be `temp`. You must rename it by PATCHing the root block (the block whose ID is the `doc_token`).
-
-```python
-title_payload = {
-    "update_text_elements": {
-        "elements": [{"text_run": {"content": "Professional Title Here"}}]
-    }
-}
-title_req = urllib.request.Request(
-    f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_token}/blocks/{doc_token}",
-    data=json.dumps(title_payload).encode(),
-    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-    method='PATCH'
-)
-urllib.request.urlopen(title_req)
-```
-
-### 2. Create and Poll Import Task (Same as before)
-
-### 3. Granting Permissions (Tenant Editable & Public)
-
 **USER RULE:** The user explicitly forbids creating new standalone documents (`NEVER create new docs`), strongly preferring to revise existing docs in-place.
-If you absolutely MUST create a new document (e.g., explicitly forced), you MUST explicitly grant edit permissions so the user isn't locked out.
-PATCH to `https://open.feishu.cn/open-apis/drive/v1/permissions/{doc_token}/public?type=docx`
+If you absolutely MUST create a new document (e.g., explicitly forced), you MUST explicitly grant edit permissions so the user isn't locked out and handle correct title formatting and mention resolution.
 
-_(Note: If explicitly forced to create a new doc from markdown, you can use the bundled script `uv run python <SKILL_DIR>/scripts/create_new_doc_from_md.py <md_file_path> <title>` which handles upload, import, title renaming, permission patching, and native mention resolution automatically.)_
+**DO NOT** attempt to manually implement the upload, import, and patching logic using `curl` and `urllib`. Instead, use the robust, fully automated Python script provided in this skill directory.
 
-```json
-{
-  "external_access_entity": "anyone_can_edit",
-  "security_entity": "anyone_can_view",
-  "comment_entity": "anyone_can_view",
-  "share_entity": "anyone",
-  "link_share_entity": "tenant_editable"
-}
+**Command:**
+
+```bash
+uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/create_new_doc_from_md.py <md_file_path> "<Professional_Title>"
 ```
 
-### 4. Native Mention Fix (Post-Creation)
+This script automatically handles:
 
-Because Markdown import converts `@小聪明蛋` into plain text, fetch the block containing it and PATCH it:
-
-```python
-payload = {"update_text_elements": {"elements": [{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}]}}
-# PATCH to /blocks/{block_id}
-```
+1. Drive upload with correct `.md` extension.
+2. Polling the Import API.
+3. Patching the root block to set the professional title.
+4. Setting permissions to `tenant_editable`.
+5. Resolving plain text `@小聪明蛋` to native mention cards.
 
 ---
 
 ## 🔨 Rebuild Document From Scratch (Clear + Re-import)
 
-When the user says "清理旧内容并按规范重写" or asks for a full doc overhaul (new title, fresh version table, new content), DO NOT attempt incremental patches. Use this atomic rebuild workflow:
+When the user says "清理旧内容并按规范重写" or asks for a full doc overhaul (new title, fresh version table, new content), DO NOT attempt incremental patches. Use this atomic rebuild workflow via the provided script:
 
-1. **Clear all old content**: GET the root block to find its `children`, then `batch_delete` them all at once:
-   ```python
-   res = do_req(token, f".../documents/{DOC_TOKEN}/blocks/{DOC_TOKEN}")
-   children = res["data"]["block"].get("children", [])
-   if children:
-       do_req(token, f".../blocks/{DOC_TOKEN}/children/batch_delete", method="DELETE",
-              payload={"start_index": 0, "end_index": len(children)})
-   ```
-2. **Update Title**: PATCH the root block's text elements with `update_text_elements`.
-3. **Create Version Table from scratch**: POST a new table block at `index: 0`. For each cell, POST the text block as a child, then `batch_delete` the default empty text block (index 0) from that cell. The user's `open_id` for `@小聪明蛋` is `ou_0091f5c50226a4ee0dc8a6d51665db0f` — use `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}`.
-4. **Import and merge Markdown**: Upload the MD file via `curl`, poll the import task to get a temp doc token, then call `merge_docs(token, temp_doc_token, DOC_TOKEN)` from `scripts/merge_markdown_blocks.py`.
+**Command:**
 
-**Fully automated**: A ready-to-run script at `<SKILL_DIR>/scripts/rebuild_doc_from_md.py` implements this entire pipeline end-to-end. Usage: `python rebuild_doc_from_md.py <target_doc_token> <md_file_path>`.
+```bash
+uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/rebuild_doc_from_md.py <target_doc_token> <md_file_path>
+```
+
+This script handles clearing old content, updating the title, creating a fresh Version Table, and safely merging the new Markdown.
 
 ---
 
@@ -200,7 +144,7 @@ To merge large Markdown content into an existing document with perfect native fo
    - **Strip all `block_id`s.**
    - **Tables:** ONLY copy `row_size`, `column_size`, and `column_width`. Do NOT include `cells` or `merge_info` in the payload. Split tables if they exceed the 9-row limit.
 4. Insert top-level blocks in chunks (e.g., 40 at a time) to avoid payload size/timeout errors.
-5. Re-map the newly created auto-generated cell IDs and sequentially POST their nested children. (See `scripts/merge_markdown_blocks.py` for the block-mapping implementation. For a fully automated end-to-end wrapper, run: `python <SKILL_DIR>/scripts/append_md_to_doc.py <target_doc_token> <md_file_path>`).
+5. Re-map the newly created auto-generated cell IDs and sequentially POST their nested children. (See `scripts/merge_markdown_blocks.py` for the block-mapping implementation. For a fully automated end-to-end wrapper, run: `python ~/.hermes/my-skills/productivity/feishu-docs/scripts/append_md_to_doc.py <target_doc_token> <md_file_path>`).
 
 **CRITICAL ORDERING PITFALL (Table/Text interleaving):** When the Markdown contains alternating headings, text, and tables, the original `merge_markdown_blocks.py` would batch ALL non-table blocks and POST them AFTER the tables in each chunk, destroying document order (headings ended up below their tables). The fix: use a `flush_payload()` mechanism that immediately POSTs accumulated non-table blocks whenever a table is encountered, then POSTs the table individually, then continues. This preserves strict source-order insertion. The patched script at `scripts/merge_markdown_blocks.py` already implements this — do NOT revert to the old batch-at-end-of-chunk pattern.
 
@@ -210,11 +154,11 @@ To merge large Markdown content into an existing document with perfect native fo
 
 If the native `feishu_doc_read` tool fails with `Feishu client not available (not in a Feishu comment context)`, use the bundled extraction scripts via the Open API.
 
-- **Canonical extractor**: `uv run --with requests python <SKILL_DIR>/scripts/extract_docx_to_markdown.py <doc_token>`
+- **Canonical extractor**: `uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/extract_docx_to_markdown.py <doc_token>`
   Handles nested blocks, tables, lists, and wiki-token-to-doc-token resolution automatically.
-- **Lightweight fallback**: `uv run --with requests python <SKILL_DIR>/scripts/read_docx_to_markdown.py <doc_token>`
+- **Lightweight fallback**: `uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/read_docx_to_markdown.py <doc_token>`
   Useful when you only need a straightforward block dump to Markdown.
-- **Compatibility helper**: `uv run --with requests python <SKILL_DIR>/scripts/download_docx_to_md.py <doc_token>`
+- **Compatibility helper**: `uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/download_docx_to_md.py <doc_token>`
   Keeps older workflows working when the lightweight extraction path is sufficient.
 - **Dependency note**: All three scripts require the `requests` Python package. The base system Python does NOT have it installed. You MUST prefix with `uv run --with requests` (or ensure `requests` is available) to avoid `ModuleNotFoundError`.
 - **Wiki vs Docx Pitfall**: If the target URL is a Feishu Wiki link (`https://domain.feishu.cn/wiki/TOKEN`), the application MUST have `wiki:wiki:readonly` or `wiki:node:read` permissions. If it only has document permissions, the API will reject it with a `99991672 Access denied` error. Ask the user to grant the Wiki scope or provide the underlying standard `.docx` link.
@@ -227,7 +171,7 @@ When the user asks to extract a Feishu Document and save it into their local LLM
 
 1. **Extract Raw Markdown**:
    Use the extraction script to get the Feishu document content:
-   `uv run --with requests python <SKILL_DIR>/scripts/extract_docx_to_markdown.py <doc_token>`
+   `uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/extract_docx_to_markdown.py <doc_token>`
 
 2. **Clean Feishu Artifacts**:
    - **Extract Dates**: Before deleting the Version Table, extract the creation date (first row) and update date (last row) to use in the YAML frontmatter.

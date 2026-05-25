@@ -18,6 +18,15 @@ Simple "Save As" will only embed the PNG. To generate a true vector path:
 5. Click "Apply". Delete the original raster layer underneath.
 6. Save as "Plain SVG" to strip software-specific XML tags.
 
+### Headless CLI Method (Inkscape)
+
+If you need to automate Inkscape's advanced tracing without GUI, use its action commands:
+
+```bash
+# Example: Trace bitmap and save as plain SVG using Inkscape CLI
+inkscape input.png --actions="select-all;object-to-path;export-plain-svg;export-filename:output.svg;export-do"
+```
+
 ### CLI Method (potrace)
 
 Inkscape's headless CLI trace support is poor. For automated or batch processing of pure black/white or line art in the terminal, use `potrace`:

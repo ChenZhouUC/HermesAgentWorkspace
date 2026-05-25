@@ -24,23 +24,20 @@ Since Python `psycopg2` or `psql` CLI might not be pre-installed, tasks involvin
 
 When the user provides a DB connection string:
 
-1. Parse the connection and determine an easy-to-use `alias` (e.g., `prod_db`, `test_db`).
-2. Verify the connection works via `execute_code` (installing `psycopg2-binary` if needed).
-3. If successful, save the connection URI to `connections.json`.
-4. Run a schema extraction query to fetch metadata:
-   ```sql
-   SELECT table_schema, table_name, column_name, data_type
-   FROM information_schema.columns
-   WHERE table_schema NOT IN ('pg_catalog', 'information_schema');
+1. Use the Postgres Manager CLI script to add the connection and extract the schema.
+   ```bash
+   uv run --with psycopg2-binary python ~/.hermes/my-skills/database/postgres-manager/scripts/pg_manager.py add <alias> "<connection_uri>"
    ```
-5. Group the results by table and save them as formatted JSON to `metadata/<alias_name>_schema.json`.
+2. The script will automatically verify the connection, save the URI to `connections.json`, extract the table schema, and save it to `metadata/<alias>_schema.json`.
 
 ## Workflow 2: Execute SQL Tasks
 
 When the user asks to write/run SQL or do database data processing:
 
-1. Check which `alias` is intended. Read the connection string from `connections.json`.
-2. Read the schema from the corresponding `metadata/<alias_name>_schema.json` to understand the table structures strictly.
-3. Write the exact SQL query based on the cached schema.
-4. Execute the query using `execute_code` (Python script). Format the output cleanly (e.g., using `pandas` to print tabular data or exporting to CSV if requested).
-5. **Continuous Update**: If a query includes DDL (CREATE, ALTER, DROP), automatically re-run **Workflow 1**'s Step 4 & 5 to keep the local metadata cache up to date.
+1. Read the schema from `~/.hermes/db_workspace/metadata/<alias>_schema.json` to understand the table structures.
+2. Write the exact SQL query based on the cached schema.
+3. Execute the query using the CLI:
+   ```bash
+   uv run --with psycopg2-binary python ~/.hermes/my-skills/database/postgres-manager/scripts/pg_manager.py query <alias> "<sql_query>"
+   ```
+4. **Continuous Update**: If a query includes DDL (CREATE, ALTER, DROP), automatically re-run `pg_manager.py refresh <alias>` to keep the local metadata cache up to date.
