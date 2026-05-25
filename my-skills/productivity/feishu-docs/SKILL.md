@@ -44,20 +44,52 @@ This script automatically handles:
 3. Patching the root block to set the professional title.
 4. Setting permissions to `tenant_editable`.
 5. Resolving plain text `@小聪明蛋` to native mention cards.
+6. Writing the initial Version Table.
+
+---
+
+## ➕ Updating an Existing Doc (append + auto version row)
+
+To blend new Markdown into an existing doc, use the append script. It imports the
+Markdown, merges the blocks in source order, **and automatically appends a new
+version-table row preserving all prior history** (no manual table surgery):
+
+```bash
+uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/append_md_to_doc.py <target_doc_token> <md_file_path>
+```
+
+The whole operation is **atomic** (see below): if any step fails, the document is
+rolled back to its pre-update state.
 
 ---
 
 ## 🔨 Rebuild Document From Scratch (Clear + Re-import)
 
-When the user says "清理旧内容并按规范重写" or asks for a full doc overhaul (new title, fresh version table, new content), DO NOT attempt incremental patches. Use this atomic rebuild workflow via the provided script:
+When the user says "清理旧内容并按规范重写" or asks for a full doc overhaul (new title, fresh content), DO NOT attempt incremental patches. Use this atomic rebuild script:
 
 **Command:**
 
 ```bash
-uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/rebuild_doc_from_md.py <target_doc_token> <md_file_path>
+uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/rebuild_doc_from_md.py <target_doc_token> <md_file_path> "<Professional_Title>"
 ```
 
-This script handles clearing old content, updating the title, creating a fresh Version Table, and safely merging the new Markdown.
+It clears old content, sets the title, **re-creates the Version Table preserving the
+existing history (and appending a new row)**, and merges the new Markdown. The
+upload+import happen before anything destructive, and the rewrite is atomic.
+
+---
+
+## ⚛️ Atomicity & Failure Handling (CRITICAL)
+
+The `append_md_to_doc.py` and `rebuild_doc_from_md.py` scripts wrap their destructive
+work in `feishu_common.atomic_update`:
+
+- The doc is **snapshotted to a local backup file** (`~/.hermes/db_workspace/feishu_backups/`) before any destructive write.
+- On **any** failure mid-update, the doc is **rolled back** to its pre-update state. You end up with either the fully-updated doc or the original — never a half-written, garbled doc.
+- If rollback itself fails, the backup file path is printed for manual recovery.
+- All API calls retry automatically on rate limits, 5xx, and dropped connections (the `RemoteDisconnected` that large `batch_delete`s trigger).
+
+**RULE: If a script fails, READ the printed error, fix the input/cause, and RE-RUN the script.** Do NOT hand-roll the upload/import/table logic with inline `curl`/`urllib`/`requests` as a fallback — improvised manual API calls are exactly what produced duplicate version tables and garbled docs in the past. The scripts are the only supported write path.
 
 ---
 
@@ -66,6 +98,8 @@ This script handles clearing old content, updating the title, creating a fresh V
 ### 1. Deleting Blocks (batch_delete)
 
 When you need to delete a block (e.g., an old table or an empty cell text), you MUST use `DELETE` (not POST) on the parent's `batch_delete` endpoint, providing the integer indices, NOT block IDs.
+
+**Pitfall (Large Deletions)**: Deleting hundreds of blocks simultaneously (e.g., clearing a large document for a rebuild) can cause the Feishu API to abruptly close the connection, resulting in a `http.client.RemoteDisconnected` crash. If this happens, simply retry the execution, or update your script to chunk large `batch_delete` operations.
 
 ```python
 del_req = urllib.request.Request(
@@ -76,47 +110,27 @@ del_req = urllib.request.Request(
 )
 ```
 
-### 2. Version Table Standard Template & Appending Rows
+### 2. Version Table (automated — do not hand-roll)
 
-The standard Version Table has 3 columns: `Version` | `Time` | `Author`
-Column Widths: `[150, 250, 150]`
+Appending a version row is **fully automated** by `feishu_common.append_version_row`,
+which `append_md_to_doc.py` calls after every content merge. It reads the existing
+table, computes the next version, preserves all history, appends the new row, and
+splits across consecutive tables if the history exceeds Feishu's 9-row table limit.
+You normally never touch this by hand — run `append_md_to_doc.py`.
 
-**Data Format Rules (CRITICAL):**
+**Format spec (enforced by the script; reference only):**
 
-- `Version`: Must follow `YYYYMMDD.XXed` (e.g., `20260518.01ed`).
-- `Time`: Must be `YYYY-MM-DD HH:MM:SS UTC+8`.
-- `Author`: MUST be a native mention card (`@小聪明蛋` -> `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}`), NOT plain text.
+- `Version`: `YYYYMMDD.NNed` (e.g., `20260518.01ed`). The suffix `NN` auto-increments for multiple edits on the same day and resets to `01` on a new day.
+- `Time`: `YYYY-MM-DD HH:MM:SS UTC+8`.
+- `Author`: native mention card `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}` — **never** plain text.
+- Columns: `Version | Time | Author`, widths `[150, 250, 150]`.
+- A NEW row is appended on every modification; old rows are preserved, never collapsed.
 
-**CRITICAL: Adding a row to an existing table is NOT natively supported.** You MUST replace the table:
-
-- `Version`: `YYYYMMDD.XXed` format (e.g., `20260518.01ed`). Increment the suffix (`01ed`, `02ed`, `03ed`...) per edit session.
-- `Time`: `YYYY-MM-DD HH:MM:SS UTC+8` format.
-- `Author`: Native `@小聪明蛋` mention card via `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}`. **Never plain text.**
-- Append a NEW row on EVERY modification. Never replace or collapse old rows.
-
-**CRITICAL: Adding a row to an existing table is NOT natively supported.** You MUST replace the table:
-
-1. Re-read all existing cell contents from the old table.
-2. Create a NEW Table block. **CRITICAL:** Do NOT include a `children` array, `cells`, or `merge_info` in the table payload! Only pass `row_size`, `column_size`, and `column_width`. Let Feishu auto-create the cells.
-   **CRITICAL (9-Row Limit):** Feishu's Block API limits table creation to a maximum of **9 rows** (`row_size <= 9`). If you need more (e.g. copying a large table), you MUST split it into multiple adjacent table blocks. Otherwise, it throws `HTTP 400 (1770001 invalid param)`.
-
-```python
-new_table_payload = {
-    "block_type": 31,
-    "table": {
-        "property": {
-            "row_size": new_row_size,
-            "column_size": 3,
-            "column_width": [150, 250, 150]
-        }
-    }
-}
-# POST to /blocks/{parent_id}/children with the appropriate index
-```
-
-3. Fetch the new table's auto-generated cell IDs (`res['data']['children'][0]['table']['cells']`).
-4. `POST` your text blocks (including the old ones and your new row) to each cell's `/children` endpoint.
-5. Use `batch_delete` (as shown above) to delete the old table block from the document, and delete the default empty text block (index 0) from each new cell (**wrap the cell deletion in a `try...except` block**, as Feishu may return `HTTP 404 (1770002)` if the block is already absent or processed).
+**Why it can't just "add a row":** Feishu has no native "append row" — the table must
+be rebuilt. The script handles this (re-read rows → new table with `row_size`/`column_size`/`column_width`
+only, no `cells`/`merge_info` → refill cells → delete old table), including the 9-row
+split that otherwise throws `HTTP 400 (1770001)`. If you ever must debug it, see
+`scripts/feishu_common.py`; do not reimplement it inline. 5. Use `batch_delete` (as shown above) to delete the old table block from the document, and delete the default empty text block (index 0) from each new cell (**wrap the cell deletion in a `try...except` block**, as Feishu may return `HTTP 404 (1770002)` if the block is already absent or processed).
 
 ### 3. Complex Lists (1770001 Fix)
 

@@ -2,73 +2,19 @@ import os
 import sys
 import json
 import urllib.request
-import subprocess
-import time
-import re
 
-
-def get_tenant_access_token():
-    with open(os.path.expanduser("~/.hermes/.env"), "r") as f:
-        env_content = f.read()
-    app_id = re.search(r"FEISHU_APP_ID=(.*)", env_content).group(1).strip()
-    app_secret = re.search(r"FEISHU_APP_SECRET=(.*)", env_content).group(1).strip()
-    req = urllib.request.Request(
-        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-        data=json.dumps({"app_id": app_id, "app_secret": app_secret}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    return json.loads(urllib.request.urlopen(req).read())["tenant_access_token"]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from feishu_common import get_tenant_token, upload_md, import_md_to_doc, append_version_row
 
 
 def create_doc(md_path, title):
-    token = get_tenant_access_token()
-    size = os.path.getsize(md_path)
+    token = get_tenant_token()
 
     print(f"Uploading {md_path}...")
-    cmd = [
-        "curl",
-        "-s",
-        "-X",
-        "POST",
-        "https://open.feishu.cn/open-apis/drive/v1/files/upload_all",
-        "-H",
-        f"Authorization: Bearer {token}",
-        "-H",
-        "Content-Type: multipart/form-data",
-        "-F",
-        f"file=@{md_path}",
-        "-F",
-        "file_name=temp.md",
-        "-F",
-        f"size={size}",
-        "-F",
-        "parent_type=explorer",
-        "-F",
-        "parent_node=",
-    ]
-    f_token = json.loads(subprocess.check_output(cmd))["data"]["file_token"]
+    f_token = upload_md(token, md_path)
 
-    print("Creating import task...")
-    req = urllib.request.Request(
-        "https://open.feishu.cn/open-apis/drive/v1/import_tasks",
-        data=json.dumps(
-            {"file_extension": "md", "file_token": f_token, "type": "docx", "point": {"mount_type": 1, "mount_key": ""}}
-        ).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-    )
-    ticket = json.loads(urllib.request.urlopen(req).read())["data"]["ticket"]
-
-    print("Polling import task...")
-    while True:
-        req = urllib.request.Request(
-            f"https://open.feishu.cn/open-apis/drive/v1/import_tasks/{ticket}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        res = json.loads(urllib.request.urlopen(req).read())["data"]["result"]
-        if res["job_status"] == 0:
-            doc_token = res["token"]
-            break
-        time.sleep(2)
+    print("Importing to docx...")
+    doc_token = import_md_to_doc(token, f_token)
 
     print(f"Doc created: {doc_token}. Patching title...")
     title_payload = {"update_text_elements": {"elements": [{"text_run": {"content": title}}]}}
@@ -130,6 +76,11 @@ def create_doc(md_path, title):
         return False
 
     patch_mention(doc_token)
+
+    print("Writing initial Version Table...")
+    version = append_version_row(token, doc_token)
+    print(f"Version row: {version}")
+
     print(f"DONE: https://domain.feishu.cn/docx/{doc_token}")
 
 
