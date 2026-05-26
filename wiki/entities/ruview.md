@@ -25,4 +25,3 @@ Derived from CMU's "DensePose From WiFi" (2022). It operates purely on edge devi
 **Related:**
 
 - [[esp32-s3]]
-- [[edge-rk3576]]

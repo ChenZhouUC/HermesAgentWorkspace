@@ -179,3 +179,22 @@ confidence: high
 - 索引同步：`index.md` Concepts 区按字母序插入；`Total pages` 24 → 25
 - 内容控制：调研结果包含学术 mAP 数字（用以体现谱系差异）；本次不强行剔除——这些是"可复现的学术事实"而非"项目内部实现细节"，与之前 ReID Layer 1 脱敏的初衷不冲突
 - `wiki_lint: OK`
+
+## [2026-05-26] audit | 全量关联性 + Schema 合规审计
+
+- 触发：用户要求做整体审计——关联性保守、L2 提取准确完备、最终 lint 合规
+- 完备性：逐一比对 15 篇 `_living` 与 25 个 L2 节点，**全部 \_living 都有对应 L2 提炼**（其中 5 篇被拆为多个 L2）
+- Schema 合规：25 个 L2 节点全部满足 frontmatter 完整、type 与目录匹配、tags 在 taxonomy、sources 非空
+- 关联性收紧（删除以下 body 不引用、纯主题词重叠的 Related 区链接）：
+  - `concepts/llm-computational-complexity.md` Related → 删 `set-theory`
+  - `concepts/set-theory.md` Related → 删 `llm-benchmark-methodology`（集合论与基准方法学跨主题域无关联）
+  - `concepts/llm-benchmark-methodology.md` Related → 删 `markdown-llm-protocol`
+  - `concepts/markdown-llm-protocol.md` Related → 删 `llm-benchmark-methodology` + `chain-of-thought`；body 第 29 行内一个语义错链 `[[chain-of-thought\|工具调用]]` 改为纯文本"工具调用"（CoT 不等于工具调用）
+  - `entities/obsidian.md` Related → 把 `markdown-llm-protocol` 换为 `wikilinks`（后者是 Obsidian 真正的核心机制，body 显式提及双向链接）
+  - `entities/edge-rk3576.md` Related → 删 `ruview`（视觉 NPU 与 WiFi CSI 跨主题域）
+  - `entities/edge-sophon.md` Related → 删 `ruview`（同上）
+  - `entities/esp32-s3.md` Related → 删 `edge-rk3576`（CSI 微控制器与视觉 NPU 跨主题域）
+  - `entities/ruview.md` Related → 删 `edge-rk3576`（反向同上）
+- 残留软约束：5 个 entity/concept 出链数 < 2（`graph-centrality`、`set-theory`、`edge-rk3576`、`edge-sophon`、`esp32-s3`、`ruview`），但按用户"谨慎保守"原则不强加跨主题域 sibling；当前 `wiki_lint.py` 不强制 ≥ 2 出链检查，lint 通过
+- 未修改任何 \_living 源文档；未新增/删除任何 L2 节点
+- `wiki_lint: OK`

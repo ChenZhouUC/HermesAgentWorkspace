@@ -71,7 +71,6 @@ confidence: medium
 
 **Related:**
 
-- [[markdown-llm-protocol]]
 - [[llm-computational-complexity]]
 - [[agent-frameworks]]
 - [[test-time-compute-scaling]]

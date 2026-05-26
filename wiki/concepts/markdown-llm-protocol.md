@@ -26,7 +26,7 @@ confidence: high
 
 适用 AI-to-AI 通信、System Prompt、RAG 检索、系统日志。诉求是确定性、低 Token、严格解析；人类阅读体验非重点。
 
-- 文本：**YAML / JSON**（结构化参数与 [[chain-of-thought|工具调用]]，YAML 更省 Token 但要防缩进/类型歧义）；**极简结构化 Markdown** 传递背景知识。
+- 文本：**YAML / JSON**（结构化参数与工具调用，YAML 更省 Token 但要防缩进/类型歧义）；**极简结构化 Markdown** 传递背景知识。
 - 多媒体：图片/视频用 URL 绝对路径或 Base64；图表/逻辑关系转为纯文本 Graph 节点列表、JSON 树或矩阵——AI 要底层结构而非渲染后的视觉。
 
 ### 场景二：AI 和人都读
@@ -57,7 +57,5 @@ confidence: high
 
 **Related:**
 
-- [[llm-benchmark-methodology]]
 - [[lmm-input-mechanics]]
 - [[wikilinks]]
-- [[chain-of-thought]]

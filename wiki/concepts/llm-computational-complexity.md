@@ -48,7 +48,6 @@ confidence: high
 
 **Related:**
 
-- [[set-theory]]
 - [[llm-benchmark-methodology]]
 - [[chain-of-thought]]
 - [[test-time-compute-scaling]]

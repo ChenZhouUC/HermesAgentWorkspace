@@ -18,5 +18,5 @@ Obsidian 是一款基于本地纯文本（Markdown）构建的现代知识管理
 
 **相关图谱概念**:
 
-- 其支持的底层关联协议机制：[[markdown-llm-protocol]]
+- 其支持的双向链接机制：[[wikilinks]]
 - 其图谱支持的高阶算法理论：[[graph-centrality]]

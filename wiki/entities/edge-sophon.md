@@ -28,4 +28,3 @@ CV186AH 基于 BM1688 架构衍生，设备树底层常仍标识为 `Sophon BM16
 **Related:**
 
 - [[edge-rk3576]]
-- [[ruview]]

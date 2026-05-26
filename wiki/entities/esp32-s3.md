@@ -15,4 +15,3 @@ The ESP32-S3 is an inexpensive (~$9) microcontroller used extensively in WiFi se
 **Related:**
 
 - [[ruview]]
-- [[edge-rk3576]]

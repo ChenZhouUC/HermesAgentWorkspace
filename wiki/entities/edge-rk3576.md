@@ -27,4 +27,3 @@ confidence: high
 **Related:**
 
 - [[edge-sophon]]
-- [[ruview]]

@@ -25,4 +25,3 @@ confidence: high
 **相关概念**：
 
 - [[llm-computational-complexity]]
-- [[llm-benchmark-methodology]]
