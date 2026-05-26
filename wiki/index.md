@@ -17,7 +17,7 @@ confidence: high
 
 <!--
 Registry Rules
-1. 仅登记 active Layer 2 节点；不登记 `_living/`、`_archive/`、root ghost pages 或 meta pages。
+1. 仅登记 active Layer 2 节点；不登记 Layer 1 原材料（`_living/`、`raw/`）、`_archive/`、root ghost pages 或 meta pages。
 2. 每个 active 节点必须且只能出现一次，且分区必须与目录/`type` 一致。
 3. 条目格式固定为：- `[[slug]]` - 一句话摘要
 4. 各分区按 slug 字母序排列。

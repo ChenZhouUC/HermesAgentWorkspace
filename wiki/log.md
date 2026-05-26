@@ -298,3 +298,21 @@ confidence: high
 - 索引同步：`index.md` Entities 区新增 `[[hidalgo]]`，`Total pages` 32 → 33
 - 审计结果：未发现需要推翻 ReID 管线职责、trajex 感知层职责、库查询/影子部署/DDL 契约等核心事实的谬误；主要问题是 hidalgo/trajex 的 entity 判定标准与术语指代不一致
 - `wiki_lint: OK`
+
+## [2026-05-26] update | Clarify Layer 1 source-material scope
+
+- 将 Layer 1 从仅 `_living/**` 扩展为 `_living/**` + `raw/**` 的原始材料层
+- 在 `SCHEMA.md` 中区分 Living Sources 与 Raw Reference Sources，收窄 `_living/` 专属约束
+- 同步 `index.md` 注册规则，明确 `_living/` 与 `raw/` 都不登记为 active Layer 2 节点
+
+## [2026-05-26] tooling | Strengthen wiki_lint schema coverage and reporting
+
+- 对照 `SCHEMA.md` Validation Invariants 扩展 `scripts/wiki_lint.py`：补 Meta frontmatter、全库 active slug 唯一性、index 分区一致性、非 active wikilink、source 文件、日期、confidence、contradictions 等检查
+- 将默认文本输出改为固定顺序 checklist，逐项显示 `[OK]` / `[FAIL]`；保留 `--json` 机器可读输出
+- 同步 `SCHEMA.md` 验证章节，明确 lint 输出格式与普通 wikilink 不得指向 Layer 1 / Meta / Archive 的约束
+
+## [2026-05-26] audit | Full schema compliance pass
+
+- 执行全库严格审计：`wiki_lint.py`、目录/文件名盘点、Layer 1 元数据检查、溯源语法检查、comparison/query 结构检查、出链统计、index 计数与分区检查
+- 修正 `SCHEMA.md` 内部不一致：Active 文件名规则明确只作用于 Layer 2；Create 生命周期中的"至少 2 个出链"改回 Conservative Linking 下的软建议；Deep Sync 示例改为当前紧凑溯源语法
+- 扩展 `scripts/wiki_lint.py`：新增 Active 文件名 kebab-case 检查与 `_living/` 语义型 frontmatter 禁止项检查

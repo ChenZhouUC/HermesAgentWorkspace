@@ -19,19 +19,20 @@ AI 算法工程与统计学习 (Algorithm Engineering & Statistical Learning)
 
 ## Scope (规则作用域)
 
-- **Layer 1 / Source of Truth:** `_living/**` 由用户维护，作为原材料层。除本节与 `Living Documents Policy` 外，下文硬约束**默认不作用于 Layer 1**。
+- **Layer 1 / Source Materials:** `_living/**` 与 `raw/**` 共同构成原始材料层，供 Layer 2 提炼、引用和溯源。下文面向 Active Layer 2 的硬约束**默认不作用于 Layer 1**。
+  - **Living Sources:** `_living/**`。用户私有手写、持续更新的运维知识与研究笔记；由用户维护，Agent 不主动污染正文或添加图谱链接。
+  - **Raw Reference Sources:** `raw/**`。承载具有**公开版本属性**的外部内容——互联网网页、论文、书籍、杂志期刊等；用于给 Layer 2 提供可复核的外部引用锚点，推荐保留来源 URL、访问/发布日期与 sha256 校验以追踪版本。
 - **Layer 2 / Active Knowledge Nodes:** `entities/*.md`、`concepts/*.md`、`comparisons/*.md`、`queries/*.md`。这些页面由 Agent 维护，必须满足下文全部硬约束。
-- **Raw Reference Sources:** `raw/**`。承载具有**公开版本属性** 的外部内容——互联网网页、论文、书籍、杂志期刊等。`raw/` 的用途是给 Layer 2 提供可溯源的外部引用锚点；与 `_living/` 的区别在于：`_living/` 是**用户私有手写**的运维知识，`raw/` 是**外部已发布**的他方内容。`raw/` 文件的 sources frontmatter 推荐保留 sha256 校验以追踪版本。
 - **Meta Pages:** `SCHEMA.md`、`index.md`、`log.md`。这些页面也必须有 frontmatter，但不参与 Layer 2 节点计数。
 - **Archive Pages:** `_archive/**/*.md`。归档页不属于 active graph，不得继续作为 Layer 2 的正常目标节点被引用。
 
 ## Conventions
 
-- File names: 小写字母，连字符分隔，无空格 (e.g., `model-quantization-ptq.md`)
+- Active Layer 2 file names: 小写字母，连字符分隔，无空格 (e.g., `model-quantization-ptq.md`)；Layer 1 原材料可保留来源标题的大小写以减少导入损耗
 - Active Layer 2 页面只允许放在 `entities/`、`concepts/`、`comparisons/`、`queries/` 下；**不得**漂浮在仓库根目录
 - Active Layer 2 slug 必须全库唯一；**禁止**出现同名节点
-- 所有 Active Layer 2 与 Meta 页面必须以 YAML frontmatter 开头；Layer 1 只要求保持最小必要元数据
-- Active Layer 2 页面使用 `\[\[wikilinks\]\]` 进行图谱连线；**鼓励**每页至少 2 个**已解析**出链以维持图连通性，但若严格遵守"关联谨慎保守原则"后只能给出 0 或 1 条强关联，则保留少链优于强加弱链（详见 `Layer 2 Graph Invariants` 章节）。指向 `_living` 的溯源脚注**不计入**出链数。
+- 所有 Active Layer 2 与 Meta 页面必须以 YAML frontmatter 开头；`_living/` 只要求保持最小必要元数据；`raw/` 推荐保留外部来源、访问/发布日期与 sha256 等可复核元数据
+- Active Layer 2 页面使用 `\[\[wikilinks\]\]` 进行图谱连线；**鼓励**每页至少 2 个**已解析**出链以维持图连通性，但若严格遵守"关联谨慎保守原则"后只能给出 0 或 1 条强关联，则保留少链优于强加弱链（详见 `Layer 2 Graph Invariants` 章节）。指向 Layer 1（`_living/` / `raw/`）的溯源脚注**不计入**出链数。
 - Active Layer 2 页面中，所有非代码块/非行内代码中的 `\[\[wikilinks\]\]` 都必须能解析到现存页面；**禁止 unresolved links**
 - Active Layer 2 页面更新正文、frontmatter、slug 或出链时，必须同步更新 `updated` 字段
 - 所有 Active Layer 2 页面必须注册到 `index.md` 的对应区块下，且**恰好出现一次**
@@ -53,8 +54,8 @@ type: entity | concept | comparison | query
 tags: [必须从下方 Taxonomy 中选择]
 sources: [_living/path/to/source.md or raw/papers/source-name.md]
 confidence: high | medium | low
-contested: true | false
-contradictions: [other-page-slug]
+contested: true | false # optional; only required for contested pages
+contradictions: [other-page-slug] # optional; only required when explicit contradictions exist
 ---
 ```
 
@@ -64,6 +65,7 @@ contradictions: [other-page-slug]
 - `tags` 对 Active Layer 2 页面必须为**非空列表**，且所有标签都必须已注册到下方 Taxonomy
 - `sources` 对 Active Layer 2 页面必须为**非空列表**
 - `updated` 必须在每次内容、结构或链接变更时同步刷新
+- `contested` / `contradictions` 为条件字段；存在明确争议或冲突时才需要填写
 - `contradictions` 中的 slug 必须存在，且应指向 active 页面而非 archive 页面
 
 ## Tag Taxonomy (标签库)
@@ -81,7 +83,7 @@ _新增标签前必须在此处注册_
 
 ## Page Thresholds (页面创建标准)
 
-- **实体与流程解耦 (Entity-Process Decoupling)**：严格区分名词与动词。软件、硬件、理论（名词）应作为独立的 Entity 或 Concept 提取；操作手册、部署流程、业务流水线（动词/流程）应保留在 Layer 1 中。**绝不能**将"XX 操作指南"直接打包为一个图谱节点，提取时必须"粉碎重组"出核心实体，并让这些实体单向溯源至该流程文档。
+- **实体与流程解耦 (Entity-Process Decoupling)**：严格区分名词与动词。软件、硬件、理论（名词）应作为独立的 Entity 或 Concept 提取；操作手册、部署流程、业务流水线（动词/流程）应保留在 Layer 1 原材料中。**绝不能**将"XX 操作指南"直接打包为一个图谱节点，提取时必须"粉碎重组"出核心实体，并让这些实体单向溯源至该流程文档。
 - **创建页面：** 实体/概念在独立文献中作为核心探讨，或在多个文档中出现 2 次以上。
 - **拆分页面：** 页面超过 200 行时，按子主题拆分。
 - **归档页面：** 内容被完全推翻或过时，移入 `_archive/` 并从 index 移除。
@@ -91,7 +93,7 @@ _新增标签前必须在此处注册_
 > **以下为原则性指引，不是硬阈值**。不同模型/不同参数下执行效果会有差异，按"原则上要求"理解；遇到边界情形，优先保守不提取，等下次复核再决定。
 
 - **理想颗粒度判据**：一个 Layer 2 节点应当是**作为整体研究有意义的研究对象**——既能用一句话给出它的定义，也值得围绕它写出一篇独立的、超过几段的描述。
-- **过细的反模式**：把"某函数"、"某配置项"、"某表的某列"提成 entity——这些是实现细节，应留在 Layer 1。判据：**如果离开它的母体上下文就讲不清楚**，则颗粒度过细。
+- **过细的反模式**：把"某函数"、"某配置项"、"某表的某列"提成 entity——这些是实现细节，应留在 Layer 1 原材料中。判据：**如果离开它的母体上下文就讲不清楚**，则颗粒度过细。
 - **过粗的反模式**：把"AI 系统"、"知识库"这种主题词提成 concept——内涵过宽、不能聚焦讨论。判据：**如果一句话定义需要列举三个以上独立子主题**，则颗粒度过粗。
 - **父子并存允许**：如果父节点（如某个框架）和子节点（如该框架的某个核心子模块）**双方独立都满足"整体研究对象"判据**，允许同时提取。父子节点之间通过 wikilinks 显式声明关系。
 - **优先粉碎重组而非整体打包**：来源 Layer 1 文档常是混合材料；Agent 不应一对一映射 Layer 1 → Layer 2，而应识别其中可独立成立的研究对象、按主题颗粒度重组。
@@ -150,8 +152,8 @@ _新增标签前必须在此处注册_
 创建 Active Layer 2 节点时，必须在同一变更中完成以下动作：
 
 1. 新建到正确目录，并使用全库唯一 slug
-2. 写入完整 frontmatter（含非空 `sources`）
-3. 添加至少 2 个已解析的 Layer 2 出链
+2. 写入必需 frontmatter（含非空 `sources`）
+3. 添加已解析的 Layer 2 出链；鼓励至少 2 个，但若严格遵守"关联谨慎保守原则"后只能给出 0 或 1 条强关联，则保留少链优于强加弱链
 4. 注册到 `index.md`
 5. 追加 `log.md`
 
@@ -192,16 +194,20 @@ _新增标签前必须在此处注册_
 python3 scripts/wiki_lint.py
 ```
 
-该脚本必须返回 `wiki_lint: OK` 且退出码为 0。它至少校验以下条件：
+该脚本的默认文本输出必须按固定顺序打印检查清单，逐项标记 `[OK]` / `[FAIL]`；若失败，继续输出 issue details。机器读取场景可使用 `--json`。脚本最终必须返回 `wiki_lint: OK` 且退出码为 0。它至少校验以下条件：
 
 1. `entities/`、`concepts/`、`comparisons/`、`queries/` 中不存在零字节 Markdown 文件
-2. 仓库根目录不存在漂浮的 Active Layer 2 节点
-3. Active Layer 2 slug 全库唯一
-4. Active Layer 2 页面全部具备完整 frontmatter，且 `sources`、`tags` 非空
-5. Active Layer 2 页面中不存在 unresolved wikilinks（代码块/行内代码中的示例除外）
-6. 每个 Active Layer 2 页面在 `index.md` 中**恰好登记一次**
-7. `index.md` 不得登记不存在、已归档或已被替换的 slug
-8. 若 `index.md` 维护 `Total pages` 字段，则该值必须等于已登记的 Active Layer 2 节点数
+2. Active Layer 2 文件名符合小写 kebab-case
+3. 仓库根目录不存在漂浮的 Active Layer 2 节点
+4. Active Layer 2 slug 全库唯一
+5. Meta pages 存在且以 YAML frontmatter 开头
+6. Active Layer 2 页面全部具备必需 frontmatter 字段，且 `sources`、`tags` 非空
+7. Active Layer 2 页面中不存在 unresolved wikilinks（代码块/行内代码中的示例除外）
+8. Active Layer 2 页面不得用普通 wikilink 指向 Layer 1、Meta 或 Archive 页面；此类来源必须使用对应溯源脚注语法
+9. 每个 Active Layer 2 页面在 `index.md` 中**恰好登记一次**
+10. `index.md` 不得登记不存在、已归档或已被替换的 slug
+11. 若 `index.md` 维护 `Total pages` 字段，则该值必须等于已登记的 Active Layer 2 节点数
+12. `_living/` 文档不得包含图谱 wikilinks 或语义型 frontmatter 字段（如 `type`, `tags`, `concepts`）
 
 ## Update Policy (更新策略)
 
@@ -211,18 +217,18 @@ python3 scripts/wiki_lint.py
 2. 属于学术争议时，必须同时保留两种观点，并附带各自的来源和日期。
 3. 在 Frontmatter 中标记 `contradictions: [page-name]`。
 
-## Living Documents Policy (活体文档同步规则)
+## Living Documents Policy (`_living/` 活体文档同步规则)
 
 对于外部持续更新的个人笔记或配置文档：
 
 1. **绝不放入 `raw/`**：统一存放或镜像至 `_living/` 目录，且不添加 `sha256` 校验。
 2. **保持高内聚，禁止污染源文档 (单向引用原则)**：`_living` 目录下的文档作为原材料 (Source of Truth)，必须保持纯净，由用户手动维护。Agent **绝不允许**向 `_living` 下的文档底部或正文中主动写入任何指向图谱的 `\[\[wikilinks\]\]` 或隔离线。
-3. **原材料元数据极简化 (No Semantic Metadata in Layer 1)**：`_living` 中的文档不需要（也不推荐）包含上层知识图谱的结构化元数据（如 `tags`, `type`, 或显式的 `concepts` 链接）。原材料只需陈述事实和业务逻辑。知识体系的分类（Tags）和概念提炼（Concepts）完全由 Agent 在同步时于 Layer 2 自行负责构建。
-4. **通过 Layer 2 溯源建立图谱关系**：所有的知识网状连线，必须由 Layer 2 (Concepts/Entities) 页面通过**紧凑的内联脚注语法**（例如：`^[[[_living/xxx/xxx|显示别名]]]`）**单向、主动地指向** Layer 1。
+3. **原材料元数据极简化 (No Semantic Metadata in Living Sources)**：`_living` 中的文档不需要（也不推荐）包含上层知识图谱的结构化元数据（如 `tags`, `type`, 或显式的 `concepts` 链接）。原材料只需陈述事实和业务逻辑。知识体系的分类（Tags）和概念提炼（Concepts）完全由 Agent 在同步时于 Layer 2 自行负责构建。
+4. **通过 Layer 2 溯源建立图谱关系**：所有的知识网状连线，必须由 Layer 2 (Concepts/Entities) 页面通过**紧凑的内联脚注语法**（例如：`^[[[_living/xxx/xxx|显示别名]]]`）**单向、主动地指向** `_living/` 子层。
    - **核心红线**：在 `^[` 和 `[[` 之间，以及 `]]` 和 `]` 之间，**绝对不允许有任何空格**。空格会触发 Obsidian 渲染器的 Bug 导致显示残留的 `] ]`。
    - 采用此紧凑语法后，正文中会被无缝渲染成干净的 `[1]` 上标，并在阅读视图末尾由 Obsidian 引擎**自动生成**包含双链的回溯列表，从而免去手动维护文末 `[^1]: ...` 的冗余文本。
 5. **常规同步 (Incremental)**：默认模式。读取新内容，提取最新主张 (Claims)，去 Layer 2 对碰。修改冲突、补充新增，但*不自动清理静默删除的幽灵知识*。
-6. **深度同步/重构 (Deep Sync)**：必须由用户显式声明触发（如“已做大规模删减，请做深度同步”）。Agent 会顺着该文档的溯源标记 (`^[_living/xxx.md]`) 反向遍历 Layer 2，清理掉所有在新草稿中已丢失的旧陈述。
+6. **深度同步/重构 (Deep Sync)**：必须由用户显式声明触发（如“已做大规模删减，请做深度同步”）。Agent 会顺着 Layer 2 中指向该文档的溯源标记（如 `^[[[_living/xxx/xxx|显示别名]]]`）反向遍历 Layer 2，清理掉所有在新草稿中已丢失的旧陈述。
 7. **单点重置 (Override)**：当该篇活体文档是某领域的绝对唯一真理时，允许直接重置/覆写对应的 Layer 2 页面。
 8. **可复用知识 vs 实现细节 (Reusability Filter)**：`_living/` 文档中**只承载具备复用性的知识与实用性技术**——架构思想、方法学、设计原则、跨场景共通的工程经验。**实现细节应被剥离**——包括但不限于：
    - 项目内私有命名（具体函数名、类名、表名、列名、配置键名、私有模型节点名）；
