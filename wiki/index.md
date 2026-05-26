@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last updated: 2026-05-25 | Total pages: 24
+> Last updated: 2026-05-26 | Total pages: 25
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
 <!--
@@ -50,6 +50,7 @@ Registry Rules
 - [[multi-stage-clustering]] - 轨迹相似度图上的多层级连通分量聚合（由严到松、由同向到异向）
 - [[ontology]] - 知识工程中的本体论概念及其规范边界
 - [[reasoning-effort-control]] - 推理努力程度/思考预算控制及过度思考与逆向扩展
+- [[reid-embedding-models]] - 行人 ReID 特征向量模型选型：从 BoT/FastReid 到 ViT/SOLIDER/CLIP-ReID
 - [[reid-pipeline]] - 行人重识别系统的"采集/计算/编排"三段分层与三模式对偶架构
 - [[set-theory]] - 集合论基础、公理体系与异见理论
 - [[test-time-compute-scaling]] - 推理时计算扩展范式与推理模型的 RL 训练实现

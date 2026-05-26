@@ -168,3 +168,14 @@ confidence: high
   - `concepts/customer-flow-post-processing.md` 的 `confidence` 由 `high` 降为 `medium`
   - 更新 `index.md` 中 `reid-pipeline` 与 `multi-stage-clustering` 的一句话摘要
 - `wiki_lint: OK`
+
+## [2026-05-26] ingest | ReID Embedding Models 模型选型调研
+
+- 触发：用户要求调研 ReID 特征向量模型现状（FastReid 已用过，关心 ViT 等新 SOTA），并落地到 \_living + Layer 2
+- 调研路径：WebSearch 拉取近年 ReID 特征模型现状（FastReid / TransReID / SOLIDER / CLIP-ReID / PersonViT / LUPerson / DINOv2 / ViT 边缘部署），覆盖学术 SOTA + 实战部署 + 跨域泛化三个维度
+- 新建 `_living/AI-Applications-and-Ops/ReID-Embedding-Models.md`：技术谱系（BoT/FastReid → TransReID → SOLIDER/CLIP-ReID → PersonViT）、选型决策框架（域泛化/算力/微调成本/遮挡）、部署约束（TensorRT 延迟、256×128 输入、跨域掉点幅度）、评估方法学局限（学术数据集 vs 零售门店的 domain gap）
+- Layer 2 提炼：新增 `concepts/reid-embedding-models.md`——独立的"特征提取器"主题，与 [[reid-pipeline]]（管线架构）解耦；颗粒度对齐现有"技术谱系类" concepts（chain-of-thought / test-time-compute-scaling）；无 entity（无专有产品名）
+- 关联性：与 ReID 三角连成"四点闭合"——`reid-embedding-models ↔ reid-pipeline / multi-stage-clustering / customer-flow-post-processing`；body 内显式引用前两者
+- 索引同步：`index.md` Concepts 区按字母序插入；`Total pages` 24 → 25
+- 内容控制：调研结果包含学术 mAP 数字（用以体现谱系差异）；本次不强行剔除——这些是"可复现的学术事实"而非"项目内部实现细节"，与之前 ReID Layer 1 脱敏的初衷不冲突
+- `wiki_lint: OK`
