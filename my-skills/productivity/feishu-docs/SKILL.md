@@ -25,6 +25,9 @@ Use this skill whenever you need to read, summarize, create, or update documents
 13. **403 Forbidden Fallbacks**: If appending to a user's doc fails with HTTP 403 Forbidden, and you create a fallback document, you MUST STILL apply all strict formatting rules (Professional Title, Version Table, Chicago References). Do NOT just dump raw markdown via append. Use `scripts/rebuild_doc_from_md.py` on the fallback doc to guarantee the Version Table and Title are initialized properly, and ensure your source markdown includes the `## References` section.
 14. **Wiki vs Docx Permission Scope**: If the target URL is a Feishu Wiki link (`https://domain.feishu.cn/wiki/TOKEN`), the application MUST have `wiki:wiki:readonly` or `wiki:node:read` permissions. If it only has document permissions, the API will reject it with a `99991672 Access denied` error. Ask the user to grant the Wiki scope or provide the underlying standard `.docx` link.
 15. **Shortcuts (404 / 1770032 forBidden)**: If you obtain a file token from a folder listing and that token is a `shortcut` type, reading its raw token or its metadata directly often fails with 404 or `1770032 forBidden`. If extraction fails on a shortcut, notify the user that the source file is either deleted or lacks public/group permissions inherited by the bot.
+16. **Media Token Isolation (No Image/Video Copying)**: Feishu strictly isolates media (images/videos) per document. A media token from Doc A will return `403 Forbidden` if inserted into Doc B. To copy media, you would have to download the binary and use the `Upload Media` API to get a new token for Doc B. Because this is slow and prone to timeouts, our Markdown extraction scripts **intentionally drop images and videos**. If the user asks why images didn't copy over, explain this architectural limitation.
+17. **Rebuild Script KeyError on Deep Nesting**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild, causing a safe rollback. When this happens, abandon the in-place rebuild and fallback to `create_new_doc_from_md.py` to generate a fresh document, then inform the user to use the new link.
+18. **Tenant Domain Configuration**: Scripts output placeholder URLs (e.g. `domain.feishu.cn`). Make sure your execution substitutes the actual tenant domain (`whales.feishu.cn`) when giving links back to the user.
 
 ---
 
@@ -76,6 +79,8 @@ When the user says "清理旧内容并按规范重写" or asks for a full doc ov
 ```bash
 uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/rebuild_doc_from_md.py <target_doc_token> <md_file_path> "<Professional_Title>"
 ```
+
+**Large Document Pitfall:** For very long documents (e.g., hundreds of rows of tables), the block insertion process can easily exceed the standard 120s Bash tool timeout. If the command times out, **do not panic or interrupt**. Re-run the command via the Bash tool with `run_in_background: true` — the harness will notify on completion. See `references/rebuild-keyerror-fallback.md` if the rebuild itself fails with `KeyError`.
 
 It clears old content, sets the title, **re-creates the Version Table preserving the
 existing history (and appending a new row)**, and merges the new Markdown. The

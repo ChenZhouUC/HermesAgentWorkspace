@@ -49,3 +49,19 @@ When configuring RTSP streams for Edge/Cloud AI processing:
 - **Codec**:
   - **H.264 (AVC)**: The universal fallback for hardware decoding (OpenCV/FFmpeg).
   - **H.265 (HEVC)**: Cuts bandwidth in half but requires dedicated hardware decoders (e.g., on Sophgo/RK3576 NPUs).
+
+## 4. Hardware Sizing & TOPS vs FLOPs
+
+When sizing Edge AI boxes for vision models, distinguish between the model's compute requirement (FLOPs) and the hardware's capacity (TOPS).
+
+- **FLOPs / MACs**: The number of math operations a model requires per frame (e.g., YOLOv8n is ~8.7 GFLOPs at 640x640).
+- **TOPS**: The maximum theoretical operations the NPU can perform per second (e.g., RK3576 is 6 TOPS).
+
+**The NPU Utilization Trap**: Theoretical FPS = `(TOPS * 1000) / GFLOPs`. However, real-world NPU utilization rarely exceeds 30%-50% due to the **Memory Wall** (moving data takes longer than computing it) and unsupported operators falling back to the CPU.
+
+**Rule of Thumb (The "Truck and Bricks" Analogy)**:
+Explain hardware sizing to non-technical stakeholders using the truck analogy:
+
+- _Compute is the Truck (TOPS)_, _Models are the Bricks (FLOPs)_.
+- A 6 TOPS truck can technically hold 100 bricks, but loading/unloading (memory bandwidth) is slow, so it maxes out carrying 40 bricks a second.
+- **Base Heuristic**: For a standard 10-15 FPS object detection stream (YOLO), **1 TOPS ≈ 1 Camera Stream**. A 6 TOPS box safely handles 4-6 streams; a 32 TOPS box handles ~30 streams. For complex ReID/Feature extraction pipelines, estimate **2-3 TOPS per Camera Stream**.

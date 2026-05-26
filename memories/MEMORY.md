@@ -4,7 +4,7 @@ Repo: git@github.com:ChenZhouUC/HermesAgentWorkspace.git. Never auto-commit. Pri
 §
 Feishu API Quirks: Max 9-row tables, no direct append. Skip H1. POST index relative. DELETE gives 404 (use batch). Bullets=12. Domain: whales.feishu.cn. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. User: ou_33eeacfbd0c0559b7b734f83503719ab. No trailing dots in Markdown URLs.
 §
-Feishu Docs: 'AI Benchmark' (CjeZdC6XioH0VnxsRKscJb1LnVe), 'Edge/Cloud Arch' (Mw6CdkF33oRZosx8L3WcgWU4nAc). SpaceSight/Echo (PaaS). KeepAgile/dicts. Gemini quirk: Canvas survives session delete (in Documents); Images are session-bound and lost if deleted.
+Feishu Docs: 'AI Benchmark', 'Edge/Cloud Arch'. PaaS: SpaceSight/Echo. KeepAgile/dicts. Gemini quirk: Canvas survives session delete; Images are lost. Claude quirk: bg process hangs on trust prompt; bypass with data='1\\n'. Whale repos: ~/Documents/WhaleRepo/ (wh4a, wh4f, wh4i, whjs). Uses git-delta.
 §
 Write ALL temp files strictly to ~/.hermes/tmp (never ~/ unless explicitly requested). Subagents spawned via `delegate_task` lack session memory; explicitly pass this path rule and other constraints in their context/goal. Homebrew ops require user approval.
 §

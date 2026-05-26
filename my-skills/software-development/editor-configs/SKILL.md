@@ -8,6 +8,8 @@ category: software-development
 
 This skill covers techniques for configuring editors, starting with MacVim GUI.
 
+- See `references/git-delta-theme-setup.md` for configuring `git-delta` UI themes and side-by-side diff layouts.
+
 ## MacVim Operations and Customization
 
 This covers techniques for configuring MacVim GUI elements via `~/.gvimrc` (or `if has("gui_running")` in `~/.vimrc`), which differ from standard terminal Vim.
