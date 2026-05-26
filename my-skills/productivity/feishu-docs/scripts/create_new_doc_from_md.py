@@ -81,7 +81,7 @@ def create_doc(md_path, title):
     version = append_version_row(token, doc_token)
     print(f"Version row: {version}")
 
-    print(f"DONE: https://domain.feishu.cn/docx/{doc_token}")
+    print(f"DONE: https://whales.feishu.cn/docx/{doc_token}")
 
 
 if __name__ == "__main__":
