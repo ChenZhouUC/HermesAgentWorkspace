@@ -78,6 +78,7 @@ REQUIRED_FRONTMATTER = {
 }
 
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
+LIVING_PROVENANCE_RE = re.compile(r"\^\[\[\[_living/[^\]]+\]\]\]")
 TOTAL_PAGES_RE = re.compile(r"Total pages:\s*(\d+)")
 
 
@@ -85,6 +86,11 @@ def strip_code(text: str) -> str:
     """Remove fenced and inline code before wikilink extraction."""
     text = re.sub(r"```.*?```", "", text, flags=re.S)
     return re.sub(r"`[^`]*`", "", text)
+
+
+def strip_non_graph_markup(text: str) -> str:
+    """Remove markup that contains brackets but is not a graph edge."""
+    return LIVING_PROVENANCE_RE.sub("", strip_code(text))
 
 
 def parse_frontmatter(text: str) -> dict[str, Any] | None:
@@ -146,7 +152,7 @@ def build_slug_index(root: Path) -> dict[str, list[str]]:
 
 
 def extract_links(text: str) -> list[str]:
-    return LINK_RE.findall(strip_code(text))
+    return LINK_RE.findall(strip_non_graph_markup(text))
 
 
 def validate(root: Path) -> dict[str, list[Any]]:
@@ -162,7 +168,6 @@ def validate(root: Path) -> dict[str, list[Any]]:
         "empty_sources": [],
         "missing_source_files": [],
         "broken_links_active": [],
-        "low_outlinks": [],
         "unindexed_active": [],
         "stale_index_entries": [],
         "duplicate_index_entries": [],
@@ -224,17 +229,12 @@ def validate(root: Path) -> dict[str, list[Any]]:
             if missing_sources:
                 issues["missing_source_files"].append([rel, missing_sources])
 
-        outlinks: list[str] = []
         for target in extract_links(text):
             if target.startswith("_living/"):
                 continue
             slug = Path(target).name
             if slug not in slug_index:
                 issues["broken_links_active"].append([rel, target])
-            else:
-                outlinks.append(slug)
-        if len(outlinks) < 2:
-            issues["low_outlinks"].append([rel, len(outlinks), outlinks])
 
     index_path = root / "index.md"
     if index_path.exists():

@@ -191,12 +191,19 @@
     },
     "triangle": {
       "combinationLogic": "AND",
-      "index": 2,
-      "rules": []
+      "index": 4,
+      "rules": [
+        {
+          "source": "path",
+          "property": "",
+          "value": "comparisons",
+          "logic": "contains"
+        }
+      ]
     },
     "diamond": {
       "combinationLogic": "AND",
-      "index": 3,
+      "index": 2,
       "rules": [
         {
           "source": "path",
@@ -208,12 +215,12 @@
     },
     "pentagon": {
       "combinationLogic": "AND",
-      "index": 4,
+      "index": 5,
       "rules": []
     },
     "hexagon": {
       "combinationLogic": "AND",
-      "index": 5,
+      "index": 3,
       "rules": [
         {
           "source": "path",
@@ -354,7 +361,7 @@
     "images": true,
     "icons": true,
     "focus": true,
-    "shapes": true,
+    "shapes": false,
     "layers": true,
     "elements-stats": false,
     "names": true,

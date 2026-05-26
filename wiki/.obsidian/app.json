@@ -2,5 +2,11 @@
   "defaultViewMode": "preview",
   "showLineNumber": true,
   "livePreview": false,
-  "promptDelete": false
+  "promptDelete": false,
+  "pdfExportSettings": {
+    "pageSize": "A3",
+    "landscape": false,
+    "margin": "0",
+    "downscalePercent": 100
+  }
 }

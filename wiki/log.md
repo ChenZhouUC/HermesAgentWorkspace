@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-05-17
+updated: 2026-05-26
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -231,4 +231,70 @@ confidence: high
   - `concepts/reid-embedding-models.md` body 显式 reference 该 comparison，Related 区按字母序追加
 - 索引同步：`index.md` Comparisons 区新增条目；`Total pages` 25 → 26
 - 不动 \_living 已有内容（Reusability Filter 面向未来 ingest，不回溯）
+- `wiki_lint: OK`
+
+## [2026-05-26] ingest | trajex ReID 感知层服务
+
+- 触发：用户提供 `~/Documents/WhaleRepo/whds/project_hidalgo_reid/trajex/` 的 ReID 推理服务代码，要求按最新 SCHEMA 设计融入
+- 代码审计：通过 general-purpose agent 通读 trajex 仓库（README、`src/trajex/{inference,queue,database,cluster,models,setting,config,commands}/`、KAFKA_DEDUPLICATION.md、5 个 rebuild/rerun 脚本、trajex-api/admin/alert 子服务），产出 1200 字结构化报告
+- 关键事实确认：
+  - trajex 与 hidalgo 之间**只通过数据库表握手，无 RPC 无共享内存**——schema 即契约
+  - trajex 只做"逐轨迹特征化 + 角色 1-NN 库查询"，**不做聚类、不分配行人 ID**
+  - 推理走 Triton + 本机共享内存直连；模型旧主特征轴 / 新统一特征轴可并行写入
+  - 两层 Redis 集合去重（按天滚动 TTL，曾用 Bloom filter 后替换以避免假阳性）
+  - 三种回放模式：scheduled rebuild / manual rerun / cache rebuild
+  - Milvus → pgvector 按集合渐进迁移，dispatcher 层切换不动业务代码
+- \_living 新建：`_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md`（10 节，覆盖职责边界 / 数据流 / 模型推理 / 库查询 / 去重 / 回放 / 模型升级 / hybrid 存储 / 运维 / 设计哲学）；按 Reusability Filter 剥离所有项目内私有命名（具体表名、列名、Kafka topic 名、模型节点名、配置键、Redis key 命名等）
+- L2 提炼（按 Conservative Linking 严格筛选，agent 提议 14 个新节点，砍剪到 6 个）：
+  - `entities/trajex.md` — 具体服务实体
+  - `concepts/reid-library-lookup.md` — 把 1-NN 角色判定上移到感知层的方法学
+  - `concepts/model-shadow-deployment.md` — 配对特征轴并行的模型升级模式
+  - `concepts/schema-as-handoff-contract.md` — DDL 作为生产者/消费者契约的通用范式
+  - `comparisons/trajex-vs-hidalgo.md` — 感知层 vs 计算层分工对比（含三件套：对比表 + Trade-offs + When to use）
+  - `queries/how-to-roll-out-a-new-reid-model.md` — **wiki 中第一个 query 节点**，端到端 SOP 串联 reid-embedding-models / model-shadow-deployment / trajex / reid-pipeline / reid-library-lookup
+- 砍掉的候选（颗粒度过细 / 厂商绑定 / 重复）：
+  - `entities/hidalgo` — 已在 reid-pipeline concept 中作为方法学描述；hidalgo 是内部代号，作为 entity 颗粒度模糊
+  - `entities/triton-inference-server` — 过于通用，没有专属 \_living 详述
+  - `concepts/kafka-dedup-pre-producer` — 厂商绑定（Kafka + Redis 具体组合），并入 \_living 实施细节
+  - `concepts/triton-shared-memory-deployment` — 厂商绑定 Triton，并入 \_living
+  - `concepts/replay-source-tagging` — 颗粒度过细，已并入 model-shadow-deployment body
+  - `comparisons/online-vs-offline-reid-compute-split` — 与 trajex-vs-hidalgo 高度重叠
+  - `queries/where-do-reid-features-come-from` — 太薄，不构成 SOP
+- 反向链补充（按 Conservative Linking，仅在 body 有显式陈述时建立）：
+  - `concepts/reid-pipeline.md` body 中"上游感知层"段引入 [[trajex]] 与 [[reid-library-lookup]]；Related 区新增 [[trajex]]、[[trajex-vs-hidalgo]]
+- 索引同步：`index.md` Entities/Concepts/Comparisons/Queries 四个区都新增条目；`Total pages` 26 → 32
+- `wiki_lint: OK`
+
+## [2026-05-26] audit | trajex ingest 二次核事实
+
+- 触发：上一轮 ClaudeCode 已完成主体 ingest；本轮按源码对照复核，重点看 `src/trajex/inference/processor.py`、`src/trajex/inference/worker.py`、`src/trajex/database/db_manager.py`、`src/trajex/database/redis.py`、`src/trajex/queue/kafka_shared_queue.py`、回放脚本与 pgvector/Milvus 检索路径
+- 修正事实表述：
+  - 将"v1/v2 双列"改为"旧主 ReID 特征轴 / 新统一特征轴并行"，避免把通用模式误读成源码里的字面列名
+  - 将质量模型表述改为"可选 / 预留"，因为当前主处理链路保留质量字段与旧客户端能力，但并非每条图像都实际写入质量结果
+  - 将底库分层改为"通用角色服饰库 / 公司或店铺工服库 / 店员 ReID 底库"，贴合源码中的角色服饰检索、员工工服检索与店员 ReID 检索三路
+  - 将 query SOP 中的具体脚本名与具体生产列名抽象为 reembedding 任务与生产特征列，符合 Reusability Filter
+- 同步更新：`_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md`、`entities/trajex.md`、`concepts/model-shadow-deployment.md`、`comparisons/trajex-vs-hidalgo.md`、`queries/how-to-roll-out-a-new-reid-model.md`、`index.md`
+- 元数据修正：`index.md` 与 `log.md` frontmatter `updated` 刷新到 2026-05-26
+- 验证：从 git repo 根目录运行 `python3 scripts/wiki_lint.py`，返回 `wiki_lint: OK`
+
+## [2026-05-26] audit | ReID 命名边界与 SCHEMA 再审计
+
+- 触发：用户补充 `hidalgo` 与 `trajex` 都是内部项目名，并指出 `project_hidalgo_reid/` 的目录结构可作为术语关系证据；要求连同 `_living` 文档一起审计 ReID 相关 wiki 是否有谬误
+- 代码/目录事实核对：
+  - 顶层仓库 `/Users/chenzhou/Documents/WhaleRepo/whds/project_hidalgo_reid` 的 README 标题与顶层 `pyproject.toml` 均确认项目/包名为 `hidalgo`
+  - `trajex/` 是该仓库下独立子项目，拥有独立 `pyproject.toml` 与 `src/trajex/` 服务代码
+  - `hidalgo/coreprime.py` 主流程确认当前计算层按 `(shop_id, time range, mode)` 批处理，读取特征表，执行角色重判、聚合 / 匹配与结果回写；主流程不直接做模型推理或消息消费
+- 结论修正：上一轮“`entities/hidalgo` 因为是内部代号不建”理由不成立；正确判据应是**是否具备边界清晰的软件项目/服务身份**。按最新 SCHEMA 的 entity 语义，hidalgo 与 trajex 都应是 entity：`hidalgo` 是顶层 ReID 项目与计算层服务，`trajex` 是其中特征推理 / 感知层服务
+- L2 修正：
+  - 新建 `entities/hidalgo.md`
+  - 将 `entities/trajex.md`、`comparisons/trajex-vs-hidalgo.md`、`concepts/reid-pipeline.md`、`concepts/schema-as-handoff-contract.md`、`concepts/reid-library-lookup.md`、`concepts/model-shadow-deployment.md`、`queries/how-to-roll-out-a-new-reid-model.md` 中的“ReID 计算层 / hidalgo”指代收敛到 `[[hidalgo]]`
+  - 保留 `concepts/reid-pipeline.md` 作为系统分层方法学节点，不再让它兼任 hidalgo 实体身份
+  - `concepts/customer-flow-post-processing.md` 与 `concepts/multi-stage-clustering.md` 补充到 `[[hidalgo]]` 的明确语义链路
+- \_living 修正：
+  - `ReID-Pipeline-Architecture.md` 补“命名边界”段：Hidalgo 是顶层项目名 / 计算层服务，trajex 是特征推理子项目 / 服务
+  - `ReID-Perception-Layer-trajex.md` 补同样的命名边界，并将下游统一称为 hidalgo 计算层
+  - `Customer-Flow-Post-Processing.md` 将“ReID 核心引擎”泛称收敛为 hidalgo 计算层，避免服务边界混淆
+- 工具修正：`scripts/wiki_lint.py` 不再把 `_living` 紧凑溯源脚注 `^[[[_living/...]]]` 当作普通 graph wikilink，也移除“少于 2 出链”的硬失败项，以对齐当前 SCHEMA 的 Conservative Linking 软约束
+- 索引同步：`index.md` Entities 区新增 `[[hidalgo]]`，`Total pages` 32 → 33
+- 审计结果：未发现需要推翻 ReID 管线职责、trajex 感知层职责、库查询/影子部署/DDL 契约等核心事实的谬误；主要问题是 hidalgo/trajex 的 entity 判定标准与术语指代不一致
 - `wiki_lint: OK`

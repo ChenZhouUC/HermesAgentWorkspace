@@ -10,6 +10,6 @@ Product Recs: Use star ratings (descending) & tables for spec combos/prices.
 §
 Tools: Execute fully. Local commands direct. Monitor RAM: iStat. Wiki ops: ALWAYS skill_view(llm-wiki) before read/write. When refactoring skills, strictly ensure actual execution capabilities are not degraded.
 §
-In hardware/training docs, prefers full comparative tables, real cloud SKUs, and 'for reference only' math formulas. In CV architectures, favors Edge Extract + Cloud ReID match over Face ID for privacy.
+Hardware docs: comparative tables, real SKUs, reference math. For bosses/mgmt: use 3-5 plain-English sentences, intuitive analogies, and rule-of-thumb formulas. CV: Edge extract+Cloud ReID.
 §
 Feishu user open_id: ou_33eeacfbd0c0559b7b734f83503719ab (useful for assigning permissions, tagging, or routing).

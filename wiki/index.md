@@ -1,7 +1,7 @@
 ---
 title: Wiki Index
 created: 2026-05-14
-updated: 2026-05-18
+updated: 2026-05-26
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last updated: 2026-05-26 | Total pages: 26
+> Last updated: 2026-05-26 | Total pages: 33
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
 <!--
@@ -33,9 +33,11 @@ Registry Rules
 - [[edge-sophon]] - 算能 (Sophgo) 边缘 TPU 盒子系列
 - [[esp32-s3]] - WiFi CSI 信号采集核心微控制器
 - [[hermes-agent]] - 多模态 Agent 端到端框架，包含 macOS 核心网关与 Fallback 机制
+- [[hidalgo]] - ReID 顶层项目与计算层服务：特征数据 → 行人 ID + 角色 + 轨迹
 - [[obsidian]] - 本地 Markdown 知识库与双链图谱工具
 - [[openclaw]] - 早期的智能体前代框架（现已被 Hermes 继承并自动迁移）
 - [[ruview]] - 基于 WiFi CSI 的穿墙无感知检测平台
+- [[trajex]] - ReID 感知层服务：边缘轨迹 + 图像 → 特征数据 + 角色标签
 
 ## Concepts (概念：机制/算法/理论)
 
@@ -47,11 +49,14 @@ Registry Rules
 - [[llm-computational-complexity]] - 大语言模型在 TCS 领域的计算复杂性与严格下界
 - [[lmm-input-mechanics]] - LMM (多模态大模型) 从 Markdown 到 Token 的处理机制
 - [[markdown-llm-protocol]] - Markdown 在 LLM 交互场景下的格式协议架构
+- [[model-shadow-deployment]] - 模型升级时配对特征轴并行的影子部署模式
 - [[multi-stage-clustering]] - 轨迹相似度图上的多层级连通分量聚合（由严到松、由同向到异向）
 - [[ontology]] - 知识工程中的本体论概念及其规范边界
 - [[reasoning-effort-control]] - 推理努力程度/思考预算控制及过度思考与逆向扩展
 - [[reid-embedding-models]] - 行人 ReID 特征向量模型选型：从 BoT/FastReid 到 ViT/SOLIDER/CLIP-ReID
+- [[reid-library-lookup]] - 把角色判定以 1-NN 库检索的方式融进特征提取阶段（区别于聚类）
 - [[reid-pipeline]] - 行人重识别系统的"采集/计算/编排"三段分层与三模式对偶架构
+- [[schema-as-handoff-contract]] - DDL 作为生产者/消费者契约的数据管线握手范式
 - [[set-theory]] - 集合论基础、公理体系与异见理论
 - [[test-time-compute-scaling]] - 推理时计算扩展范式与推理模型的 RL 训练实现
 - [[traditional-knowledge-graph]] - 大模型爆发前的符号主义知识图谱架构（KG）及三元组原理
@@ -61,5 +66,8 @@ Registry Rules
 
 - [[reasoning-model-apis]] - 各厂商推理模型「思考/努力」API 参数与档位横向对比
 - [[reid-embedding-model-families]] - ReID 五大模型家族（FastReid/TransReID/SOLIDER/CLIP-ReID/PersonViT）选型对比
+- [[trajex-vs-hidalgo]] - ReID 系统的感知层与计算层分工对比（何时该拆、何时该合）
 
 ## Queries (深度问答/探索存档)
+
+- [[how-to-roll-out-a-new-reid-model]] - 如何把一个新的 ReID 特征模型安全上线到生产（影子部署 + 灰度切换 + 回滚 SOP）
