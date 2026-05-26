@@ -198,3 +198,37 @@ confidence: high
 - 残留软约束：5 个 entity/concept 出链数 < 2（`graph-centrality`、`set-theory`、`edge-rk3576`、`edge-sophon`、`esp32-s3`、`ruview`），但按用户"谨慎保守"原则不强加跨主题域 sibling；当前 `wiki_lint.py` 不强制 ≥ 2 出链检查，lint 通过
 - 未修改任何 \_living 源文档；未新增/删除任何 L2 节点
 - `wiki_lint: OK`
+
+## [2026-05-26] update | SCHEMA 升级：写入用户六条运维原则
+
+- 触发：用户提出 6 条 wiki 运维原则，要求按 LLM 可解析的命令式语言写入 `SCHEMA.md`，并明确这些是"原则上要求"（含主观判断成分，不同模型在不同参数下执行可能有差异）
+- 修改的章节：
+  - `Scope`：补 **Raw Reference Sources** 一段——`raw/**` 承载公开版本属性的外部内容（网页/论文/书刊），与 `_living/` 的区别在于来源（私有手写 vs 外部已发布）
+  - `Page Thresholds`：新增 **Granularity Heuristics** 小节——给出"整体研究对象"判据、过细/过粗的反模式、父子并存允许条件；明确这是启发式而非硬阈值
+  - 新建 **Type Semantics** 章节——为 entity / concept / comparison / query 四种类型分别给出定位、触发条件、必含内容、不要建的反例；其中 comparison 明确要求"对比表格 + Trade-offs + 适用场景"三件套，query 明确"问题驱动 SOP 而非名词解释"
+  - `Layer 2 Graph Invariants`：补 **关联谨慎保守原则**——要求 wikilink 必须能在 body 里用具体一句话陈述关系本质，仅"同主题词"不足以构成关联；本原则强度优先于"每页 ≥ 2 出链"的软建议
+  - `Living Documents Policy`：补第 8 条 **Reusability Filter**——`_living/` 只承载可复用知识，实现细节（私有命名/具体阈值/产品版本号/单店数据）应被剥离；并提示 ingest 工具输出只是布局转换，语义脱敏需手动完成
+- 行文风格：每条原则附"判据 + 反例"，便于不同模型一致执行；同时显式承认"原则上要求"的弹性，让边界情形保守处理而非教条
+- 未修改任何 \_living 源文档或 L2 节点
+- `wiki_lint: OK`
+
+## [2026-05-26] audit | 按升级后的 SCHEMA 做全量复审
+
+- 触发：SCHEMA 升级后（新增 Raw Reference Sources / Granularity Heuristics / Type Semantics / Conservative Linking / Reusability Filter），需要把新规则反向应用到现有 26 个 L2 节点
+- SCHEMA 自身的三处自检修正：
+  - `updated` 字段刷新到 2026-05-26（自我违反"updated 必须随内容刷新"）
+  - `Conventions` 第 5 条把"每页至少 2 个出链"从硬约束改为"鼓励 + 软建议"，与新增的"关联谨慎保守原则"协调一致
+  - `Conventions` 中 `Provenance markers` 拆为两种语法：`_living/` 用紧凑内联脚注 `^[[[...|alias]]]`、`raw/` 用简洁脚注 `^[raw/...]`，消除原模糊语法
+- L2 类型语义复核（25 个老节点 + 1 个新节点全部通过）
+- 关联性进一步收紧（按新增 Conservative Linking 原则）：
+  - `concepts/lmm-input-mechanics.md` Related → 删 `llm-computational-complexity`（跨主题域，body 无引用）
+  - `concepts/traditional-knowledge-graph.md` Related → 删 `markdown-llm-protocol`（KG 与 Markdown LLM 协议不是替代关系）
+- Comparison 三件套合规修正：
+  - `comparisons/reasoning-model-apis.md` 原本只有"对比表格"，**补齐 Trade-offs 段与 When to use 决策段**；frontmatter `updated` 同步刷新
+- 完备性补建（按新 SCHEMA comparison 触发条件）：
+  - `_living/AI-Applications-and-Ops/ReID-Embedding-Models.md` 通篇是 5 候选选型分析，明显满足 comparison 三大触发信号（选型分析 / 优劣对比 / A vs B）
+  - 新建 `comparisons/reid-embedding-model-families.md`——含五候选对比表、四组核心 Trade-offs、五条 When-to-use 决策；与 `concepts/reid-embedding-models.md` 形成 concept（技术谱系）+ comparison（横向决策）的互补
+  - `concepts/reid-embedding-models.md` body 显式 reference 该 comparison，Related 区按字母序追加
+- 索引同步：`index.md` Comparisons 区新增条目；`Total pages` 25 → 26
+- 不动 \_living 已有内容（Reusability Filter 面向未来 ingest，不回溯）
+- `wiki_lint: OK`

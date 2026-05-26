@@ -40,4 +40,3 @@ LMM APIs do not parse Markdown UI sugar natively. Agents must:
 **Related:**
 
 - [[markdown-llm-protocol]]
-- [[llm-computational-complexity]]

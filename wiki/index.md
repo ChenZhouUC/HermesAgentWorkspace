@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last updated: 2026-05-26 | Total pages: 25
+> Last updated: 2026-05-26 | Total pages: 26
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
 <!--
@@ -60,5 +60,6 @@ Registry Rules
 ## Comparisons (横向对比表)
 
 - [[reasoning-model-apis]] - 各厂商推理模型「思考/努力」API 参数与档位横向对比
+- [[reid-embedding-model-families]] - ReID 五大模型家族（FastReid/TransReID/SOLIDER/CLIP-ReID/PersonViT）选型对比
 
 ## Queries (深度问答/探索存档)
