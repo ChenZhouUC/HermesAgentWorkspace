@@ -316,3 +316,16 @@ confidence: high
 - 执行全库严格审计：`wiki_lint.py`、目录/文件名盘点、Layer 1 元数据检查、溯源语法检查、comparison/query 结构检查、出链统计、index 计数与分区检查
 - 修正 `SCHEMA.md` 内部不一致：Active 文件名规则明确只作用于 Layer 2；Create 生命周期中的"至少 2 个出链"改回 Conservative Linking 下的软建议；Deep Sync 示例改为当前紧凑溯源语法
 - 扩展 `scripts/wiki_lint.py`：新增 Active 文件名 kebab-case 检查与 `_living/` 语义型 frontmatter 禁止项检查
+
+## [2026-05-27] update | Hermes Agent 运维手册
+
+- 追加更新了“第六章：忙时输入模式 (Busy Input Mode) 与连续对话机制”
+- 说明了 interrupt、queue 和 steer 三种模式的时序表现，以及极快发消息时因为空闲回退而产生的“并行/排队回复幻觉”。
+- 涉及文件：\_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md
+
+## [2026-05-27] create | agent-mid-turn-input-modes
+
+- 从 `_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md` 第 6.6 节提炼新 concept：`concepts/agent-mid-turn-input-modes.md`
+- 描述 Agent 在用户 mid-turn 追加输入时的 interrupt / queue / steer 三模式调度对偶（围绕"是否终止当前回合"和"是否保留 Prompt Cache"两个轴）
+- `entities/hermes-agent.md` 新增"连续对话调度"段落与底部双链；`updated` 同步刷新
+- `index.md` Concepts 区登记新节点；`Total pages` 33 → 34

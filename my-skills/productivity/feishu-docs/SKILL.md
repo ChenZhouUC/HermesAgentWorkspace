@@ -26,8 +26,10 @@ Use this skill whenever you need to read, summarize, create, or update documents
 14. **Wiki vs Docx Permission Scope**: If the target URL is a Feishu Wiki link (`https://domain.feishu.cn/wiki/TOKEN`), the application MUST have `wiki:wiki:readonly` or `wiki:node:read` permissions. If it only has document permissions, the API will reject it with a `99991672 Access denied` error. Ask the user to grant the Wiki scope or provide the underlying standard `.docx` link.
 15. **Shortcuts (404 / 1770032 forBidden)**: If you obtain a file token from a folder listing and that token is a `shortcut` type, reading its raw token or its metadata directly often fails with 404 or `1770032 forBidden`. If extraction fails on a shortcut, notify the user that the source file is either deleted or lacks public/group permissions inherited by the bot.
 16. **Media Token Isolation (No Image/Video Copying)**: Feishu strictly isolates media (images/videos) per document. A media token from Doc A will return `403 Forbidden` if inserted into Doc B. To copy media, you would have to download the binary and use the `Upload Media` API to get a new token for Doc B. Because this is slow and prone to timeouts, our Markdown extraction scripts **intentionally drop images and videos**. If the user asks why images didn't copy over, explain this architectural limitation.
-17. **Rebuild Script KeyError on Deep Nesting**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild, causing a safe rollback. When this happens, abandon the in-place rebuild and fallback to `create_new_doc_from_md.py` to generate a fresh document, then inform the user to use the new link.
+17. **Rebuild Script KeyError / HTTP 400 on Deep Nesting & Lists**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild and trigger a safe rollback. Feishu may also reject rich-text lists with `HTTP 400 Invalid parameter value: {"block_type":12,"bullet"...}`. When either happens, do NOT retry the exact same Markdown — abandon the in-place rebuild and fallback to `create_new_doc_from_md.py` to generate a fresh document, then inform the user to use the new link.
 18. **Tenant Domain Configuration**: Scripts output placeholder URLs (e.g. `domain.feishu.cn`). Make sure your execution substitutes the actual tenant domain (`whales.feishu.cn`) when giving links back to the user.
+19. **Nested Inline Formatting in List Items (HTTP 400)**: Feishu's Block API rejects Markdown where bold/italic styling is nested directly inside list items (e.g., `- **Label**: text`), failing with `HTTP 400 Invalid parameter type in json: children`. Flatten the list into regular paragraphs (e.g., `**Label**: text` on its own line) or strip the inline emphasis from bullets before re-running the rebuild.
+20. **Process Substitution Upload Bug**: Never use bash process substitution (e.g., `<(cat ... )`) as the `md_file_path` for `create_new_doc_from_md.py` or `append_md_to_doc.py`. The underlying `curl -F file=@...` cannot properly read `/dev/fd/N` and will fail with `exit status 26`. Always write your markdown to a real file in `~/.hermes/tmp/` first.
 
 ---
 
@@ -88,6 +90,16 @@ upload+import happen before anything destructive, and the rewrite is atomic.
 
 ---
 
+## 🗑️ Deleting a Document
+
+If you need to completely delete a document (e.g., cleaning up a mistakenly created fallback doc), use:
+
+```bash
+uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/delete_doc.py <doc_token>
+```
+
+---
+
 ## ⚛️ Atomicity & Failure Handling (CRITICAL)
 
 The `append_md_to_doc.py` and `rebuild_doc_from_md.py` scripts wrap their destructive
@@ -141,10 +153,11 @@ only, no `cells`/`merge_info` → refill cells → delete old table), including 
 split that otherwise throws `HTTP 400 (1770001)`. If you ever must debug it, see
 `scripts/feishu_common.py`; do not reimplement it inline. Use `batch_delete` (as shown above) to delete the old table block from the document, and delete the default empty text block (index 0) from each new cell (**wrap the cell deletion in a `try...except` block**, as Feishu may return `HTTP 404 (1770002)` if the block is already absent or processed).
 
-### 3. Complex Lists (1770001 Fix)
+### 3. Complex Lists (1770001 Fix & HTTP 400 Bug)
 
 - Do NOT fallback to fake text bullets (`•`).
 - When POSTing a list, the payload is `{"block_type": 12, "bullet": {"elements": [...]}}` (Note the key is `bullet` or `ordered`, NOT `text`).
+- **Nested Style Bug (HTTP 400)**: Feishu's API frequently rejects nested text styles (e.g., bolding `**text**` or italics) inside bullet list items during a rebuild/import. If `rebuild_doc_from_md.py` fails with `Invalid parameter type in json ... "block_type":12,"bullet"...`, immediately flatten the Markdown list into regular paragraphs (e.g., change `- **Item**:` to just `**Item**:`) or strip the bolding before retrying.
 
 ### 4. Updating Text/Headings (Error 400 Fix)
 

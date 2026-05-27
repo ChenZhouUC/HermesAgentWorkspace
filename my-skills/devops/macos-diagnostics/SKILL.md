@@ -99,3 +99,13 @@ Use these patterns when background applications, menu bar utilities, or peripher
 1. Isolate the crash pattern (e.g., "happens after sleep" or "happens when X app runs").
 2. Check `defaults read` for the suspect app to see if it is intervening in OS-level domains (power, sleep, lock).
 3. If an input/driver daemon crashes, find its exact binary name and use `killall <daemon> && open -a "<App.app>"` for a quick, scriptable reset.
+
+## 6. Programmatic Sleep Prevention (Terminal / Background Tasks)
+
+When running long background terminal tasks (e.g., CLI tools, code agents) that must not be interrupted by system sleep:
+
+- **Do NOT attempt to automate Amphetamine**: Attempting to start an Amphetamine session via AppleScript (`osascript`) or URL schemes (`amphetamine://start`) in the terminal will fail due to macOS security restrictions, AppleEvent timeouts, or limited script dictionary support.
+- **Use native `caffeinate`**: Always rely on the built-in `caffeinate` command.
+  - To wrap a specific task (sleeps when task finishes): `caffeinate -i -s <command>`
+  - To keep awake for a specific time (e.g., 1 hour): `caffeinate -di -t 3600 &`
+  - To keep awake indefinitely (background): `caffeinate -di &`
