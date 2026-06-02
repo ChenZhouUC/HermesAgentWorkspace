@@ -1,10 +1,10 @@
 ---
 title: AI Agent Frameworks Selection
 created: 2026-05-14
-updated: 2026-05-24
+updated: 2026-06-02
 type: concept
 tags: [agent, ops, llm]
-sources: [_living/AI-Infrastructure/AI-Agent-Frameworks.md]
+sources: [_living/AI-Infrastructure/AI-Agent-Frameworks.md, _living/AI-Infrastructure/AI-Agent-Harness-Engineering.md]
 confidence: high
 ---
 
@@ -14,7 +14,7 @@ confidence: high
 
 ## 认知澄清：什么是真正的 "Agent 框架"
 
-一个真正符合直觉的 Agent 框架（Agent Harness / OS）应满足：开发者只提供工具（Tools/API/数据库）与系统设定（System Prompt），框架在底层接管大模型的调度循环（思考 → 调用工具 → 观察结果 → 再思考），并处理死循环、上下文截断、入参错误重试等复杂逻辑，最终产出能自主决策、长期运行、解决开放性任务的智能程序实例。这个「思考 - 行动」循环正是 [[chain-of-thought|ReAct 模式]] 的工程化落地。^[[[_living/AI-Infrastructure/AI-Agent-Frameworks|AI-Agent-Frameworks]]]
+一个真正符合直觉的 Agent 框架（Agent Harness / OS）应满足：开发者只提供工具（Tools/API/数据库）与系统设定（System Prompt），框架在底层接管大模型的调度循环（思考 → 调用工具 → 观察结果 → 再思考），并处理死循环、上下文截断、入参错误重试等复杂逻辑，最终产出能自主决策、长期运行、解决开放性任务的智能程序实例。这个「思考 - 行动」循环正是 [[chain-of-thought|ReAct 模式]] 的工程化落地。关于 Harness 的详细架构设计，参见 [[_living/AI-Infrastructure/AI-Agent-Harness-Engineering|AI Agent Harness 工程架构]]。^[[[_living/AI-Infrastructure/AI-Agent-Frameworks|AI-Agent-Frameworks]]]
 
 ## 五大阵营全景
 
