@@ -160,93 +160,92 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.14.0 (upstream `main` `b288de8bf`，截至 2026-05-25)
+## 当前版本：v0.15.1 (upstream `main` `a6b6afdff`，2026-06-03)
 
-> 基线从 `3bace071b` 滚动到 `b288de8bf`（+96 commits）；release 字符串仍为 `v0.14.0 (2026.5.16)`，仍属版本号未跳的累积修复段。本批上游补丁集中在四块：(a) Docker / container runtime 改为 s6-overlay 监督，并补齐多架构安装、服务管理、CI docker 测试；(b) credential / file-safety 继续收紧（Google OAuth、Anthropic OAuth、dashboard OAuth、pairing、session capture 等）；(c) CLI / gateway 行为修复（resume 编号选择、resume recap、Telegram topic/reconnect、Matrix E2EE、plugin extras 连接门控）；(d) TUI 窄状态栏修复。`local-patches.diff` 干净 apply 并刷新到 7 个文件，PATCH-1/2/7/9 行为均经 update 脚本 Step 8b 验证存活；PATCH-3/4/5/8 维持已上游合并状态。**本次只有上游 commit `a36221ed9` 触碰 patch 管理文件范围（doctor / skill / user-guide 文档一带），与本地 PATCH-1/2/7/9 的核心 hunk 不冲突，直接 clean apply。**
->
-> **本次刷新涉及的上游变化**：
->
-> - `hermes_cli/doctor.py`：PATCH-2 仍干净 apply；上游新增 s6 / container 相关诊断文档和检查路径，未覆盖本地 `_get_platform_tools` issue-count 过滤。
-> - `pyproject.toml` / `tools/lazy_deps.py`：PATCH-7 仍干净 apply，feishu extra 与 lazy install 两条路径继续包含 `python-socks==2.8.1`。
-> - `tools/skill_manager_tool.py` / `tests/tools/test_skill_manager_tool.py`：PATCH-1 仍干净 apply；上游未改变 `_resolve_skill_dir()` 的官方目录默认语义，本地 external-dir 创建路由仍需保留。
-> - `optional-skills/.../openclaw_to_hermes.py` / `website/docs/guides/migrate-from-openclaw.md`：PATCH-9 仍干净 apply，OpenClaw 迁移不再写入废弃 `HERMES_GATEWAY_TOKEN`。
-> - `hermes_cli/completion.py`：上游 `hermes completion zsh` 输出继续正确，PATCH-3 sentinel 未触发；本次 update 后 `_hermes` 补全有 8 行更新。
-> - 依赖 / 运行：`uv` 仍触发本机 Python path mismatch，`hermes-update.sh` 的 `--python venv/bin/python` fallback 成功恢复；Skills mirror 同步：+1 / ~1 / -9；sandbox plugin verify 全绿；gateway post-patch restart 正常。
-> - 当前活跃 patch：**PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9**。
+**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9（共 5 条）。
+
+**最近一次升级（v0.14.0 → v0.15.1，+823 commits）要点**：
+
+- 上游主线：Hermes Desktop App 合入（PR #20059）、packaging 与 CVE-2026-48710 Starlette pin、dashboard/TUI/streaming 重构、`MESSAGING_CWD` 弃用改 `terminal.cwd`、docker s6 lifecycle 收紧、doctor 增加版本漂移检查。
+- patch apply：5 文件 clean apply，1 文件 3way 干净，1 文件 3way 冲突已手工合并（`migrate-from-openclaw.md`：上游 `119390a2a` 改写 Working directory 行 + 本地 PATCH-9 删 Gateway auth token 行——保留上游 + 删 token 行）。
+- 依赖：`starlette 1.0.0 → 1.0.1`（CVE-2026-48710）、新增 `setuptools==82.0.1`；`uv` python-path mismatch 仍由 `--python venv/bin/python` fallback 自动恢复。Skills mirror 同步：+0 / ~17 / -18。npm audit clean。
+- 脚本修复：Step 7 末尾 `rm -f ~/.zcompdump*` 撞到空目录残留 `~/.zcompdump-...lock/`，因 `-f` 仍拒删目录返回非零、叠加 `set -euo pipefail` 直接中断脚本，导致 Step 8/9 全跳过。已改为 `find ~ -maxdepth 1 -name '.zcompdump*' -type f -delete`（只删文件、忽略目录、不污染 `set -e`）。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
 
-| 字段         | 内容                                                                                               |
-| ------------ | -------------------------------------------------------------------------------------------------- |
-| **文件**     | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py`                            |
-| **状态**     | 🟡 未上游合并（截至 upstream `main` `b288de8bf`，`_resolve_skill_dir()` 仍不读取 `external_dirs`） |
-| **适用版本** | v0.14.0 仍需本地 patch                                                                             |
+| 字段     | 内容                                                                    |
+| -------- | ----------------------------------------------------------------------- |
+| **文件** | `tools/skill_manager_tool.py`, `tests/tools/test_skill_manager_tool.py` |
+| **状态** | 🟡 未上游合并（`_resolve_skill_dir()` 仍只用 `SKILLS_DIR / name`）      |
 
-**问题**：`skill_manage(action='create')` 默认将新 skill 写入 `~/.hermes/skills/`（官方目录），而非用户的 `my-skills/`。截至当前 v0.14.0 上游 `main` (`b288de8bf`)，`_resolve_skill_dir()` 仍仅返回 `SKILLS_DIR / name`，未读取 `external_dirs`。上游已支持 external skill 原地 edit/patch/delete，但 create 仍有测试明确要求写入本地官方 root，因此本地 patch 仍是有意定制。
+**问题**：`skill_manage(action='create')` 默认把新 skill 写到 `~/.hermes/skills/`（官方目录），而不是用户的 `my-skills/`。上游已支持 external skill 原地 edit/patch/delete，但 create 仍有测试要求写入官方 root，所以本地 patch 是有意定制。
 
-**修复**：添加 `_resolve_skill_dir()` 读取 `config.yaml` 中的 `skills.external_dirs`，将第一个非官方目录作为新 skill 的基准路径；`_create_skill()` 和 `_delete_skill()` 同步适配，并补充 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除行为。
+**修复**：让 `_resolve_skill_dir()` 读 `config.yaml` 的 `skills.external_dirs`，第一个非官方目录作为新 skill 的基准路径；`_create_skill()` / `_delete_skill()` 同步适配，并加 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除。
+
+**验证**：Step 8b 用真实 Python import + 调用 `_resolve_skill_dir("dummy_unit_test_skill")`，断言返回路径 startswith `~/.hermes/my-skills/`。
 
 ---
 
 ### [PATCH-2] hermes_cli/doctor.py — issue count 过报
 
-| 字段         | 内容                   |
-| ------------ | ---------------------- |
-| **文件**     | `hermes_cli/doctor.py` |
-| **状态**     | 🟡 未上游合并          |
-| **适用版本** | v0.14.0 仍需本地 patch |
+| 字段     | 内容                   |
+| -------- | ---------------------- |
+| **文件** | `hermes_cli/doctor.py` |
+| **状态** | 🟡 未上游合并          |
 
-**问题**：`hermes doctor` 将所有注册但缺少 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，导致虚报 `Found 1 issue(s) to address`。
+**问题**：`hermes doctor` 把所有注册但缺 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，虚报 `Found 1 issue(s) to address`。
 
-**修复**：在 "Count disabled tools with API key requirements" 块中，通过 `_get_platform_tools` 筛选出用户实际启用的 toolset，只对这些 toolset 报告 issue。
+**修复**：在 "Count disabled tools with API key requirements" 块中用 `_get_platform_tools` 过滤出用户实际启用的 toolset，只对它们报 issue。
 
-> 2026-05-19 更新中该 patch 仍可干净 apply；如未来上游继续改 doctor 结构，保留 `git apply --3way` 作为兜底。
+**验证**：Step 8b grep `from hermes_cli.tools_config import _get_platform_tools, PLATFORMS` 在 doctor.py 中存在。
 
 ---
 
 ### [PATCH-6] npm audit fix — node_modules 已知漏洞自动修复
 
-| 字段         | 内容                                              |
-| ------------ | ------------------------------------------------- |
-| **文件**     | `node_modules/`（gitignored，非 `PATCHED_FILES`） |
-| **状态**     | 🟢 自动化（`hermes-update.sh` Step 4）            |
-| **适用版本** | ≥ v0.12.0                                         |
+| 字段     | 内容                                              |
+| -------- | ------------------------------------------------- |
+| **文件** | `node_modules/`（gitignored，非 `PATCHED_FILES`） |
+| **状态** | 🟢 自动化（`hermes-update.sh` Step 4）            |
 
-**问题**：`hermes update` 安装 npm 依赖时使用 `npm install --no-audit`，不会自动修复已知安全漏洞。例如 `basic-ftp ≤5.2.2` 存在高危 DoS 漏洞（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报告 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。
+**问题**：`hermes update` 用 `npm install --no-audit` 装 npm 依赖，不会自动修已知漏洞。例如 `basic-ftp ≤5.2.2` 的高危 DoS（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。
 
-**修复**：在 `hermes-update.sh` Step 4 中，于 `hermes update` 完成后自动执行 `npm audit fix --quiet`。由于 `node_modules/` 被 gitignore，此修复不通过 `PATCHED_FILES` / `local-patches.diff` 管理，而是每次更新后重新执行。
+**修复**：在 `hermes-update.sh` Step 4 里 `hermes update` 完成后跑 `npm audit fix --quiet`。`node_modules/` 是 gitignored，不进 `PATCHED_FILES` / `local-patches.diff`，每次 update 后重跑即可。
 
 ---
 
 ### [PATCH-7] feishu 依赖声明缺少 python-socks
 
-| 字段         | 内容                                   |
-| ------------ | -------------------------------------- |
-| **文件**     | `pyproject.toml`, `tools/lazy_deps.py` |
-| **状态**     | 🟡 未上游合并                          |
-| **适用版本** | v0.14.0 仍需本地 patch                 |
+| 字段     | 内容                                   |
+| -------- | -------------------------------------- |
+| **文件** | `pyproject.toml`, `tools/lazy_deps.py` |
+| **状态** | 🟡 未上游合并                          |
 
-**问题**：`feishu` optional extra 和 `tools/lazy_deps.py` 的 `platform.feishu` 上游都只声明了 `lark-oapi==1.5.3` 和 `qrcode==7.4.2`。当用户处于代理网络环境时，`lark-oapi` 的 WebSocket 连接需要 SOCKS 代理支持，但缺少 `python-socks` 包，导致 gateway 启动后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
+**问题**：`feishu` optional extra 和 `tools/lazy_deps.py` 的 `platform.feishu` 上游都只声明 `lark-oapi==1.5.3` + `qrcode==7.4.2`。代理网络下 `lark-oapi` 的 WebSocket 连接需要 SOCKS 支持，缺 `python-socks` 时 gateway 起来后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
 
-**修复**：在 `pyproject.toml` 的 `feishu` extra 和 `tools/lazy_deps.py` 的 `LAZY_DEPS["platform.feishu"]` 中都追加 `"python-socks==2.8.1"`。这样手动安装 `.[feishu]`、本地迁移安装 `.[all,feishu]`、以及上游 lazy install 首次启用 Feishu 三条路径都能拿到 SOCKS 支持。版本钉死风格与上游 2026-05-14 起的 messaging extras 钉死约定保持一致（避免 `>=2.0,<3` 区间约束被 `uv lock --check` 检测为漂移）。
+**修复**：在 `pyproject.toml` 的 `feishu` extra 和 `tools/lazy_deps.py` 的 `LAZY_DEPS["platform.feishu"]` 都加 `"python-socks==2.8.1"`。手动 `.[feishu]`、`.[all,feishu]`、和上游 lazy install 三条路径都能拿到 SOCKS。版本钉死风格与上游 2026-05-14 起 messaging extras `==X.Y.Z` 约定一致（避免 `>=2.0,<3` 被 `uv lock --check` 报漂移）。
 
-> **2026-05-14 重写说明**：原 patch 内容为 `"python-socks>=2.0,<3"`，针对 `lark-oapi>=1.5.3,<2` 行追加。上游 commit `c1eb2dcda` + `3955aefce` 将 feishu 钉死为 `lark-oapi==1.5.3` + `qrcode==7.4.2` 后，`git apply --3way` 在该 hunk 报冲突；手工合并时采纳上游钉死风格，把 python-socks 改为 `==2.8.1`（与当前 venv 实际安装版本一致）。
+**验证**：Step 8b grep `python-socks` 在 `pyproject.toml` 和 `tools/lazy_deps.py` 都存在。
 
-> **2026-05-20 扩展说明**：上游 `[all]` 已瘦身，Feishu 等平台后端改为 `tools/lazy_deps.py` 首次使用时安装；因此 PATCH-7 新增 `tools/lazy_deps.py` hunk，避免未来 clean venv 只经 lazy install 启用 Feishu 时漏装 `python-socks`。
+> **2026-05-14**：原 patch 是 `python-socks>=2.0,<3`，针对 `lark-oapi>=1.5.3,<2` 行追加。上游 `c1eb2dcda` + `3955aefce` 把 feishu 钉到 `==1.5.3`+`==7.4.2` 后 3way 在该 hunk 报冲突，手合时改 `==2.8.1`。
+> **2026-05-20**：上游 `[all]` 瘦身后 Feishu 等平台改走 `tools/lazy_deps.py` 首次使用时安装，PATCH-7 新增 `tools/lazy_deps.py` hunk 避免 clean venv 经 lazy install 启用 Feishu 时漏装。
 
 ---
 
 ### [PATCH-9] OpenClaw 迁移不再写入废弃 gateway token
 
-| 字段         | 内容                                                                                                                         |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **文件**     | `optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py`, `website/docs/guides/migrate-from-openclaw.md` |
-| **状态**     | 🟡 未上游合并                                                                                                                |
-| **适用版本** | v0.14.0 仍需本地 patch                                                                                                       |
+| 字段     | 内容                                                                                                                         |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py`, `website/docs/guides/migrate-from-openclaw.md` |
+| **状态** | 🟡 未上游合并（上游仍写 `HERMES_GATEWAY_TOKEN`）                                                                             |
 
-**问题**：旧 OpenClaw 的 `gateway.auth.token` 会被迁移到 `.env` 的 `HERMES_GATEWAY_TOKEN`，但当前 Hermes gateway 运行时代码不读取该变量，保留它会制造无效敏感字段和配置误导。
+**问题**：旧 OpenClaw 的 `gateway.auth.token` 会被迁移到 `.env` 的 `HERMES_GATEWAY_TOKEN`，但当前 Hermes gateway 运行时不读这个变量，保留只会制造无效敏感字段和配置误导。
 
-**修复**：OpenClaw 迁移仍归档完整 gateway 配置，但不再把 `gateway.auth.token` 写入 `.env`；迁移文档同步移除该字段映射。`hermes-update.sh` Step 8b 用 grep 确认迁移脚本和迁移文档不再引用 `HERMES_GATEWAY_TOKEN` / `gateway.auth.token`。
+**修复**：迁移脚本仍归档完整 gateway 配置，但不再把 `gateway.auth.token` 写进 `.env`；迁移文档同步删除该字段映射行。
+
+**验证**：Step 8b grep 确认迁移脚本和迁移文档都不再出现 `HERMES_GATEWAY_TOKEN` / `gateway.auth.token`。
+
+> **v0.15.1 升级注**：上游 `119390a2a` 在迁移文档同一表格里把 Working directory 行从 `MESSAGING_CWD` 改写到 `terminal.cwd`，与本地删 token 行不真冲突但相邻 hunk 上下文重合，3way 报冲突。手合规则：保留上游新版 Working directory 行 + 删 Gateway auth token 行。
 
 ---
 

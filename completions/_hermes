@@ -7,7 +7,7 @@ _hermes_profiles() {
     local -a profiles
     profiles=(default)
     if [[ -d "$HOME/.hermes/profiles" ]]; then
-        profiles+=("${(@f)$(ls $HOME/.hermes/profiles 2>/dev/null)}")
+        profiles+=($HOME/.hermes/profiles/*(N/:t))
     fi
     _describe 'profile' profiles
 }
@@ -41,6 +41,7 @@ _hermes() {
                 'curator:Background skill maintenance (curator) — status, run, pause,'
                 'dashboard:Start the web UI dashboard'
                 'debug:Debug tools — upload logs and system info for support'
+                'desktop:Build and launch the native desktop app'
                 'doctor:Check configuration and dependencies'
                 'dump:Dump setup summary for support/debugging'
                 'fallback:Manage fallback providers (tried when the primary model fail'
@@ -62,6 +63,7 @@ _hermes() {
                 'portal:Nous Portal status, subscription, and Tool Gateway routing'
                 'postinstall:Bootstrap non-Python deps for pip installs (node, browser, r'
                 'profile:Manage profiles — multiple isolated Hermes instances'
+                'prompt-size:Show a byte breakdown of the system prompt + tool schemas'
                 'proxy:Local OpenAI-compatible proxy to OAuth providers'
                 'secrets:Manage external secret sources (Bitwarden Secrets Manager)'
                 'security:Supply-chain audit (OSV.dev) for venv, plugins, and MCP serv'
@@ -282,9 +284,12 @@ _hermes() {
                     local -a mcp_cmds
                     mcp_cmds=(
                     'add:Add an MCP server (discovery-first install)'
+                    'catalog:List Nous-approved MCPs available for one-click install'
                     'configure:Toggle tool selection'
+                    'install:Install a catalog MCP by name (e.g. `hermes mcp install n8n`'
                     'list:List configured MCP servers'
                     'login:Force re-authentication for an OAuth-based MCP server'
+                    'picker:Interactive catalog picker (also the default for `hermes mcp'
                     'remove:Remove an MCP server'
                     'serve:Run Hermes as an MCP server (expose conversations to other a'
                     'test:Test MCP server connection'
@@ -395,6 +400,7 @@ _hermes() {
                     'delete:Delete a specific session'
                     'export:Export sessions to a JSONL file'
                     'list:List recent sessions'
+                    'optimize:Reclaim disk space: merge FTS5 segments + VACUUM (no data ch'
                     'prune:Delete old sessions'
                     'rename:Set or change a sessions title'
                     'stats:Show session store statistics'
@@ -411,7 +417,10 @@ _hermes() {
                     'inspect:Preview a skill without installing'
                     'install:Install a skill'
                     'list:List installed skills'
+                    'opt-in:Re-enable bundled-skill seeding (undo opt-out)'
+                    'opt-out:Stop bundled skills from being seeded into this profile'
                     'publish:Publish a skill to a registry'
+                    'repair-official:Backfill or restore official optional skills from repo sourc'
                     'reset:Reset a bundled skill — clears user-modified tracking so upd'
                     'search:Search skill registries'
                     'snapshot:Export/import skill configurations'

@@ -445,7 +445,19 @@ PYEOF
         ok "PATCH-3: upstream completion output already uses correct syntax — no fix needed"
     fi
 
-    rm -f ~/.zcompdump*
+    # Clear zsh completion cache so the regenerated _hermes is picked up.
+    # Both regular .zcompdump* files and lingering compinit lock directories
+    # (e.g. .zcompdump-host.lock/) are removed. `rm -f` does not delete
+    # directories and would abort the script under `set -e`, so use a
+    # tolerant loop that handles both.
+    shopt -s nullglob 2>/dev/null || setopt NULL_GLOB 2>/dev/null || true
+    for _zd in "$HOME"/.zcompdump*; do
+        if [[ -d "${_zd}" ]]; then
+            rm -rf -- "${_zd}" 2>/dev/null || true
+        else
+            rm -f -- "${_zd}" 2>/dev/null || true
+        fi
+    done
     note "zsh completion cache cleared (rebuilds on next shell open)"
 else
     warn "Could not generate completions (exit $COMP_RC)"

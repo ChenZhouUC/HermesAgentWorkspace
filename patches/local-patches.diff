@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 9cac0678c..6c64962d7 100644
+index 4971f1fae..e9d71ebee 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1886,8 +1886,23 @@ def run_doctor(args):
+@@ -1895,8 +1895,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -45,10 +45,10 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/pyproject.toml b/pyproject.toml
-index ae2472b7a..83108b04f 100644
+index 86bd94c54..789f76bcc 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -152,7 +152,7 @@ termux-all = [
+@@ -163,7 +163,7 @@ termux-all = [
    "hermes-agent[web]",
  ]
  dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
@@ -58,10 +58,10 @@ index ae2472b7a..83108b04f 100644
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index 33efbb98a..29f8159c8 100644
+index e7e5e4a78..8a65b2217 100644
 --- a/tests/tools/test_skill_manager_tool.py
 +++ b/tests/tools/test_skill_manager_tool.py
-@@ -29,10 +29,12 @@ from tools.skill_manager_tool import (
+@@ -25,10 +25,12 @@ from tools.skill_manager_tool import (
  
  @contextmanager
  def _skill_dir(tmp_path):
@@ -77,7 +77,7 @@ index 33efbb98a..29f8159c8 100644
          yield
  
  
-@@ -203,6 +205,29 @@ class TestCreateSkill:
+@@ -199,6 +201,29 @@ class TestCreateSkill:
          assert (tmp_path / "devops" / "my-skill" / "SKILL.md").exists()
          assert result["category"] == "devops"
  
@@ -108,17 +108,17 @@ index 33efbb98a..29f8159c8 100644
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 1a8708ef2..70bd61cf1 100644
+index 20d68f2f7..22002f878 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
-@@ -147,6 +147,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
+@@ -148,6 +148,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
      "platform.feishu": (
          "lark-oapi==1.5.3",
          "qrcode==7.4.2",
 +        "python-socks==2.8.1",
      ),
- 
-     # ─── Terminal backends ─────────────────────────────────────────────────
+     # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
+     # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
 index 4ce5f06e4..b6689d3b3 100644
 --- a/tools/skill_manager_tool.py
@@ -190,14 +190,14 @@ index 4ce5f06e4..b6689d3b3 100644
  
      message = f"Skill '{name}' deleted."
 diff --git a/website/docs/guides/migrate-from-openclaw.md b/website/docs/guides/migrate-from-openclaw.md
-index e56aff32d..b5108910c 100644
+index 38a27e622..4590ea5f0 100644
 --- a/website/docs/guides/migrate-from-openclaw.md
 +++ b/website/docs/guides/migrate-from-openclaw.md
-@@ -155,7 +155,6 @@ TTS settings are read from **two** OpenClaw config locations with this priority:
+@@ -159,7 +159,6 @@ TTS settings are read from **two** OpenClaw config locations with this priority:
  | Browser CDP URL | `browser.cdpUrl` | `config.yaml` → `browser.cdp_url` | |
  | Browser headless | `browser.headless` | `config.yaml` → `browser.headless` | |
  | Brave search key | `tools.web.search.brave.apiKey` | `.env` → `BRAVE_API_KEY` | Requires `--migrate-secrets` |
 -| Gateway auth token | `gateway.auth.token` | `.env` → `HERMES_GATEWAY_TOKEN` | Requires `--migrate-secrets` |
- | Working directory | `agents.defaults.workspace` | `.env` → `MESSAGING_CWD` | |
+ | Working directory | `agents.defaults.workspace` | `config.yaml` → `terminal.cwd` | Legacy migrations may still emit `MESSAGING_CWD` as a compatibility fallback |
  
  ### Archived (no direct Hermes equivalent)
