@@ -55,13 +55,8 @@ To determine if the macOS system is currently locked (useful for knowing if the 
   pmset -g useractivity
   ```
 
-  _Indicator_: `Level = 'PresentActive'` means the user is currently active (unlocked).
-
-- **Command (Quartz - GUI Session)**:
-  ```bash
-  /usr/bin/python3 -c "import Quartz; print(Quartz.CGSessionCopyCurrentDictionary().get('CGSSessionScreenIsLocked', 'Unlocked'))"
-  ```
-  _Pitfall_: You **must** use the macOS system Python (`/usr/bin/python3`) to run this. If you use a custom `uv` or `pyenv` virtual environment, it will crash with `ModuleNotFoundError` because it lacks the built-in `pyobjc` (`Quartz`) framework.
+  _Indicator_: `Level = 'PresentActive'` means the user is currently active (unlocked). `Level = 'Inactive'` or `MostSignificant = 'Inactive'` means the Mac is idle/locked/display asleep.
+  _Pitfall_: Do **NOT** use the old `Quartz` (`CGSessionCopyCurrentDictionary`) script via `/usr/bin/python3`. Apple has removed the `pyobjc` framework from the macOS system Python in recent updates, so it will always crash with `ModuleNotFoundError`. Always rely on `pmset` for screen/lock state detection.
 
 ## 5. Application Conflicts & Crash Debugging
 

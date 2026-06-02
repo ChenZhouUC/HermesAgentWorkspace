@@ -8,7 +8,8 @@ category: devops
 
 When standard `ping` is insufficient (ICMP often deprioritized by firewalls and unrelated to DNS resolution performance), use this skill to extract deep routing and security metrics from a DNS resolver IP.
 
-**Full architecture, latency budgets, and engineering best-practices for building a sub-second probing daemon are in [`references/advanced_dns_probing.md`](references/advanced_dns_probing.md).** Read that file before designing a probing tool. The summary below is a quick-reference cheatsheet.
+**Full architecture, latency budgets, and engineering best-practices for building a sub-second probing daemon are in [`references/advanced_dns_probing.md`](references/advanced_dns_probing.md).**
+**For diagnosing transparent proxy slowdowns on OpenWRT/ARM routers (AES-NI, TPROXY, BBR, Full Cone NAT), see [`references/openwrt_proxy_bottlenecks.md`](references/openwrt_proxy_bottlenecks.md).** Read that file before designing a probing tool. The summary below is a quick-reference cheatsheet.
 
 ## Probe Cheatsheet
 

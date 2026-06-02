@@ -13,10 +13,10 @@ Use this skill whenever you need to read, summarize, create, or update documents
 1. **NEVER CREATE NEW DOCS (CRITICAL)**: The user STRICTLY prefers to revise existing documents in-place. You MUST append/blend information into an existing document URL provided by the user or found in memory. DO NOT create a brand new standalone document unless explicitly forced.
 2. **Permissions (Tenant Editable)**: If you absolutely MUST create a new document, you MUST immediately patch its permissions to allow the user to edit it (`"link_share_entity": "tenant_editable"`). Do not leave it as read-only.
 3. **Markdown URL Parsing Bug (trailing period)**: When formatting URLs in any context (Chicago-style references, inline links, etc.), NEVER place a period `.` immediately after the URL (e.g. `.../instance-families.`). Feishu's link parser treats the trailing period as part of the URL, causing a 404. Leave a space before the period or drop the period.
-4. **ALWAYS UPDATE VERSION TABLE**: After EVERY single modification to an existing document, you MUST append a new row to the Version Table at the top of the doc to log the update.
+4. **ALWAYS UPDATE VERSION TABLE**: After EVERY single modification to an existing document, a new row must be appended to the Version Table. **The automation scripts handle this entirely**. NEVER hardcode a markdown version table (`| Version | Time | ...`) into your payload, or the final document will contain duplicate tables.
 5. **Title & Formatting**: Always ensure the document has a professional Chinese/English title (e.g., "L20 vs RTX 5880 Ada: Parameters"). DO NOT use Markdown file names (no `.md` suffix in the doc title).
 6. **Raw URLs Only (CRITICAL)**: When sending the final document URL to the user in Feishu chat, **always include the raw, unformatted URL string** (e.g., `https://domain.feishu.cn/docx/XYZ...`).
-7. **References**: ALWAYS append a `## References` section formatted in Chicago style at the bottom of the document if you used ANY external search information. Do not skip this even if the primary task was running local SSH commands. End each line immediately after the URL — no trailing period (see rule 3).
+7. **References**: ALWAYS append a `## References` section formatted in Chicago style at the bottom of the document if you used ANY external search information. Do not skip this even if the primary task was running local SSH commands. Format: `- Author. "Title." Website, Year. URL` (e.g., `- 周琛. "Doc Title." Feishu Wiki, 2026. https://...`). End each line IMMEDIATELY after the raw URL — no trailing period or markdown brackets (see rule 3), otherwise Feishu's parser breaks the link.
 8. **URL Verification**: NEVER rely on internal pre-training knowledge for documentation URLs, product links, or API endpoints. Training data gets stale. ALWAYS use `web_search` to find and verify the live, current URL before inserting it into a document.
 9. **Bot Native Mention**: The user expects a native Feishu mention card for the author (e.g., `@小聪明蛋`), not plain text. For the bot, `小聪明蛋`'s `open_id` is `ou_0091f5c50226a4ee0dc8a6d51665db0f`. You must POST or PATCH text elements with `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}` instead of a plain text `@...`.
 10. **Creating from Markdown**: **NEVER parse Markdown manually to use the Blocks API**. The only way to get perfect native formatting is to upload the `.md` file to Feishu Drive and use the `import_tasks` API.
@@ -28,8 +28,14 @@ Use this skill whenever you need to read, summarize, create, or update documents
 16. **Media Token Isolation (No Image/Video Copying)**: Feishu strictly isolates media (images/videos) per document. A media token from Doc A will return `403 Forbidden` if inserted into Doc B. To copy media, you would have to download the binary and use the `Upload Media` API to get a new token for Doc B. Because this is slow and prone to timeouts, our Markdown extraction scripts **intentionally drop images and videos**. If the user asks why images didn't copy over, explain this architectural limitation.
 17. **Rebuild Script KeyError / HTTP 400 on Deep Nesting & Lists**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild and trigger a safe rollback. Feishu may also reject rich-text lists with `HTTP 400 Invalid parameter value: {"block_type":12,"bullet"...}`. When either happens, do NOT retry the exact same Markdown — abandon the in-place rebuild and fallback to `create_new_doc_from_md.py` to generate a fresh document, then inform the user to use the new link.
 18. **Tenant Domain Configuration**: Scripts output placeholder URLs (e.g. `domain.feishu.cn`). Make sure your execution substitutes the actual tenant domain (`whales.feishu.cn`) when giving links back to the user.
-19. **Nested Inline Formatting in List Items (HTTP 400)**: Feishu's Block API rejects Markdown where bold/italic styling is nested directly inside list items (e.g., `- **Label**: text`), failing with `HTTP 400 Invalid parameter type in json: children`. Flatten the list into regular paragraphs (e.g., `**Label**: text` on its own line) or strip the inline emphasis from bullets before re-running the rebuild.
+19. **Nested Inline Formatting in List Items (HTTP 400)**: Feishu's Block API rejects Markdown where bold/italic styling is nested directly inside list items (e.g., `- **Label**: text` or nested sub-lists like `  * **Sub-item**:`), failing with `HTTP 400 Invalid parameter type in json: children`. **WARNING: As an AI, you naturally default to generating `\* **Key**: Value` lists. You MUST actively suppress this habit when generating Markdown for Feishu Docs.** **Resolution**: Flatten the list into regular paragraphs (e.g., `**Label**: text` on its own line), strip the inline emphasis from bullets, or **use Markdown blockquotes (`> text`) instead of lists** to maintain indentation without triggering the rejection. _Example Fix:_ Change `* **Item**:` to `> **Item**:`.
 20. **Process Substitution Upload Bug**: Never use bash process substitution (e.g., `<(cat ... )`) as the `md_file_path` for `create_new_doc_from_md.py` or `append_md_to_doc.py`. The underlying `curl -F file=@...` cannot properly read `/dev/fd/N` and will fail with `exit status 26`. Always write your markdown to a real file in `~/.hermes/tmp/` first.
+21. **Import Flakiness & Rebuild Robustness**:
+    - **Transient 5006 Errors**: If an import fails with `job_status=3 detail={'job_error_msg': 'call CreateObjNode return error code, code: 5006...'}`, this is a transient Feishu API flake. Retry the exact same command immediately; it usually succeeds on the second try.
+    - **Preserving Version History on 400 Errors**: If `rebuild_doc_from_md.py` triggers an atomic rollback due to formatting errors (e.g., the nested bold list `HTTP 400` bug), **you MUST fix the markdown and rerun `rebuild` on the exact same doc_token**. Do NOT create a brand new document and delete the old one to bypass the error—doing so resets the Version Table history to `.01ed` and destroys the user's audit trail.
+    - **Empty File Append Bug**: Never pass `/dev/null` or a completely empty file to `append_md_to_doc.py` (e.g., to force a version bump); the Drive API will reject it with `1061002 params error.`. If you must append nothing but a version bump, use a file containing an HTML comment like `<!-- touch -->`. **CRITICAL**: Do NOT delete the target document and use `create_new_doc_from_md.py` to bypass the error. Doing so destroys the Version Table history (resetting it to `.01ed`), which upsets the user's tracking. Because `rebuild` is atomic, the original document is safe—always fix the markdown and retry the rebuild on the _same_ token.
+22. **Transient Import Error 5006**: If the import script fails with `job_error_msg: call CreateObjNode return error code, code: 5006`, this is a random Feishu Drive backend failure. Do not panic or change the file; simply re-run the exact same script command immediately. It usually succeeds on the second try.
+23. **Customer-Facing Tone**: When drafting solution documents for external customers (e.g., Topsports), STRICTLY avoid academic formulas (e.g., $t_0 + \Delta$). Translate all technical triggers into plain, business-oriented descriptions.
 
 ---
 
@@ -45,6 +51,8 @@ If you absolutely MUST create a new document (e.g., explicitly forced), you MUST
 ```bash
 uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/create_new_doc_from_md.py <md_file_path> "<Professional_Title>"
 ```
+
+**Transient Error Pitfall (code: 5006):** If the script fails during the `CreateObjNode` step with `job_status=3 detail={'extra': ['_pod_name'], 'job_error_msg': 'call CreateObjNode return error code, code: 5006...`, this is a transient Feishu API sync/rate-limit issue. **Do not modify the file or script.** Simply re-run the exact same command and it will usually succeed immediately.
 
 This script automatically handles:
 
@@ -109,6 +117,7 @@ work in `feishu_common.atomic_update`:
 - On **any** failure mid-update, the doc is **rolled back** to its pre-update state. You end up with either the fully-updated doc or the original — never a half-written, garbled doc.
 - If rollback itself fails, the backup file path is printed for manual recovery.
 - All API calls retry automatically on rate limits, 5xx, and dropped connections (the `RemoteDisconnected` that large `batch_delete`s trigger).
+- **Feishu 5006 CreateObjNode Error**: When creating a new doc or importing markdown, you might occasionally see an exception like `job_status=3 detail={'... 'job_error_msg': 'call CreateObjNode return error code, code: 5006...}`. This is a transient Feishu backend synchronization error during the Drive import process. **Simply re-run the exact same script command immediately** and it will usually succeed.
 
 **RULE: If a script fails, READ the printed error, fix the input/cause, and RE-RUN the script.** Do NOT hand-roll the upload/import/table logic with inline `curl`/`urllib`/`requests` as a fallback — improvised manual API calls are exactly what produced duplicate version tables and garbled docs in the past. The scripts are the only supported write path.
 
@@ -122,22 +131,20 @@ When you need to delete a block (e.g., an old table or an empty cell text), you 
 
 **Pitfall (Large Deletions)**: Deleting hundreds of blocks simultaneously (e.g., clearing a large document for a rebuild) can cause the Feishu API to abruptly close the connection, resulting in a `http.client.RemoteDisconnected` crash. If this happens, simply retry the execution, or update your script to chunk large `batch_delete` operations.
 
-```python
-del_req = urllib.request.Request(
-    f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_token}/blocks/{parent_block_id}/children/batch_delete",
-    data=json.dumps({"start_index": target_idx, "end_index": target_idx + 1}).encode(),
-    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-    method='DELETE'
-)
-```
+### 2. Complex Lists & Bold Text (1770001 Fix & HTTP 400 Bug)
 
-### 2. Version Table (automated — do not hand-roll)
+- Do NOT fallback to fake text bullets (`•`).
+- When POSTing a list, the payload is `{"block_type": 12, "bullet": {"elements": [...]}}` (Note the key is `bullet` or `ordered`, NOT `text`).
+- **Nested Style Bug (HTTP 400)**: Feishu's API frequently rejects nested text styles (e.g., bolding `**text**` or italics) inside bullet list items during a rebuild/import. This will cause `rebuild_doc_from_md.py` to fail with `Invalid parameter type in json: children ... "block_type":12,"bullet"...`.
+  - **Resolution**: If this HTTP 400 error occurs, you MUST immediately flatten the Markdown list into regular paragraphs (e.g., change `- **Item**:` to just `**Item**:`) or strip the inline bold/italic emphasis from bullets before retrying the document creation/rebuild.
 
 Appending a version row is **fully automated** by `feishu_common.append_version_row`,
 which `append_md_to_doc.py` calls after every content merge. It reads the existing
 table, computes the next version, preserves all history, appends the new row, and
 splits across consecutive tables if the history exceeds Feishu's 9-row table limit.
 You normally never touch this by hand — run `append_md_to_doc.py`.
+
+**CRITICAL PITFALL (Duplicate Version Tables)**: Do **NOT** include a Markdown version table (`| Version | Time | Author |`) in the raw markdown payload you write to disk before running `create_new_doc_from_md.py` or `rebuild_doc_from_md.py`. The scripts automatically generate and inject the Feishu-native version table block. If you hardcode one in your markdown text, the final document will contain duplicate version tables.
 
 **Format spec (enforced by the script; reference only):**
 
@@ -195,6 +202,7 @@ If the native `feishu_doc_read` tool fails with `Feishu client not available (no
 - **Compatibility helper**: `uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/download_docx_to_md.py <doc_token>`
   Keeps older workflows working when the lightweight extraction path is sufficient.
 - **Dependency note**: All three scripts require the `requests` Python package. The base system Python does NOT have it installed. You MUST prefix with `uv run --with requests` (or ensure `requests` is available) to avoid `ModuleNotFoundError`.
+- **Embedded Sheets (Block Type 30)**: The markdown extraction scripts do NOT extract the content of embedded Feishu Sheets. The token inside a Sheet block is often compound (`SpreadsheetToken_SheetID`, e.g., `C8DCskW..._bmJW05`). To read its data via `execute_code`, split the token by `_` to get the base Spreadsheet Token, use `sheets/v3/spreadsheets/{base_token}/sheets/query` to list sheets, and `sheets/v2/spreadsheets/{base_token}/values/{sheet_id}` to read the cell values.
 
 ---
 

@@ -1,15 +1,13 @@
-Profile: Zhou Chen. Married (wife in gov). TZ: Asia/Shanghai. CN/EN. Math+Stats engineer (Fudan/UChicago, AI/edge/cloud/TCS). Prefers hardcore TCS/math papers. Estimates: PD ints. Prefers EXTREME conciseness (e.g., single-paragraph English descriptions), rigour, bullet lists, 100% completion. Agent name: 木马牛，motto: "剑来" (expects instant, high-powered execution).
+Profile: Zhou Chen. Married (gov). TZ: Asia/Shanghai. CN/EN. Math/Stats eng (Fudan/UChicago, AI/edge/TCS). Linux CLI master, network proxy noob. Prefers EXTREME conciseness, rigour. Provide risks, dependencies & decision trees for independent judgment. Use plain analogies + exact CLI/GUI paths. Uses codex-cli, OpenWRT/ImmortalWRT. Agent: 木马牛，motto: "剑来".
 §
 Feishu Docs: Ver table YYYYMMDD.XXed, UTC+8, @木马牛。Cite wiki as 周琛。Files/presentations: [Folio|Showcase]\_Project_YYYYMMDDTHHMMSS+0800. Arch docs: use authentic terms (trajex/hidalgo) from local wiki.
 §
-Git: Run copilot-git-approve first. Uses FVM for Flutter/Dart.
+Product Recs: Star ratings/tables. Prefers 1st-party CLI/VSCode(brew). gruvmax-fang for delta. Git: copilot-git-approve. Uses FVM.
 §
-Feishu Links: Always include raw unformatted URLs in plain text. Markdown hyperlinks alone are often stripped/hidden by the client.
+Tools: Execute fully. Monitor RAM: iStat. Wiki: ALWAYS skill_view(llm-wiki) first. Refactoring skills: ensure execution capability is not degraded.
 §
-Product Recs: Use star ratings (descending) & tables for spec combos/prices.
-§
-Tools: Execute fully. Local commands direct. Monitor RAM: iStat. Wiki ops: ALWAYS skill_view(llm-wiki) before read/write. When refactoring skills, strictly ensure actual execution capabilities are not degraded.
-§
-Hardware docs: comparative tables, real SKUs, reference math. For bosses/mgmt: use 3-5 plain-English sentences, intuitive analogies, and rule-of-thumb formulas. CV: Edge extract+Cloud ReID.
+Hardware/SA docs: tables, SKUs, math. For mgmt/consulting: 3-5 plain-English sentences, decision trees, rule-of-thumb formulas. Translate tech (VDEC, dirty-data filtering) into '大白话' business value & upsell tactics. CV: Edge extract+Cloud ReID.
 §
 Feishu user open_id: ou_33eeacfbd0c0559b7b734f83503719ab (useful for assigning permissions, tagging, or routing).
+§
+AI Tech: User is bleeding-edge. Always web search before correcting them on new model/tool names.
