@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent
 created: 2026-05-17
-updated: 2026-05-27
+updated: 2026-06-03
 type: entity
 tags: [agent, ops, macos]
 sources: [_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md]
@@ -10,7 +10,7 @@ confidence: high
 
 # Hermes Agent
 
-Hermes Agent 是一个先进的多模态大语言模型（LLM）端到端框架。它的底层设计高度注重工程化实践与全栈运维集成，使得其可以在多环境（如本地 macOS 以及公有云环境）稳定长期运行。
+Hermes Agent 是一个先进的多模态大语言模型（LLM）端到端框架。它实现了完整的 [[agent-harness|Agent Harness]] 五层架构（编排/上下文/沙盒/HITL/协议），其底层设计高度注重工程化实践与全栈运维集成，使得其可以在多环境（如本地 macOS 以及公有云环境）稳定长期运行。
 
 ## 核心架构与环境集成
 
@@ -38,6 +38,7 @@ Hermes Gateway 在用户 mid-turn 追加输入时实现了 [[agent-mid-turn-inpu
 
 **相关图谱概念**:
 
+- 实现模式：[[agent-harness]]
 - 所属类别：[[agent-frameworks]]
 - 底层交互协议关联：[[markdown-llm-protocol]]
 - 历史继任前代实体：[[openclaw]]

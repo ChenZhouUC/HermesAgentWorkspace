@@ -1,7 +1,7 @@
 ---
 title: Wiki Schema
 created: 2026-05-14
-updated: 2026-05-26
+updated: 2026-06-03
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -76,7 +76,8 @@ _新增标签前必须在此处注册_
 - **模型与架构 (Models & Arch):** `architecture`, `llm`, `vlm`, `transformer`, `state-space`, `reasoning`
 - **优化与工程 (Optimization):** `quantization`, `tensorrt`, `onnx`, `system-prompt`, `alignment`
 - **计算机视觉 (Computer Vision):** `computer-vision`, `reid`, `clustering`
-- **全栈与运维 (Applications & Ops):** `agent`, `macos`, `ops`, `gateway`, `pipeline`
+- **Agent 与编排 (Agent & Orchestration):** `agent`, `orchestration`, `harness`, `react`, `context-management`, `sandbox`, `hitl`, `protocol`, `multi-agent`
+- **全栈与运维 (Applications & Ops):** `macos`, `ops`, `gateway`, `pipeline`
 - **算法与数学 (Algorithms & Math):** `tcs`, `statistics`, `proof`, `complexity`, `algorithm`, `math`, `logic`
 - **知识管理与工具 (Knowledge Management & Tools):** `wiki`, `markdown`, `obsidian`, `tool`
 - **元数据 (Meta):** `comparison`, `benchmark`, `paper`

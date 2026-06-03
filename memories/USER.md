@@ -6,8 +6,8 @@ Product Recs: Star ratings/tables. Prefers 1st-party CLI/VSCode(brew). gruvmax-f
 §
 Tools: Execute fully. Monitor RAM: iStat. Wiki: ALWAYS skill_view(llm-wiki) first. Refactoring skills: ensure execution capability is not degraded.
 §
-Hardware/SA docs: tables, SKUs, math. For mgmt/consulting: 3-5 plain-English sentences, decision trees, rule-of-thumb formulas. Translate tech (VDEC, dirty-data filtering) into '大白话' business value & upsell tactics. CV: Edge extract+Cloud ReID.
+Hardware/SA docs: SKUs/math. For mgmt/consulting: plain-English, decision trees. Translate tech to business value, explicitly highlight limitations to frame up-sell tactics. Append Glossary after References. CV: Edge extract+Cloud ReID.
 §
 Feishu user open_id: ou_33eeacfbd0c0559b7b734f83503719ab (useful for assigning permissions, tagging, or routing).
 §
-AI Tech: User is bleeding-edge. Always web search before correcting them on new model/tool names.
+AI Tech: Bleeding-edge. Deeply interested in Agent Harness engineering (Autonomous Loops, State Checkpoints, MCP/LSP). Always web search before correcting on new tools.

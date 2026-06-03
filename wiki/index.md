@@ -12,7 +12,8 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last updated: 2026-05-27 | Total pages: 34
+> Last structural update: 2026-05-27 | Total pages: 35
+> (Content updates tracked in individual page frontmatter)
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
 <!--
@@ -42,6 +43,7 @@ Registry Rules
 ## Concepts (概念：机制/算法/理论)
 
 - [[agent-frameworks]] - 什么是真正的 Agent 框架及深度选型分析
+- [[agent-harness]] - Agent Harness 底座架构：五层系统（编排/上下文/沙盒/HITL/协议）
 - [[agent-mid-turn-input-modes]] - Agent 在用户 mid-turn 追加输入时的 interrupt/queue/steer 三模式调度对偶
 - [[chain-of-thought]] - 思维链提示词族（CoT/Zero-shot/Self-Consistency/ToT/ReAct）
 - [[customer-flow-post-processing]] - ReID 下游的接待识别、客流过滤与配置化设计方法学
