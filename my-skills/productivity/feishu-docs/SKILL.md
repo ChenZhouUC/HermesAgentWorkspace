@@ -2,6 +2,8 @@
 name: feishu-docs
 description: "Master guide for Feishu (Lark) Docs: read via Bot API, convert Markdown via Import API, update existing docs (precise indexing, tables, mentions), and read Minutes."
 category: productivity
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # Feishu (Lark) Docs & Minutes Management

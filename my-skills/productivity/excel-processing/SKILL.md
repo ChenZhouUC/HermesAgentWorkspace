@@ -2,6 +2,8 @@
 name: excel-processing
 description: Techniques for parsing Excel (.xlsx) files, extracting values and semantic formatting (strikethroughs, colors) without heavy dependencies like pandas.
 category: productivity
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # Excel Data & Formatting Extraction

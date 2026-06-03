@@ -1,6 +1,9 @@
 ---
 name: vector-graphics
 description: Vector graphics manipulation, SVG conversions, and CLI automation (potrace, Inkscape).
+category: creative
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # Vector Graphics Operations

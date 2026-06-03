@@ -1,6 +1,9 @@
 ---
 name: bilingual-dictionary-cataloging
 description: Format constraints and style guide for bilingual dictionary metadata descriptions.
+category: creative
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # Bilingual Dictionary Cataloging

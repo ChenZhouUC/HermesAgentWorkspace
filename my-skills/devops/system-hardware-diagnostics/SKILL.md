@@ -1,6 +1,9 @@
 ---
 name: system-hardware-diagnostics
 description: "Hardware and OS Diagnostics for macOS (APFS, Memory Pressure) and Edge AI boards (Rockchip, Sophgo, CMA/OverlayFS bypass)."
+category: devops
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # System & Hardware Diagnostics

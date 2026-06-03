@@ -1,6 +1,9 @@
 ---
 name: file-naming-conventions
 description: Conventions for naming files, project backups, and timestamped artifacts to ensure robust machine parsing and cross-platform sorting.
+category: software-development
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # File Naming Conventions

@@ -2,6 +2,8 @@
 name: network-diagnostics
 description: Advanced network and DNS probing, diagnostics, and metrics (CHAOS / ECS / NXDOMAIN / DoT-DoH / ASN).
 category: devops
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # Network Diagnostics & Advanced DNS Probing

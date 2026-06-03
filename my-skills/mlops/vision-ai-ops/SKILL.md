@@ -1,12 +1,12 @@
 ---
 name: vision-ai-ops
 description: "Operational heuristics for Vision AI, YOLO preprocessing, VLM token economics, and video streams."
-version: 1.0.0
-author: Hermes Agent
+category: mlops
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 metadata:
   hermes:
     tags: [computer-vision, yolo, vlm, tokens, inference, video-analytics]
-    category: mlops
 ---
 
 # Vision AI Operations & Token Economics

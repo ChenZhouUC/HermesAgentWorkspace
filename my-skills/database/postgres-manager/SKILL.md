@@ -2,6 +2,8 @@
 name: postgres-manager
 description: 自动管理 PostgreSQL 连接配置、持久化存储表结构（元数据），并基于准确的元数据辅助执行 SQL 任务。
 category: database
+version: 2026.06.03
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # Postgres Manager
