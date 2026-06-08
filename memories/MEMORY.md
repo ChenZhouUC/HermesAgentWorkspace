@@ -4,11 +4,11 @@
 §
 Feishu API Quirks: Max 9-row tables. Skip H1. POST index relative. DELETE 404 (use batch). No trailing dots in MD URLs. Nested bold text in lists triggers 400 errors during rebuild/insert. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f
 §
-Projects: SpaceSight (PaaS, NEVER use the name 'Echo' anymore), KeepAgile/dicts, HyperTex (TeX/graph network system with Admin/User roles, Token/Latency tracking; PPT generation via Heuristic and Declarative/Instruction modes).
+Projects: SpaceSight(PaaS), KeepAgile/dicts, Nemo, HyperTex(HTML-first, Reveal+Playwright PDF, Draft/Compile modes, dropped TeX). User focuses on Agent orchestration, not cloud infra.
 §
-Write ALL temp files strictly to ~/.hermes/tmp (never ~/ unless explicitly requested). Subagents spawned via `delegate_task` lack session memory; explicitly pass this path rule and other constraints. Homebrew ops require user approval. Naming: [Folio|Showcase]\_Project_YYYYMMDDTHHMMSS+0800.
+Temp files -> ~/.hermes/tmp. Subagents via `delegate_task` lack memory; pass constraints explicitly. Homebrew requires approval. Naming: [Folio|Showcase]\_Project_YYYYMMDDTHHMMSS+0800. For Feishu, explicitly print absolute local file paths in plain text for easy copying.
 §
-macOS lock screen check via CLI: use `ioreg -n Root -d1 | grep CGSSessionScreenIsLocked` (returns 'Yes' if locked, 'No' or absent if unlocked). Ignore prior memory stating it fails due to privacy.
+macOS lock screen: use `pmset displaysleepnow` to lock immediately (avoids AppleEvent timeouts). Check status: `ioreg -n Root -d1 | grep CGSSessionScreenIsLocked` ('Yes' if locked).
 §
 User operates a 32-core, 64GB RAM machine for AI inference workloads (e.g., ONNX, FastReID).
 §

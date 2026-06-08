@@ -4,10 +4,10 @@ Feishu Docs: Ver table YYYYMMDD.XXed, UTC+8, @木马牛。Cite wiki as 周琛。
 §
 Product Recs: Star ratings/tables. Prefers 1st-party CLI/VSCode(brew). gruvmax-fang for delta. Git: copilot-git-approve. Uses FVM.
 §
-Tools: Execute fully. Monitor RAM: iStat. Wiki: ALWAYS skill_view(llm-wiki) first. Refactoring skills: ensure execution capability is not degraded.
+Tools: Execute fully. Monitor RAM: iStat. Wiki: ALWAYS llm-wiki first. Notices tool changes (e.g. tavily scripts replaced by internal web_search).
 §
-Hardware/SA docs: SKUs/math. For mgmt/consulting: plain-English, decision trees. Translate tech to business value, explicitly highlight limitations to frame up-sell tactics. Append Glossary after References. CV: Edge extract+Cloud ReID.
+For mgmt/consulting: plain-English, decision trees, translate tech to business value, highlight limitations for up-sells. PPTs: McKinsey-style, sans-serif, heavy/light weight contrast, top-aligned cells.
 §
 Feishu user open_id: ou_33eeacfbd0c0559b7b734f83503719ab (useful for assigning permissions, tagging, or routing).
 §
-AI Tech: Bleeding-edge. Deeply interested in Agent Harness engineering (Autonomous Loops, State Checkpoints, MCP/LSP). Always web search before correcting on new tools.
+AI Tech: Agent reverse-engineering. User has full sandbox access; provide direct CLI commands for auditing. NEVER auto-invoke 'gh copilot' in background.

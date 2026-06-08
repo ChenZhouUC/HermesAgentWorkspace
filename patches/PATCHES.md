@@ -160,16 +160,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.15.1 (upstream `main` `a6b6afdff`，2026-06-03)
+## 当前版本：v0.16.0 (upstream `main` `d02a59b6`，2026-06-08)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9（共 5 条）。
 
-**最近一次升级（v0.14.0 → v0.15.1，+823 commits）要点**：
+**最近一次升级（v0.15.1 → v0.16.0，+699 commits）要点**：
 
-- 上游主线：Hermes Desktop App 合入（PR #20059）、packaging 与 CVE-2026-48710 Starlette pin、dashboard/TUI/streaming 重构、`MESSAGING_CWD` 弃用改 `terminal.cwd`、docker s6 lifecycle 收紧、doctor 增加版本漂移检查。
-- patch apply：5 文件 clean apply，1 文件 3way 干净，1 文件 3way 冲突已手工合并（`migrate-from-openclaw.md`：上游 `119390a2a` 改写 Working directory 行 + 本地 PATCH-9 删 Gateway auth token 行——保留上游 + 删 token 行）。
-- 依赖：`starlette 1.0.0 → 1.0.1`（CVE-2026-48710）、新增 `setuptools==82.0.1`；`uv` python-path mismatch 仍由 `--python venv/bin/python` fallback 自动恢复。Skills mirror 同步：+0 / ~17 / -18。npm audit clean。
-- 脚本修复：Step 7 末尾 `rm -f ~/.zcompdump*` 撞到空目录残留 `~/.zcompdump-...lock/`，因 `-f` 仍拒删目录返回非零、叠加 `set -euo pipefail` 直接中断脚本，导致 Step 8/9 全跳过。已改为 `find ~ -maxdepth 1 -name '.zcompdump*' -type f -delete`（只删文件、忽略目录、不污染 `set -e`）。
+- 上游主线：v0.16.0 release（`3c231eb39`，2026.6.5）；Hermes Desktop App 大量迭代（renderer 兜底失败、asar 解包 dist/、sidebar drag、Shift+click YOLO toggle、collapsed sidebar overlay、content-hash build stamp、installer 改名「Hermes」做 launcher #37516、Codex OAuth 持久化路径对齐 #37517）；dashboard nous-blue 主题 + bulk sessions + schedule picker（#37383）；observability NeMo-Relay 插件；packaging 全面迁移 PEP 639 SPDX license、`requires-python<3.14`、`UV_PYTHON` pin venv、locales/ 打包；Pillow / Markdown 提升为核心依赖（即装即用 rich 渲染 + vision pixel cap）。
+- patch apply：7 文件全部 clean apply / 3way 干净，**无冲突**。`5a36f76a0` 触及 `tools/skill_manager_tool.py` 的 `_validate_file_path`（与 PATCH-1 `_resolve_skill_dir()` 不同 hunk）通过 3way 干净合入；`e2cc24e33`（doctor Honcho env fallback）、`c3d750c1a`/`d47f919ef`（lazy_deps prompt=False）、`b13ab0b9a`/`b434f8c3e`/`ee7948ea6`/`e223503b0`（pyproject Pillow/markdown/dev 排除/PEP 639）等上下文偏移全部由 git 自动 rebase。
+- 依赖：上游 venv 重建后 `markdown==3.10.2`、`pathspec==1.1.1`、`pillow==12.2.0` 全部 pull 到 base；本地 `npm audit fix` 在 `node_modules/` 内 +109 / -52 / ~13 packages；Skills mirror 同步：+3 / ~16 / **-168**（上游大规模收敛 skills 集合，本地 `skills/` 通过 `rsync --delete` 自动收敛）。
+- 已知摩擦：脚本 preflight 阶段 `git fetch` 报 `github.com unreachable`（瞬时网络），但 `hermes update` 内部重试成功，pull 699 commits 无误；`uv` python-path mismatch（`/Users/chenzhou/.local/share/uv/python`）仍走 `--python venv/bin/python` fallback 自动恢复。Gateway 在 Step 8d / Step 9 重启被 launchd `Bootstrap failed: 5`（macOS 26.5 launchctl 退化）拦了一次，脚本回退到「直接 background python 子进程」启动成功（PID 95442，feishu connected），脚本 summary 中 "Gateway is not running" 报错为时序误判（状态文件 + ps 双确认进程已 up）。
+- 配置漂移：`hermes doctor` 报 `Config version outdated (v23 → v28)`——上游 schema 演进，运行 `hermes doctor --fix` 或 `hermes setup` 可一键迁移；本次保留不动以避免与正在运行的 gateway 状态冲突。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
 

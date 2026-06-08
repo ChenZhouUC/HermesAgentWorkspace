@@ -60,7 +60,7 @@ _hermes() {
                 'model:Select default model and provider'
                 'pairing:Manage DM pairing codes for user authorization'
                 'plugins:Manage plugins — install, update, remove, list'
-                'portal:Nous Portal status, subscription, and Tool Gateway routing'
+                'portal:Set up Nous Portal (login, model pick, Tool Gateway); see al'
                 'postinstall:Bootstrap non-Python deps for pip installs (node, browser, r'
                 'profile:Manage profiles — multiple isolated Hermes instances'
                 'prompt-size:Show a byte breakdown of the system prompt + tool schemas'
@@ -180,6 +180,13 @@ _hermes() {
                     'unpin:Unpin a skill'
                     )
                     _describe 'curator command' curator_cmds
+                    ;;
+                dashboard)
+                    local -a dashboard_cmds
+                    dashboard_cmds=(
+                    'register:Register a self-hosted dashboard with Nous Portal (writes th'
+                    )
+                    _describe 'dashboard command' dashboard_cmds
                     ;;
                 debug)
                     local -a debug_cmds
@@ -338,8 +345,9 @@ _hermes() {
                 portal)
                     local -a portal_cmds
                     portal_cmds=(
+                    'info:Show Portal auth + Tool Gateway routing summary'
+                    'login:Log in to Nous Portal + set it up (default; one-shot onboard'
                     'open:Open the Portal subscription page in your default browser'
-                    'status:Show Portal auth + Tool Gateway routing summary (default)'
                     'tools:List Tool Gateway tools and which are routed via Nous'
                     )
                     _describe 'portal command' portal_cmds
@@ -443,6 +451,7 @@ _hermes() {
                     'disable:Disable toolsets or MCP tools'
                     'enable:Enable toolsets or MCP tools'
                     'list:Show all tools and their enabled/disabled status'
+                    'post-setup:Run a providers post-setup install hook (npm/pip/binary)'
                     )
                     _describe 'tools command' tools_cmds
                     ;;
