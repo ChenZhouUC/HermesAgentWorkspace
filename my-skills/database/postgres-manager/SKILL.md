@@ -15,6 +15,7 @@ This skill automates the management of PostgreSQL connections, locally caches da
 - **Workspace Dir**: `~/.hermes/db_workspace/`
 - **Connections Config**: `~/.hermes/db_workspace/connections.json`
   - Format: `{"alias_name": {"uri": "postgresql://user:pass@host:port/dbname", "created_at": "..."}}`
+  - **🔒 Contains plaintext DB passwords.** After `pg_manager.py add` creates or modifies this file, ensure it's `chmod 600`. If the user reports a leaked credential or rotates a password, update via `pg_manager.py add <alias> <new_uri>` (overwrites) and confirm the old URI is gone.
 - **Metadata Cache**: `~/.hermes/db_workspace/metadata/<alias_name>_schema.json`
   - Contains grouped tables, column names, and data types.
 

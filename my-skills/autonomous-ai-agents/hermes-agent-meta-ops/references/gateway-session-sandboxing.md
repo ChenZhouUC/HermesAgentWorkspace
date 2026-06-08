@@ -20,16 +20,28 @@ Intercept the `agent:start` event before the agent loop begins, check the sessio
    ```
 
 3. Implement the handler (`~/.hermes/hooks/sandbox_sessions/handler.py`):
+
    ```python
+   import os
+
    async def handle(event_type: str, context: dict):
        if event_type == "agent:start":
-           admin_chat_id = "oc_c8221472cf59b202ccd0682cf6cea296"  # Replace with actual admin chat_id
+           # Read admin chat IDs from env (comma-separated). Never hard-code
+           # them in the handler — rotating the bot or onboarding a new admin
+           # then becomes an env-var change, not a code edit.
+           admin_chat_ids = {
+               cid.strip()
+               for cid in os.environ.get("HERMES_ADMIN_CHAT_IDS", "").split(",")
+               if cid.strip()
+           }
 
-           if context.get("chat_id") != admin_chat_id:
+           if context.get("chat_id") not in admin_chat_ids:
                # Strip dangerous tools for public sessions, leaving only safe ones (e.g., web search)
                context["enabled_toolsets"] = ["web"]
                # Or completely disable all tools:
                # context["enabled_toolsets"] = []
    ```
+
+   Configure `HERMES_ADMIN_CHAT_IDS` in `~/.hermes/.env` as a comma-separated list (e.g. `HERMES_ADMIN_CHAT_IDS=oc_abc...,oc_def...`). The handler fails closed: if the env var is unset, **every** session is treated as non-admin and gets the stripped toolset.
 
 This approach intercepts the context cleanly without modifying core Hermes code, ensuring public sessions never even see the powerful tools.

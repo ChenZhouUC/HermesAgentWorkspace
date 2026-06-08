@@ -14,7 +14,15 @@ Simply "saving as SVG" in Inkscape only embeds the PNG in an image tag. True vec
 
 ## CLI Method (Headless/Automation)
 
-Inkscape's headless trace support is unreliable. The standard CLI fallback uses `potrace`:
+Inkscape's headless trace support is unreliable for complex images, but its CLI is excellent for cleaning up existing SVGs (converting objects to paths and stripping editor XML).
+_Note: When scripting batch processing with filenames containing spaces, quote the input file but keep `--actions=` intact._
+
+```bash
+# Example 1: Convert SVG objects to paths and save as plain SVG (cleanup)
+inkscape "input image.svg" --actions="select-all;object-to-path;export-plain-svg;export-filename:output.svg;export-do"
+```
+
+For true raster-to-vector tracing via CLI, the standard fallback is `potrace`:
 
 ```bash
 # 1. Install dependencies

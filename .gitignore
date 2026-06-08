@@ -49,6 +49,9 @@ sandboxes/
 # ── 官方 Skills Hub 包（171MB，按需重装）─────────────────────────
 skills/
 
+# ── LSP server 沙箱（hermes lsp install 自动产物，含 node_modules 和带绝对路径的软链接）
+lsp/
+
 # ── Migration 临时数据 ──────────────────────────────────────────
 migration/
 
