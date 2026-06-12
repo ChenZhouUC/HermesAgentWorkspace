@@ -4,8 +4,6 @@
 §
 Feishu API Quirks: Max 9-row tables. Skip H1. POST index relative. DELETE 404 (use batch). No trailing dots in MD URLs. Nested bold text in lists triggers 400 errors during rebuild/insert. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f
 §
-Projects: SpaceSight(PaaS), KeepAgile/dicts, Nemo, HyperTex(HTML-first, Reveal+Playwright PDF, Draft/Compile modes, dropped TeX). User focuses on Agent orchestration, not cloud infra.
-§
 Temp files -> ~/.hermes/tmp. Subagents via `delegate_task` lack memory; pass constraints explicitly. Homebrew requires approval. Naming: [Folio|Showcase]\_Project_YYYYMMDDTHHMMSS+0800. For Feishu, explicitly print absolute local file paths in plain text for easy copying.
 §
 macOS lock screen: use `pmset displaysleepnow` to lock immediately (avoids AppleEvent timeouts). Check status: `ioreg -n Root -d1 | grep CGSSessionScreenIsLocked` ('Yes' if locked).
@@ -17,3 +15,7 @@ Edge AI nodes (private lab hosts, local creds): RK3576 (NPU load: `cat /sys/kern
 LLM Wiki `~/.hermes/wiki`. Bipartite Graph: L1 (\_living/) = Hubs. L2 (entities/concepts) = Authorities. L2 cites L1 via `^[[[_living/...|Alias]]]`. Use HITS & Bipartite Projection (Jaccard) for topology. Run `python3 ~/.hermes/scripts/wiki_lint.py`.
 §
 Skill maintenance preference: Prioritize agent execution efficiency. Keep SKILL.md concise by extracting inline scripts into separate files under a scripts/ directory to reduce token load. Prefers generic, scalable directory names (e.g., 'editor-configs' instead of 'macvim-ops').
+§
+Projects: SpaceSight(PaaS), KeepAgile/dicts, Nemo, HyperTex(HTML-first, Reveal+Playwright PDF, AI-gen H5 'Showcases' on Vercel), 帷幄。User focuses on Agent orchestration, not cloud infra.
+§
+Handles international vendor security and AI privacy compliance audits (SOC2, ISO, Model Inversion, ECE, SIEM/DLP) for Whale / SpaceSight.

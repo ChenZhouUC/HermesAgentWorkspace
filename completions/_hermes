@@ -79,6 +79,7 @@ _hermes() {
                 'version:Show version information'
                 'webhook:Manage dynamic webhook subscriptions'
                 'whatsapp:Set up WhatsApp integration'
+                'whatsapp-cloud:Set up WhatsApp Business Cloud API integration'
             )
             _describe 'hermes command' subcmds
             ;;
@@ -411,6 +412,7 @@ _hermes() {
                     'optimize:Reclaim disk space: merge FTS5 segments + VACUUM (no data ch'
                     'prune:Delete old sessions'
                     'rename:Set or change a sessions title'
+                    'repair:Repair a malformed state.db schema so hidden sessions reappe'
                     'stats:Show session store statistics'
                     )
                     _describe 'sessions command' sessions_cmds

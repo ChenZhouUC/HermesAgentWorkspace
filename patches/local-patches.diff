@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 619d00df8..0af35e99d 100644
+index b146722e4..5a3d183f8 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -1971,8 +1971,23 @@ def run_doctor(args):
+@@ -2025,8 +2025,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -45,10 +45,10 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/pyproject.toml b/pyproject.toml
-index fcfd8d773..687573af5 100644
+index e191932c2..13f93d27c 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -201,7 +201,7 @@ termux-all = [
+@@ -214,7 +214,7 @@ termux-all = [
    "hermes-agent[web]",
  ]
  dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
@@ -108,7 +108,7 @@ index 97cf3e9d1..d85237ba9 100644
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 3aeace33b..06142589b 100644
+index 76f146c78..0f815ffb1 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -147,6 +147,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
@@ -120,7 +120,7 @@ index 3aeace33b..06142589b 100644
      # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index c131db9d5..85e8e40f9 100644
+index 4f96b171e..737247558 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
 @@ -269,10 +269,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st

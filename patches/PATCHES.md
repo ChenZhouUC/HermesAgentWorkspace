@@ -160,11 +160,19 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.16.0 (upstream `main` `d02a59b6`，2026-06-08)
+## 当前版本：v0.16.0 (upstream `main` `d62979a6`，2026-06-12)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9（共 5 条）。
 
-**最近一次升级（v0.15.1 → v0.16.0，+699 commits）要点**：
+**最近一次升级（v0.16.0 → v0.16.0，+492 commits，basis `d02a59b6` → `d62979a6`）要点**：
+
+- 上游主线（同 release 内迭代，`v0.16.0 (2026.6.5)` tag 不变）：Desktop App composer status stack / live subagent windows / editable prompts（#44630）；billing `/credits` 命令 + portal top-up handoff（#44776）+ `display.credits_notices` 节流（#44716）；CLI 把 approval/clarify/sudo/secret modal 持久化到 scrollback（#44702）+ 改成直接绘制（#41098）；Photon spectrum-ts 3.1.0、agent-facing 表情反应、telemetry toggle、sidecar port 复用；新增 `hermes sessions repair` 修 `state.db` 隐藏会话（#43149）；新增 `hermes whatsapp-cloud` WhatsApp Business Cloud API（#43921）；Yuanbao 支持 WeChat 转发；gateway 给 SimpleX/Email/Signal 文档分类、PDF/DOCX 引导直读不要 punt；`fix(gateway): probe launchd domain instead of hardcoding user/<uid>`（#40831）—— **此 commit 直接消除了 macOS 26 上 `hermes gateway restart` → `launchctl bootstrap exit 5` 反复刷 `vertex-refresh.err.log` 的报错**；refactor god-file Phase 3b/4：gateway 42 + CLI 32 slash-command handlers 抽进 mixin；end-of-turn memory sync 移出 turn 线程（#41945）；Honcho env fallback + `HERMES_MAX_ITERATIONS` ghost shadowing 检测/修复；nix cold-build / fix-lockfiles 流水线巩固。
+- patch apply：7 文件全部 clean / 3way 干净，**无冲突**。`hermes_cli/doctor.py` PATCH-2 锚点行号 `1971 → 2025` 自动 rebase（god-file Phase 4 抽方法），diff 内仅 index hash 改动。
+- 依赖：venv 升级 `aiohttp 3.13.3 → 3.13.4`、`packaging 26.2 → 26.0`、`pyjwt 2.12.1 → 2.13.0`；`npm audit fix` +21/-14/~3 packages；Skills mirror 同步：+0 / ~16 / **-42**（上游继续收敛）。
+- 已知摩擦：`uv` python-path mismatch（`/Users/chenzhou/.local/share/uv/python`）仍由 `--python venv/bin/python` fallback 自动恢复（脚本侧已固化兜底）；Gateway 在 Step 6 首次启动后被 Step 8d/9 再次确认 loaded（PID 85799，OnDemand=false），launchd `Bootstrap failed: 5` 不再复现。
+- 配置漂移：`hermes doctor` 报 `Config version outdated (v28 → v29)`——上游 schema 新增 `agent.coding_context`、`auxiliary.{monitor,tts_audio_tags}`、`display.{persist_prompts,credits_notices}`、`tts.gemini`、`memory.write_approval`、`max_concurrent_sessions`；`hermes doctor --fix` 一键迁移完成。
+
+**前一次升级（v0.15.1 → v0.16.0，+699 commits，basis `a6b6afdff` → `d02a59b6`）要点**：
 
 - 上游主线：v0.16.0 release（`3c231eb39`，2026.6.5）；Hermes Desktop App 大量迭代（renderer 兜底失败、asar 解包 dist/、sidebar drag、Shift+click YOLO toggle、collapsed sidebar overlay、content-hash build stamp、installer 改名「Hermes」做 launcher #37516、Codex OAuth 持久化路径对齐 #37517）；dashboard nous-blue 主题 + bulk sessions + schedule picker（#37383）；observability NeMo-Relay 插件；packaging 全面迁移 PEP 639 SPDX license、`requires-python<3.14`、`UV_PYTHON` pin venv、locales/ 打包；Pillow / Markdown 提升为核心依赖（即装即用 rich 渲染 + vision pixel cap）。
 - patch apply：7 文件全部 clean apply / 3way 干净，**无冲突**。`5a36f76a0` 触及 `tools/skill_manager_tool.py` 的 `_validate_file_path`（与 PATCH-1 `_resolve_skill_dir()` 不同 hunk）通过 3way 干净合入；`e2cc24e33`（doctor Honcho env fallback）、`c3d750c1a`/`d47f919ef`（lazy_deps prompt=False）、`b13ab0b9a`/`b434f8c3e`/`ee7948ea6`/`e223503b0`（pyproject Pillow/markdown/dev 排除/PEP 639）等上下文偏移全部由 git 自动 rebase。
