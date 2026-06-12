@@ -172,13 +172,7 @@ cat ~/.hermes/patches/.local-patches.base
 - 已知摩擦：`uv` python-path mismatch（`/Users/chenzhou/.local/share/uv/python`）仍由 `--python venv/bin/python` fallback 自动恢复（脚本侧已固化兜底）；Gateway 在 Step 6 首次启动后被 Step 8d/9 再次确认 loaded（PID 85799，OnDemand=false），launchd `Bootstrap failed: 5` 不再复现。
 - 配置漂移：`hermes doctor` 报 `Config version outdated (v28 → v29)`——上游 schema 新增 `agent.coding_context`、`auxiliary.{monitor,tts_audio_tags}`、`display.{persist_prompts,credits_notices}`、`tts.gemini`、`memory.write_approval`、`max_concurrent_sessions`；`hermes doctor --fix` 一键迁移完成。
 
-**前一次升级（v0.15.1 → v0.16.0，+699 commits，basis `a6b6afdff` → `d02a59b6`）要点**：
-
-- 上游主线：v0.16.0 release（`3c231eb39`，2026.6.5）；Hermes Desktop App 大量迭代（renderer 兜底失败、asar 解包 dist/、sidebar drag、Shift+click YOLO toggle、collapsed sidebar overlay、content-hash build stamp、installer 改名「Hermes」做 launcher #37516、Codex OAuth 持久化路径对齐 #37517）；dashboard nous-blue 主题 + bulk sessions + schedule picker（#37383）；observability NeMo-Relay 插件；packaging 全面迁移 PEP 639 SPDX license、`requires-python<3.14`、`UV_PYTHON` pin venv、locales/ 打包；Pillow / Markdown 提升为核心依赖（即装即用 rich 渲染 + vision pixel cap）。
-- patch apply：7 文件全部 clean apply / 3way 干净，**无冲突**。`5a36f76a0` 触及 `tools/skill_manager_tool.py` 的 `_validate_file_path`（与 PATCH-1 `_resolve_skill_dir()` 不同 hunk）通过 3way 干净合入；`e2cc24e33`（doctor Honcho env fallback）、`c3d750c1a`/`d47f919ef`（lazy_deps prompt=False）、`b13ab0b9a`/`b434f8c3e`/`ee7948ea6`/`e223503b0`（pyproject Pillow/markdown/dev 排除/PEP 639）等上下文偏移全部由 git 自动 rebase。
-- 依赖：上游 venv 重建后 `markdown==3.10.2`、`pathspec==1.1.1`、`pillow==12.2.0` 全部 pull 到 base；本地 `npm audit fix` 在 `node_modules/` 内 +109 / -52 / ~13 packages；Skills mirror 同步：+3 / ~16 / **-168**（上游大规模收敛 skills 集合，本地 `skills/` 通过 `rsync --delete` 自动收敛）。
-- 已知摩擦：脚本 preflight 阶段 `git fetch` 报 `github.com unreachable`（瞬时网络），但 `hermes update` 内部重试成功，pull 699 commits 无误；`uv` python-path mismatch（`/Users/chenzhou/.local/share/uv/python`）仍走 `--python venv/bin/python` fallback 自动恢复。Gateway 在 Step 8d / Step 9 重启被 launchd `Bootstrap failed: 5`（macOS 26.5 launchctl 退化）拦了一次，脚本回退到「直接 background python 子进程」启动成功（PID 95442，feishu connected），脚本 summary 中 "Gateway is not running" 报错为时序误判（状态文件 + ps 双确认进程已 up）。
-- 配置漂移：`hermes doctor` 报 `Config version outdated (v23 → v28)`——上游 schema 演进，运行 `hermes doctor --fix` 或 `hermes setup` 可一键迁移；本次保留不动以避免与正在运行的 gateway 状态冲突。
+> 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
 ### [PATCH-1] tools/skill_manager_tool.py — 自定义 skill 创建路径
 
