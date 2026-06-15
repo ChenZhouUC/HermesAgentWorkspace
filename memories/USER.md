@@ -2,7 +2,7 @@ Profile: Zhou Chen. Married (gov). TZ: Asia/Shanghai. CN/EN. Math/Stats eng (Fud
 §
 Feishu Docs: Ver table YYYYMMDD.XXed, UTC+8, @木马牛。Cite wiki as 周琛。Files/presentations: [Folio|Showcase]\_Project_YYYYMMDDTHHMMSS+0800. Arch docs: use authentic terms (trajex/hidalgo) from local wiki.
 §
-Product Recs: Star ratings/tables. Prefers 1st-party CLI/VSCode(brew). gruvmax-fang for delta. Git: copilot-git-approve. Uses FVM.
+Product Recs: Feishu Doc with comparative tables. Uses 1st-party CLI/VSCode(brew), FVM, gruvmax-fang, copilot-git-approve.
 §
 Tools: Execute fully. Monitor RAM: iStat. Wiki: ALWAYS llm-wiki first. Notices tool changes (e.g. tavily scripts replaced by internal web_search).
 §
