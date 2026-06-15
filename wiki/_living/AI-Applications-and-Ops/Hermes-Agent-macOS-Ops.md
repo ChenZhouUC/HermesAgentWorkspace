@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent macOS Ops
 created: 2026-05-14
-updated: 2026-06-13
+updated: 2026-06-15
 ---
 
 # Hermes Agent macOS 安装与运维手册
@@ -9,7 +9,7 @@ updated: 2026-06-13
 > 适用系统：macOS 13+（Apple Silicon / Intel 均可）
 > 主模型：公司 **Vertex AI**（service account 换 token，OpenAI 兼容端点）
 > Fallback：**阿里云 Qwen / DashScope**（百炼）
-> 适用版本：Hermes Agent **v0.16.0**（upstream `d62979a6` / latest `main` as of 2026-06-13）
+> 适用版本：Hermes Agent **v0.16.0**（upstream `4eb0ff63` / latest `main` as of 2026-06-15）
 > 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置 Vertex + Qwen → Vertex Token 自动刷新 → 飞书接入 → 内容迁移 → 日常运维
@@ -187,7 +187,7 @@ git clone https://github.com/NousResearch/hermes-agent.git ~/.hermes/hermes-agen
 cd ~/.hermes/hermes-agent
 ```
 
-> 本手册当前基于 v0.16.0（upstream `d62979a6`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
+> 本手册当前基于 v0.16.0（upstream `4eb0ff63`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
 
 ### 3.2 创建虚拟环境并安装依赖
 
@@ -856,7 +856,7 @@ launchd
 
 ---
 
-_文档更新时间：2026-06-13_
-_对应 Hermes Agent 版本：**v0.16.0**（upstream `d62979a6` / latest `main` as of 2026-06-13）_
+_文档更新时间：2026-06-15_
+_对应 Hermes Agent 版本：**v0.16.0**（upstream `4eb0ff63` / latest `main` as of 2026-06-15）_
 _主模型：Vertex AI（公司 SA）Fallback：阿里云 Qwen / DashScope（`qwen3.6-plus`）_
 _本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_

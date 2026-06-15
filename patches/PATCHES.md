@@ -2,12 +2,13 @@
 
 > 本文件集中记录所有相对上游 hermes-agent 的本地补丁，与 `local-patches.diff` 一一对应。
 >
-> **AI 维护规范**：
+> **AI 维护规范**（详细工作流见 `~/.hermes/hermes-update.md` § Step 4）：
 >
-> - 每次 `hermes update` 升级后，将该版本下新增的补丁条目移至对应版本节；若上游已合并某补丁，将状态改为 `✅ 已上游合并（vX.Y.Z）` 并从 `hermes-update.sh` 的 `PATCHED_FILES` 中移除对应文件。
-> - 新补丁格式：在当前版本节下复制一个 `### [PATCH-N]` 块并填写各字段。
-> - 版本升级时在顶部新增 `## vX.Y.Z（upstream COMMIT）` 节，未变化的补丁直接迁移过来。
-> - `completions/_hermes` 类补丁（不在 `hermes-agent/` 下）由 `hermes-update.sh` Step 7 在重新生成补全脚本后用 inline Python 检测并修复；如上游已修正生成器（如 PATCH-3 在 v0.13.0 后），脚本检测不到坏格式即跳过，detection 块作为回归 sentinel 保留。
+> - **每次升级后**重写 `## 当前版本：vX.Y.Z (upstream `main` `<SHA>`，YYYY-MM-DD)` header 与下方"最近一次升级"摘要；摘要遵循 5 段结构（上游主线 / patch apply / 依赖 / 已知摩擦 / 配置漂移）。
+> - **新补丁**：在 `## 当前版本` 节下新增 `### [PATCH-N]` 块（2-row 表 `文件 / 状态` + 三段 `问题 / 修复 / 验证`），同步把文件加进 `hermes-update.sh` 的 `PATCHED_FILES`。
+> - **上游合并某补丁**：把该 PATCH-N 块**整体移动**到一个新的 `## vX.Y.Z archive — PATCH-N 上游合并` 节（vX.Y.Z 为上游吸收所在的 release tag），归档块的表扩到 3-row（`文件 / 状态 / 适用版本`），状态改 `✅ 已上游合并（vX.Y.Z，commit `<SHA>`）`，并把"验证"段改为"上游追踪"段（记录吸收 commit + 是否保留 sentinel grep）；同步从 `PATCHED_FILES` 移除对应文件。
+> - **每个 PATCH-N 块在整份 PATCHES.md 里仅出现一次**——要么在当前节、要么在某个 archive 节，**不复制**。
+> - `completions/_hermes` 类**工程外补丁**：由 `hermes-update.sh` Step 7 inline Python 在补全脚本生成后检测并修复；上游修好后脚本自动跳过、检测块保留为回归 sentinel（PATCH-3 即此类）。
 
 ---
 
@@ -160,17 +161,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.16.0 (upstream `main` `d62979a6`，2026-06-12)
+## 当前版本：v0.16.0 (upstream `main` `4eb0ff63`，2026-06-15)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9（共 5 条）。
 
-**最近一次升级（v0.16.0 → v0.16.0，+492 commits，basis `d02a59b6` → `d62979a6`）要点**：
+**最近一次升级（v0.16.0 → v0.16.0，+223 commits，basis `d62979a6` → `4eb0ff63`）要点**：
 
-- 上游主线（同 release 内迭代，`v0.16.0 (2026.6.5)` tag 不变）：Desktop App composer status stack / live subagent windows / editable prompts（#44630）；billing `/credits` 命令 + portal top-up handoff（#44776）+ `display.credits_notices` 节流（#44716）；CLI 把 approval/clarify/sudo/secret modal 持久化到 scrollback（#44702）+ 改成直接绘制（#41098）；Photon spectrum-ts 3.1.0、agent-facing 表情反应、telemetry toggle、sidecar port 复用；新增 `hermes sessions repair` 修 `state.db` 隐藏会话（#43149）；新增 `hermes whatsapp-cloud` WhatsApp Business Cloud API（#43921）；Yuanbao 支持 WeChat 转发；gateway 给 SimpleX/Email/Signal 文档分类、PDF/DOCX 引导直读不要 punt；`fix(gateway): probe launchd domain instead of hardcoding user/<uid>`（#40831）—— **此 commit 直接消除了 macOS 26 上 `hermes gateway restart` → `launchctl bootstrap exit 5` 反复刷 `vertex-refresh.err.log` 的报错**；refactor god-file Phase 3b/4：gateway 42 + CLI 32 slash-command handlers 抽进 mixin；end-of-turn memory sync 移出 turn 线程（#41945）；Honcho env fallback + `HERMES_MAX_ITERATIONS` ghost shadowing 检测/修复；nix cold-build / fix-lockfiles 流水线巩固。
-- patch apply：7 文件全部 clean / 3way 干净，**无冲突**。`hermes_cli/doctor.py` PATCH-2 锚点行号 `1971 → 2025` 自动 rebase（god-file Phase 4 抽方法），diff 内仅 index hash 改动。
-- 依赖：venv 升级 `aiohttp 3.13.3 → 3.13.4`、`packaging 26.2 → 26.0`、`pyjwt 2.12.1 → 2.13.0`；`npm audit fix` +21/-14/~3 packages；Skills mirror 同步：+0 / ~16 / **-42**（上游继续收敛）。
-- 已知摩擦：`uv` python-path mismatch（`/Users/chenzhou/.local/share/uv/python`）仍由 `--python venv/bin/python` fallback 自动恢复（脚本侧已固化兜底）；Gateway 在 Step 6 首次启动后被 Step 8d/9 再次确认 loaded（PID 85799，OnDemand=false），launchd `Bootstrap failed: 5` 不再复现。
-- 配置漂移：`hermes doctor` 报 `Config version outdated (v28 → v29)`——上游 schema 新增 `agent.coding_context`、`auxiliary.{monitor,tts_audio_tags}`、`display.{persist_prompts,credits_notices}`、`tts.gemini`、`memory.write_approval`、`max_concurrent_sessions`；`hermes doctor --fix` 一键迁移完成。
+- 上游主线（同 release 内迭代，`v0.16.0 (2026.6.5)` tag 不变）：**安全收紧**——MCP stdio 配置在 probe 前先 block 可疑/exfil 形态（#46083 #46112）、`cp/mv/install` 写入 `~/.ssh` / credential / shell-rc 全部 gate（`da28d5d1`）、`agent/gateway/doctor` 加 SSL CA bundle fail-fast guard（`a218a0f1`）+ provider 调用前 validate CA bundle 路径（`af5b526`）。**Skills 加速 & 一致性**——skills util 共享 raw config 缓存（#46149）、global/platform disabled skills 在所有 resolution site 做 union（#46201 + `ce19fdb7`）、bundled-update backup 处理改 crash-safe / idempotent 并补回归测试（`3581131e` / `9a2b9763`）。**Gateway 鲁棒性**——early duplicate guard 缩到 pid file 级别（`7433d5f0`）、shell `gateway run` 在 service 已托管 profile 时拒启动（`14367930`）、interrupted replay 不再重放 tool-call 尾巴并自动 continue（`5191c1c2` / `2c174bce`）、agent-cache 在 cross-process session 写后失效（#45966）、每轮重新 baseline `message_count`（`3bc4a2ff`）、startup auto-resume 在 inbound 前串行化（`10bad2fa`）、reply 媒体附件被正确带上（#46107）。**Desktop**——native OS notifications + per-type toggle（`630a4ef`）、auto-compaction 期间显示 summarizing 指示器（`715b691`）。**模型 picker**——Kimi K2.7 Code 在 native picker 露出（#46309）、Z.AI GLM-5.2 + verified 1M ctx（`bff78a34`）。**Email**——465 端口走 `SMTP_SSL`、超时退回 IPv4（`cf7d5932` / `04d4471`）。**Web revert**——keyless Parallel search fallback 移除（#46350）。**Dashboard restart**——去掉 `is_container` 检查（#46290）。**Profile clone**——克隆 profile 时自动迁移 config（#46345）。
+- patch apply：7 文件全部 clean apply / 3way 干净，**无冲突**。`hermes_cli/doctor.py` PATCH-2 锚点行号 `2025 → 2095` 自动 rebase（`905ed413` / `a5e9b17c` 重写 npm audit 推荐 + `a218a0f1` 加 SSL CA bundle guard，把 PATCH-2 区域整体下移），diff 内仅 index hash + 行号改动；`pyproject.toml` PATCH-7 锚点 `214 → 215` 漂移；`tools/lazy_deps.py` 仅 index hash 变动。
+- 依赖：venv `hermes-agent` 重装 + `certifi 2026.4.22 → 2026.5.20`；`npm audit fix` 仍报 `web` / `ui-tui` 各 2 个 build-tool 高危（npm arborist crash 是已知 bug，待上游 lockfile bump 后自然清零，doctor 已附说明）。Skills mirror 同步：**+0 / ~2 / -3**（上游趋稳，无大规模收敛）。
+- 已知摩擦：`uv` python-path mismatch（`/Users/chenzhou/.local/share/uv/python`）仍触发，由 `--python venv/bin/python` fallback 自动恢复（脚本侧固化兜底，本次 update 触发两次、均自愈）；Gateway Step 6 首次启动 PID 45882 → Step 8d 重启 PID 50875，`LastExitStatus=0`，OnDemand=false，launchd `Bootstrap failed: 5` 不复现；vertex 50min 定时刷新链路（SIGUSR1 planned restart）保持上一轮 #40831 修复后的稳定状态。
+- 配置漂移：本次 `hermes doctor` 报 `Config version up to date (v29)`——上游 schema 无新增，无需 `hermes doctor --fix` 迁移。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -283,7 +284,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.11.x (upstream `df51ad79` / 截至 2026-04-28)
+## v0.11.x archive — PATCH-4 上游合并
 
 ### [PATCH-4] hermes_cli/main.py — `hermes dashboard` 每次启动重复 build
 
@@ -301,7 +302,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.11.0 (upstream `6fdbf2f2` / release `v2026.4.23`)
+## v0.11.0 archive — PATCH-8 上游合并
 
 ### [PATCH-8] agent/transports/types.py — Gemini tool-call replay 丢失 thought_signature
 
@@ -319,16 +320,20 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## v0.10.0 (upstream `b05d3041`）
+## v0.10.0 archive — PATCH-5 上游合并
 
 ### [PATCH-5] tools/delegate_tool.py — ACP 子进程路由缺失
 
-| 字段         | 内容                     |
-| ------------ | ------------------------ |
-| **文件**     | `tools/delegate_tool.py` |
-| **状态**     | ✅ 已上游合并（v0.10.0） |
-| **适用版本** | ≥ v0.9.0                 |
+| 字段         | 内容                                         |
+| ------------ | -------------------------------------------- |
+| **文件**     | `tools/delegate_tool.py`                     |
+| **状态**     | ✅ 已上游合并（v0.10.0，commit hash 未记录） |
+| **适用版本** | v0.9.0 需要本地 patch；v0.10.0+ 已上游修复   |
 
 **问题**：`delegate_task(acp_command="copilot")` 传入 ACP 命令后，子 agent 的 `provider` 仍继承父 agent（如 `gemini`），未切换为 `"copilot-acp"`。`AIAgent` 构造时只在 `provider == "copilot-acp"` 时启用 ACP subprocess 通道，导致 `acp_command`/`acp_args` 被存储但从未使用，子 agent 直接走父 agent 的 API（如 Gemini），最终超时失败。
 
 **修复**：在 `_build_child_agent()` 解析 `effective_acp_command` 之后，检测 `override_acp_command` 是否被显式设置：若是，强制 `effective_provider = "copilot-acp"`、`effective_base_url = "acp://copilot"`，确保 `AIAgent.__init__` 走 `CopilotACPClient` 子进程通道。
+
+**上游追踪**：v0.10.0 合入等价修复（具体吸收 commit 未在本地记录），本地 PATCH-5 已退役，不再通过 `PATCHED_FILES` / `local-patches.diff` 管理。`hermes-update.sh` Step 8b 保留 grep `override_acp_command` + `copilot-acp` 的存在性检查，用于在上游回滚时及时告警。
+
+---

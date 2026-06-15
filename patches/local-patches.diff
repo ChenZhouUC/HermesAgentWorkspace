@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index b146722e4..5a3d183f8 100644
+index 79c41b03f..250c10405 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -2025,8 +2025,23 @@ def run_doctor(args):
+@@ -2095,8 +2095,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -45,10 +45,10 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/pyproject.toml b/pyproject.toml
-index e191932c2..13f93d27c 100644
+index bf9086800..8459d0ca0 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -214,7 +214,7 @@ termux-all = [
+@@ -215,7 +215,7 @@ termux-all = [
    "hermes-agent[web]",
  ]
  dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
@@ -108,7 +108,7 @@ index 97cf3e9d1..d85237ba9 100644
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 76f146c78..0f815ffb1 100644
+index e4b0a9a57..d615caf24 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -147,6 +147,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
