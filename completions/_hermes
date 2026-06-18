@@ -50,7 +50,6 @@ _hermes() {
                 'import:Restore a Hermes backup from a zip file'
                 'insights:Show usage insights and analytics'
                 'kanban:Multi-profile collaboration board (tasks, links, comments)'
-                'login:Authenticate with an inference provider'
                 'logout:Clear authentication for an inference provider'
                 'logs:View and filter Hermes log files'
                 'lsp:Language Server Protocol management'
@@ -210,6 +209,7 @@ _hermes() {
                 gateway)
                     local -a gateway_cmds
                     gateway_cmds=(
+                    'enroll:Enroll this gateway with a relay connector (writes relay aut'
                     'install:Install gateway as a systemd/launchd background service'
                     'list:List all profiles and their gateway status'
                     'migrate-legacy:Remove legacy hermes.service units from pre-rename installs'
@@ -424,9 +424,11 @@ _hermes() {
                     'browse:Browse all available skills (paginated)'
                     'check:Check installed hub skills for updates'
                     'config:Interactive skill configuration — enable/disable individual '
+                    'diff:Show how your copy of a bundled skill differs from the stock'
                     'inspect:Preview a skill without installing'
                     'install:Install a skill'
                     'list:List installed skills'
+                    'list-modified:List bundled skills youve edited (which `hermes update` keep'
                     'opt-in:Re-enable bundled-skill seeding (undo opt-out)'
                     'opt-out:Stop bundled skills from being seeded into this profile'
                     'publish:Publish a skill to a registry'
