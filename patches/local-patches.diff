@@ -180,7 +180,7 @@ index 9ededa491..3a9bbfa30 100644
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index 0ebf23e12..eb81918d7 100644
+index c63b9523d..054b8bb06 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
 @@ -981,6 +981,20 @@ def load_gateway_config() -> GatewayConfig:
@@ -205,31 +205,17 @@ index 0ebf23e12..eb81918d7 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/platforms/feishu.py b/gateway/platforms/feishu.py
-index 4814107ba..69de11f2c 100644
+index 4814107ba..39c7fc9cf 100644
 --- a/gateway/platforms/feishu.py
 +++ b/gateway/platforms/feishu.py
-@@ -94,13 +94,14 @@ try:
-         CreateImageRequestBody,
-         CreateMessageRequest,
-         CreateMessageRequestBody,
--        GetChatRequest,
--        GetMessageRequest,
--        GetMessageResourceRequest,
--        P2ImMessageMessageReadV1,
--        ReplyMessageRequest,
--        ReplyMessageRequestBody,
--        UpdateMessageRequest,
-+    GetChatRequest,
-+    GetMessageRequest,
-+    GetMessageResourceRequest,
-+    ListMessageRequest,
-+    P2ImMessageMessageReadV1,
-+    ReplyMessageRequest,
-+    ReplyMessageRequestBody,
-+    UpdateMessageRequest,
-         UpdateMessageRequestBody,
-     )
-     from lark_oapi.core import AccessTokenType, HttpMethod
+@@ -97,6 +97,7 @@ try:
+         GetChatRequest,
+         GetMessageRequest,
+         GetMessageResourceRequest,
++        ListMessageRequest,
+         P2ImMessageMessageReadV1,
+         ReplyMessageRequest,
+         ReplyMessageRequestBody,
 @@ -320,6 +321,7 @@ class FeishuPostMediaRef:
  class FeishuMentionRef:
      name: str = ""
@@ -558,7 +544,7 @@ index 4814107ba..69de11f2c 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4222,6 +4431,68 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4222,6 +4431,80 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -575,10 +561,22 @@ index 4814107ba..69de11f2c 100644
 +        label = (self._assistant_identity_label or "cyber assistant").strip()
 +        instruction = (
 +            "[Feishu assistant mode]\n"
-+            f"The triggering group message mentioned the configured human user. You are {label}. "
++            "The triggering group message mentioned the configured human user, 琛哥 / Zhou Chen. "
++            f"You are {label}; your assistant name is 木马牛. "
 +            "Reply in Chinese unless the conversation clearly uses another language. "
-+            "Explicitly state that you are the user's cyber assistant and are replying on their behalf. "
-+            "Do not claim to be the human user. Use the recent group context when relevant."
++            "Clearly disclose that 琛哥 may be busy and you are only attempting an initial reply on his behalf. "
++            "When an identity disclosure is needed, prefer this wording: "
++            "我是琛哥的赛博助手「木马牛」，琛哥可能在忙，由我先尝试回答你。 "
++            "Do not claim to be the human user. Use the recent group context when relevant. "
++            "For technical knowledge questions, use this priority: llm-wiki first when available, "
++            "then web_search/web_extract for current or missing facts, then general model knowledge. "
++            "When using llm-wiki, first load its instructions with skill_view, then use read_file/search_files "
++            "under ~/.hermes/wiki for actual wiki content; do not confuse lack of terminal access with lack of wiki access. "
++            "Do not use todo for capability checks. "
++            "Do not answer when you do not know or are not confident; state the uncertainty and what needs 琛哥's confirmation. "
++            "For work arrangements, responsibilities, ownership, deadlines, commitments, or disputes, "
++            "use a firm and explicit tone because 琛哥 is Head of SpaceSight, but never make commitments, "
++            "accept liability, or settle responsibility on his behalf. Ask the mentioned person to wait for 琛哥's confirmation for important matters."
 +        )
 +        return f"{instruction}\n\n{text}" if text else instruction
 +
@@ -627,7 +625,7 @@ index 4814107ba..69de11f2c 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4710,6 +4981,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4710,6 +4993,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -945,7 +943,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/pyproject.toml b/pyproject.toml
-index 6e371126d..cec9b5774 100644
+index cab849dc7..6d44da0db 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -238,7 +238,7 @@ termux-all = [
@@ -987,10 +985,10 @@ index 753a61a70..c8c8efbbd 100644
  
  
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index 9e74dd355..926dbc308 100644
+index 9f38f9b8a..ce1fe2ad0 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
-@@ -767,6 +767,45 @@ class TestLoadGatewayConfig:
+@@ -816,6 +816,45 @@ class TestLoadGatewayConfig:
  
          assert os.environ.get("FEISHU_ALLOW_BOTS") == "none"
  
@@ -1176,7 +1174,7 @@ index 4d78b454b..5bdef6f5a 100644
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
-index 2d71ad06d..3eafe5acf 100644
+index 2d71ad06d..0470668cf 100644
 --- a/tests/gateway/test_feishu_bot_admission.py
 +++ b/tests/gateway/test_feishu_bot_admission.py
 @@ -3,6 +3,7 @@
@@ -1293,7 +1291,7 @@ index 2d71ad06d..3eafe5acf 100644
  # --- Hydration -------------------------------------------------------------
  
  
-@@ -771,3 +852,63 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
+@@ -771,3 +852,68 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
      assert captured.get("sender_id") is sender.sender_id
      assert captured.get("is_bot") is True
      assert captured.get("message_id") == "om_bot_ok"
@@ -1355,7 +1353,12 @@ index 2d71ad06d..3eafe5acf 100644
 +    text = captured["event"].text
 +    assert "[Feishu assistant mode]" in text
 +    assert "我的赛博助手" in text
-+    assert "replying on their behalf" in text
++    assert "我是琛哥的赛博助手「木马牛」，琛哥可能在忙，由我先尝试回答你。" in text
++    assert "llm-wiki first" in text
++    assert "read_file/search_files" in text
++    assert "~/.hermes/wiki" in text
++    assert "Do not use todo for capability checks" in text
++    assert "never make commitments" in text
 +    assert "@Owner 能帮忙看下这个吗" in text
 diff --git a/tests/gateway/test_feishu_bot_auth_bypass.py b/tests/gateway/test_feishu_bot_auth_bypass.py
 index 4dd83a1bd..740d41aed 100644
@@ -1648,7 +1651,7 @@ index 8fbb063f6..cb693a861 100644
          """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
          config = tmp_path / "config.yaml"
 diff --git a/tests/hermes_cli/test_tools_config.py b/tests/hermes_cli/test_tools_config.py
-index 235c7d99a..e2b79fb37 100644
+index 235c7d99a..e36871842 100644
 --- a/tests/hermes_cli/test_tools_config.py
 +++ b/tests/hermes_cli/test_tools_config.py
 @@ -1287,6 +1287,32 @@ def test_get_platform_tools_feishu_includes_doc_and_drive():
@@ -1669,14 +1672,14 @@ index 235c7d99a..e2b79fb37 100644
 +
 +def test_get_platform_tools_feishu_group_uses_independent_config():
 +    config = {
-+        "platform_toolsets": {"feishu_group": ["web", "clarify", "skills_readonly"]},
++        "platform_toolsets": {"feishu_group": ["web", "clarify", "skills_readonly", "file_readonly"]},
 +        "platform_toolset_options": {
 +            "feishu_group": {"recover_platform_tools": False},
 +        },
 +    }
 +    enabled = _get_platform_tools(config, "feishu_group", include_default_mcp_servers=False)
 +
-+    assert enabled == {"web", "clarify", "skills_readonly"}
++    assert enabled == {"web", "clarify", "skills_readonly", "file_readonly"}
 +    assert "feishu_doc" not in enabled
 +    assert "feishu_drive" not in enabled
 +
@@ -1741,7 +1744,7 @@ index 245ca9347..016c7e101 100644
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 98bacbf42..480529050 100644
+index 4e2159a1a..70311c3c8 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -147,6 +147,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
@@ -1978,22 +1981,23 @@ index 2ba57adc5..e01c71a2a 100644
              return json.dumps(
                  {
 diff --git a/toolsets.py b/toolsets.py
-index f33be147e..813821fb3 100644
+index f33be147e..53da2d9a7 100644
 --- a/toolsets.py
 +++ b/toolsets.py
-@@ -167,6 +167,12 @@ TOOLSETS = {
-         "tools": ["skills_list", "skill_view", "skill_manage"],
-         "includes": []
-     },
+@@ -169,0 +170,6 @@ TOOLSETS = {
 +
 +    "skills_readonly": {
 +        "description": "Read-only access to skill documents and metadata",
 +        "tools": ["skills_list", "skill_view"],
 +        "includes": []
 +    },
-     
-     "browser": {
-         "description": "Browser automation for web interaction (navigate, click, type, scroll, iframes, hold-click) with web search for finding URLs",
+@@ -194,0 +201,6 @@ TOOLSETS = {
++
++    "file_readonly": {
++        "description": "Read-only file access: read files and search file contents/names",
++        "tools": ["read_file", "search_files"],
++        "includes": []
++    },
 diff --git a/website/docs/guides/migrate-from-openclaw.md b/website/docs/guides/migrate-from-openclaw.md
 index 38a27e622..4590ea5f0 100644
 --- a/website/docs/guides/migrate-from-openclaw.md

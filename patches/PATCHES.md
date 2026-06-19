@@ -182,17 +182,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.16.0 (upstream `main` `28d887ca`，2026-06-19)
+## 当前版本：v0.16.0 (upstream `main` `df4ca2c5`，2026-06-19)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11（共 7 条）。
 
-**最近一次升级（v0.16.0 → v0.16.0，+51 commits，basis `ef4b897a` → `28d887ca`）要点**：
+**最近一次升级（v0.16.0 → v0.16.0，+34 commits，basis `28d887ca` → `df4ca2c5`）要点**：
 
-- 上游主线（同 release 内迭代，`v0.16.0 (2026.6.5)` tag 不变）：**CLI / Agent**——新增 Hermes worktree 锁，避免并发进程互相覆盖；session store 不可用时显式告警；FTS 在缺少 trigram tokenizer 时回退而不禁用 FTS5，并重建 base FTS。**Gateway / Relay**——relay gateway adapter 进入 WS-only inbound Phase 3；relay-config + NAS token 触发 self-provision；`/compress` 跳过 rotation 时保留原 transcript，resume 跟随 compression tip，agent 在 session rotation 前 flush 未持久化消息。**Dashboard / Desktop / TUI**——dashboard 修 DS Button API 与 chat TUI argv off-event-loop；desktop 展示 Hindsight memory provider、删除 session 幂等；TUI 修 Enter 不吞 trailing-space-only slash completions。**Prompt / Memory / Billing / MCP**——新增 per-platform system-prompt hint override 文档与配置；memory 支持 single-turn batch operations；新增 `/billing` terminal billing TUI/CLI；MCP catalog 增加官方 Unreal Engine 5.8 server。**安全 / 安装 / Skills**——cua-driver MCP 启动前 scrub operator env；skills rmtree guard 拒绝 `SKILLS_DIR` root 且默认 pre_update_backup=true；PowerShell/nix/install 若干修复；npm 锁定 `react-simple-icons`。
-- patch apply：本地 28 个 patched files 从 `patches/local-patches.diff` **clean apply**，无冲突；PATCH-1/2/7/9/10/11 全部通过 Step 8b 行为/结构验证，PATCH-4/PATCH-5 仍由上游实现覆盖、仅保留 sentinel；`patches/local-patches.diff` 与 `.local-patches.base` 已刷新到 `28d887ca`。
-- 依赖：`uv` 首次安装仍因 `/Users/chenzhou/.local/share/uv/python` 报 python-path mismatch，脚本用 `uv pip install --python venv/bin/python -e ".[all,feishu]"` fallback 自愈；`npm audit fix` +1 / -1 / ~2 packages，清掉 `ui-tui` 漏洞；Skills mirror 同步 **+0 / ~0 / -2**。
-- 已知摩擦：`npm audit fix` 会修改 tracked `hermes-agent/package-lock.json`，但该文件刻意不纳入 `local-patches.diff`，避免未来 Step 4 已 audit-fix 后 Step 8 再 replay 同一 lockfile hunk；脚本已新增显式告警，后续如要让工作树完全干净，需要单独设计 lockfile 策略。Gateway 重启成功并加载补丁代码，`LastExitStatus=0`。
-- 配置漂移：本次无 schema migration；`hermes doctor` 只剩 `ALIBABA_CODING_PLAN_API_KEY` 未配置/无效。当前主配置走 `provider: alibaba` + `DASHSCOPE_API_KEY`，不依赖 `provider: alibaba-coding-plan`，因此这是可接受的健康检查噪音，除非后续启用 Coding Plan。
+- 上游主线（同 release 内迭代，`v0.16.0 (2026.6.5)` tag 不变）：**Agent / 模型**——非重试 API 错误改为摘要化，避免原始 HTML 泄到前端；model picker 新增 Refresh Models 控制；`image_generate` 增加 image-to-image / editing 能力。**Gateway / Relay / Terminal**——hosted gateway relay inbound/outbound round-trip 修复，gateway 进程内阻止调用 gateway 生命周期命令。**TUI / Dashboard / Slack**——TUI pending input 命令经 `command.dispatch` 路由，hosted dashboard chat `/exit` 与 idle exit 热键修复；Slack allowed users setup 增加字段和 wildcard 校验。**OpenViking / Backup / Nix / Skills**——OpenViking structured sync 保留 attribution 并复用 tool_input 扫描；backup 排除可再生依赖/cache 目录；Nix npm deps 支持 hashless lock；新增 html-artifact skill 并合并 sketch / architecture-diagram / concept-diagrams。
+- patch apply：本地 28 个 patched files 从 `patches/local-patches.diff` **clean apply**，无冲突；PATCH-1/2/7/9/10/11 全部通过 Step 8b 行为/结构验证，PATCH-4/PATCH-5 仍由上游实现覆盖、仅保留 sentinel；`patches/local-patches.diff` 与 `.local-patches.base` 已刷新到 `df4ca2c5`。本轮新增的 Feishu `file_readonly` / 群聊 wiki 只读能力仍在 patch 中，并通过反向校验与临时 clean worktree apply 校验。
+- 依赖：`uv` 仍因 `/Users/chenzhou/.local/share/uv/python` 报 python-path mismatch，脚本用 `uv pip install --python venv/bin/python -e .` fallback 自愈；venv 中 `python-multipart 0.0.20 → 0.0.27`。`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`（`dompurify 3.4.10 → 3.4.11` 及 peer 标记清理）；Skills mirror 同步 **+13 / ~4 / -9**。
+- 已知摩擦：`hermes-agent/package-lock.json` 仍被 npm 步骤改动且不纳入 `local-patches.diff`，脚本已明确告警，保持为待审查工作树改动；这不影响 Python 源码 patch 回贴。Gateway 已重启并加载补丁代码，`LastExitStatus=0`，PID `18156`。
+- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30；已按本地需求将 `display.show_reasoning` 设为 `false`，仅关闭前端 thinking/reasoning 展示，不关闭模型 reasoning。`hermes doctor` 仍只剩 `ALIBABA_CODING_PLAN_API_KEY` 未配置/无效；当前主配置不依赖 `provider: alibaba-coding-plan`，可视为健康检查噪音，除非后续启用 Coding Plan。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -283,7 +283,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：上游 Feishu 群聊主要按 `@bot` 触发，无法表达“@bot 或 @指定本人账号才回复；其他群消息静默”。同时群聊和私聊共用 `feishu` 平台工具配置，难以给群聊设置更窄工具面；被触发时也缺少最近群消息上下文，导致只能看当前消息，不能基于近 30 条群聊记录回复。
 
-**修复**：新增 `mention_triggers`、`assistant_user_ids`、`assistant_identity_label`，支持 `bot` 与 `assistant_users` 两类触发；`@配置本人账号` 时注入“我是用户的赛博助手，代为回复”的身份约束。新增 Feishu group history backfill：`history_backfill_limit`、`history_backfill_seconds`、`history_backfill_max_chars`。Gateway session 新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，Feishu 群聊映射到 `feishu_group`，私聊仍为 `feishu`。授权层新增 `FEISHU_GROUP_ALLOWED_CHATS`，可授权群 chat_id 或 `*`，但不放开 DM。
+**修复**：新增 `mention_triggers`、`assistant_user_ids`、`assistant_identity_label`，支持 `bot` 与 `assistant_users` 两类触发；`@配置本人账号` 时注入 assistant-mode 约束：明确自己是琛哥的赛博助手「木马牛」、琛哥可能在忙、只能先尝试代答；技术问题按 `llm-wiki → web_search/web_extract → 模型通用知识` 优先级回答；使用 `llm-wiki` 时明确先 `skill_view` 读取说明，再用 `read_file` / `search_files` 读取 `~/.hermes/wiki` 的真实内容，不把缺少 terminal 误判为缺少 wiki 权限；不懂/不确定时直接说明需要琛哥确认；工作安排、责任归属、承诺类事项使用强势明确口吻，但不得替琛哥承诺、担责或定责。新增 Feishu group history backfill：`history_backfill_limit`、`history_backfill_seconds`、`history_backfill_max_chars`。Gateway session 新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，Feishu 群聊映射到 `feishu_group`，私聊仍为 `feishu`。授权层新增 `FEISHU_GROUP_ALLOWED_CHATS`，可授权群 chat_id 或 `*`，但不放开 DM。
 
 **验证**：Step 8b grep `assistant_user_ids`、`_fetch_channel_context`、`HERMES_SESSION_PLATFORM_CONFIG_KEY`、`feishu_group`、`FEISHU_GROUP_ALLOWED_CHATS`、`history_backfill_max_chars`。定向测试覆盖设置加载、群历史格式化、未 @ 静默、@bot 触发、@本人账号触发、`feishu_group` session key、群授权不放开 DM。
 
@@ -302,9 +302,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：新增 `skills.platform_allowed.<platform>` allowlist。未配置表示保持原行为；配置为空列表表示该平台禁用所有 skill；配置具体名称表示只允许这些 skill。`build_skills_system_prompt`、`skills_list`、`skill_view`、skill config var discovery 都遵守该 allowlist，并优先使用 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，因此 Feishu 群聊能独立使用 `feishu_group` allowlist。新增内部工具集 `skills_readonly`，只包含 `skills_list` 与 `skill_view`，不包含 `skill_manage`。
 
-**验证**：Step 8b grep `get_allowed_skill_names` 在 `agent/skill_utils.py`、`agent/prompt_builder.py`、`tools/skills_tool.py` 中存在，并 grep `toolsets.py` 中存在 `skills_readonly`、`skills_list`、`skill_view`。定向测试覆盖空 allowlist 禁用全部 skill、命名 allowlist 只允许指定 skill、`feishu_group` 独立工具集配置。
+**验证**：Step 8b grep `get_allowed_skill_names` 在 `agent/skill_utils.py`、`agent/prompt_builder.py`、`tools/skills_tool.py` 中存在，并 grep `toolsets.py` 中存在 `skills_readonly`、`file_readonly`、`skills_list`、`skill_view`、`read_file`、`search_files`。定向测试覆盖空 allowlist 禁用全部 skill、命名 allowlist 只允许指定 skill、`feishu_group` 独立工具集配置，以及内部 `file_readonly` 工具集不会被平台配置过滤。
 
-**本机当前配置**：`config.yaml` 中 `platform_toolsets.feishu_group` 使用 `[web, clarify, todo, feishu_doc, skills_readonly]`，`skills.platform_allowed.feishu_group: [llm-wiki]`。因此群聊可读取/加载 `llm-wiki`，但没有 `skill_manage` 和 `terminal`；Feishu 私聊未配置 `skills.platform_allowed.feishu`，保持 skill 不受群聊 allowlist 限制。
+**本机当前配置**：`config.yaml` 中 `platform_toolsets.feishu_group` 使用 `[web, clarify, feishu_doc, skills_readonly, file_readonly]`，`skills.platform_allowed.feishu_group: [llm-wiki]`。`plugins/sandbox/config.yaml` 对非 owner Feishu 群聊额外放行 `skills_list`、`skill_view`、`feishu_doc_read`、`read_file`、`search_files`，但 skill 名单仍被 `feishu_group` allowlist 限制为 `llm-wiki`，文件读取/检索也被 `allowed_read_roots_for_outsider_groups: [~/.hermes/wiki]` 限制。因此群聊可读取/加载 `llm-wiki` 并只读检索本地 wiki 内容，但没有 `skill_manage`、`write_file`、`patch`、`todo` 和 `terminal`；Feishu 私聊未配置 `skills.platform_allowed.feishu`，保持 skill 不受群聊 allowlist 限制。
 
 **上游吸收判断**：如果上游后续提供平台级 skill allowlist 与只读 skill 工具集，且能通过 `feishu_group` 或等价群聊上下文独立约束 skills，可归档本补丁。
 

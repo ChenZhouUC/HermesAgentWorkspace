@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.16.0 / main 28d887ca, `hermes completion zsh` still emits the
+# As of v0.16.0 / main df4ca2c5, `hermes completion zsh` still emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -145,6 +145,7 @@ _trap_restore_patches() {
     if $_PATCHES_REVERTED && [[ -f "${PATCH_FILE}" ]]; then
         printf "\n${YLW}⚠${NC}  Script exited early — attempting to restore local patches...\n"
         cd "${HERMES_AGENT}" && git apply "${PATCH_FILE}" 2>/dev/null ||
+            git apply --unidiff-zero "${PATCH_FILE}" 2>/dev/null ||
             git apply --3way "${PATCH_FILE}" 2>/dev/null ||
             printf "  ${RED}✗${NC} Could not auto-restore. Run: cd %s && git apply %s\n" "${HERMES_AGENT}" "${PATCH_FILE}"
     fi
@@ -528,6 +529,16 @@ if [[ -f "${PATCH_FILE}" ]]; then
                 add_act "Retry manually: cd ${HERMES_AGENT} && git apply ${PATCH_FILE}"
                 add_act "See README.md § 本地补丁 for re-application instructions"
             fi
+        elif git apply --check --unidiff-zero "${PATCH_FILE}" 2>/dev/null; then
+            if git apply --unidiff-zero "${PATCH_FILE}" 2>/dev/null; then
+                _PATCH_MODE="clean (zero-context)"
+            else
+                git restore --source=HEAD --staged --worktree -- "${PATCHED_FILES[@]}" 2>/dev/null || true
+                warn "Patches passed --unidiff-zero --check but apply failed unexpectedly"
+                add_warn "Local patches were NOT applied — some customizations inactive"
+                add_act "Retry manually: cd ${HERMES_AGENT} && git apply --unidiff-zero ${PATCH_FILE}"
+                add_act "See README.md § 本地补丁 for re-application instructions"
+            fi
         elif git apply --3way "${PATCH_FILE}" 2>/dev/null; then
             _PATCH_MODE="3-way"
         else
@@ -549,6 +560,8 @@ if [[ -f "${PATCH_FILE}" ]]; then
                 _PATCH_APPLY_OK=true
                 if [[ "${_PATCH_MODE}" == "clean" ]]; then
                     ok "Patches applied cleanly from patches/local-patches.diff"
+                elif [[ "${_PATCH_MODE}" == "clean (zero-context)" ]]; then
+                    ok "Patches applied cleanly from patches/local-patches.diff (--unidiff-zero fallback)"
                 else
                     ok "Patches applied via 3-way merge (upstream changed same area)"
                 fi
@@ -694,9 +707,12 @@ if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_P
         grep -q 'get_allowed_skill_names' "${PROMPT_BUILDER_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${SKILLS_TOOL_PY}" 2>/dev/null &&
         grep -q 'skills_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
+        grep -q 'file_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'skill_view' "${TOOLSETS_PY}" 2>/dev/null &&
-        grep -q 'skills_list' "${TOOLSETS_PY}" 2>/dev/null; then
-        ok "Feishu/group skill allowlist patch: active (per-platform skill allowlist + read-only skills toolset)"
+        grep -q 'skills_list' "${TOOLSETS_PY}" 2>/dev/null &&
+        grep -q 'read_file' "${TOOLSETS_PY}" 2>/dev/null &&
+        grep -q 'search_files' "${TOOLSETS_PY}" 2>/dev/null; then
+        ok "Feishu/group skill allowlist patch: active (per-platform skill allowlist + read-only skills/file toolsets)"
         _FEISHU_SKILL_SCOPE_PATCH_OK=true
     else
         warn "Feishu/group skill allowlist patch inactive or partial"

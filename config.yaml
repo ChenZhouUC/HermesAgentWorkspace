@@ -12,9 +12,9 @@ platform_toolsets:
   feishu_group:
   - web
   - clarify
-  - todo
   - feishu_doc
   - skills_readonly
+  - file_readonly
 platform_toolset_options:
   feishu_group:
     recover_platform_tools: false
@@ -258,7 +258,7 @@ display:
   tui_auto_resume_recent: false
   tui_agents_nudge: true
   bell_on_complete: false
-  show_reasoning: true
+  show_reasoning: false
   memory_notifications: 'on'
   streaming: true
   timestamps: false
@@ -431,7 +431,7 @@ feishu:
   assistant_user_ids:
   - ou_33eeacfbd0c0559b7b734f83503719ab
   - 5397e1a2
-  assistant_identity_label: 我的赛博助手
+  assistant_identity_label: 琛哥的赛博助手「木马牛」
   history_backfill: true
   history_backfill_limit: 30
   history_backfill_seconds: 1800
