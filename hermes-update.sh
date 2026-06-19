@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.16.0 / main ef4b897a, `hermes completion zsh` still emits the
+# As of v0.16.0 / main 28d887ca, `hermes completion zsh` still emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -63,6 +63,27 @@ PATCHED_FILES=(
     "tools/lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
     "website/docs/guides/migrate-from-openclaw.md"
+    "gateway/authz_mixin.py"
+    "gateway/config.py"
+    "gateway/platforms/feishu.py"
+    "gateway/run.py"
+    "gateway/session_context.py"
+    "hermes_cli/tools_config.py"
+    "agent/prompt_builder.py"
+    "agent/skill_utils.py"
+    "tools/skills_tool.py"
+    "toolsets.py"
+    "tests/gateway/feishu_helpers.py"
+    "tests/gateway/test_config.py"
+    "tests/gateway/test_feishu.py"
+    "tests/gateway/test_feishu_bot_admission.py"
+    "tests/gateway/test_feishu_bot_auth_bypass.py"
+    "tests/gateway/test_session_env.py"
+    "tests/hermes_cli/test_skills_config.py"
+    "tests/hermes_cli/test_tools_config.py"
+    "website/docs/reference/environment-variables.md"
+    "website/docs/user-guide/configuration.md"
+    "website/docs/user-guide/messaging/feishu.md"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -305,6 +326,15 @@ else
     warn "npm audit fix exited $_AUDIT_RC — non-critical"
     add_act "Run manually: cd ${HERMES_AGENT} && npm audit fix"
 fi
+
+# npm audit fix can legitimately update the tracked upstream lockfile. Keep it
+# outside local-patches.diff so Step 8 does not replay the same lockfile hunk
+# after a future audit fix has already applied it, but surface the drift.
+if ! git --no-pager diff --quiet HEAD -- package-lock.json 2>/dev/null; then
+    warn "npm audit fix changed package-lock.json (not included in local-patches.diff)"
+    add_warn "hermes-agent/package-lock.json is dirty after npm audit fix; review before committing or discarding"
+    add_act "Review: cd ${HERMES_AGENT} && git diff -- package-lock.json"
+fi
 cd - >/dev/null
 
 # ── 4b. Full skills sync (mirror upstream) ────────────────────────────────────
@@ -539,6 +569,8 @@ _DOCTOR_PATCH_OK=false
 _DELEGATE_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
 _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
+_FEISHU_GROUP_PATCH_OK=false
+_FEISHU_SKILL_SCOPE_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -629,11 +661,56 @@ else
     warn "Could not locate OpenClaw migration files — skipping gateway token patch check"
 fi
 
+FEISHU_PY="${HERMES_AGENT}/gateway/platforms/feishu.py"
+GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
+SESSION_CONTEXT_PY="${HERMES_AGENT}/gateway/session_context.py"
+GATEWAY_CONFIG_PY="${HERMES_AGENT}/gateway/config.py"
+AUTHZ_MIXIN_PY="${HERMES_AGENT}/gateway/authz_mixin.py"
+TOOLS_CONFIG_PY="${HERMES_AGENT}/hermes_cli/tools_config.py"
+if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" ]]; then
+    if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
+        grep -q 'feishu_group' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'FEISHU_GROUP_ALLOWED_CHATS' "${AUTHZ_MIXIN_PY}" 2>/dev/null &&
+        grep -q 'history_backfill_max_chars' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'recover_platform_tools' "${TOOLS_CONFIG_PY}" 2>/dev/null; then
+        ok "Feishu group mention/context patch: active (bot/@assistant trigger, group history, feishu_group key)"
+        _FEISHU_GROUP_PATCH_OK=true
+    else
+        warn "Feishu group mention/context patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-10] Feishu group mention/context mode"
+    fi
+else
+    warn "Could not locate Feishu gateway files — skipping group mention/context patch check"
+fi
+
+SKILL_UTILS_PY="${HERMES_AGENT}/agent/skill_utils.py"
+PROMPT_BUILDER_PY="${HERMES_AGENT}/agent/prompt_builder.py"
+SKILLS_TOOL_PY="${HERMES_AGENT}/tools/skills_tool.py"
+TOOLSETS_PY="${HERMES_AGENT}/toolsets.py"
+if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${TOOLSETS_PY}" ]]; then
+    if grep -q 'get_allowed_skill_names' "${SKILL_UTILS_PY}" 2>/dev/null &&
+        grep -q 'get_allowed_skill_names' "${PROMPT_BUILDER_PY}" 2>/dev/null &&
+        grep -q 'get_allowed_skill_names' "${SKILLS_TOOL_PY}" 2>/dev/null &&
+        grep -q 'skills_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
+        grep -q 'skill_view' "${TOOLSETS_PY}" 2>/dev/null &&
+        grep -q 'skills_list' "${TOOLSETS_PY}" 2>/dev/null; then
+        ok "Feishu/group skill allowlist patch: active (per-platform skill allowlist + read-only skills toolset)"
+        _FEISHU_SKILL_SCOPE_PATCH_OK=true
+    else
+        warn "Feishu/group skill allowlist patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-11] per-platform skill allowlist"
+    fi
+else
+    warn "Could not locate skill scope files — skipping skill allowlist patch check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

@@ -8,6 +8,16 @@ fallback_providers: []
 credential_pool_strategies: {}
 toolsets:
 - hermes-cli
+platform_toolsets:
+  feishu_group:
+  - web
+  - clarify
+  - todo
+  - feishu_doc
+  - skills_readonly
+platform_toolset_options:
+  feishu_group:
+    recover_platform_tools: false
 max_concurrent_sessions: null
 agent:
   max_turns: 90
@@ -386,6 +396,9 @@ goals:
 skills:
   external_dirs:
   - ~/.hermes/my-skills
+  platform_allowed:
+    feishu_group:
+    - llm-wiki
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
@@ -409,6 +422,24 @@ slack:
   free_response_channels: ''
   allowed_channels: ''
   channel_prompts: {}
+feishu:
+  require_mention: true
+  default_group_policy: open
+  mention_triggers:
+  - bot
+  - assistant_users
+  assistant_user_ids:
+  - ou_33eeacfbd0c0559b7b734f83503719ab
+  - 5397e1a2
+  assistant_identity_label: 我的赛博助手
+  history_backfill: true
+  history_backfill_limit: 30
+  history_backfill_seconds: 1800
+  history_backfill_max_chars: 6000
+  group_rules:
+    '*':
+      policy: open
+      require_mention: true
 discord:
   require_mention: true
   free_response_channels: ''

@@ -1,3 +1,823 @@
+diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
+index 97836f27b..499ee4063 100644
+--- a/agent/prompt_builder.py
++++ b/agent/prompt_builder.py
+@@ -20,7 +20,10 @@ from agent.skill_utils import (
+     extract_skill_conditions,
+     extract_skill_description,
+     get_all_skills_dirs,
++    get_allowed_skill_names,
+     get_disabled_skill_names,
++    is_skill_allowed_name,
++    is_skill_disabled_name,
+     iter_skill_index_files,
+     parse_frontmatter,
+     skill_matches_environment,
+@@ -1278,10 +1281,12 @@ def build_skills_system_prompt(
+     from gateway.session_context import get_session_env
+     _platform_hint = (
+         os.environ.get("HERMES_PLATFORM")
++        or get_session_env("HERMES_SESSION_PLATFORM_CONFIG_KEY")
+         or get_session_env("HERMES_SESSION_PLATFORM")
+         or ""
+     )
+     disabled = get_disabled_skill_names(_platform_hint or None)
++    allowed = get_allowed_skill_names(_platform_hint or None)
+     cache_key = (
+         str(skills_dir.resolve()),
+         tuple(str(d) for d in external_dirs),
+@@ -1289,6 +1294,7 @@ def build_skills_system_prompt(
+         tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
+         _platform_hint,
+         tuple(sorted(disabled)),
++        tuple(sorted(allowed)) if allowed is not None else None,
+         tuple(sorted(compact_categories or ())),
+     )
+     with _SKILLS_PROMPT_CACHE_LOCK:
+@@ -1314,7 +1320,9 @@ def build_skills_system_prompt(
+             platforms = entry.get("platforms") or []
+             if not skill_matches_platform({"platforms": platforms}):
+                 continue
+-            if frontmatter_name in disabled or skill_name in disabled:
++            if not is_skill_allowed_name(frontmatter_name, allowed) and not is_skill_allowed_name(skill_name, allowed):
++                continue
++            if is_skill_disabled_name(frontmatter_name, disabled) or is_skill_disabled_name(skill_name, disabled):
+                 continue
+             if not _skill_should_show(
+                 entry.get("conditions") or {},
+@@ -1339,7 +1347,9 @@ def build_skills_system_prompt(
+             if not is_compatible:
+                 continue
+             skill_name = entry["skill_name"]
+-            if entry["frontmatter_name"] in disabled or skill_name in disabled:
++            if not is_skill_allowed_name(entry["frontmatter_name"], allowed) and not is_skill_allowed_name(skill_name, allowed):
++                continue
++            if is_skill_disabled_name(entry["frontmatter_name"], disabled) or is_skill_disabled_name(skill_name, disabled):
+                 continue
+             if not _skill_should_show(
+                 extract_skill_conditions(frontmatter),
+@@ -1394,6 +1404,8 @@ def build_skills_system_prompt(
+                 frontmatter_name = entry["frontmatter_name"]
+                 if frontmatter_name in seen_skill_names:
+                     continue
++                if not is_skill_allowed_name(frontmatter_name, allowed) and not is_skill_allowed_name(skill_name, allowed):
++                    continue
+                 if frontmatter_name in disabled or skill_name in disabled:
+                     continue
+                 if not _skill_should_show(
+diff --git a/agent/skill_utils.py b/agent/skill_utils.py
+index 9f16534a4..337847b64 100644
+--- a/agent/skill_utils.py
++++ b/agent/skill_utils.py
+@@ -350,6 +350,17 @@ def _load_raw_config() -> Dict[str, Any]:
+     return parsed
+ 
+ 
++def _resolve_skill_platform(platform: str | None = None) -> str:
++    from gateway.session_context import get_session_env
++    return (
++        platform
++        or os.getenv("HERMES_PLATFORM")
++        or get_session_env("HERMES_SESSION_PLATFORM_CONFIG_KEY")
++        or get_session_env("HERMES_SESSION_PLATFORM")
++        or ""
++    )
++
++
+ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
+     """Read disabled skill names from config.yaml.
+ 
+@@ -372,22 +383,55 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
+     if not isinstance(skills_cfg, dict):
+         return set()
+ 
+-    from gateway.session_context import get_session_env
+-    resolved_platform = (
+-        platform
+-        or os.getenv("HERMES_PLATFORM")
+-        or get_session_env("HERMES_SESSION_PLATFORM")
+-    )
++    resolved_platform = _resolve_skill_platform(platform)
+     global_disabled = _normalize_string_set(skills_cfg.get("disabled"))
+     if resolved_platform:
+         platform_disabled = (skills_cfg.get("platform_disabled") or {}).get(
+             resolved_platform
+         )
+         if platform_disabled is not None:
+-            return global_disabled | _normalize_string_set(platform_disabled)
++            platform_disabled_set = _normalize_string_set(platform_disabled)
++            if "*" in platform_disabled_set:
++                return {"*"} | global_disabled
++            return global_disabled | platform_disabled_set
+     return global_disabled
+ 
+ 
++def get_allowed_skill_names(platform: str | None = None) -> Set[str] | None:
++    """Read optional per-platform skill allowlists from config.yaml.
++
++    Returns ``None`` when no allowlist is configured for the resolved platform.
++    A configured empty list returns ``set()``, which denies all skills for that
++    platform until explicit skill names are added.
++    """
++    parsed = _load_raw_config()
++    if not parsed:
++        return None
++
++    skills_cfg = parsed.get("skills")
++    if not isinstance(skills_cfg, dict):
++        return None
++
++    resolved_platform = _resolve_skill_platform(platform)
++    if not resolved_platform:
++        return None
++
++    platform_allowed_cfg = skills_cfg.get("platform_allowed") or {}
++    if not isinstance(platform_allowed_cfg, dict) or resolved_platform not in platform_allowed_cfg:
++        return None
++    return _normalize_string_set(platform_allowed_cfg.get(resolved_platform))
++
++
++def is_skill_disabled_name(name: str, disabled: Set[str]) -> bool:
++    """Return True when *name* is disabled by an explicit name or wildcard."""
++    return "*" in disabled or name in disabled
++
++
++def is_skill_allowed_name(name: str, allowed: Set[str] | None) -> bool:
++    """Return True when *name* is allowed by an optional allowlist."""
++    return allowed is None or "*" in allowed or name in allowed
++
++
+ def _normalize_string_set(values) -> Set[str]:
+     if values is None:
+         return set()
+@@ -602,6 +646,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+     seen_keys: set = set()
+ 
+     disabled = get_disabled_skill_names()
++    allowed = get_allowed_skill_names()
+     for skills_dir in get_all_skills_dirs():
+         if not skills_dir.is_dir():
+             continue
+@@ -613,6 +658,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+                 continue
+ 
+             skill_name = frontmatter.get("name") or skill_file.parent.name
++            if not is_skill_allowed_name(str(skill_name), allowed):
++                continue
+             if str(skill_name) in disabled:
+                 continue
+             if not skill_matches_platform(frontmatter):
+diff --git a/gateway/authz_mixin.py b/gateway/authz_mixin.py
+index 9ededa491..3a9bbfa30 100644
+--- a/gateway/authz_mixin.py
++++ b/gateway/authz_mixin.py
+@@ -250,6 +250,7 @@ class GatewayAuthorizationMixin:
+         platform_group_chat_env_map = {
+             Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_CHATS",
+             Platform.QQBOT: "QQ_GROUP_ALLOWED_USERS",
++            Platform.FEISHU: "FEISHU_GROUP_ALLOWED_CHATS",
+         }
+         platform_allow_all_map = {
+             Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
+diff --git a/gateway/config.py b/gateway/config.py
+index 0ebf23e12..eb81918d7 100644
+--- a/gateway/config.py
++++ b/gateway/config.py
+@@ -981,6 +981,20 @@ def load_gateway_config() -> GatewayConfig:
+                     bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
+                 if "group_user_allowed_commands" in platform_cfg:
+                     bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
++                if plat == Platform.FEISHU:
++                    for _feishu_key in (
++                        "default_group_policy",
++                        "group_rules",
++                        "mention_triggers",
++                        "assistant_user_ids",
++                        "assistant_identity_label",
++                        "history_backfill",
++                        "history_backfill_limit",
++                        "history_backfill_seconds",
++                        "history_backfill_max_chars",
++                    ):
++                        if _feishu_key in platform_cfg:
++                            bridged[_feishu_key] = platform_cfg[_feishu_key]
+                 if plat in {Platform.DISCORD, Platform.SLACK} and "channel_skill_bindings" in platform_cfg:
+                     bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
+                 if "channel_prompts" in platform_cfg:
+diff --git a/gateway/platforms/feishu.py b/gateway/platforms/feishu.py
+index 4814107ba..69de11f2c 100644
+--- a/gateway/platforms/feishu.py
++++ b/gateway/platforms/feishu.py
+@@ -94,13 +94,14 @@ try:
+         CreateImageRequestBody,
+         CreateMessageRequest,
+         CreateMessageRequestBody,
+-        GetChatRequest,
+-        GetMessageRequest,
+-        GetMessageResourceRequest,
+-        P2ImMessageMessageReadV1,
+-        ReplyMessageRequest,
+-        ReplyMessageRequestBody,
+-        UpdateMessageRequest,
++    GetChatRequest,
++    GetMessageRequest,
++    GetMessageResourceRequest,
++    ListMessageRequest,
++    P2ImMessageMessageReadV1,
++    ReplyMessageRequest,
++    ReplyMessageRequestBody,
++    UpdateMessageRequest,
+         UpdateMessageRequestBody,
+     )
+     from lark_oapi.core import AccessTokenType, HttpMethod
+@@ -320,6 +321,7 @@ class FeishuPostMediaRef:
+ class FeishuMentionRef:
+     name: str = ""
+     open_id: str = ""
++    user_id: str = ""
+     is_all: bool = False
+     is_self: bool = False
+ 
+@@ -395,6 +397,13 @@ class FeishuAdapterSettings:
+     group_rules: Dict[str, FeishuGroupRule] = field(default_factory=dict)
+     allow_bots: str = "none"  # "none" | "mentions" | "all"
+     require_mention: bool = True
++    mention_triggers: frozenset[str] = frozenset({"bot"})
++    assistant_user_ids: frozenset[str] = frozenset()
++    assistant_identity_label: str = "cyber assistant"
++    history_backfill: bool = False
++    history_backfill_limit: int = 20
++    history_backfill_seconds: int = 1800
++    history_backfill_max_chars: int = 6000
+ 
+ 
+ @dataclass
+@@ -424,6 +433,7 @@ RejectReason = Literal[
+     "self_ids_unknown",
+     "bots_disabled",
+     "bot_not_mentioned",
++    "trigger_mention_missing",
+     "group_policy_rejected",
+ ]
+ 
+@@ -543,6 +553,18 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
+     return default if parsed is None else parsed
+ 
+ 
++def _coerce_string_set(value: Any) -> frozenset[str]:
++    if value is None:
++        return frozenset()
++    if isinstance(value, str):
++        raw_items = value.split(",")
++    elif isinstance(value, (list, tuple, set, frozenset)):
++        raw_items = value
++    else:
++        raw_items = [value]
++    return frozenset(str(item).strip() for item in raw_items if str(item).strip())
++
++
+ # ---------------------------------------------------------------------------
+ # Post payload builders and parsers
+ # ---------------------------------------------------------------------------
+@@ -1212,6 +1234,7 @@ def _build_mentions_map(
+         result[key] = FeishuMentionRef(
+             name=name,
+             open_id=open_id,
++            user_id=user_id,
+             is_self=bot.matches(open_id=open_id, user_id=user_id, name=name),
+         )
+     return result
+@@ -1361,6 +1384,7 @@ def check_feishu_requirements() -> bool:
+             CreateImageRequest, CreateImageRequestBody,
+             CreateMessageRequest, CreateMessageRequestBody,
+             GetChatRequest, GetMessageRequest, GetMessageResourceRequest,
++            ListMessageRequest,
+             P2ImMessageMessageReadV1,
+             ReplyMessageRequest, ReplyMessageRequestBody,
+             UpdateMessageRequest, UpdateMessageRequestBody,
+@@ -1385,6 +1409,7 @@ def check_feishu_requirements() -> bool:
+             "GetChatRequest": GetChatRequest,
+             "GetMessageRequest": GetMessageRequest,
+             "GetMessageResourceRequest": GetMessageResourceRequest,
++            "ListMessageRequest": ListMessageRequest,
+             "P2ImMessageMessageReadV1": P2ImMessageMessageReadV1,
+             "ReplyMessageRequest": ReplyMessageRequest,
+             "ReplyMessageRequestBody": ReplyMessageRequestBody,
+@@ -1512,6 +1537,28 @@ class FeishuAdapter(BasePlatformAdapter):
+                 allow_bots,
+             )
+             allow_bots = "none"
++        mention_triggers = _coerce_string_set(
++            extra.get("mention_triggers", os.getenv("FEISHU_MENTION_TRIGGERS", "bot"))
++        )
++        if not mention_triggers:
++            mention_triggers = frozenset({"bot"})
++        valid_mention_triggers = {"bot", "assistant_users"}
++        unknown_mention_triggers = sorted(mention_triggers - valid_mention_triggers)
++        if unknown_mention_triggers:
++            logger.warning(
++                "[Feishu] Ignoring unknown mention_triggers values: %s. Valid: bot, assistant_users.",
++                ", ".join(unknown_mention_triggers),
++            )
++            mention_triggers = frozenset(item for item in mention_triggers if item in valid_mention_triggers)
++        if not mention_triggers:
++            mention_triggers = frozenset({"bot"})
++        assistant_user_ids = _coerce_string_set(
++            extra.get("assistant_user_ids", os.getenv("FEISHU_ASSISTANT_USER_IDS", ""))
++        )
++        assistant_identity_label = str(
++            extra.get("assistant_identity_label")
++            or os.getenv("FEISHU_ASSISTANT_IDENTITY_LABEL", "cyber assistant")
++        ).strip() or "cyber assistant"
+ 
+         return FeishuAdapterSettings(
+             app_id=str(extra.get("app_id") or os.getenv("FEISHU_APP_ID", "")).strip(),
+@@ -1575,6 +1622,27 @@ class FeishuAdapter(BasePlatformAdapter):
+             require_mention=_to_boolean(
+                 extra.get("require_mention", os.getenv("FEISHU_REQUIRE_MENTION", "true"))
+             ),
++            mention_triggers=mention_triggers,
++            assistant_user_ids=assistant_user_ids,
++            assistant_identity_label=assistant_identity_label,
++            history_backfill=_to_boolean(
++                extra.get("history_backfill", os.getenv("FEISHU_HISTORY_BACKFILL", "false"))
++            ),
++            history_backfill_limit=_coerce_required_int(
++                extra.get("history_backfill_limit", os.getenv("FEISHU_HISTORY_BACKFILL_LIMIT", 20)),
++                default=20,
++                min_value=1,
++            ),
++            history_backfill_seconds=_coerce_required_int(
++                extra.get("history_backfill_seconds", os.getenv("FEISHU_HISTORY_BACKFILL_SECONDS", 1800)),
++                default=1800,
++                min_value=1,
++            ),
++            history_backfill_max_chars=_coerce_required_int(
++                extra.get("history_backfill_max_chars", os.getenv("FEISHU_HISTORY_BACKFILL_MAX_CHARS", 6000)),
++                default=6000,
++                min_value=256,
++            ),
+         )
+ 
+     def _apply_settings(self, settings: FeishuAdapterSettings) -> None:
+@@ -1607,6 +1675,13 @@ class FeishuAdapter(BasePlatformAdapter):
+         self._ws_ping_timeout = settings.ws_ping_timeout
+         self._allow_bots = settings.allow_bots
+         self._require_mention = settings.require_mention
++        self._mention_triggers = set(settings.mention_triggers)
++        self._assistant_user_ids = set(settings.assistant_user_ids)
++        self._assistant_identity_label = settings.assistant_identity_label
++        self._history_backfill = settings.history_backfill
++        self._history_backfill_limit = settings.history_backfill_limit
++        self._history_backfill_seconds = settings.history_backfill_seconds
++        self._history_backfill_max_chars = settings.history_backfill_max_chars
+ 
+     def _build_event_handler(self) -> Any:
+         if EventDispatcherHandler is None:
+@@ -3106,6 +3181,11 @@ class FeishuAdapter(BasePlatformAdapter):
+         is_bot: bool = False,
+     ) -> None:
+         text, inbound_type, media_urls, media_types, mentions = await self._extract_message_content(message)
++        trigger_kind = (
++            self._message_trigger_kind(message)
++            if chat_type != "p2p"
++            else "dm"
++        )
+ 
+         if inbound_type == MessageType.TEXT:
+             text = _strip_edge_self_mentions(text, mentions)
+@@ -3121,6 +3201,8 @@ class FeishuAdapter(BasePlatformAdapter):
+             hint = _build_mention_hint(mentions)
+             if hint:
+                 text = f"{hint}\n\n{text}" if text else hint
++            if trigger_kind == "assistant_user":
++                text = self._prepend_assistant_user_reply_instruction(text)
+ 
+         thread_id = getattr(message, "thread_id", None) or getattr(message, "root_id", None) or None
+         reply_to_message_id = (
+@@ -3174,8 +3256,130 @@ class FeishuAdapter(BasePlatformAdapter):
+             reply_to_text=reply_to_text,
+             timestamp=datetime.now(),
+         )
++        normalized.channel_context = await self._fetch_channel_context(
++            chat_id=chat_id,
++            trigger_message_id=message_id,
++            trigger_timestamp=getattr(message, "create_time", None),
++            chat_type=getattr(
++                source,
++                "chat_type",
++                self._resolve_source_chat_type(chat_info=chat_info, event_chat_type=chat_type),
++            ),
++        )
+         await self._dispatch_inbound_event(normalized)
+ 
++    async def _fetch_channel_context(
++        self,
++        *,
++        chat_id: str,
++        trigger_message_id: str,
++        trigger_timestamp: Any,
++        chat_type: str,
++    ) -> Optional[str]:
++        """Fetch recent Feishu group messages as one-turn channel context.
++
++        The gateway prepends ``MessageEvent.channel_context`` to the current
++        turn only. It is not written as durable Hermes conversation history.
++        """
++        if (
++            not getattr(self, "_history_backfill", False)
++            or not getattr(self, "_client", None)
++            or chat_type not in {"group", "forum", "channel"}
++            or not chat_id
++        ):
++            return None
++
++        end_ts = self._coerce_feishu_epoch_seconds(trigger_timestamp)
++        if end_ts is None:
++            end_ts = int(time.time())
++        start_ts = max(0, end_ts - self._history_backfill_seconds)
++
++        try:
++            request = self._build_list_message_request(
++                chat_id=chat_id,
++                start_time=str(start_ts),
++                end_time=str(end_ts),
++                page_size=min(max(self._history_backfill_limit + 1, 1), 50),
++            )
++            response = await asyncio.to_thread(self._client.im.v1.message.list, request)
++            if not response or getattr(response, "success", lambda: False)() is False:
++                code = getattr(response, "code", "unknown")
++                msg = getattr(response, "msg", "message list failed")
++                logger.warning("[Feishu] Failed to fetch channel context for %s: [%s] %s", chat_id, code, msg)
++                return None
++            items = getattr(getattr(response, "data", None), "items", None) or []
++            return self._format_channel_context(
++                items,
++                trigger_message_id=trigger_message_id,
++            )
++        except Exception:
++            logger.warning("[Feishu] Failed to fetch channel context for %s", chat_id, exc_info=True)
++            return None
++
++    @staticmethod
++    def _coerce_feishu_epoch_seconds(value: Any) -> Optional[int]:
++        try:
++            parsed = int(value)
++        except (TypeError, ValueError):
++            return None
++        if parsed <= 0:
++            return None
++        # Feishu message create_time values are commonly milliseconds.
++        if parsed > 10_000_000_000:
++            parsed //= 1000
++        return parsed
++
++    def _format_channel_context(
++        self,
++        items: Sequence[Any],
++        *,
++        trigger_message_id: str,
++    ) -> Optional[str]:
++        lines: List[str] = []
++        for item in sorted(items, key=lambda msg: self._coerce_feishu_epoch_seconds(getattr(msg, "create_time", None)) or 0):
++            if len(lines) >= self._history_backfill_limit:
++                break
++            if getattr(item, "deleted", False):
++                continue
++            if str(getattr(item, "message_id", "") or "") == trigger_message_id:
++                continue
++            sender = getattr(item, "sender", None)
++            if str(getattr(sender, "id", "") or "") == self._app_id:
++                continue
++            body = getattr(item, "body", None)
++            text = self._extract_text_from_raw_content(
++                msg_type=str(getattr(item, "msg_type", "") or ""),
++                raw_content=str(getattr(body, "content", "") or ""),
++                mentions=getattr(item, "mentions", None),
++            )
++            if not text:
++                continue
++            sender_label = self._history_sender_label(sender)
++            line = f"[{sender_label}] {self._compact_context_text(text)}"
++            lines.append(line)
++
++        if not lines:
++            return None
++
++        context = "[Recent channel messages]\n" + "\n".join(lines)
++        if len(context) <= self._history_backfill_max_chars:
++            return context
++        return context[: self._history_backfill_max_chars].rstrip() + "\n[truncated]"
++
++    def _history_sender_label(self, sender: Any) -> str:
++        sender_type = str(getattr(sender, "sender_type", "") or "").strip().lower()
++        sender_id = str(getattr(sender, "id", "") or "").strip()
++        label = self._get_cached_sender_name(sender_id) if sender_id else None
++        if not label:
++            label = sender_id or sender_type or "unknown"
++        if sender_type in {"bot", "app"}:
++            return f"{label} [bot]"
++        return label
++
++    @staticmethod
++    def _compact_context_text(text: str) -> str:
++        return re.sub(r"\s+", " ", str(text or "").replace("\\n", " ")).strip()
++
+     async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
+         """Apply Feishu-specific burst protection before entering the base adapter."""
+         if event.message_type == MessageType.TEXT and not event.is_command():
+@@ -4098,6 +4302,11 @@ class FeishuAdapter(BasePlatformAdapter):
+         is_group = getattr(message, "chat_type", "p2p") != "p2p"
+         chat_id = getattr(message, "chat_id", "") or ""
+         require_mention = is_group and self._require_mention_for(chat_id)
++        trigger_kind = (
++            self._message_trigger_kind(message)
++            if ((is_bot and self._allow_bots == "mentions") or require_mention)
++            else "open"
++        )
+ 
+         # Defensive only — Feishu doesn't echo our outbound back as inbound,
+         # and open_id is always populated on both sides.
+@@ -4113,7 +4322,7 @@ class FeishuAdapter(BasePlatformAdapter):
+                 return "self_ids_unknown"
+             # Step 4 covers mention enforcement for groups when require_mention
+             # is on; check here only on paths step 4 won't reach.
+-            if mode == "mentions" and not require_mention and not self._mentions_self(message):
++            if mode == "mentions" and not require_mention and trigger_kind != "bot":
+                 return "bot_not_mentioned"
+ 
+         if not is_group:
+@@ -4123,8 +4332,8 @@ class FeishuAdapter(BasePlatformAdapter):
+             getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
+         ):
+             return "group_policy_rejected"
+-        if require_mention and not self._mentions_self(message):
+-            return "group_policy_rejected"
++        if require_mention and trigger_kind == "none":
++            return "trigger_mention_missing"
+         return None
+ 
+     def _require_mention_for(self, chat_id: str) -> bool:
+@@ -4222,6 +4431,68 @@ class FeishuAdapter(BasePlatformAdapter):
+     def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
+         return any(m.is_self for m in mentions)
+ 
++    def _message_trigger_kind(self, message: Any) -> str:
++        """Return why a Feishu group message should trigger Hermes."""
++        mention_triggers = getattr(self, "_mention_triggers", {"bot"})
++        if "assistant_users" in mention_triggers and self._message_mentions_assistant_user(message):
++            return "assistant_user"
++        if "bot" in mention_triggers and self._mentions_self(message):
++            return "bot"
++        return "none"
++
++    def _prepend_assistant_user_reply_instruction(self, text: str) -> str:
++        label = (self._assistant_identity_label or "cyber assistant").strip()
++        instruction = (
++            "[Feishu assistant mode]\n"
++            f"The triggering group message mentioned the configured human user. You are {label}. "
++            "Reply in Chinese unless the conversation clearly uses another language. "
++            "Explicitly state that you are the user's cyber assistant and are replying on their behalf. "
++            "Do not claim to be the human user. Use the recent group context when relevant."
++        )
++        return f"{instruction}\n\n{text}" if text else instruction
++
++    def _message_mentions_assistant_user(self, message: Any) -> bool:
++        if not getattr(self, "_assistant_user_ids", set()):
++            return False
++        mentions = getattr(message, "mentions", None) or []
++        if mentions and self._mentions_configured_assistant_user(mentions):
++            return True
++        normalized = normalize_feishu_message(
++            message_type=getattr(message, "message_type", "") or "",
++            raw_content=getattr(message, "content", "") or "",
++            mentions=getattr(message, "mentions", None),
++            bot=self._bot_identity(),
++        )
++        return self._normalized_mentions_configured_assistant_user(normalized.mentions)
++
++    def _mentions_configured_assistant_user(self, mentions: List[Any]) -> bool:
++        for mention in mentions:
++            mention_id = getattr(mention, "id", None)
++            mention_open_id = ""
++            mention_user_id = ""
++            if isinstance(mention_id, str):
++                id_type = str(getattr(mention, "id_type", "") or "").lower()
++                if id_type == "open_id":
++                    mention_open_id = mention_id
++                elif id_type == "user_id":
++                    mention_user_id = mention_id
++            else:
++                mention_open_id = str(getattr(mention_id, "open_id", "") or "").strip()
++                mention_user_id = str(getattr(mention_id, "user_id", "") or "").strip()
++            if mention_open_id and mention_open_id in self._assistant_user_ids:
++                return True
++            if mention_user_id and mention_user_id in self._assistant_user_ids:
++                return True
++        return False
++
++    def _normalized_mentions_configured_assistant_user(self, mentions: List[FeishuMentionRef]) -> bool:
++        for ref in mentions:
++            if ref.open_id and ref.open_id in self._assistant_user_ids:
++                return True
++            if ref.user_id and ref.user_id in self._assistant_user_ids:
++                return True
++        return False
++
+     def _bot_identity(self) -> _FeishuBotIdentity:
+         return _FeishuBotIdentity(
+             open_id=self._bot_open_id,
+@@ -4710,6 +4981,34 @@ class FeishuAdapter(BasePlatformAdapter):
+             return GetMessageRequest.builder().message_id(message_id).build()
+         return SimpleNamespace(message_id=message_id)
+ 
++    @staticmethod
++    def _build_list_message_request(
++        *,
++        chat_id: str,
++        start_time: str,
++        end_time: str,
++        page_size: int,
++    ) -> Any:
++        if "ListMessageRequest" in globals():
++            return (
++                ListMessageRequest.builder()
++                .container_id_type("chat")
++                .container_id(chat_id)
++                .start_time(start_time)
++                .end_time(end_time)
++                .sort_type("ByCreateTimeDesc")
++                .page_size(page_size)
++                .build()
++            )
++        return SimpleNamespace(
++            container_id_type="chat",
++            container_id=chat_id,
++            start_time=start_time,
++            end_time=end_time,
++            sort_type="ByCreateTimeDesc",
++            page_size=page_size,
++        )
++
+     @staticmethod
+     def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
+         if "GetMessageResourceRequest" in globals():
+diff --git a/gateway/run.py b/gateway/run.py
+index e24afd035..304015a7d 100644
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -1865,6 +1865,17 @@ def _platform_config_key(platform: "Platform") -> str:
+     return "cli" if platform == Platform.LOCAL else platform.value
+ 
+ 
++def _platform_config_key_for_source(source: "SessionSource") -> str:
++    """Return the config key for a source, including chat-scope splits."""
++    platform_key = _platform_config_key(source.platform)
++    if (
++        platform_key == "feishu"
++        and str(getattr(source, "chat_type", "") or "").lower() in {"group", "forum", "channel"}
++    ):
++        return "feishu_group"
++    return platform_key
++
++
+ def _teams_pipeline_plugin_enabled() -> bool:
+     """Return True when the standalone Teams pipeline plugin is enabled."""
+     config = _load_gateway_config()
+@@ -4048,7 +4059,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         busy_ack_detail_enabled = bool(
+             resolve_display_setting(
+                 _load_gateway_config(),
+-                _platform_config_key(event.source.platform),
++                _platform_config_key_for_source(event.source),
+                 "busy_ack_detail",
+                 True,
+             )
+@@ -7881,8 +7892,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+                     _skill_name = skill_cmds[cmd_key].get("name", "")
+                     _plat = source.platform.value if source.platform else None
+                     if _plat and _skill_name:
+-                        from agent.skill_utils import get_disabled_skill_names as _get_plat_disabled
+-                        if _skill_name in _get_plat_disabled(platform=_plat):
++                        from agent.skill_utils import (
++                            get_disabled_skill_names as _get_plat_disabled,
++                            is_skill_disabled_name as _skill_disabled_name,
++                        )
++                        if _skill_disabled_name(
++                            _skill_name,
++                            _get_plat_disabled(platform=_plat),
++                        ):
+                             return (
+                                 f"The **{_skill_name}** skill is disabled for {_plat}.\n"
+                                 f"Enable it with: `hermes skills config`"
+@@ -9147,7 +9164,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             try:
+                 _show_reasoning_effective = _resolve_gateway_display_bool(
+                     _load_gateway_config(),
+-                    _platform_config_key(source.platform),
++                    _platform_config_key_for_source(source),
+                     "show_reasoning",
+                     default=bool(getattr(self, "_show_reasoning", False)),
+                     platform=source.platform,
+@@ -9180,7 +9197,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+                 from gateway.runtime_footer import build_footer_line as _bfl
+                 _footer_line = _bfl(
+                     user_config=_load_gateway_config(),
+-                    platform_key=_platform_config_key(source.platform),
++                    platform_key=_platform_config_key_for_source(source),
+                     model=agent_result.get("model"),
+                     context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
+                     context_length=agent_result.get("context_length") or None,
+@@ -10625,7 +10642,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+                 )
+                 return
+ 
+-            platform_key = _platform_config_key(source.platform)
++            platform_key = _platform_config_key_for_source(source)
+ 
+             from hermes_cli.tools_config import _get_platform_tools
+             enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
+@@ -12130,6 +12147,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         from gateway.session_context import set_session_vars
+         return set_session_vars(
+             platform=context.source.platform.value,
++            platform_config_key=_platform_config_key_for_source(context.source),
+             chat_id=context.source.chat_id,
+             chat_name=context.source.chat_name or "",
+             thread_id=str(context.source.thread_id) if context.source.thread_id else "",
+@@ -13533,7 +13551,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             from gateway.config import StreamingConfig
+             _scfg = StreamingConfig()
+ 
+-        platform_key = _platform_config_key(source.platform)
++        platform_key = _platform_config_key_for_source(source)
+         user_config = _load_gateway_config()
+         from gateway.display_config import resolve_display_setting
+         _plat_streaming = resolve_display_setting(
+@@ -13775,7 +13793,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             return self._is_session_run_current(session_key, run_generation)
+         
+         user_config = _load_gateway_config()
+-        platform_key = _platform_config_key(source.platform)
++        platform_key = _platform_config_key_for_source(source)
+ 
+         from hermes_cli.tools_config import _get_platform_tools
+         enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
+@@ -14585,9 +14603,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             # Read from env var or use default (same as CLI)
+             max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
+             
+-            # Map platform enum to the platform hint key the agent understands.
+-            # Platform.LOCAL ("local") maps to "cli"; others pass through as-is.
+-            platform_key = "cli" if source.platform == Platform.LOCAL else source.platform.value
++            platform_key = _platform_config_key_for_source(source)
+             
+             # Combine platform context, per-channel context, and the user-configured
+             # ephemeral system prompt.
+diff --git a/gateway/session_context.py b/gateway/session_context.py
+index c8c5cf438..af6a6d92e 100644
+--- a/gateway/session_context.py
++++ b/gateway/session_context.py
+@@ -49,6 +49,7 @@ _UNSET: Any = object()
+ # ---------------------------------------------------------------------------
+ 
+ _SESSION_PLATFORM: ContextVar = ContextVar("HERMES_SESSION_PLATFORM", default=_UNSET)
++_SESSION_PLATFORM_CONFIG_KEY: ContextVar = ContextVar("HERMES_SESSION_PLATFORM_CONFIG_KEY", default=_UNSET)
+ _SESSION_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
+ _SESSION_CHAT_NAME: ContextVar = ContextVar("HERMES_SESSION_CHAT_NAME", default=_UNSET)
+ _SESSION_THREAD_ID: ContextVar = ContextVar("HERMES_SESSION_THREAD_ID", default=_UNSET)
+@@ -69,6 +70,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
+ 
+ _VAR_MAP = {
+     "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
++    "HERMES_SESSION_PLATFORM_CONFIG_KEY": _SESSION_PLATFORM_CONFIG_KEY,
+     "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
+     "HERMES_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
+     "HERMES_SESSION_THREAD_ID": _SESSION_THREAD_ID,
+@@ -100,6 +102,7 @@ def set_current_session_id(session_id: str) -> None:
+ 
+ def set_session_vars(
+     platform: str = "",
++    platform_config_key: str = "",
+     chat_id: str = "",
+     chat_name: str = "",
+     thread_id: str = "",
+@@ -122,6 +125,7 @@ def set_session_vars(
+     """
+     tokens = [
+         _SESSION_PLATFORM.set(platform),
++        _SESSION_PLATFORM_CONFIG_KEY.set(platform_config_key or platform),
+         _SESSION_CHAT_ID.set(chat_id),
+         _SESSION_CHAT_NAME.set(chat_name),
+         _SESSION_THREAD_ID.set(thread_id),
+@@ -153,6 +157,7 @@ def clear_session_vars(tokens: list) -> None:
+     """
+     for var in (
+         _SESSION_PLATFORM,
++        _SESSION_PLATFORM_CONFIG_KEY,
+         _SESSION_CHAT_ID,
+         _SESSION_CHAT_NAME,
+         _SESSION_THREAD_ID,
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
 index 127adefb3..c128d419e 100644
 --- a/hermes_cli/doctor.py
@@ -28,6 +848,86 @@ index 127adefb3..c128d419e 100644
          if api_disabled:
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
+diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
+index 5eec978e1..a842fc0ac 100644
+--- a/hermes_cli/tools_config.py
++++ b/hermes_cli/tools_config.py
+@@ -1419,35 +1419,46 @@ def _get_platform_tools(
+     # checklist or in a user-saved config.  Must run in BOTH branches —
+     # otherwise saving via `hermes tools` (which flips has_explicit_config
+     # to True) silently drops them.
+-    _plat_info = PLATFORMS.get(platform)
+-    _default_ts = _plat_info["default_toolset"] if _plat_info else f"hermes-{platform}"
+-    platform_tool_universe = set(resolve_toolset(_default_ts))
+-    configurable_tool_universe = set()
+-    for ck in configurable_keys:
+-        configurable_tool_universe.update(resolve_toolset(ck))
+-    claimed = set()
+-    for ts_key in enabled_toolsets:
+-        claimed.update(resolve_toolset(ts_key))
+-    skip = configurable_keys | plugin_ts_keys | platform_default_keys
+-    skip |= {k for k in TOOLSETS if k.startswith("hermes-")}
+-    skip |= set(_DEFAULT_OFF_TOOLSETS) - {platform}
+-    for ts_key, ts_def in TOOLSETS.items():
+-        if ts_key in skip:
+-            continue
+-        if ts_def.get("includes"):
+-            continue
+-        # Posture toolsets (e.g. ``coding``) are session-level selections made
+-        # by agent/coding_context.py — not per-platform capabilities to recover.
+-        if ts_def.get("posture"):
+-            continue
+-        ts_tools = set(resolve_toolset(ts_key))
+-        if not ts_tools or not ts_tools.issubset(platform_tool_universe):
+-            continue
+-        if ts_tools.issubset(configurable_tool_universe):
+-            continue
+-        if not ts_tools.issubset(claimed):
+-            enabled_toolsets.add(ts_key)
+-            claimed.update(ts_tools)
++    platform_toolset_options = config.get("platform_toolset_options") or {}
++    if not isinstance(platform_toolset_options, dict):
++        platform_toolset_options = {}
++    platform_options = platform_toolset_options.get(platform) or {}
++    if not isinstance(platform_options, dict):
++        platform_options = {}
++    recover_platform_tools = _parse_enabled_flag(
++        platform_options.get("recover_platform_tools", True),
++        default=True,
++    )
++    if recover_platform_tools:
++        _plat_info = PLATFORMS.get(platform)
++        _default_ts = _plat_info["default_toolset"] if _plat_info else f"hermes-{platform}"
++        platform_tool_universe = set(resolve_toolset(_default_ts))
++        configurable_tool_universe = set()
++        for ck in configurable_keys:
++            configurable_tool_universe.update(resolve_toolset(ck))
++        claimed = set()
++        for ts_key in enabled_toolsets:
++            claimed.update(resolve_toolset(ts_key))
++        skip = configurable_keys | plugin_ts_keys | platform_default_keys
++        skip |= {k for k in TOOLSETS if k.startswith("hermes-")}
++        skip |= set(_DEFAULT_OFF_TOOLSETS) - {platform}
++        for ts_key, ts_def in TOOLSETS.items():
++            if ts_key in skip:
++                continue
++            if ts_def.get("includes"):
++                continue
++            # Posture toolsets (e.g. ``coding``) are session-level selections made
++            # by agent/coding_context.py — not per-platform capabilities to recover.
++            if ts_def.get("posture"):
++                continue
++            ts_tools = set(resolve_toolset(ts_key))
++            if not ts_tools or not ts_tools.issubset(platform_tool_universe):
++                continue
++            if ts_tools.issubset(configurable_tool_universe):
++                continue
++            if not ts_tools.issubset(claimed):
++                enabled_toolsets.add(ts_key)
++                claimed.update(ts_tools)
+ 
+     # Plugin toolsets: enabled by default unless explicitly disabled, or
+     # unless the toolset is in _DEFAULT_OFF_TOOLSETS (e.g. spotify —
 diff --git a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
 index d9d53a97a..21e884798 100644
 --- a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
@@ -57,6 +957,739 @@ index 6e371126d..cec9b5774 100644
  google = [
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
+diff --git a/tests/gateway/feishu_helpers.py b/tests/gateway/feishu_helpers.py
+index 753a61a70..c8c8efbbd 100644
+--- a/tests/gateway/feishu_helpers.py
++++ b/tests/gateway/feishu_helpers.py
+@@ -34,10 +34,14 @@ def make_adapter_skeleton(
+     allow_bots: str = "none",
+     require_mention: bool = True,
+     group_policy: str = "allowlist",
++    mention_triggers: set[str] | None = None,
++    assistant_user_ids: set[str] | None = None,
+ ) -> Any:
+     from gateway.platforms.feishu import FeishuAdapter
++    from gateway.config import Platform
+ 
+     adapter = object.__new__(FeishuAdapter)
++    adapter.platform = Platform.FEISHU
+     adapter._bot_open_id = bot_open_id
+     adapter._bot_user_id = bot_user_id
+     adapter._bot_name = ""
+@@ -49,6 +53,9 @@ def make_adapter_skeleton(
+     adapter._allowed_group_users = frozenset()
+     adapter._allow_bots = allow_bots
+     adapter._require_mention = require_mention
++    adapter._mention_triggers = mention_triggers or {"bot"}
++    adapter._assistant_user_ids = assistant_user_ids or set()
++    adapter._assistant_identity_label = "我的赛博助手"
+     return adapter
+ 
+ 
+diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
+index 9e74dd355..926dbc308 100644
+--- a/tests/gateway/test_config.py
++++ b/tests/gateway/test_config.py
+@@ -767,6 +767,45 @@ class TestLoadGatewayConfig:
+ 
+         assert os.environ.get("FEISHU_ALLOW_BOTS") == "none"
+ 
++    def test_bridges_feishu_history_backfill_from_config_yaml(self, tmp_path, monkeypatch):
++        hermes_home = tmp_path / ".hermes"
++        hermes_home.mkdir()
++        config_path = hermes_home / "config.yaml"
++        config_path.write_text(
++            "feishu:\n"
++            "  default_group_policy: open\n"
++            "  mention_triggers:\n"
++            "    - bot\n"
++            "    - assistant_users\n"
++            "  assistant_user_ids:\n"
++            "    - ou_owner\n"
++            "  assistant_identity_label: 我的赛博助手\n"
++            "  history_backfill: true\n"
++            "  history_backfill_limit: 12\n"
++            "  history_backfill_seconds: 900\n"
++            "  history_backfill_max_chars: 4096\n"
++            "  group_rules:\n"
++            "    '*':\n"
++            "      policy: open\n"
++            "      require_mention: true\n",
++            encoding="utf-8",
++        )
++
++        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
++
++        config = load_gateway_config()
++        extra = config.platforms[Platform.FEISHU].extra
++
++        assert extra["default_group_policy"] == "open"
++        assert extra["mention_triggers"] == ["bot", "assistant_users"]
++        assert extra["assistant_user_ids"] == ["ou_owner"]
++        assert extra["assistant_identity_label"] == "我的赛博助手"
++        assert extra["history_backfill"] is True
++        assert extra["history_backfill_limit"] == 12
++        assert extra["history_backfill_seconds"] == 900
++        assert extra["history_backfill_max_chars"] == 4096
++        assert extra["group_rules"]["*"]["require_mention"] is True
++
+     def test_invalid_quick_commands_in_config_yaml_are_ignored(self, tmp_path, monkeypatch):
+         hermes_home = tmp_path / ".hermes"
+         hermes_home.mkdir()
+diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
+index 4d78b454b..5bdef6f5a 100644
+--- a/tests/gateway/test_feishu.py
++++ b/tests/gateway/test_feishu.py
+@@ -331,6 +331,134 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+         self.assertEqual(sleeps, [1])
+         self.assertEqual(fake_loop.calls, 2)
+ 
++    @patch.dict(os.environ, {}, clear=True)
++    def test_fetch_channel_context_formats_recent_group_messages(self):
++        from gateway.config import PlatformConfig
++        from gateway.platforms.feishu import FeishuAdapter
++
++        adapter = FeishuAdapter(
++            PlatformConfig(
++                extra={
++                    "history_backfill": True,
++                    "history_backfill_limit": 3,
++                    "history_backfill_seconds": 600,
++                }
++            )
++        )
++        adapter._app_id = "cli_self"
++        adapter._sender_name_cache = {
++            "ou_alice": ("Alice", time.time() + 60),
++            "ou_bob": ("Bob", time.time() + 60),
++            "cli_other": ("BuildBot", time.time() + 60),
++        }
++        captured = {}
++
++        class _MessageAPI:
++            def list(self, request):
++                captured["request"] = request
++                return SimpleNamespace(
++                    success=lambda: True,
++                    data=SimpleNamespace(
++                        items=[
++                            SimpleNamespace(
++                                message_id="om_trigger",
++                                create_time="1710000005000",
++                                deleted=False,
++                                msg_type="text",
++                                sender=SimpleNamespace(id="ou_alice", sender_type="user"),
++                                body=SimpleNamespace(content=json.dumps({"text": "trigger"})),
++                                mentions=[],
++                            ),
++                            SimpleNamespace(
++                                message_id="om_deleted",
++                                create_time="1710000004000",
++                                deleted=True,
++                                msg_type="text",
++                                sender=SimpleNamespace(id="ou_alice", sender_type="user"),
++                                body=SimpleNamespace(content=json.dumps({"text": "deleted"})),
++                                mentions=[],
++                            ),
++                            SimpleNamespace(
++                                message_id="om_self",
++                                create_time="1710000003000",
++                                deleted=False,
++                                msg_type="text",
++                                sender=SimpleNamespace(id="cli_self", sender_type="app"),
++                                body=SimpleNamespace(content=json.dumps({"text": "prior self"})),
++                                mentions=[],
++                            ),
++                            SimpleNamespace(
++                                message_id="om_bot",
++                                create_time="1710000002000",
++                                deleted=False,
++                                msg_type="text",
++                                sender=SimpleNamespace(id="cli_other", sender_type="app"),
++                                body=SimpleNamespace(content=json.dumps({"text": "bot note"})),
++                                mentions=[],
++                            ),
++                            SimpleNamespace(
++                                message_id="om_bob",
++                                create_time="1710000001000",
++                                deleted=False,
++                                msg_type="text",
++                                sender=SimpleNamespace(id="ou_bob", sender_type="user"),
++                                body=SimpleNamespace(content=json.dumps({"text": "hello\\nthere"})),
++                                mentions=[],
++                            ),
++                        ]
++                    ),
++                )
++
++        adapter._client = SimpleNamespace(
++            im=SimpleNamespace(v1=SimpleNamespace(message=_MessageAPI()))
++        )
++
++        async def _direct(func, *args, **kwargs):
++            return func(*args, **kwargs)
++
++        with patch("gateway.platforms.feishu.asyncio.to_thread", side_effect=_direct):
++            result = asyncio.run(
++                adapter._fetch_channel_context(
++                    chat_id="oc_chat",
++                    trigger_message_id="om_trigger",
++                    trigger_timestamp="1710000005000",
++                    chat_type="group",
++                )
++            )
++
++        self.assertEqual(
++            result,
++            "[Recent channel messages]\n"
++            "[Bob] hello there\n"
++            "[BuildBot [bot]] bot note",
++        )
++        request = captured["request"]
++        self.assertEqual(request.container_id_type, "chat")
++        self.assertEqual(request.container_id, "oc_chat")
++        self.assertEqual(request.start_time, "1709999405")
++        self.assertEqual(request.end_time, "1710000005")
++        self.assertEqual(request.sort_type, "ByCreateTimeDesc")
++        self.assertEqual(request.page_size, 4)
++
++    @patch.dict(os.environ, {}, clear=True)
++    def test_fetch_channel_context_skips_dm(self):
++        from gateway.config import PlatformConfig
++        from gateway.platforms.feishu import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig(extra={"history_backfill": True}))
++        adapter._client = SimpleNamespace()
++
++        result = asyncio.run(
++            adapter._fetch_channel_context(
++                chat_id="ou_user",
++                trigger_message_id="om_trigger",
++                trigger_timestamp="1710000005000",
++                chat_type="dm",
++            )
++        )
++
++        self.assertIsNone(result)
++
+     @patch.dict(os.environ, {}, clear=True)
+     def test_edit_message_updates_existing_feishu_message(self):
+         from gateway.config import PlatformConfig
+diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
+index 2d71ad06d..3eafe5acf 100644
+--- a/tests/gateway/test_feishu_bot_admission.py
++++ b/tests/gateway/test_feishu_bot_admission.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
+ from types import SimpleNamespace
++from unittest.mock import AsyncMock
+ 
+ import pytest
+ 
+@@ -72,6 +73,49 @@ def test_feishu_load_settings_falls_back_to_env_when_extra_missing(monkeypatch):
+     assert settings.allow_bots == "mentions"
+ 
+ 
++def test_feishu_load_settings_history_backfill_from_extra(monkeypatch):
++    from gateway.platforms.feishu import FeishuAdapter
++
++    monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
++    monkeypatch.setenv("FEISHU_APP_SECRET", "secret_test")
++    monkeypatch.delenv("FEISHU_HISTORY_BACKFILL", raising=False)
++
++    settings = FeishuAdapter._load_settings(
++        extra={
++            "history_backfill": True,
++            "history_backfill_limit": 12,
++            "history_backfill_seconds": 900,
++            "history_backfill_max_chars": 2048,
++        }
++    )
++
++    assert settings.history_backfill is True
++    assert settings.history_backfill_limit == 12
++    assert settings.history_backfill_seconds == 900
++    assert settings.history_backfill_max_chars == 2048
++
++
++def test_feishu_load_settings_parses_assistant_user_triggers(monkeypatch):
++    from gateway.platforms.feishu import FeishuAdapter
++
++    monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
++    monkeypatch.setenv("FEISHU_APP_SECRET", "secret_test")
++    monkeypatch.delenv("FEISHU_MENTION_TRIGGERS", raising=False)
++    monkeypatch.delenv("FEISHU_ASSISTANT_USER_IDS", raising=False)
++
++    settings = FeishuAdapter._load_settings(
++        extra={
++            "mention_triggers": ["bot", "assistant_users"],
++            "assistant_user_ids": ["ou_owner", "u_owner"],
++            "assistant_identity_label": "我的赛博助手",
++        }
++    )
++
++    assert settings.mention_triggers == frozenset({"bot", "assistant_users"})
++    assert settings.assistant_user_ids == frozenset({"ou_owner", "u_owner"})
++    assert settings.assistant_identity_label == "我的赛博助手"
++
++
+ def test_feishu_load_settings_warns_on_unknown_allow_bots(monkeypatch, caplog):
+     import logging
+ 
+@@ -372,6 +416,20 @@ _ADMIT_CASES = [
+         ),
+         id="require_mention_false:group_bot_mentions_mode_still_gated",
+     ),
++    pytest.param(
++        _admit_case(
++            adapter={
++                "bot_open_id": "ou_self",
++                "require_mention": True,
++                "group_policy": "open",
++            },
++            sender={"sender_type": "user", "open_id": "ou_human"},
++            message={"chat_type": "group"},
++            mentions_self=False,
++            expected="trigger_mention_missing",
++        ),
++        id="require_mention_true:group_human_no_trigger_rejected",
++    ),
+ ]
+ 
+ 
+@@ -444,10 +502,33 @@ def test_admit_per_group_require_mention_overrides_global():
+     assert adapter._admit(sender, make_message(chat_id="oc_free", chat_type="group")) is None
+     assert (
+         adapter._admit(sender, make_message(chat_id="oc_other", chat_type="group"))
+-        == "group_policy_rejected"
++        == "trigger_mention_missing"
+     )
+ 
+ 
++def test_admit_group_message_when_assistant_user_is_mentioned():
++    adapter = make_adapter_skeleton(
++        bot_open_id="ou_self",
++        require_mention=True,
++        group_policy="open",
++        mention_triggers={"bot", "assistant_users"},
++        assistant_user_ids={"ou_owner", "u_owner"},
++    )
++    mention = SimpleNamespace(
++        key="@_user_1",
++        id=SimpleNamespace(open_id="ou_owner", user_id="u_owner"),
++        name="Owner",
++    )
++    sender = make_sender(sender_type="user", open_id="ou_human")
++    message = make_message(
++        chat_type="group",
++        mentions=[mention],
++    )
++
++    assert adapter._admit(sender, message) is None
++    assert adapter._message_trigger_kind(message) == "assistant_user"
++
++
+ # --- Hydration -------------------------------------------------------------
+ 
+ 
+@@ -771,3 +852,63 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
+     assert captured.get("sender_id") is sender.sender_id
+     assert captured.get("is_bot") is True
+     assert captured.get("message_id") == "om_bot_ok"
++
++
++def test_process_inbound_message_injects_assistant_identity_for_owner_mention(monkeypatch):
++    import asyncio
++
++    adapter = make_adapter_skeleton(
++        bot_open_id="ou_self",
++        group_policy="open",
++        mention_triggers={"bot", "assistant_users"},
++        assistant_user_ids={"ou_owner"},
++    )
++    adapter._client = None
++    adapter.config = SimpleNamespace(extra={})
++    adapter.get_chat_info = AsyncMock(return_value={"name": "Group", "type": "group"})
++    adapter._resolve_sender_profile = AsyncMock(
++        return_value={
++            "user_id": "ou_human",
++            "user_name": "Alice",
++            "user_id_alt": None,
++        }
++    )
++    adapter._fetch_message_text = AsyncMock(return_value=None)
++    adapter._fetch_channel_context = AsyncMock(return_value=None)
++    captured = {}
++
++    async def _capture(event):
++        captured["event"] = event
++
++    adapter._dispatch_inbound_event = _capture
++
++    mention = SimpleNamespace(
++        key="@_user_1",
++        id=SimpleNamespace(open_id="ou_owner", user_id=""),
++        name="Owner",
++    )
++    message = SimpleNamespace(
++        message_id="om_owner",
++        chat_id="oc_group",
++        chat_type="group",
++        message_type="text",
++        content='{"text":"@_user_1 能帮忙看下这个吗"}',
++        mentions=[mention],
++        create_time="1710000005000",
++    )
++
++    asyncio.run(
++        adapter._process_inbound_message(
++            data=SimpleNamespace(),
++            message=message,
++            sender_id=SimpleNamespace(open_id="ou_human", user_id=None, union_id=None),
++            chat_type="group",
++            message_id="om_owner",
++        )
++    )
++
++    text = captured["event"].text
++    assert "[Feishu assistant mode]" in text
++    assert "我的赛博助手" in text
++    assert "replying on their behalf" in text
++    assert "@Owner 能帮忙看下这个吗" in text
+diff --git a/tests/gateway/test_feishu_bot_auth_bypass.py b/tests/gateway/test_feishu_bot_auth_bypass.py
+index 4dd83a1bd..740d41aed 100644
+--- a/tests/gateway/test_feishu_bot_auth_bypass.py
++++ b/tests/gateway/test_feishu_bot_auth_bypass.py
+@@ -21,6 +21,7 @@ def _isolate_feishu_env(monkeypatch):
+         "FEISHU_ALLOW_BOTS",
+         "FEISHU_ALLOWED_USERS",
+         "FEISHU_ALLOW_ALL_USERS",
++        "FEISHU_GROUP_ALLOWED_CHATS",
+         "GATEWAY_ALLOW_ALL_USERS",
+         "GATEWAY_ALLOWED_USERS",
+     ):
+@@ -98,6 +99,39 @@ def test_feishu_human_still_checked_against_allowlist_when_bot_policy_set(monkey
+     assert runner._is_user_authorized(_make_feishu_human_source("ou_human")) is True
+ 
+ 
++def test_feishu_group_allowed_chats_authorizes_group_without_dm_allow_all(monkeypatch):
++    """Allow a Feishu group without opening all Feishu DMs."""
++    runner = _make_bare_runner()
++    monkeypatch.setenv("FEISHU_GROUP_ALLOWED_CHATS", "oc_1")
++
++    assert runner._is_user_authorized(_make_feishu_human_source("ou_stranger")) is True
++
++    dm_source = SessionSource(
++        platform=Platform.FEISHU,
++        chat_id="ou_stranger",
++        chat_type="dm",
++        user_id="ou_stranger",
++        user_name="Human",
++    )
++    assert runner._is_user_authorized(dm_source) is False
++
++
++def test_feishu_group_allowed_chats_wildcard_authorizes_groups_only(monkeypatch):
++    runner = _make_bare_runner()
++    monkeypatch.setenv("FEISHU_GROUP_ALLOWED_CHATS", "*")
++
++    assert runner._is_user_authorized(_make_feishu_human_source("ou_any")) is True
++
++    dm_source = SessionSource(
++        platform=Platform.FEISHU,
++        chat_id="ou_any",
++        chat_type="dm",
++        user_id="ou_any",
++        user_name="Human",
++    )
++    assert runner._is_user_authorized(dm_source) is False
++
++
+ def test_feishu_bot_bypass_does_not_leak_to_other_platforms(monkeypatch):
+     """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
+     runner = _make_bare_runner()
+diff --git a/tests/gateway/test_session_env.py b/tests/gateway/test_session_env.py
+index 1da1e2a3b..84f08989e 100644
+--- a/tests/gateway/test_session_env.py
++++ b/tests/gateway/test_session_env.py
+@@ -69,6 +69,29 @@ def test_set_session_env_sets_contextvars(monkeypatch):
+     runner._clear_session_env(tokens)
+ 
+ 
++def test_set_session_env_sets_feishu_group_config_key(monkeypatch):
++    """Feishu group chats use a separate config key from Feishu DMs."""
++    runner = object.__new__(GatewayRunner)
++    source = SessionSource(
++        platform=Platform.FEISHU,
++        chat_id="oc_1",
++        chat_name="Group",
++        chat_type="group",
++        user_id="ou_user",
++    )
++    context = SessionContext(source=source, connected_platforms=[], home_channels={})
++
++    monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)
++    monkeypatch.delenv("HERMES_SESSION_PLATFORM_CONFIG_KEY", raising=False)
++
++    tokens = runner._set_session_env(context)
++
++    assert get_session_env("HERMES_SESSION_PLATFORM") == "feishu"
++    assert get_session_env("HERMES_SESSION_PLATFORM_CONFIG_KEY") == "feishu_group"
++
++    runner._clear_session_env(tokens)
++
++
+ def test_clear_session_env_restores_previous_state(monkeypatch):
+     """_clear_session_env should restore contextvars to their pre-handler values."""
+     runner = object.__new__(GatewayRunner)
+diff --git a/tests/hermes_cli/test_skills_config.py b/tests/hermes_cli/test_skills_config.py
+index 8fbb063f6..cb693a861 100644
+--- a/tests/hermes_cli/test_skills_config.py
++++ b/tests/hermes_cli/test_skills_config.py
+@@ -92,75 +92,100 @@ class TestSaveDisabledSkills:
+ # ---------------------------------------------------------------------------
+ 
+ class TestIsSkillDisabled:
+-    @patch("hermes_cli.config.load_config")
+-    def test_globally_disabled(self, mock_load):
+-        mock_load.return_value = {"skills": {"disabled": ["bad-skill"]}}
++    def test_globally_disabled(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text(
++            "skills:\n"
++            "  disabled:\n"
++            "    - bad-skill\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         assert _is_skill_disabled("bad-skill") is True
+ 
+-    @patch("hermes_cli.config.load_config")
+-    def test_globally_enabled(self, mock_load):
+-        mock_load.return_value = {"skills": {"disabled": ["other"]}}
++    def test_globally_enabled(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text(
++            "skills:\n"
++            "  disabled:\n"
++            "    - other\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         assert _is_skill_disabled("good-skill") is False
+ 
+-    @patch("hermes_cli.config.load_config")
+-    def test_platform_disabled(self, mock_load):
+-        mock_load.return_value = {"skills": {
+-            "disabled": [],
+-            "platform_disabled": {"telegram": ["tg-skill"]}
+-        }}
++    def test_platform_disabled(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text(
++            "skills:\n"
++            "  disabled: []\n"
++            "  platform_disabled:\n"
++            "    telegram:\n"
++            "      - tg-skill\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         assert _is_skill_disabled("tg-skill", platform="telegram") is True
+ 
+-    @patch("hermes_cli.config.load_config")
+-    def test_globally_disabled_stays_disabled_on_platform(self, mock_load):
+-        mock_load.return_value = {"skills": {
+-            "disabled": ["skill-a"],
+-            "platform_disabled": {"telegram": ["tg-skill"]}
+-        }}
++    def test_globally_disabled_stays_disabled_on_platform(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text(
++            "skills:\n"
++            "  disabled:\n"
++            "    - skill-a\n"
++            "  platform_disabled:\n"
++            "    telegram:\n"
++            "      - tg-skill\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         # Union: a globally-disabled skill stays disabled on a platform that
+         # has its own platform_disabled list (matches issue #46201).
+         assert _is_skill_disabled("skill-a", platform="telegram") is True
+         assert _is_skill_disabled("tg-skill", platform="telegram") is True
+ 
+-    @patch("hermes_cli.config.load_config")
+-    def test_empty_platform_list_keeps_global_disabled(self, mock_load):
+-        mock_load.return_value = {"skills": {
+-            "disabled": ["skill-a"],
+-            "platform_disabled": {"telegram": []}
+-        }}
++    def test_empty_platform_list_keeps_global_disabled(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text(
++            "skills:\n"
++            "  disabled:\n"
++            "    - skill-a\n"
++            "  platform_disabled:\n"
++            "    telegram: []\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         # An explicit empty platform list does NOT re-enable a globally-disabled
+         # skill — global disables hold on every platform.
+         assert _is_skill_disabled("skill-a", platform="telegram") is True
+ 
+-    @patch("hermes_cli.config.load_config")
+-    def test_platform_falls_back_to_global(self, mock_load):
+-        mock_load.return_value = {"skills": {"disabled": ["skill-a"]}}
++    def test_platform_falls_back_to_global(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text(
++            "skills:\n"
++            "  disabled:\n"
++            "    - skill-a\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         # no platform_disabled for cli -> global
+         assert _is_skill_disabled("skill-a", platform="cli") is True
+ 
+-    @patch("hermes_cli.config.load_config")
+-    def test_empty_config(self, mock_load):
+-        mock_load.return_value = {}
++    def test_empty_config(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text("{}\n")
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         assert _is_skill_disabled("any-skill") is False
+ 
+-    @patch("hermes_cli.config.load_config")
+-    def test_exception_returns_false(self, mock_load):
+-        mock_load.side_effect = Exception("config error")
++    def test_exception_returns_false(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text("skills: [invalid\n")
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         assert _is_skill_disabled("any-skill") is False
+ 
+-    @patch("hermes_cli.config.load_config")
+     @patch.dict("os.environ", {"HERMES_PLATFORM": "discord"})
+-    def test_env_var_platform(self, mock_load):
+-        mock_load.return_value = {"skills": {
+-            "platform_disabled": {"discord": ["discord-skill"]}
+-        }}
++    def test_env_var_platform(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text(
++            "skills:\n"
++            "  platform_disabled:\n"
++            "    discord:\n"
++            "      - discord-skill\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         from tools.skills_tool import _is_skill_disabled
+         assert _is_skill_disabled("discord-skill") is True
+ 
+@@ -210,6 +235,60 @@ class TestGetDisabledSkillNames:
+         result = get_disabled_skill_names()
+         assert result == {"discord-skill", "global-skill"}
+ 
++    def test_platform_disabled_wildcard(self, tmp_path, monkeypatch):
++        """A platform_disabled '*' disables every skill for that platform."""
++        config = tmp_path / "config.yaml"
++        config.write_text(
++            "skills:\n"
++            "  disabled:\n"
++            "    - global-skill\n"
++            "  platform_disabled:\n"
++            "    feishu:\n"
++            "      - '*'\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
++        monkeypatch.delenv("HERMES_PLATFORM", raising=False)
++        monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)
++
++        from agent.skill_utils import get_disabled_skill_names, is_skill_disabled_name
++        result = get_disabled_skill_names(platform="feishu")
++        assert result == {"*", "global-skill"}
++        assert is_skill_disabled_name("any-skill", result) is True
++
++    def test_platform_allowed_empty_list_denies_all_skills(self, tmp_path, monkeypatch):
++        """A configured empty platform_allowed list denies every skill."""
++        config = tmp_path / "config.yaml"
++        config.write_text(
++            "skills:\n"
++            "  platform_allowed:\n"
++            "    feishu_group: []\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
++        monkeypatch.delenv("HERMES_PLATFORM", raising=False)
++        monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)
++        monkeypatch.delenv("HERMES_SESSION_PLATFORM_CONFIG_KEY", raising=False)
++
++        from agent.skill_utils import get_allowed_skill_names, is_skill_allowed_name
++        result = get_allowed_skill_names(platform="feishu_group")
++        assert result == set()
++        assert is_skill_allowed_name("any-skill", result) is False
++
++    def test_platform_allowed_list_allows_named_skills(self, tmp_path, monkeypatch):
++        config = tmp_path / "config.yaml"
++        config.write_text(
++            "skills:\n"
++            "  platform_allowed:\n"
++            "    feishu_group:\n"
++            "      - docs-helper\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
++
++        from agent.skill_utils import get_allowed_skill_names, is_skill_allowed_name
++        result = get_allowed_skill_names(platform="feishu_group")
++        assert result == {"docs-helper"}
++        assert is_skill_allowed_name("docs-helper", result) is True
++        assert is_skill_allowed_name("other-skill", result) is False
++
+     def test_hermes_platform_takes_precedence(self, tmp_path, monkeypatch):
+         """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
+         config = tmp_path / "config.yaml"
+diff --git a/tests/hermes_cli/test_tools_config.py b/tests/hermes_cli/test_tools_config.py
+index 235c7d99a..e2b79fb37 100644
+--- a/tests/hermes_cli/test_tools_config.py
++++ b/tests/hermes_cli/test_tools_config.py
+@@ -1287,6 +1287,32 @@ def test_get_platform_tools_feishu_includes_doc_and_drive():
+     assert "feishu_drive" in enabled
+ 
+ 
++def test_get_platform_tools_can_disable_platform_tool_recovery():
++    config = {
++        "platform_toolsets": {"feishu": ["web", "feishu_doc"]},
++        "platform_toolset_options": {
++            "feishu": {"recover_platform_tools": False},
++        },
++    }
++    enabled = _get_platform_tools(config, "feishu", include_default_mcp_servers=False)
++
++    assert enabled == {"web", "feishu_doc"}
++
++
++def test_get_platform_tools_feishu_group_uses_independent_config():
++    config = {
++        "platform_toolsets": {"feishu_group": ["web", "clarify", "skills_readonly"]},
++        "platform_toolset_options": {
++            "feishu_group": {"recover_platform_tools": False},
++        },
++    }
++    enabled = _get_platform_tools(config, "feishu_group", include_default_mcp_servers=False)
++
++    assert enabled == {"web", "clarify", "skills_readonly"}
++    assert "feishu_doc" not in enabled
++    assert "feishu_drive" not in enabled
++
++
+ def test_get_platform_tools_feishu_tools_not_on_other_platforms():
+     for plat in ["cli", "telegram", "discord"]:
+         enabled = _get_platform_tools({}, plat)
+@@ -1540,5 +1566,3 @@ def test_real_configurable_changes_still_reported_in_diff():
+     # User adds 'vision' (configurable) — must still report as added.
+     new_enabled2 = (current - {"kanban"}) | {"vision"}
+     assert ((new_enabled2 - current) & universe) == {"vision"}
+-
+-
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
 index 245ca9347..016c7e101 100644
 --- a/tests/tools/test_skill_manager_tool.py
@@ -189,6 +1822,178 @@ index e3f48b2b6..bc1ebfca7 100644
          parent.rmdir()
  
      message = f"Skill '{name}' deleted."
+diff --git a/tools/skills_tool.py b/tools/skills_tool.py
+index 2ba57adc5..e01c71a2a 100644
+--- a/tools/skills_tool.py
++++ b/tools/skills_tool.py
+@@ -568,7 +568,11 @@ def _get_session_platform() -> str:
+     """
+     try:
+         from gateway.session_context import get_session_env
+-        return get_session_env("HERMES_SESSION_PLATFORM") or ""
++        return (
++            get_session_env("HERMES_SESSION_PLATFORM_CONFIG_KEY")
++            or get_session_env("HERMES_SESSION_PLATFORM")
++            or ""
++        )
+     except Exception:
+         return ""
+ 
+@@ -582,23 +586,29 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
+     3. ``HERMES_SESSION_PLATFORM`` from gateway session context
+     """
+     try:
+-        from hermes_cli.config import load_config
+-        config = load_config()
+-        skills_cfg = config.get("skills", {})
++        from agent.skill_utils import get_disabled_skill_names, is_skill_disabled_name
+         resolved_platform = platform or os.getenv("HERMES_PLATFORM") or _get_session_platform()
+-        global_disabled = skills_cfg.get("disabled", [])
+-        if resolved_platform:
+-            platform_disabled = cfg_get(skills_cfg, "platform_disabled", resolved_platform)
+-            if platform_disabled is not None:
+-                # A globally-disabled skill stays disabled on every platform;
+-                # the platform list adds to it rather than replacing it. Keep
+-                # in sync with agent.skill_utils.get_disabled_skill_names.
+-                return name in platform_disabled or name in global_disabled
+-        return name in global_disabled
++        return is_skill_disabled_name(
++            name,
++            get_disabled_skill_names(platform=resolved_platform or None),
++        )
+     except Exception:
+         return False
+ 
+ 
++def _is_skill_allowed(name: str, platform: str = None) -> bool:
++    """Check if a skill is allowed by an optional per-platform allowlist."""
++    try:
++        from agent.skill_utils import get_allowed_skill_names, is_skill_allowed_name
++        resolved_platform = platform or os.getenv("HERMES_PLATFORM") or _get_session_platform()
++        return is_skill_allowed_name(
++            name,
++            get_allowed_skill_names(platform=resolved_platform or None),
++        )
++    except Exception:
++        return True
++
++
+ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+     """Recursively find all skills in ~/.hermes/skills/ and external dirs.
+ 
+@@ -615,8 +625,15 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+     skills = []
+     seen_names: set = set()
+ 
+-    # Load disabled set once (not per-skill)
++    # Load filters once (not per-skill).
+     disabled = set() if skip_disabled else _get_disabled_skill_names()
++    allowed = None
++    if not skip_disabled:
++        try:
++            from agent.skill_utils import get_allowed_skill_names
++            allowed = get_allowed_skill_names()
++        except Exception:
++            allowed = None
+ 
+     # Scan local dir first, then external dirs (local takes precedence)
+     dirs_to_scan = []
+@@ -644,7 +661,9 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+                 name = frontmatter.get("name", skill_dir.name)[:MAX_NAME_LENGTH]
+                 if name in seen_names:
+                     continue
+-                if name in disabled:
++                if allowed is not None and "*" not in allowed and name not in allowed:
++                    continue
++                if "*" in disabled or name in disabled:
+                     continue
+ 
+                 description = frontmatter.get("description", "")
+@@ -922,6 +941,24 @@ def skill_view(
+             plugin_skill_md = pm.find_plugin_skill(name)
+ 
+             if plugin_skill_md is not None:
++                if not _is_skill_allowed(name) and not _is_skill_allowed(bare):
++                    return json.dumps(
++                        {
++                            "success": False,
++                            "error": f"Skill '{name}' is not allowed on this platform.",
++                            "hint": "Ask the owner to add it to skills.platform_allowed for this platform.",
++                        },
++                        ensure_ascii=False,
++                    )
++                if _is_skill_disabled(name) or _is_skill_disabled(bare):
++                    return json.dumps(
++                        {
++                            "success": False,
++                            "error": f"Skill '{name}' is disabled.",
++                            "hint": "Ask the owner to enable it with: hermes skills config",
++                        },
++                        ensure_ascii=False,
++                    )
+                 if not plugin_skill_md.exists():
+                     # Stale registry entry — file deleted out of band
+                     pm.remove_plugin_skill(name)
+@@ -1118,6 +1155,26 @@ def skill_view(
+                 ensure_ascii=False,
+             )
+ 
++        if not _is_skill_allowed(name):
++            return json.dumps(
++                {
++                    "success": False,
++                    "error": f"Skill '{name}' is not allowed on this platform.",
++                    "hint": "Ask the owner to add it to skills.platform_allowed for this platform.",
++                },
++                ensure_ascii=False,
++            )
++
++        if _is_skill_disabled(name):
++            return json.dumps(
++                {
++                    "success": False,
++                    "error": f"Skill '{name}' is disabled.",
++                    "hint": "Ask the owner to enable it with: hermes skills config",
++                },
++                ensure_ascii=False,
++            )
++
+         # Read the file once — reused for platform check and main content below
+         try:
+             content = skill_md.read_text(encoding="utf-8")
+@@ -1177,6 +1234,15 @@ def skill_view(
+ 
+         # Check if the skill is disabled by the user
+         resolved_name = parsed_frontmatter.get("name", skill_md.parent.name)
++        if not _is_skill_allowed(str(resolved_name)) and not _is_skill_allowed(str(skill_md.parent.name)):
++            return json.dumps(
++                {
++                    "success": False,
++                    "error": f"Skill '{resolved_name}' is not allowed on this platform.",
++                    "hint": "Ask the owner to add it to skills.platform_allowed for this platform.",
++                },
++                ensure_ascii=False,
++            )
+         if _is_skill_disabled(resolved_name):
+             return json.dumps(
+                 {
+diff --git a/toolsets.py b/toolsets.py
+index f33be147e..813821fb3 100644
+--- a/toolsets.py
++++ b/toolsets.py
+@@ -167,6 +167,12 @@ TOOLSETS = {
+         "tools": ["skills_list", "skill_view", "skill_manage"],
+         "includes": []
+     },
++
++    "skills_readonly": {
++        "description": "Read-only access to skill documents and metadata",
++        "tools": ["skills_list", "skill_view"],
++        "includes": []
++    },
+     
+     "browser": {
+         "description": "Browser automation for web interaction (navigate, click, type, scroll, iframes, hold-click) with web search for finding URLs",
 diff --git a/website/docs/guides/migrate-from-openclaw.md b/website/docs/guides/migrate-from-openclaw.md
 index 38a27e622..4590ea5f0 100644
 --- a/website/docs/guides/migrate-from-openclaw.md
@@ -201,3 +2006,150 @@ index 38a27e622..4590ea5f0 100644
  | Working directory | `agents.defaults.workspace` | `config.yaml` → `terminal.cwd` | Legacy migrations may still emit `MESSAGING_CWD` as a compatibility fallback |
  
  ### Archived (no direct Hermes equivalent)
+diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
+index 9e8220dd0..798f83dc6 100644
+--- a/website/docs/reference/environment-variables.md
++++ b/website/docs/reference/environment-variables.md
+@@ -356,8 +356,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
+ | `FEISHU_ENCRYPT_KEY` | Optional encryption key for webhook mode |
+ | `FEISHU_VERIFICATION_TOKEN` | Optional verification token for webhook mode |
+ | `FEISHU_ALLOWED_USERS` | Comma-separated Feishu user IDs allowed to message the bot |
++| `FEISHU_GROUP_ALLOWED_CHATS` | Comma-separated Feishu group chat IDs allowed to invoke Hermes regardless of sender, or `*` for all Feishu groups. Does not authorize Feishu DMs. |
+ | `FEISHU_ALLOW_BOTS` | `none` (default) / `mentions` / `all` — accept inbound messages from other bots. See [bot-to-bot messaging](../user-guide/messaging/feishu.md#bot-to-bot-messaging) |
+ | `FEISHU_REQUIRE_MENTION` | `true` (default) / `false` — whether group messages must @mention the bot. Override per-chat via `group_rules.<chat_id>.require_mention`. |
++| `FEISHU_HISTORY_BACKFILL` | `true` / `false` — fetch recent Feishu group messages as one-turn context. Default: `false` |
++| `FEISHU_HISTORY_BACKFILL_LIMIT` | Maximum historical group messages to include. Default: `20` |
++| `FEISHU_HISTORY_BACKFILL_SECONDS` | Time window before the trigger message, in seconds. Default: `1800` |
++| `FEISHU_HISTORY_BACKFILL_MAX_CHARS` | Maximum formatted context characters. Default: `6000` |
+ | `FEISHU_HOME_CHANNEL` | Feishu chat ID for cron delivery and notifications |
+ | `WECOM_BOT_ID` | WeCom AI Bot ID from admin console |
+ | `WECOM_SECRET` | WeCom AI Bot secret |
+diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
+index 307ec5a2e..3d306b253 100644
+--- a/website/docs/user-guide/configuration.md
++++ b/website/docs/user-guide/configuration.md
+@@ -689,6 +689,52 @@ the `hermes tools` UI.
+ 
+ Leaving the list empty, or omitting the key, is a no-op.
+ 
++## Strict Per-Platform Toolsets
++
++Some platform defaults include platform-native toolsets that are not shown in the
++interactive `hermes tools` checklist. For example, Feishu's default platform
++profile can recover `feishu_doc` and `feishu_drive` because they belong to the
++Feishu platform composite.
++
++When you need an exact allowlist for a platform, set `recover_platform_tools:
++false`:
++
++```yaml
++platform_toolsets:
++  feishu:
++    - web
++    - vision
++    - clarify
++    - todo
++    - feishu_doc
++
++platform_toolset_options:
++  feishu:
++    recover_platform_tools: false
++```
++
++With recovery disabled, only the listed toolsets and explicitly listed MCP
++servers are available for that platform. This is useful for bots that read busy
++group chats and should not inherit write-capable or workspace-capable tools by
++default.
++
++For Feishu group bots that should answer ordinary group messages with recent
++room context, pair the strict toolset allowlist with Feishu history backfill:
++
++```yaml
++feishu:
++  require_mention: false
++  default_group_policy: open
++  history_backfill: true
++  history_backfill_limit: 20
++  history_backfill_seconds: 1800
++  history_backfill_max_chars: 6000
++```
++
++History backfill uses Feishu's group message list API and injects the formatted
++messages into the current turn only. It does not permanently import group
++history into the Hermes transcript.
++
+ ## Git Worktree Isolation
+ 
+ Enable isolated git worktrees for running multiple agents in parallel on the same repo:
+diff --git a/website/docs/user-guide/messaging/feishu.md b/website/docs/user-guide/messaging/feishu.md
+index 1c5a66543..11ef86cce 100644
+--- a/website/docs/user-guide/messaging/feishu.md
++++ b/website/docs/user-guide/messaging/feishu.md
+@@ -189,6 +189,16 @@ FEISHU_ALLOWED_USERS=ou_xxx,ou_yyy
+ 
+ If you leave the allowlist empty, anyone who can reach the bot may be able to use it. In group chats, the allowlist is checked against the sender's open_id before the message is processed.
+ 
++To authorize whole Feishu groups without opening Feishu DMs, set a group chat allowlist:
++
++```bash
++FEISHU_GROUP_ALLOWED_CHATS=oc_group_chat_id_1,oc_group_chat_id_2
++# or, for every group where the bot is installed:
++FEISHU_GROUP_ALLOWED_CHATS=*
++```
++
++This gateway-level allowlist only applies to group/forum traffic. It pairs with the adapter-level group policy below: the adapter must admit the group message first, then the gateway authorizes the chat ID.
++
+ ### Webhook Encryption Key
+ 
+ When running in webhook mode, set an encryption key to enable signature verification of inbound webhook payloads:
+@@ -528,6 +538,36 @@ Set `require_mention: false` on a `group_rules` entry to skip the @-mention requ
+ 
+ Groups not listed in `group_rules` fall back to `default_group_policy` (defaults to the value of `FEISHU_GROUP_POLICY`).
+ 
++## Group History Backfill
++
++Hermes can fetch recent Feishu group messages and prepend them to the current
++agent turn as `channel_context`. This lets the bot answer ordinary group
++follow-ups with recent room context without permanently importing the whole
++group transcript into Hermes conversation history.
++
++The Feishu API used is `GET /open-apis/im/v1/messages` with
++`container_id_type=chat`. Feishu requires the bot to be in the queried group.
++For app/tenant-token access to group history, the app must have a message-read
++scope plus `im:message.group_msg`.
++
++```yaml
++feishu:
++  history_backfill: true
++  history_backfill_limit: 20
++  history_backfill_seconds: 1800
++  history_backfill_max_chars: 6000
++```
++
++| Setting | Default | Description |
++|---------|---------|-------------|
++| `history_backfill` | `false` | Fetch recent group messages for the current turn |
++| `history_backfill_limit` | `20` | Maximum historical messages to include |
++| `history_backfill_seconds` | `1800` | Time window before the trigger message |
++| `history_backfill_max_chars` | `6000` | Maximum formatted context characters |
++
++History backfill is skipped for Feishu DMs. Deleted messages, the trigger
++message, and Hermes' own prior bot messages are excluded from the context block.
++
+ ## Deduplication
+ 
+ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedup state is persisted across restarts to `~/.hermes/feishu_seen_message_ids.json`.
+@@ -545,8 +585,13 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
+ | `FEISHU_DOMAIN` | — | `feishu` | `feishu` (China) or `lark` (international) |
+ | `FEISHU_CONNECTION_MODE` | — | `websocket` | `websocket` or `webhook` |
+ | `FEISHU_ALLOWED_USERS` | — | _(empty)_ | Comma-separated open_id list for user allowlist |
++| `FEISHU_GROUP_ALLOWED_CHATS` | — | _(empty)_ | Comma-separated group chat IDs that may invoke Hermes regardless of sender, or `*` for all groups |
+ | `FEISHU_ALLOW_BOTS` | — | `none` | Accept messages from other bots: `none`, `mentions`, or `all` |
+ | `FEISHU_REQUIRE_MENTION` | — | `true` | Whether group messages must @mention the bot |
++| `FEISHU_HISTORY_BACKFILL` | — | `false` | Fetch recent Feishu group messages as one-turn context |
++| `FEISHU_HISTORY_BACKFILL_LIMIT` | — | `20` | Maximum historical messages to include |
++| `FEISHU_HISTORY_BACKFILL_SECONDS` | — | `1800` | Time window before the trigger message |
++| `FEISHU_HISTORY_BACKFILL_MAX_CHARS` | — | `6000` | Maximum formatted context characters |
+ | `FEISHU_HOME_CHANNEL` | — | — | Chat ID for cron/notification output |
+ | `FEISHU_ENCRYPT_KEY` | — | _(empty)_ | Encrypt key for webhook signature verification |
+ | `FEISHU_VERIFICATION_TOKEN` | — | _(empty)_ | Verification token for webhook payload auth |
