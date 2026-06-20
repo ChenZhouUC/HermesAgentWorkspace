@@ -182,17 +182,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.16.0 (upstream `main` `df4ca2c5`，2026-06-19)
+## 当前版本：v0.17.0 (upstream `main` `1b7b4d13`，2026-06-20)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11（共 7 条）。
 
-**最近一次升级（v0.16.0 → v0.16.0，+34 commits，basis `28d887ca` → `df4ca2c5`）要点**：
+**最近一次升级（v0.16.0 → v0.17.0，+155 commits，basis `df4ca2c5` → `1b7b4d13`）要点**：
 
-- 上游主线（同 release 内迭代，`v0.16.0 (2026.6.5)` tag 不变）：**Agent / 模型**——非重试 API 错误改为摘要化，避免原始 HTML 泄到前端；model picker 新增 Refresh Models 控制；`image_generate` 增加 image-to-image / editing 能力。**Gateway / Relay / Terminal**——hosted gateway relay inbound/outbound round-trip 修复，gateway 进程内阻止调用 gateway 生命周期命令。**TUI / Dashboard / Slack**——TUI pending input 命令经 `command.dispatch` 路由，hosted dashboard chat `/exit` 与 idle exit 热键修复；Slack allowed users setup 增加字段和 wildcard 校验。**OpenViking / Backup / Nix / Skills**——OpenViking structured sync 保留 attribution 并复用 tool_input 扫描；backup 排除可再生依赖/cache 目录；Nix npm deps 支持 hashless lock；新增 html-artifact skill 并合并 sketch / architecture-diagram / concept-diagrams。
-- patch apply：本地 28 个 patched files 从 `patches/local-patches.diff` **clean apply**，无冲突；PATCH-1/2/7/9/10/11 全部通过 Step 8b 行为/结构验证，PATCH-4/PATCH-5 仍由上游实现覆盖、仅保留 sentinel；`patches/local-patches.diff` 与 `.local-patches.base` 已刷新到 `df4ca2c5`。本轮新增的 Feishu `file_readonly` / 群聊 wiki 只读能力仍在 patch 中，并通过反向校验与临时 clean worktree apply 校验。
-- 依赖：`uv` 仍因 `/Users/chenzhou/.local/share/uv/python` 报 python-path mismatch，脚本用 `uv pip install --python venv/bin/python -e .` fallback 自愈；venv 中 `python-multipart 0.0.20 → 0.0.27`。`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`（`dompurify 3.4.10 → 3.4.11` 及 peer 标记清理）；Skills mirror 同步 **+13 / ~4 / -9**。
-- 已知摩擦：`hermes-agent/package-lock.json` 仍被 npm 步骤改动且不纳入 `local-patches.diff`，脚本已明确告警，保持为待审查工作树改动；这不影响 Python 源码 patch 回贴。Gateway 已重启并加载补丁代码，`LastExitStatus=0`，PID `18156`。
-- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30；已按本地需求将 `display.show_reasoning` 设为 `false`，仅关闭前端 thinking/reasoning 展示，不关闭模型 reasoning。`hermes doctor` 仍只剩 `ALIBABA_CODING_PLAN_API_KEY` 未配置/无效；当前主配置不依赖 `provider: alibaba-coding-plan`，可视为健康检查噪音，除非后续启用 Coding Plan。
+- 上游主线（release tag 跳到 `v0.17.0 (2026.6.19)`）：**Gateway / 平台**——Raft bundled platform、Teams attachments、Signal delivery、Telegram topic rename、model picker persistence、Windows restart/resume loop、multiplex profile routing 与 credential isolation 持续收敛。**Cron / MCP / Managed scope**——Cron provider/Chronos NAS fire webhook、cron env sanitize、MCP late-connecting tools/elicitation/keepalive、managed config/env overlay 与写保护。**Desktop / TUI / Dashboard**——slash exec dispatch 修复、remote-display GPU banner、Restart gateway、可选择日志、notification resume、session switcher、reasoning effort picker、sidecar session 隐藏。**模型 / TTS / Skills**——xAI TTS speed/streaming knobs、Piper speaker_id、`/model` 持久化、creative-ideation v2.1，移除 html-artifact 并新增 sketch / architecture-diagram / concept-diagrams。
+- patch apply：脚本首次 apply 因上游 `gateway/session_context.py` 新增 `_SESSION_SOURCE` 导致 PATCH-10/11 的 contextvar hunk 冲突；已用 `git apply --reject` 手工回贴 `HERMES_SESSION_PLATFORM_CONFIG_KEY`、`_platform_config_key_for_source(source)` 与 Feishu group 测试。最终 28 个 patched files 全部留在内层 `hermes-agent` modified 状态，`patches/local-patches.diff` 与 `.local-patches.base` 已刷新到 `1b7b4d13`；重点回归 `tests/gateway/test_session_env.py`、Feishu/config/tool routing 等 590 个测试通过。
+- 依赖：`uv` 仍因 `/Users/chenzhou/.local/share/uv/python` 报 python-path mismatch，脚本用 `uv pip install --python venv/bin/python -e ".[all,feishu]"` fallback 自愈；随后手动 `venv/bin/python -m pip install -e ".[all]"` 成功，`.update-incomplete` marker 已清理；venv 中 `hermes-agent 0.16.0 → 0.17.0`，`python-socks==2.8.1` 存在。`npm audit fix` changed 1 package，并改动 tracked `hermes-agent/package-lock.json`（apps/desktop version `0.15.1 → 0.17.0` 及 peer 标记清理）；Skills mirror 同步 **+3 / ~6 / -18**。
+- 已知摩擦：`uv` fallback 只覆盖 `hermes-update.sh` step 3，doctor/gateway status 阶段的 interrupted-install auto-recovery 仍会先尝试上游 uv 路径；本轮已用 pip 手动恢复并清掉 marker。`hermes-agent/package-lock.json` 仍被 npm 步骤改动且不纳入 `local-patches.diff`，保持为待审查工作树改动。
+- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30；`hermes doctor` 剩 `ALIBABA_CODING_PLAN_API_KEY` 无效与若干可选 API keys 未配置。Gateway 已重启并加载手工回贴的 patch，service loaded，PID `5680`，`LastExitStatus=15`（restart stop 的上一轮退出码）。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
