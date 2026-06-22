@@ -39,6 +39,7 @@ models_dev_cache.json
 ollama_cloud_models_cache.json
 .skills_prompt_snapshot.json
 cache/
+image_cache/
 state-snapshots/
 
 # ── 日志和会话 ──────────────────────────────────────────────────

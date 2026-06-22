@@ -197,6 +197,13 @@ To merge large Markdown content into an existing document with perfect native fo
 
 If the native `feishu_doc_read` tool fails with `Feishu client not available (not in a Feishu comment context)`, use the bundled extraction scripts via the Open API.
 
+**Permission-based 403 Fallback:** If `feishu_doc_read` returns `1061004 forbidden` or `99991672 Access denied`, the bot lacks read permission on the document. Before resorting to extraction scripts, instruct the user to:
+
+1. Create a small Feishu group chat with the user + bot, and share the document link into it; or
+2. Set link sharing to "Tenant Readable" (组织内获得链接的人可阅读)
+
+If the user has already granted permission but the API is slow to sync, wait a minute and retry.
+
 - **Canonical extractor**: `uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/extract_docx_to_markdown.py <doc_token>`
   Handles nested blocks, tables, lists, and wiki-token-to-doc-token resolution automatically.
 - **Lightweight fallback**: `uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/read_docx_to_markdown.py <doc_token>`
@@ -205,6 +212,19 @@ If the native `feishu_doc_read` tool fails with `Feishu client not available (no
   Keeps older workflows working when the lightweight extraction path is sufficient.
 - **Dependency note**: All three scripts require the `requests` Python package. The base system Python does NOT have it installed. You MUST prefix with `uv run --with requests` (or ensure `requests` is available) to avoid `ModuleNotFoundError`.
 - **Embedded Sheets (Block Type 30)**: The markdown extraction scripts do NOT extract the content of embedded Feishu Sheets. The token inside a Sheet block is often compound (`SpreadsheetToken_SheetID`, e.g., `C8DCskW..._bmJW05`). To read its data via `execute_code`, split the token by `_` to get the base Spreadsheet Token, use `sheets/v3/spreadsheets/{base_token}/sheets/query` to list sheets, and `sheets/v2/spreadsheets/{base_token}/values/{sheet_id}` to read the cell values.
+
+## 📎 Downloading File Attachments (Excel, PDF, etc.)
+
+Links in the form `https://whales.feishu.cn/file/TOKEN` are file attachments, not docs. `feishu_doc_read` and docx scripts **will not work** on these. Use the `drive/v1/files/:token/download` endpoint to download raw binary, then:
+
+- For `.xlsx`: rename with `.xlsx` extension and use `read_file` (auto-extracts to text)
+- For other types: inspect `Content-Type` header and handle accordingly
+
+See `references/file-attachment-download.md` for the full pattern.
+
+## 💉 Custom Version Table Injection
+
+When the user asks to fabricate or insert custom version history entries (e.g., backdating versions), you must directly manipulate the version table via `feishu_common` internals (delete existing table + write new rows with `_write_version_tables`). See `references/version-table-injection.md`.
 
 ---
 
@@ -260,6 +280,39 @@ When the user asks to extract a Feishu Document and save it into their local LLM
 
 Use `minutes/v1/minutes/{token}/transcript` returning PLAIN TEXT, do NOT `.json()`.
 Ensure `res.encoding = 'utf-8'`.
+
+## 📮 Bot Messaging & Group Availability
+
+The bot can send messages to any Feishu group it's a member of via the Open API.
+
+### Sending to Groups
+
+```python
+token = get_tenant_token()
+url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+payload = {
+    "receive_id": "oc_xxxxx",  # chat_id
+    "msg_type": "text",
+    "content": json.dumps({"text": "message"})
+}
+requests.post(url, headers=headers, json=payload).json()
+```
+
+### Listing Available Groups
+
+Query `GET /im/v1/chats` with pagination to find all groups the bot can message.
+
+### Direct Messaging Limitations
+
+Sending DMs via `receive_id_type=open_id` returns **Error 230013** (`Bot has NO availability to this user`) if the target user isn't in the bot's "可用范围" (Availability Scope).
+**Fix:** Admin or developer must add the user to the bot's availability in [open.feishu.cn/app](https://open.feishu.cn/app) → App → 版本管理与发布 → 可用范围。Or create a group chat with the user and bot as workaround.
+
+### Reading Contact Cards (share_user)
+
+When users share contact cards, message type is `share_user` with content `{"user_id": "ou_xxxxx"}`. Query chat history via `GET /im/v1/messages?container_id_type=chat&container_id=oc_xxxxx` and filter for `msg_type == "share_user"`.
+
+See `references/bot-messaging-and-availability.md` for full patterns.
 
 ## 🔒 Debugging 403 Forbidden Errors (Permission Denied)
 

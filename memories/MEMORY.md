@@ -2,7 +2,7 @@
 §
 400 loop fix: `hermes sessions delete SESSION_ID`
 §
-Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Groups: SI Owners=oc_baeecd57161e7ffd13ab880596f418d2, 无能宝们=oc_762bc7151b62028453555c1ecef97fec
+Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Groups in `feishu-groups` skill.
 §
 Temp files -> ~/.hermes/tmp. Subagents via `delegate_task` lack memory; pass constraints explicitly. Homebrew requires approval. Naming: [Folio|Showcase]\_Project_YYYYMMDDTHHMMSS+0800. For Feishu, explicitly print absolute local file paths in plain text for easy copying.
 §
