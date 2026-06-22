@@ -391,10 +391,10 @@ index 7aadc58f5..a7484dc9c 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index d3afb61a0..cbd50cbd3 100644
+index 741dbb267..3241e50fc 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -1555,35 +1555,46 @@ def _get_platform_tools(
+@@ -1571,35 +1571,46 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -487,7 +487,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index bf3c49d3b..403e55b24 100644
+index bf3c49d3b..a1492f788 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -97,6 +97,7 @@ try:
@@ -663,7 +663,7 @@ index bf3c49d3b..403e55b24 100644
  
          thread_id = getattr(message, "thread_id", None) or getattr(message, "root_id", None) or None
          reply_to_message_id = (
-@@ -3175,8 +3257,130 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3175,8 +3257,133 @@ class FeishuAdapter(BasePlatformAdapter):
              reply_to_text=reply_to_text,
              timestamp=datetime.now(),
          )
@@ -755,8 +755,9 @@ index bf3c49d3b..403e55b24 100644
 +            if str(getattr(item, "message_id", "") or "") == trigger_message_id:
 +                continue
 +            sender = getattr(item, "sender", None)
-+            if str(getattr(sender, "id", "") or "") == self._app_id:
-+                continue
++            # Keep the assistant's own past replies in context (labelled as "you"
++            # by _history_sender_label) so assistant mode can tell whether it has
++            # already introduced itself recently and avoid re-introducing.
 +            body = getattr(item, "body", None)
 +            text = self._extract_text_from_raw_content(
 +                msg_type=str(getattr(item, "msg_type", "") or ""),
@@ -780,6 +781,8 @@ index bf3c49d3b..403e55b24 100644
 +    def _history_sender_label(self, sender: Any) -> str:
 +        sender_type = str(getattr(sender, "sender_type", "") or "").strip().lower()
 +        sender_id = str(getattr(sender, "id", "") or "").strip()
++        if sender_id and sender_id == self._app_id:
++            return "木马牛 (assistant, you)"
 +        label = self._get_cached_sender_name(sender_id) if sender_id else None
 +        if not label:
 +            label = sender_id or sender_type or "unknown"
@@ -794,7 +797,7 @@ index bf3c49d3b..403e55b24 100644
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -4099,6 +4303,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4099,6 +4306,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -806,7 +809,7 @@ index bf3c49d3b..403e55b24 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4114,7 +4323,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4114,7 +4326,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -815,7 +818,7 @@ index bf3c49d3b..403e55b24 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4124,8 +4333,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4124,8 +4336,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -826,7 +829,7 @@ index bf3c49d3b..403e55b24 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4223,6 +4432,80 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4223,6 +4435,97 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -844,17 +847,34 @@ index bf3c49d3b..403e55b24 100644
 +        instruction = (
 +            "[Feishu assistant mode]\n"
 +            "The triggering group message mentioned the configured human user, 琛哥 / Zhou Chen. "
-+            f"You are {label}; your assistant name is 木马牛. "
++            f"You are {label}; your assistant name is 木马牛 — 琛哥的赛博小助手 (Zhou Chen's personal cyber assistant). "
 +            "Reply in Chinese unless the conversation clearly uses another language. "
-+            "Clearly disclose that 琛哥 may be busy and you are only attempting an initial reply on his behalf. "
-+            "When an identity disclosure is needed, prefer this wording: "
-+            "我是琛哥的赛博助手「木马牛」，琛哥可能在忙，由我先尝试回答你。 "
-+            "Do not claim to be the human user. Use the recent group context when relevant. "
++            "Make clear, when you do introduce yourself, that 琛哥 may be busy and you are only making an initial reply on his behalf. "
++            "Do not claim to be the human user. Use the recent group context when relevant.\n"
++            # --- self-introduction throttle (avoid repeating who you are) ---
++            "Self-introduction is for first contact, not every reply. The recent channel context includes your own past "
++            "messages, labelled '木马牛 (assistant, you)'. Before introducing yourself, scan that context: if you have "
++            "already disclosed your identity within roughly the last 10 messages or 5 minutes, DO NOT introduce yourself "
++            "again — just answer naturally as the ongoing assistant. Only when no recent self-introduction is visible, open "
++            "with something natural like: 我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。\n"
++            # --- technical answering priority ---
 +            "For technical knowledge questions, use this priority: llm-wiki first when available, "
 +            "then web_search/web_extract for current or missing facts, then general model knowledge. "
 +            "When using llm-wiki, first load its instructions with skill_view, then use read_file/search_files "
 +            "under ~/.hermes/wiki for actual wiki content; do not confuse lack of terminal access with lack of wiki access. "
-+            "Do not use todo for capability checks. "
++            "Do not use todo for capability checks.\n"
++            # --- risk-control / sandbox framing (this is BY DESIGN, not a limitation) ---
++            "This group runs inside a sandbox 琛哥 deliberately set up: only a small set of read-only query tools and skills "
++            "are open, and writing files, running terminal commands, and most actions are intentionally blocked for safety. "
++            "When a request hits something you are not allowed to do — a blocked tool, a denied operation, anything the sandbox "
++            "stops — never apologise as if you were broken or incapable. Instead, calmly and naturally convey that this is an "
++            "intentional safety boundary 琛哥 designed: it keeps the confidential material on 琛哥's machine private and stops his "
++            "setup from being copied or reverse-engineered. Then invite them to just ask 琛哥 directly when he is around if they "
++            "really need it. Keep this light, confident and varied — never a rigid canned disclaimer, never repeated verbatim. "
++            "The goal is that people feel the limits are by design and on purpose, not that the AI is weak. For example, you might "
++            "say something to the effect of: 这个我这边做不了哈——不是不会，是琛哥给群里这个小助手专门上了沙箱，只开放只读查询，"
++            "免得他电脑上的机密被带出去、方案被照搬。你要是确实需要，等琛哥有空当面问他就行。 (adapt freely, do not copy verbatim.)\n"
++            # --- uncertainty + tone ---
 +            "Do not answer when you do not know or are not confident; state the uncertainty and what needs 琛哥's confirmation. "
 +            "For work arrangements, responsibilities, ownership, deadlines, commitments, or disputes, "
 +            "use a firm and explicit tone because 琛哥 is Head of SpaceSight, but never make commitments, "
@@ -907,7 +927,7 @@ index bf3c49d3b..403e55b24 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4460,9 +4743,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4460,9 +4763,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -923,7 +943,7 @@ index bf3c49d3b..403e55b24 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4711,6 +4998,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4711,6 +5018,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -1051,10 +1071,10 @@ index 2542ff431..4b74438db 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..218d54853 100644
+index bb97c7e72..de57926bb 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
-@@ -331,6 +331,134 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+@@ -331,6 +331,138 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
          self.assertEqual(sleeps, [1])
          self.assertEqual(fake_loop.calls, 2)
  
@@ -1153,11 +1173,15 @@ index bb97c7e72..218d54853 100644
 +                )
 +            )
 +
++        # The assistant's own prior messages (sender id == app_id) are kept and
++        # labelled "木马牛 (assistant, you)" so assistant mode can detect a recent
++        # self-introduction and avoid repeating it.
 +        self.assertEqual(
 +            result,
 +            "[Recent channel messages]\n"
 +            "[Bob] hello there\n"
-+            "[BuildBot [bot]] bot note",
++            "[BuildBot [bot]] bot note\n"
++            "[木马牛 (assistant, you)] prior self",
 +        )
 +        request = captured["request"]
 +        self.assertEqual(request.container_id_type, "chat")
@@ -1189,7 +1213,7 @@ index bb97c7e72..218d54853 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1953,7 +2081,8 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1953,7 +2085,8 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -1199,7 +1223,7 @@ index bb97c7e72..218d54853 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -1991,10 +2120,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1991,10 +2124,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -1212,7 +1236,7 @@ index bb97c7e72..218d54853 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2030,7 +2159,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2030,7 +2163,7 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -1221,7 +1245,7 @@ index bb97c7e72..218d54853 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2121,7 +2250,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2121,7 +2254,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -1230,7 +1254,7 @@ index bb97c7e72..218d54853 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2173,7 +2302,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2173,7 +2306,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
