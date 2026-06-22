@@ -45,6 +45,9 @@ state-snapshots/
 logs/
 sessions/
 cron/output/
+cron/ticker_heartbeat
+cron/ticker_last_success
+cron/*.lock
 sandboxes/
 
 # ── 官方 Skills Hub 包（171MB，按需重装）─────────────────────────
