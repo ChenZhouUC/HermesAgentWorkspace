@@ -13,9 +13,6 @@ state.db-wal
 kanban.db
 kanban.db-shm
 kanban.db-wal
-hermes.db
-hermes.db-shm
-hermes.db-wal
 gateway.pid
 gateway_state.json
 auth.lock
