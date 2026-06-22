@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.17.0 / main 1b7b4d13, `hermes completion zsh` already emits the
+# As of v0.17.0 / main 9bf9a9f1, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -65,7 +65,7 @@ PATCHED_FILES=(
     "website/docs/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
     "gateway/config.py"
-    "gateway/platforms/feishu.py"
+    "plugins/platforms/feishu/adapter.py"
     "gateway/run.py"
     "gateway/session_context.py"
     "hermes_cli/tools_config.py"
@@ -674,7 +674,7 @@ else
     warn "Could not locate OpenClaw migration files — skipping gateway token patch check"
 fi
 
-FEISHU_PY="${HERMES_AGENT}/gateway/platforms/feishu.py"
+FEISHU_PY="${HERMES_AGENT}/plugins/platforms/feishu/adapter.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
 SESSION_CONTEXT_PY="${HERMES_AGENT}/gateway/session_context.py"
 GATEWAY_CONFIG_PY="${HERMES_AGENT}/gateway/config.py"

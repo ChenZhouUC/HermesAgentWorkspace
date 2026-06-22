@@ -1,5 +1,5 @@
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index 97836f27b..499ee4063 100644
+index 923785122..0413e5628 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
 @@ -20,7 +20,10 @@ from agent.skill_utils import (
@@ -13,7 +13,7 @@ index 97836f27b..499ee4063 100644
      iter_skill_index_files,
      parse_frontmatter,
      skill_matches_environment,
-@@ -1278,10 +1281,12 @@ def build_skills_system_prompt(
+@@ -1295,10 +1298,12 @@ def build_skills_system_prompt(
      from gateway.session_context import get_session_env
      _platform_hint = (
          os.environ.get("HERMES_PLATFORM")
@@ -26,7 +26,7 @@ index 97836f27b..499ee4063 100644
      cache_key = (
          str(skills_dir.resolve()),
          tuple(str(d) for d in external_dirs),
-@@ -1289,6 +1294,7 @@ def build_skills_system_prompt(
+@@ -1306,6 +1311,7 @@ def build_skills_system_prompt(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
@@ -34,7 +34,7 @@ index 97836f27b..499ee4063 100644
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1314,7 +1320,9 @@ def build_skills_system_prompt(
+@@ -1331,7 +1337,9 @@ def build_skills_system_prompt(
              platforms = entry.get("platforms") or []
              if not skill_matches_platform({"platforms": platforms}):
                  continue
@@ -45,7 +45,7 @@ index 97836f27b..499ee4063 100644
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1339,7 +1347,9 @@ def build_skills_system_prompt(
+@@ -1356,7 +1364,9 @@ def build_skills_system_prompt(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
@@ -56,7 +56,7 @@ index 97836f27b..499ee4063 100644
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -1394,6 +1404,8 @@ def build_skills_system_prompt(
+@@ -1411,6 +1421,8 @@ def build_skills_system_prompt(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
@@ -66,7 +66,7 @@ index 97836f27b..499ee4063 100644
                      continue
                  if not _skill_should_show(
 diff --git a/agent/skill_utils.py b/agent/skill_utils.py
-index 9f16534a4..337847b64 100644
+index 338fa37cb..b2a822d77 100644
 --- a/agent/skill_utils.py
 +++ b/agent/skill_utils.py
 @@ -350,6 +350,17 @@ def _load_raw_config() -> Dict[str, Any]:
@@ -180,10 +180,10 @@ index 9ededa491..3a9bbfa30 100644
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index 13d262e79..0d5737c40 100644
+index d3c85e868..89beb914e 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
-@@ -1010,6 +1010,20 @@ def load_gateway_config() -> GatewayConfig:
+@@ -1006,6 +1006,20 @@ def load_gateway_config() -> GatewayConfig:
                      bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
                  if "group_user_allowed_commands" in platform_cfg:
                      bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
@@ -204,10 +204,292 @@ index 13d262e79..0d5737c40 100644
                  if plat in {Platform.DISCORD, Platform.SLACK} and "channel_skill_bindings" in platform_cfg:
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
-diff --git a/gateway/platforms/feishu.py b/gateway/platforms/feishu.py
-index 4814107ba..39c7fc9cf 100644
---- a/gateway/platforms/feishu.py
-+++ b/gateway/platforms/feishu.py
+diff --git a/gateway/run.py b/gateway/run.py
+index 622881b83..2c96f5a24 100644
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -2090,6 +2090,17 @@ def _platform_config_key(platform: "Platform") -> str:
+     return "cli" if platform == Platform.LOCAL else platform.value
+ 
+ 
++def _platform_config_key_for_source(source: "SessionSource") -> str:
++    """Return the config key for a source, including chat-scope splits."""
++    platform_key = _platform_config_key(source.platform)
++    if (
++        platform_key == "feishu"
++        and str(getattr(source, "chat_type", "") or "").lower() in {"group", "forum", "channel"}
++    ):
++        return "feishu_group"
++    return platform_key
++
++
+ def _teams_pipeline_plugin_enabled() -> bool:
+     """Return True when the standalone Teams pipeline plugin is enabled."""
+     config = _load_gateway_config()
+@@ -4363,7 +4374,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         busy_ack_detail_enabled = bool(
+             resolve_display_setting(
+                 _load_gateway_config(),
+-                _platform_config_key(event.source.platform),
++                _platform_config_key_for_source(event.source),
+                 "busy_ack_detail",
+                 True,
+             )
+@@ -8365,8 +8376,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+                     _skill_name = skill_cmds[cmd_key].get("name", "")
+                     _plat = source.platform.value if source.platform else None
+                     if _plat and _skill_name:
+-                        from agent.skill_utils import get_disabled_skill_names as _get_plat_disabled
+-                        if _skill_name in _get_plat_disabled(platform=_plat):
++                        from agent.skill_utils import (
++                            get_disabled_skill_names as _get_plat_disabled,
++                            is_skill_disabled_name as _skill_disabled_name,
++                        )
++                        if _skill_disabled_name(
++                            _skill_name,
++                            _get_plat_disabled(platform=_plat),
++                        ):
+                             return (
+                                 f"The **{_skill_name}** skill is disabled for {_plat}.\n"
+                                 f"Enable it with: `hermes skills config`"
+@@ -9677,7 +9694,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             try:
+                 _show_reasoning_effective = _resolve_gateway_display_bool(
+                     _load_gateway_config(),
+-                    _platform_config_key(source.platform),
++                    _platform_config_key_for_source(source),
+                     "show_reasoning",
+                     default=bool(getattr(self, "_show_reasoning", False)),
+                     platform=source.platform,
+@@ -9710,7 +9727,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+                 from gateway.runtime_footer import build_footer_line as _bfl
+                 _footer_line = _bfl(
+                     user_config=_load_gateway_config(),
+-                    platform_key=_platform_config_key(source.platform),
++                    platform_key=_platform_config_key_for_source(source),
+                     model=agent_result.get("model"),
+                     context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
+                     context_length=agent_result.get("context_length") or None,
+@@ -11155,7 +11172,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+                 )
+                 return
+ 
+-            platform_key = _platform_config_key(source.platform)
++            platform_key = _platform_config_key_for_source(source)
+ 
+             from hermes_cli.tools_config import _get_platform_tools
+             enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
+@@ -12695,6 +12712,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         _async_delivery = getattr(_adapter, "supports_async_delivery", True)
+         return set_session_vars(
+             platform=context.source.platform.value,
++            platform_config_key=_platform_config_key_for_source(context.source),
+             chat_id=context.source.chat_id,
+             chat_name=context.source.chat_name or "",
+             thread_id=str(context.source.thread_id) if context.source.thread_id else "",
+@@ -14114,7 +14132,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             from gateway.config import StreamingConfig
+             _scfg = StreamingConfig()
+ 
+-        platform_key = _platform_config_key(source.platform)
++        platform_key = _platform_config_key_for_source(source)
+         user_config = _load_gateway_config()
+         from gateway.display_config import resolve_display_setting
+         _plat_streaming = resolve_display_setting(
+@@ -14422,7 +14440,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             return self._is_session_run_current(session_key, run_generation)
+         
+         user_config = _load_gateway_config()
+-        platform_key = _platform_config_key(source.platform)
++        platform_key = _platform_config_key_for_source(source)
+ 
+         from hermes_cli.tools_config import _get_platform_tools
+         enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
+@@ -15230,9 +15248,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             # (concurrency-safe). Keep os.environ as fallback for CLI/cron.
+             os.environ["HERMES_SESSION_KEY"] = session_key or ""
+             
+-            # Map platform enum to the platform hint key the agent understands.
+-            # Platform.LOCAL ("local") maps to "cli"; others pass through as-is.
+-            platform_key = "cli" if source.platform == Platform.LOCAL else source.platform.value
++            platform_key = _platform_config_key_for_source(source)
+             
+             # Combine platform context, per-channel context, and the user-configured
+             # ephemeral system prompt.
+diff --git a/gateway/session_context.py b/gateway/session_context.py
+index 55f269df5..495a51f03 100644
+--- a/gateway/session_context.py
++++ b/gateway/session_context.py
+@@ -49,6 +49,7 @@ _UNSET: Any = object()
+ # ---------------------------------------------------------------------------
+ 
+ _SESSION_PLATFORM: ContextVar = ContextVar("HERMES_SESSION_PLATFORM", default=_UNSET)
++_SESSION_PLATFORM_CONFIG_KEY: ContextVar = ContextVar("HERMES_SESSION_PLATFORM_CONFIG_KEY", default=_UNSET)
+ _SESSION_SOURCE: ContextVar = ContextVar("HERMES_SESSION_SOURCE", default=_UNSET)
+ _SESSION_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
+ _SESSION_CHAT_NAME: ContextVar = ContextVar("HERMES_SESSION_CHAT_NAME", default=_UNSET)
+@@ -91,6 +92,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
+ 
+ _VAR_MAP = {
+     "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
++    "HERMES_SESSION_PLATFORM_CONFIG_KEY": _SESSION_PLATFORM_CONFIG_KEY,
+     "HERMES_SESSION_SOURCE": _SESSION_SOURCE,
+     "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
+     "HERMES_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
+@@ -123,6 +125,7 @@ def set_current_session_id(session_id: str) -> None:
+ 
+ def set_session_vars(
+     platform: str = "",
++    platform_config_key: str = "",
+     source: str = "",
+     chat_id: str = "",
+     chat_name: str = "",
+@@ -152,6 +155,7 @@ def set_session_vars(
+     """
+     tokens = [
+         _SESSION_PLATFORM.set(platform),
++        _SESSION_PLATFORM_CONFIG_KEY.set(platform_config_key or platform),
+         _SESSION_SOURCE.set(source),
+         _SESSION_CHAT_ID.set(chat_id),
+         _SESSION_CHAT_NAME.set(chat_name),
+@@ -185,6 +189,7 @@ def clear_session_vars(tokens: list) -> None:
+     """
+     for var in (
+         _SESSION_PLATFORM,
++        _SESSION_PLATFORM_CONFIG_KEY,
+         _SESSION_SOURCE,
+         _SESSION_CHAT_ID,
+         _SESSION_CHAT_NAME,
+diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
+index 2998a31e0..1b53e829b 100644
+--- a/hermes_cli/doctor.py
++++ b/hermes_cli/doctor.py
+@@ -2132,8 +2132,23 @@ def run_doctor(args):
+             else:
+                 check_warn(item["name"], "(system dependency not met)")
+ 
+-        # Count disabled tools with API key requirements
+-        api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
++        # Count disabled tools with API key requirements.
++        # Only flag toolsets the user has actually enabled — skip optional tools
++        # like moa/rl that haven't been configured in the user's toolset list.
++        try:
++            from hermes_cli.config import load_config as _load_doctor_config
++            from hermes_cli.tools_config import _get_platform_tools, PLATFORMS
++
++            _dc = _load_doctor_config()
++            _enabled_ts = set()
++            for _p in PLATFORMS:
++                _enabled_ts.update(_get_platform_tools(_dc, _p))
++            api_disabled = [
++                u for u in unavailable
++                if (u.get("missing_vars") or u.get("env_vars")) and u.get("name") in _enabled_ts
++            ]
++        except Exception:
++            api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
+         if api_disabled:
+             issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
+     except Exception as e:
+diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
+index 5eec978e1..a842fc0ac 100644
+--- a/hermes_cli/tools_config.py
++++ b/hermes_cli/tools_config.py
+@@ -1419,35 +1419,46 @@ def _get_platform_tools(
+     # checklist or in a user-saved config.  Must run in BOTH branches —
+     # otherwise saving via `hermes tools` (which flips has_explicit_config
+     # to True) silently drops them.
+-    _plat_info = PLATFORMS.get(platform)
+-    _default_ts = _plat_info["default_toolset"] if _plat_info else f"hermes-{platform}"
+-    platform_tool_universe = set(resolve_toolset(_default_ts))
+-    configurable_tool_universe = set()
+-    for ck in configurable_keys:
+-        configurable_tool_universe.update(resolve_toolset(ck))
+-    claimed = set()
+-    for ts_key in enabled_toolsets:
+-        claimed.update(resolve_toolset(ts_key))
+-    skip = configurable_keys | plugin_ts_keys | platform_default_keys
+-    skip |= {k for k in TOOLSETS if k.startswith("hermes-")}
+-    skip |= set(_DEFAULT_OFF_TOOLSETS) - {platform}
+-    for ts_key, ts_def in TOOLSETS.items():
+-        if ts_key in skip:
+-            continue
+-        if ts_def.get("includes"):
+-            continue
+-        # Posture toolsets (e.g. ``coding``) are session-level selections made
+-        # by agent/coding_context.py — not per-platform capabilities to recover.
+-        if ts_def.get("posture"):
+-            continue
+-        ts_tools = set(resolve_toolset(ts_key))
+-        if not ts_tools or not ts_tools.issubset(platform_tool_universe):
+-            continue
+-        if ts_tools.issubset(configurable_tool_universe):
+-            continue
+-        if not ts_tools.issubset(claimed):
+-            enabled_toolsets.add(ts_key)
+-            claimed.update(ts_tools)
++    platform_toolset_options = config.get("platform_toolset_options") or {}
++    if not isinstance(platform_toolset_options, dict):
++        platform_toolset_options = {}
++    platform_options = platform_toolset_options.get(platform) or {}
++    if not isinstance(platform_options, dict):
++        platform_options = {}
++    recover_platform_tools = _parse_enabled_flag(
++        platform_options.get("recover_platform_tools", True),
++        default=True,
++    )
++    if recover_platform_tools:
++        _plat_info = PLATFORMS.get(platform)
++        _default_ts = _plat_info["default_toolset"] if _plat_info else f"hermes-{platform}"
++        platform_tool_universe = set(resolve_toolset(_default_ts))
++        configurable_tool_universe = set()
++        for ck in configurable_keys:
++            configurable_tool_universe.update(resolve_toolset(ck))
++        claimed = set()
++        for ts_key in enabled_toolsets:
++            claimed.update(resolve_toolset(ts_key))
++        skip = configurable_keys | plugin_ts_keys | platform_default_keys
++        skip |= {k for k in TOOLSETS if k.startswith("hermes-")}
++        skip |= set(_DEFAULT_OFF_TOOLSETS) - {platform}
++        for ts_key, ts_def in TOOLSETS.items():
++            if ts_key in skip:
++                continue
++            if ts_def.get("includes"):
++                continue
++            # Posture toolsets (e.g. ``coding``) are session-level selections made
++            # by agent/coding_context.py — not per-platform capabilities to recover.
++            if ts_def.get("posture"):
++                continue
++            ts_tools = set(resolve_toolset(ts_key))
++            if not ts_tools or not ts_tools.issubset(platform_tool_universe):
++                continue
++            if ts_tools.issubset(configurable_tool_universe):
++                continue
++            if not ts_tools.issubset(claimed):
++                enabled_toolsets.add(ts_key)
++                claimed.update(ts_tools)
+ 
+     # Plugin toolsets: enabled by default unless explicitly disabled, or
+     # unless the toolset is in _DEFAULT_OFF_TOOLSETS (e.g. spotify —
+diff --git a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
+index d9d53a97a..21e884798 100644
+--- a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
++++ b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
+@@ -2410,11 +2410,6 @@ class Migrator:
+         self.record("gateway-config", "openclaw.json gateway.*", "archive/gateway-config.json",
+                     "archived", "Gateway config archived. Use 'hermes gateway' to configure.")
+ 
+-        # Extract gateway auth token to .env if present
+-        auth = gateway.get("auth") or {}
+-        if auth.get("token") and self.migrate_secrets:
+-            self._set_env_var("HERMES_GATEWAY_TOKEN", auth["token"], "gateway.auth.token")
+-
+     # ── Session config ────────────────────────────────────────
+     def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
+         config = config or self.load_openclaw_config()
+diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
+index 0c085a50c..2e906ec73 100644
+--- a/plugins/platforms/feishu/adapter.py
++++ b/plugins/platforms/feishu/adapter.py
 @@ -97,6 +97,7 @@ try:
          GetChatRequest,
          GetMessageRequest,
@@ -660,288 +942,6 @@ index 4814107ba..39c7fc9cf 100644
      @staticmethod
      def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
          if "GetMessageResourceRequest" in globals():
-diff --git a/gateway/run.py b/gateway/run.py
-index 673ec3e39..a0de3d1c3 100644
---- a/gateway/run.py
-+++ b/gateway/run.py
-@@ -2041,6 +2041,17 @@ def _platform_config_key(platform: "Platform") -> str:
-     return "cli" if platform == Platform.LOCAL else platform.value
- 
- 
-+def _platform_config_key_for_source(source: "SessionSource") -> str:
-+    """Return the config key for a source, including chat-scope splits."""
-+    platform_key = _platform_config_key(source.platform)
-+    if (
-+        platform_key == "feishu"
-+        and str(getattr(source, "chat_type", "") or "").lower() in {"group", "forum", "channel"}
-+    ):
-+        return "feishu_group"
-+    return platform_key
-+
-+
- def _teams_pipeline_plugin_enabled() -> bool:
-     """Return True when the standalone Teams pipeline plugin is enabled."""
-     config = _load_gateway_config()
-@@ -4272,7 +4283,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-         busy_ack_detail_enabled = bool(
-             resolve_display_setting(
-                 _load_gateway_config(),
--                _platform_config_key(event.source.platform),
-+                _platform_config_key_for_source(event.source),
-                 "busy_ack_detail",
-                 True,
-             )
-@@ -8313,8 +8324,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-                     _skill_name = skill_cmds[cmd_key].get("name", "")
-                     _plat = source.platform.value if source.platform else None
-                     if _plat and _skill_name:
--                        from agent.skill_utils import get_disabled_skill_names as _get_plat_disabled
--                        if _skill_name in _get_plat_disabled(platform=_plat):
-+                        from agent.skill_utils import (
-+                            get_disabled_skill_names as _get_plat_disabled,
-+                            is_skill_disabled_name as _skill_disabled_name,
-+                        )
-+                        if _skill_disabled_name(
-+                            _skill_name,
-+                            _get_plat_disabled(platform=_plat),
-+                        ):
-                             return (
-                                 f"The **{_skill_name}** skill is disabled for {_plat}.\n"
-                                 f"Enable it with: `hermes skills config`"
-@@ -9579,7 +9596,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-             try:
-                 _show_reasoning_effective = _resolve_gateway_display_bool(
-                     _load_gateway_config(),
--                    _platform_config_key(source.platform),
-+                    _platform_config_key_for_source(source),
-                     "show_reasoning",
-                     default=bool(getattr(self, "_show_reasoning", False)),
-                     platform=source.platform,
-@@ -9612,7 +9629,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-                 from gateway.runtime_footer import build_footer_line as _bfl
-                 _footer_line = _bfl(
-                     user_config=_load_gateway_config(),
--                    platform_key=_platform_config_key(source.platform),
-+                    platform_key=_platform_config_key_for_source(source),
-                     model=agent_result.get("model"),
-                     context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
-                     context_length=agent_result.get("context_length") or None,
-@@ -11057,7 +11074,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-                 )
-                 return
- 
--            platform_key = _platform_config_key(source.platform)
-+            platform_key = _platform_config_key_for_source(source)
- 
-             from hermes_cli.tools_config import _get_platform_tools
-             enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -12587,6 +12604,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-         from gateway.session_context import set_session_vars
-         return set_session_vars(
-             platform=context.source.platform.value,
-+            platform_config_key=_platform_config_key_for_source(context.source),
-             chat_id=context.source.chat_id,
-             chat_name=context.source.chat_name or "",
-             thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -13998,7 +14016,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-             from gateway.config import StreamingConfig
-             _scfg = StreamingConfig()
- 
--        platform_key = _platform_config_key(source.platform)
-+        platform_key = _platform_config_key_for_source(source)
-         user_config = _load_gateway_config()
-         from gateway.display_config import resolve_display_setting
-         _plat_streaming = resolve_display_setting(
-@@ -14298,7 +14316,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-             return self._is_session_run_current(session_key, run_generation)
-         
-         user_config = _load_gateway_config()
--        platform_key = _platform_config_key(source.platform)
-+        platform_key = _platform_config_key_for_source(source)
- 
-         from hermes_cli.tools_config import _get_platform_tools
-         enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -15106,9 +15124,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-             # (concurrency-safe). Keep os.environ as fallback for CLI/cron.
-             os.environ["HERMES_SESSION_KEY"] = session_key or ""
-             
--            # Map platform enum to the platform hint key the agent understands.
--            # Platform.LOCAL ("local") maps to "cli"; others pass through as-is.
--            platform_key = "cli" if source.platform == Platform.LOCAL else source.platform.value
-+            platform_key = _platform_config_key_for_source(source)
-             
-             # Combine platform context, per-channel context, and the user-configured
-             # ephemeral system prompt.
-diff --git a/gateway/session_context.py b/gateway/session_context.py
-index f6e6ab6dc..d5fb69bb8 100644
---- a/gateway/session_context.py
-+++ b/gateway/session_context.py
-@@ -49,6 +49,7 @@ _UNSET: Any = object()
- # ---------------------------------------------------------------------------
- 
- _SESSION_PLATFORM: ContextVar = ContextVar("HERMES_SESSION_PLATFORM", default=_UNSET)
-+_SESSION_PLATFORM_CONFIG_KEY: ContextVar = ContextVar("HERMES_SESSION_PLATFORM_CONFIG_KEY", default=_UNSET)
- _SESSION_SOURCE: ContextVar = ContextVar("HERMES_SESSION_SOURCE", default=_UNSET)
- _SESSION_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
- _SESSION_CHAT_NAME: ContextVar = ContextVar("HERMES_SESSION_CHAT_NAME", default=_UNSET)
-@@ -70,6 +71,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
- 
- _VAR_MAP = {
-     "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
-+    "HERMES_SESSION_PLATFORM_CONFIG_KEY": _SESSION_PLATFORM_CONFIG_KEY,
-     "HERMES_SESSION_SOURCE": _SESSION_SOURCE,
-     "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
-     "HERMES_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
-@@ -102,6 +104,7 @@ def set_current_session_id(session_id: str) -> None:
- 
- def set_session_vars(
-     platform: str = "",
-+    platform_config_key: str = "",
-     source: str = "",
-     chat_id: str = "",
-     chat_name: str = "",
-@@ -125,6 +128,7 @@ def set_session_vars(
-     """
-     tokens = [
-         _SESSION_PLATFORM.set(platform),
-+        _SESSION_PLATFORM_CONFIG_KEY.set(platform_config_key or platform),
-         _SESSION_SOURCE.set(source),
-         _SESSION_CHAT_ID.set(chat_id),
-         _SESSION_CHAT_NAME.set(chat_name),
-@@ -157,6 +161,7 @@ def clear_session_vars(tokens: list) -> None:
-     """
-     for var in (
-         _SESSION_PLATFORM,
-+        _SESSION_PLATFORM_CONFIG_KEY,
-         _SESSION_SOURCE,
-         _SESSION_CHAT_ID,
-         _SESSION_CHAT_NAME,
-diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 87791d71f..fb0ddeea6 100644
---- a/hermes_cli/doctor.py
-+++ b/hermes_cli/doctor.py
-@@ -2123,8 +2123,23 @@ def run_doctor(args):
-             else:
-                 check_warn(item["name"], "(system dependency not met)")
- 
--        # Count disabled tools with API key requirements
--        api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
-+        # Count disabled tools with API key requirements.
-+        # Only flag toolsets the user has actually enabled — skip optional tools
-+        # like moa/rl that haven't been configured in the user's toolset list.
-+        try:
-+            from hermes_cli.config import load_config as _load_doctor_config
-+            from hermes_cli.tools_config import _get_platform_tools, PLATFORMS
-+
-+            _dc = _load_doctor_config()
-+            _enabled_ts = set()
-+            for _p in PLATFORMS:
-+                _enabled_ts.update(_get_platform_tools(_dc, _p))
-+            api_disabled = [
-+                u for u in unavailable
-+                if (u.get("missing_vars") or u.get("env_vars")) and u.get("name") in _enabled_ts
-+            ]
-+        except Exception:
-+            api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
-         if api_disabled:
-             issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
-     except Exception as e:
-diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index 5eec978e1..a842fc0ac 100644
---- a/hermes_cli/tools_config.py
-+++ b/hermes_cli/tools_config.py
-@@ -1419,35 +1419,46 @@ def _get_platform_tools(
-     # checklist or in a user-saved config.  Must run in BOTH branches —
-     # otherwise saving via `hermes tools` (which flips has_explicit_config
-     # to True) silently drops them.
--    _plat_info = PLATFORMS.get(platform)
--    _default_ts = _plat_info["default_toolset"] if _plat_info else f"hermes-{platform}"
--    platform_tool_universe = set(resolve_toolset(_default_ts))
--    configurable_tool_universe = set()
--    for ck in configurable_keys:
--        configurable_tool_universe.update(resolve_toolset(ck))
--    claimed = set()
--    for ts_key in enabled_toolsets:
--        claimed.update(resolve_toolset(ts_key))
--    skip = configurable_keys | plugin_ts_keys | platform_default_keys
--    skip |= {k for k in TOOLSETS if k.startswith("hermes-")}
--    skip |= set(_DEFAULT_OFF_TOOLSETS) - {platform}
--    for ts_key, ts_def in TOOLSETS.items():
--        if ts_key in skip:
--            continue
--        if ts_def.get("includes"):
--            continue
--        # Posture toolsets (e.g. ``coding``) are session-level selections made
--        # by agent/coding_context.py — not per-platform capabilities to recover.
--        if ts_def.get("posture"):
--            continue
--        ts_tools = set(resolve_toolset(ts_key))
--        if not ts_tools or not ts_tools.issubset(platform_tool_universe):
--            continue
--        if ts_tools.issubset(configurable_tool_universe):
--            continue
--        if not ts_tools.issubset(claimed):
--            enabled_toolsets.add(ts_key)
--            claimed.update(ts_tools)
-+    platform_toolset_options = config.get("platform_toolset_options") or {}
-+    if not isinstance(platform_toolset_options, dict):
-+        platform_toolset_options = {}
-+    platform_options = platform_toolset_options.get(platform) or {}
-+    if not isinstance(platform_options, dict):
-+        platform_options = {}
-+    recover_platform_tools = _parse_enabled_flag(
-+        platform_options.get("recover_platform_tools", True),
-+        default=True,
-+    )
-+    if recover_platform_tools:
-+        _plat_info = PLATFORMS.get(platform)
-+        _default_ts = _plat_info["default_toolset"] if _plat_info else f"hermes-{platform}"
-+        platform_tool_universe = set(resolve_toolset(_default_ts))
-+        configurable_tool_universe = set()
-+        for ck in configurable_keys:
-+            configurable_tool_universe.update(resolve_toolset(ck))
-+        claimed = set()
-+        for ts_key in enabled_toolsets:
-+            claimed.update(resolve_toolset(ts_key))
-+        skip = configurable_keys | plugin_ts_keys | platform_default_keys
-+        skip |= {k for k in TOOLSETS if k.startswith("hermes-")}
-+        skip |= set(_DEFAULT_OFF_TOOLSETS) - {platform}
-+        for ts_key, ts_def in TOOLSETS.items():
-+            if ts_key in skip:
-+                continue
-+            if ts_def.get("includes"):
-+                continue
-+            # Posture toolsets (e.g. ``coding``) are session-level selections made
-+            # by agent/coding_context.py — not per-platform capabilities to recover.
-+            if ts_def.get("posture"):
-+                continue
-+            ts_tools = set(resolve_toolset(ts_key))
-+            if not ts_tools or not ts_tools.issubset(platform_tool_universe):
-+                continue
-+            if ts_tools.issubset(configurable_tool_universe):
-+                continue
-+            if not ts_tools.issubset(claimed):
-+                enabled_toolsets.add(ts_key)
-+                claimed.update(ts_tools)
- 
-     # Plugin toolsets: enabled by default unless explicitly disabled, or
-     # unless the toolset is in _DEFAULT_OFF_TOOLSETS (e.g. spotify —
-diff --git a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
-index d9d53a97a..21e884798 100644
---- a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
-+++ b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
-@@ -2410,11 +2410,6 @@ class Migrator:
-         self.record("gateway-config", "openclaw.json gateway.*", "archive/gateway-config.json",
-                     "archived", "Gateway config archived. Use 'hermes gateway' to configure.")
- 
--        # Extract gateway auth token to .env if present
--        auth = gateway.get("auth") or {}
--        if auth.get("token") and self.migrate_secrets:
--            self._set_env_var("HERMES_GATEWAY_TOKEN", auth["token"], "gateway.auth.token")
--
-     # ── Session config ────────────────────────────────────────
-     def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
-         config = config or self.load_openclaw_config()
 diff --git a/pyproject.toml b/pyproject.toml
 index d269ba840..411c65927 100644
 --- a/pyproject.toml
@@ -956,7 +956,7 @@ index d269ba840..411c65927 100644
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
 diff --git a/tests/gateway/feishu_helpers.py b/tests/gateway/feishu_helpers.py
-index 753a61a70..c8c8efbbd 100644
+index ae8a4bfc3..bdf5368fa 100644
 --- a/tests/gateway/feishu_helpers.py
 +++ b/tests/gateway/feishu_helpers.py
 @@ -34,10 +34,14 @@ def make_adapter_skeleton(
@@ -966,7 +966,7 @@ index 753a61a70..c8c8efbbd 100644
 +    mention_triggers: set[str] | None = None,
 +    assistant_user_ids: set[str] | None = None,
  ) -> Any:
-     from gateway.platforms.feishu import FeishuAdapter
+     from plugins.platforms.feishu.adapter import FeishuAdapter
 +    from gateway.config import Platform
  
      adapter = object.__new__(FeishuAdapter)
@@ -985,7 +985,7 @@ index 753a61a70..c8c8efbbd 100644
  
  
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index 9f38f9b8a..ce1fe2ad0 100644
+index f3c3b1021..c5fa5c638 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
 @@ -816,6 +816,45 @@ class TestLoadGatewayConfig:
@@ -1035,7 +1035,7 @@ index 9f38f9b8a..ce1fe2ad0 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index 4d78b454b..5bdef6f5a 100644
+index bb97c7e72..7a51b28df 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -331,6 +331,134 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
@@ -1045,7 +1045,7 @@ index 4d78b454b..5bdef6f5a 100644
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_fetch_channel_context_formats_recent_group_messages(self):
 +        from gateway.config import PlatformConfig
-+        from gateway.platforms.feishu import FeishuAdapter
++        from plugins.platforms.feishu.adapter import FeishuAdapter
 +
 +        adapter = FeishuAdapter(
 +            PlatformConfig(
@@ -1127,7 +1127,7 @@ index 4d78b454b..5bdef6f5a 100644
 +        async def _direct(func, *args, **kwargs):
 +            return func(*args, **kwargs)
 +
-+        with patch("gateway.platforms.feishu.asyncio.to_thread", side_effect=_direct):
++        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
 +            result = asyncio.run(
 +                adapter._fetch_channel_context(
 +                    chat_id="oc_chat",
@@ -1154,7 +1154,7 @@ index 4d78b454b..5bdef6f5a 100644
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_fetch_channel_context_skips_dm(self):
 +        from gateway.config import PlatformConfig
-+        from gateway.platforms.feishu import FeishuAdapter
++        from plugins.platforms.feishu.adapter import FeishuAdapter
 +
 +        adapter = FeishuAdapter(PlatformConfig(extra={"history_backfill": True}))
 +        adapter._client = SimpleNamespace()
@@ -1174,7 +1174,7 @@ index 4d78b454b..5bdef6f5a 100644
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
-index 2d71ad06d..0470668cf 100644
+index 61628f933..b40afcc5a 100644
 --- a/tests/gateway/test_feishu_bot_admission.py
 +++ b/tests/gateway/test_feishu_bot_admission.py
 @@ -3,6 +3,7 @@
@@ -1190,7 +1190,7 @@ index 2d71ad06d..0470668cf 100644
  
  
 +def test_feishu_load_settings_history_backfill_from_extra(monkeypatch):
-+    from gateway.platforms.feishu import FeishuAdapter
++    from plugins.platforms.feishu.adapter import FeishuAdapter
 +
 +    monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
 +    monkeypatch.setenv("FEISHU_APP_SECRET", "secret_test")
@@ -1212,7 +1212,7 @@ index 2d71ad06d..0470668cf 100644
 +
 +
 +def test_feishu_load_settings_parses_assistant_user_triggers(monkeypatch):
-+    from gateway.platforms.feishu import FeishuAdapter
++    from plugins.platforms.feishu.adapter import FeishuAdapter
 +
 +    monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
 +    monkeypatch.setenv("FEISHU_APP_SECRET", "secret_test")
@@ -2023,10 +2023,10 @@ index 38a27e622..4590ea5f0 100644
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 9e8220dd0..798f83dc6 100644
+index 41a099eb7..fa4df865c 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
-@@ -356,8 +356,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
+@@ -360,8 +360,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
  | `FEISHU_ENCRYPT_KEY` | Optional encryption key for webhook mode |
  | `FEISHU_VERIFICATION_TOKEN` | Optional verification token for webhook mode |
  | `FEISHU_ALLOWED_USERS` | Comma-separated Feishu user IDs allowed to message the bot |
@@ -2041,7 +2041,7 @@ index 9e8220dd0..798f83dc6 100644
  | `WECOM_BOT_ID` | WeCom AI Bot ID from admin console |
  | `WECOM_SECRET` | WeCom AI Bot secret |
 diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
-index 29b0ac82a..44571ce35 100644
+index 8c97de1b1..fe0acd0ad 100644
 --- a/website/docs/user-guide/configuration.md
 +++ b/website/docs/user-guide/configuration.md
 @@ -695,6 +695,52 @@ the `hermes tools` UI.
