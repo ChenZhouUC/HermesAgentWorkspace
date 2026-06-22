@@ -1,12 +1,10 @@
 **Never auto-commit**: NEVER run `git commit`/`git push` or bypass `copilot-git-approve` without explicit instruction. Private skills in ~/.hermes/my-skills/, official in ~/.hermes/skills/.
 §
-**400 cascade fix**: If 400 errors loop, run `hermes sessions list` then `hermes sessions delete SESSION_ID` to remove the broken session.
+400 loop fix: `hermes sessions delete SESSION_ID`
 §
-Feishu API Quirks: Max 9-row tables. Skip H1. POST index relative. DELETE 404 (use batch). No trailing dots in MD URLs. Nested bold text in lists triggers 400 errors during rebuild/insert. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f
+Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Groups: SI Owners=oc_baeecd57161e7ffd13ab880596f418d2, 无能宝们=oc_762bc7151b62028453555c1ecef97fec
 §
 Temp files -> ~/.hermes/tmp. Subagents via `delegate_task` lack memory; pass constraints explicitly. Homebrew requires approval. Naming: [Folio|Showcase]\_Project_YYYYMMDDTHHMMSS+0800. For Feishu, explicitly print absolute local file paths in plain text for easy copying.
-§
-macOS lock screen: use `pmset displaysleepnow` to lock immediately (avoids AppleEvent timeouts). Check status: `ioreg -n Root -d1 | grep CGSSessionScreenIsLocked` ('Yes' if locked).
 §
 User operates a 32-core, 64GB RAM machine for AI inference workloads (e.g., ONNX, FastReID).
 §
