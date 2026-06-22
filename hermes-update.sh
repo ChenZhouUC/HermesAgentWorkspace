@@ -584,6 +584,7 @@ _FEISHU_DEPS_PATCH_OK=false
 _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
 _FEISHU_GROUP_PATCH_OK=false
 _FEISHU_SKILL_SCOPE_PATCH_OK=false
+_FEISHU_NO_THREAD_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -722,11 +723,24 @@ else
     warn "Could not locate skill scope files — skipping skill allowlist patch check"
 fi
 
+# PATCH-12: Feishu replies must never create a topic/thread (always normal quote-reply)
+if [[ -f "${FEISHU_PY}" ]]; then
+    if grep -q 'reply_in_thread = False' "${FEISHU_PY}" 2>/dev/null; then
+        ok "Feishu no-thread reply patch: active (reply_in_thread forced False — normal quote-reply only)"
+        _FEISHU_NO_THREAD_PATCH_OK=true
+    else
+        warn "Feishu no-thread reply patch inactive"
+        add_act "Re-apply: see PATCHES.md § [PATCH-12] Feishu replies never create a thread"
+    fi
+else
+    warn "Could not locate Feishu adapter — skipping no-thread reply patch check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

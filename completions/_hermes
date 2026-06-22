@@ -35,7 +35,7 @@ _hermes() {
                 'checkpoints:Inspect / prune / clear ~/.hermes/checkpoints/'
                 'claw:OpenClaw migration tools'
                 'completion:Print shell completion script (bash, zsh, or fish)'
-                'computer-use:Manage the Computer Use (cua-driver) backend (macOS)'
+                'computer-use:Manage the Computer Use (cua-driver) backend (macOS/Windows/'
                 'config:View and edit configuration'
                 'cron:Cron job management'
                 'curator:Background skill maintenance (curator) — status, run, pause,'
@@ -130,7 +130,8 @@ _hermes() {
                 computer-use)
                     local -a computer_use_cmds
                     computer_use_cmds=(
-                    'install:Install or repair the cua-driver binary (macOS)'
+                    'doctor:Run cua-driver `health_report` and surface the check matrix'
+                    'install:Install or repair the cua-driver binary (macOS/Windows/Linux'
                     'status:Print whether cua-driver is installed and on PATH'
                     )
                     _describe 'computer-use command' computer_use_cmds

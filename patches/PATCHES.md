@@ -182,17 +182,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `9bf9a9f1`，2026-06-22)
+## 当前版本：v0.17.0 (upstream `main` `b1b20270`，2026-06-22)
 
-**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11（共 7 条）。
+**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12（共 8 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+266 commits，basis `1b7b4d13` → `9bf9a9f1`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+81 commits，basis `9bf9a9f1` → `b1b20270`）要点**：
 
-- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**Gateway / 平台架构**——`refactor(gateway)` `560010547` 把 slack/dingtalk/whatsapp/matrix/**feishu**/telegram/wecom/email/sms 适配器整体迁移为 bundled plugins（`gateway/platforms/*.py` → `plugins/platforms/<p>/adapter.py`），cron namespace-collision 修复推广到所有迁移适配器；typed send-error 分类、runtime `active_agents` 跟踪与 `/api/status` busy/drainable。**Kanban**——单写者 dispatch 锁防 orphan-dispatcher DB 损坏、reclaim claim-lock-aware、worktree 任务锚定/复用、task lifecycle plugin hooks、worker/orchestrator skill 折叠为注入式 guidance。**Compression**——最小上下文即触发 auto-compaction、`protect_first_n` 衰减、auth 失败中止而非降级轮换、跨轮 goal/platform/session 索引保留。**安全**——`HERMES_TIMEZONE` shell 注入封堵、smart approval guard 抗 prompt 注入、IPv6 scope / 空 WS peer fail-closed、snapshot restore 路径穿越校验、kanban payload secret redaction。**模型 / 接入**——原生 Antigravity OAuth provider、mem0 self-hosted、`feat(delegation)` 后台 fan-out 并行子 agent、完整西班牙语 i18n。
-- patch apply：**关键**——上游 `560010547` 把 `gateway/platforms/feishu.py` 迁移为 `plugins/platforms/feishu/adapter.py`（5511 行单体），脚本单体 diff 因该路径在 index 中 missing 整体 apply 失败、补丁被回退（脚本告警“Local patches were NOT applied”）。手工分步回贴：拆出 feishu hunk 与其余 27 文件，后者 `git apply --3way` 26 clean + `tests/gateway/feishu_helpers.py` import 冲突解决（采上游新插件路径 `plugins.platforms.feishu.adapter` + 补 `gateway.config.Platform`）；PATCH-10 的 19 个 feishu hunk 改写路径后 `git apply` 干净落到 `adapter.py`，另修 `test_feishu.py` / `test_feishu_bot_admission.py` 中 5 处 PATCH-10 测试残留的旧 `gateway.platforms.feishu` import。`PATCHED_FILES`、脚本 `FEISHU_PY` 与本文件 PATCH-10 文件清单同步把 `gateway/platforms/feishu.py` 改为 `plugins/platforms/feishu/adapter.py`。PATCH-1/2/7/9/10/11 全部行为化验证通过、PATCH-4/5 仍由上游 sentinel 覆盖；28 个 patched files 留在内层 `hermes-agent` modified，`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `9bf9a9f1` 并通过 clean worktree apply 校验；重点回归 Feishu/config/session/skills 等 590 个测试通过。
-- 依赖：`uv` 仍因 `/Users/chenzhou/.local/share/uv/python` 报 python-path mismatch，脚本 step 3 用 `--python venv/bin/python` fallback 自愈；脚本结尾 doctor/gateway 阶段的 interrupted-install auto-recovery 仍走上游 uv 路径连报失败，手动 `venv/bin/python -m pip install -e ".[all]"` 成功后清掉 `.update-incomplete` marker；venv `hermes-agent==0.17.0`、`python-socks==2.8.1` 存在。`npm audit fix` 报 no vulnerabilities 但仍改动 tracked `hermes-agent/package-lock.json`；Skills mirror 同步 **+0 / ~6 / -19**。
-- 已知摩擦：本轮 in-script patch 回贴因平台→插件迁移整体失败、改为手工 remap（PATCH-10 落点迁移见下方该补丁注记）；`.update-incomplete` marker 的 auto-recovery 仍走 uv 老路复发，需手动 pip 兜底；`hermes-agent/package-lock.json` 仍被 npm 步骤改动且不纳入 `local-patches.diff`，保持为待审查工作树改动。
-- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 `ALIBABA_CODING_PLAN_API_KEY` 无效与若干可选 API keys 未配置。Gateway 已 stop→start 重启并加载手工回贴的 patch，service loaded，PID `77275`，`LastExitStatus=15`（restart stop 的上一轮退出码），Feishu WS 重新连上。
+- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**Memory / Compaction**——`MemoryManager` 接口收口 write-mirror gating、write 结果不明时 fail-closed、mem0 v3 API（OSS mode + update/delete tools，#15624）、OpenViking memory write gating + `viking_forget` + shutdown 时 drain mirror workers；compaction 阈值内预留 output tokens（#23767）、defer preflight compaction 到真实用量、token-only 压缩进度检测与 tail-budget 估算修正。**Gateway / Delivery**——approval prompt 发送前 redact 凭据（#48456）、chunking adapter flag 化并去掉 env-var knob、cron 输出截断可配置且 adapter-aware、Windows 安装态 gateway 更新后 cold-start（#50804）。**Desktop**——Windows 设 AppUserModelID 使通知生效（#50808）、chat 内 PR-style file diff（Shiki 高亮）、composer model picker 修复。**computer_use**——跨平台 cua-driver（macOS/Windows/Linux）+ 探测 cua-driver-rs release tag。**CLI / Cron / Relay**——`/goal wait <pid>` 把 loop 挂到后台进程（#50503）、`/timestamps` 命令与 `/history` 时间戳（#50506）、cron per-job 叠加 enabled MCP servers/toolsets、relay self-provision 转发稳定 instance id 与 WS passthrough_forward；`fix(update)` 不再跨 shallow-clone 边界误算 commits-behind（#50784）。
+- patch apply：**全部 clean apply**——28 个 patched files 从 `local-patches.diff` 干净落到新基线，无 3-way、无冲突；即便上游 `e9cd8c5bf fix(delivery)` 改了 `plugins/platforms/feishu/adapter.py`，与本地 hunk 不在同区域、锚点未漂移。**本轮新增 PATCH-12**（Feishu 回复不再创建话题、始终普通引用回复）在升级前于本会话加入，经脚本 save→revert→pull(81 commits)→reapply 全流程 clean apply，并由新加的 Step 8b sentinel（grep `reply_in_thread = False`）验证 active——幂等成立。PATCH-1/2/7/9/10/11/12 全部行为化验证通过、PATCH-4/5 仍由上游 sentinel 覆盖；28 个 patched files 留在内层 `hermes-agent` modified，`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `b1b20270`，`tests/gateway/test_feishu.py` 207 passed。
+- 依赖：`uv` 仍因 `/Users/chenzhou/.local/share/uv/python` 报 python-path mismatch，脚本 step 3 用 `--python venv/bin/python` fallback 自愈（日志 "Install recovered via explicit --python fallback"）；`npm audit fix` 报 no vulnerabilities 但仍改动 tracked `hermes-agent/package-lock.json`；Skills mirror 同步 **+1 / ~1 / -3**。
+- 已知摩擦：`uv` python-path mismatch 每轮复发，靠 `--python venv/bin/python` fallback 兜底；`hermes-agent/package-lock.json` 仍被 npm 步骤改动且不纳入 `local-patches.diff`，保持为待审查工作树改动（脚本已告警）。本轮 patch 全程 in-script clean apply，无需手工 remap。
+- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 `ALIBABA_CODING_PLAN_API_KEY` 无效与若干可选 API keys 未配置。Gateway 经脚本 Step 8d stop→start 重启加载补丁，service loaded，PID `62183`，`LastExitStatus=0`，Feishu WS 重新连上。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -309,6 +309,23 @@ cat ~/.hermes/patches/.local-patches.base
 **本机当前配置**：`config.yaml` 中 `platform_toolsets.feishu_group` 使用 `[web, clarify, feishu_doc, skills_readonly, file_readonly]`，`skills.platform_allowed.feishu_group: [llm-wiki]`。`plugins/sandbox/config.yaml` 对非 owner Feishu 群聊额外放行 `skills_list`、`skill_view`、`feishu_doc_read`、`read_file`、`search_files`，但 skill 名单仍被 `feishu_group` allowlist 限制为 `llm-wiki`，文件读取/检索也被 `allowed_read_roots_for_outsider_groups: [~/.hermes/wiki]` 限制。因此群聊可读取/加载 `llm-wiki` 并只读检索本地 wiki 内容，但没有 `skill_manage`、`write_file`、`patch`、`todo` 和 `terminal`；Feishu 私聊未配置 `skills.platform_allowed.feishu`，保持 skill 不受群聊 allowlist 限制。
 
 **上游吸收判断**：如果上游后续提供平台级 skill allowlist 与只读 skill 工具集，且能通过 `feishu_group` 或等价群聊上下文独立约束 skills，可归档本补丁。
+
+---
+
+### [PATCH-12] Feishu 回复不再创建话题（始终普通引用回复）
+
+| 字段     | 内容                                                                  |
+| -------- | --------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_feishu.py` |
+| **状态** | 🟡 未上游合并                                                         |
+
+**问题**：bot 在飞书里的回复会变成一个**话题（Thread）**，嵌在被回复消息下方、像评论而非主消息流里的正常回复。根因有两处叠加：入站处理 `adapter.py` 把 `thread_id = message.thread_id or message.root_id`——飞书普通群里只要消息处于「引用回复链」中 `root_id` 就有值，于是 `source.thread_id` 被填上并随 metadata 透传；出站 `_send_raw_message` 据此 `reply_in_thread = bool(metadata["thread_id"])`，飞书 `im.v1.message.reply` 接口在该标志为真时把回复挂成话题。结果任何引用链中的消息都触发话题化。
+
+**修复**：在所有飞书发送的唯一出口 `_send_raw_message` 钉死 `reply_in_thread = False`，并把「引用目标」回退从依赖 `thread_id` 解耦（`effective_reply_to` 改为 `reply_to or metadata["reply_to_message_id"]`，不再要求 `thread_id` 存在）。这样无论普通群还是话题群，bot 都以**普通引用回复**（`message.reply` + `reply_in_thread=False`）跟在被回复消息后面发一条新消息，绝不开话题。入站 `thread_id`（含 `root_id` 回退）保留不动——它仍用于 `reply_to_message_id` 提取与 channel/session 路由，只是不再决定「是否开话题」。
+
+**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `reply_in_thread = False`。定向测试覆盖：带 `thread_id` metadata 的回复 `reply_in_thread` 为 False、用 `metadata["reply_to_message_id"]` 作引用目标且不开话题、文档回复同样不开话题（`test_send_never_replies_in_thread_even_with_thread_metadata`、`test_send_uses_metadata_reply_target_without_threading`、`test_send_document_reply_never_uses_thread_flag`）；`tests/gateway/test_feishu.py` 全量 207 passed。
+
+**上游吸收判断**：如果上游后续不再把 `root_id` 并入 `thread_id`、或为 Feishu 回复提供「普通引用 vs 话题」开关并默认普通引用，可归档本补丁。
 
 ---
 
