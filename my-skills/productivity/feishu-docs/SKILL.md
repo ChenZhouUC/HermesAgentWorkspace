@@ -281,39 +281,6 @@ When the user asks to extract a Feishu Document and save it into their local LLM
 Use `minutes/v1/minutes/{token}/transcript` returning PLAIN TEXT, do NOT `.json()`.
 Ensure `res.encoding = 'utf-8'`.
 
-## 📮 Bot Messaging & Group Availability
-
-The bot can send messages to any Feishu group it's a member of via the Open API.
-
-### Sending to Groups
-
-```python
-token = get_tenant_token()
-url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
-headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-payload = {
-    "receive_id": "oc_xxxxx",  # chat_id
-    "msg_type": "text",
-    "content": json.dumps({"text": "message"})
-}
-requests.post(url, headers=headers, json=payload).json()
-```
-
-### Listing Available Groups
-
-Query `GET /im/v1/chats` with pagination to find all groups the bot can message.
-
-### Direct Messaging Limitations
-
-Sending DMs via `receive_id_type=open_id` returns **Error 230013** (`Bot has NO availability to this user`) if the target user isn't in the bot's "可用范围" (Availability Scope).
-**Fix:** Admin or developer must add the user to the bot's availability in [open.feishu.cn/app](https://open.feishu.cn/app) → App → 版本管理与发布 → 可用范围。Or create a group chat with the user and bot as workaround.
-
-### Reading Contact Cards (share_user)
-
-When users share contact cards, message type is `share_user` with content `{"user_id": "ou_xxxxx"}`. Query chat history via `GET /im/v1/messages?container_id_type=chat&container_id=oc_xxxxx` and filter for `msg_type == "share_user"`.
-
-See `references/bot-messaging-and-availability.md` for full patterns.
-
 ## 🔒 Debugging 403 Forbidden Errors (Permission Denied)
 
 When the agent encounters a `1061004 forbidden` or `1770032 forBidden` error while trying to read a Feishu document or folder using the Open API, it indicates the Bot is physically blocked by Feishu's permission model.
