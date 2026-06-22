@@ -3,6 +3,7 @@ name: ai-coding-cli-internals
 description: Diagnostics, token economics, and known quirks for OpenAI Codex and Claude Code CLIs.
 category: autonomous-ai-agents
 version: 2026.06.08
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # AI Coding CLI Internals & Diagnostics
