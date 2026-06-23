@@ -17,3 +17,5 @@ Skill maintenance preference: Prioritize agent execution efficiency. Keep SKILL.
 Projects: SpaceSight(PaaS), KeepAgile/dicts, Nemo, HyperTex(HTML-first, Reveal+Playwright PDF, AI-gen H5 'Showcases' on Vercel), 帷幄。User focuses on Agent orchestration, not cloud infra.
 §
 Handles international vendor security and AI privacy compliance audits (SOC2, ISO, Model Inversion, ECE, SIEM/DLP) for Whale / SpaceSight.
+§
+When the user shares chat screenshots or background info about people (e.g., Zhang Yang, Xiao Minzi, Zhao Ziyun), immediately load the `character-voices` skill to review, consolidate, and update their psychological profiles and speech patterns for better analysis and future mimicking.
