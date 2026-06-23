@@ -1,9 +1,6 @@
 ---
 name: github-copilot-cli
-description: "Operational knowledge, commands, configurations (geo, compaction), and model quirks (GPT-5.5 context) for GitHub Copilot CLI (gh copilot)."
-category: autonomous-ai-agents
-version: 2026.06.08
-author: Chen Zhou <chenzhou@uchicago.edu>
+description: "Use when operating or debugging GitHub Copilot CLI (gh copilot), including commands, geo/data-residency config, compaction, and model/context quirks."
 ---
 
 # GitHub Copilot CLI (gh copilot)

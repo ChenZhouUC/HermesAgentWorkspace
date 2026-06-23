@@ -1,10 +1,79 @@
 import os
 import sys
 import json
+import argparse
+import base64
+import tempfile
 import urllib.request
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from feishu_common import get_tenant_token, upload_md, import_md_to_doc, append_version_row
+
+
+def _decode_inline_content(value):
+    return value.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t")
+
+
+def _write_temp_markdown(content):
+    tmp_root = Path(os.path.expanduser(os.getenv("HERMES_HOME", "~/.hermes"))) / "tmp" / "feishu-docs"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    fd, path = tempfile.mkstemp(
+        prefix="create_doc_",
+        suffix=".md",
+        dir=str(tmp_root),
+        text=True,
+    )
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content.rstrip() + "\n")
+    return path
+
+
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Create a Feishu docx by importing Markdown.",
+    )
+    parser.add_argument(
+        "positional",
+        nargs="*",
+        help=("Legacy form: <md_file_path> <title>. With --content, one positional title is allowed."),
+    )
+    parser.add_argument("--title", help="Professional document title.")
+    parser.add_argument(
+        "--content",
+        help="Inline Markdown body. Literal \\n sequences are converted to newlines.",
+    )
+    parser.add_argument(
+        "--content-b64",
+        help="Base64-encoded UTF-8 Markdown body, useful when shell quoting would be awkward.",
+    )
+    args = parser.parse_args(argv)
+
+    inline_sources = [value for value in (args.content, args.content_b64) if value is not None]
+    if len(inline_sources) > 1:
+        parser.error("use only one of --content or --content-b64")
+
+    if inline_sources:
+        if len(args.positional) > 1:
+            parser.error("with --content/--content-b64, pass at most one positional title")
+        title = args.title or (args.positional[0] if args.positional else None)
+        if not title:
+            parser.error("--title is required when using --content/--content-b64")
+        if args.content_b64 is not None:
+            try:
+                content = base64.b64decode(args.content_b64).decode("utf-8")
+            except Exception as exc:
+                parser.error(f"invalid --content-b64: {exc}")
+        else:
+            content = _decode_inline_content(args.content or "")
+        if not content.strip():
+            parser.error("markdown content cannot be empty")
+        return _write_temp_markdown(content), title
+
+    if len(args.positional) < 2:
+        parser.error("Usage: python create_new_doc_from_md.py <md_file_path> <title>")
+    title = args.title or args.positional[1]
+    return args.positional[0], title
 
 
 def create_doc(md_path, title):
@@ -85,7 +154,5 @@ def create_doc(md_path, title):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python create_new_doc_from_md.py <md_file_path> <title>")
-        sys.exit(1)
-    create_doc(sys.argv[1], sys.argv[2])
+    md_path, title = _parse_args(sys.argv[1:])
+    create_doc(md_path, title)

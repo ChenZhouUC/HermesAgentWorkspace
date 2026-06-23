@@ -16,16 +16,33 @@ allowed_tools_for_outsiders:
   - image_generate
 
 # Extra allowlist for non-owner Feishu group/channel chats only. Keep this
-# read-only. Skill names are still constrained by `skills.platform_allowed`.
-# File reads/searches are additionally constrained to the roots below.
+# read-mostly. Skill names are still constrained by `skills.platform_allowed`.
+# File reads/searches are additionally constrained to the roots below. The
+# terminal tool is parameter-gated by the plugin: groups may only run curl/wget
+# downloads into configured download roots, or `python existing_script.py ...`
+# under configured script roots.
 allowed_tools_for_outsider_groups:
   - skills_list
   - skill_view
   - feishu_doc_read
   - read_file
   - search_files
+  - terminal
 
 allowed_read_roots_for_outsider_groups:
   - ~/.hermes/wiki
+  - ~/.hermes/cache
+  - ~/.hermes/tmp
+  - /tmp
 
-block_message: "本会话不支持该工具。当前会话仅开放：聊天问答 / 联网搜索 / 网页正文抓取 / 图片理解 / 图片生成；群聊额外开放只读知识库、飞书文档读取、以及 ~/.hermes/wiki 范围内的只读文件检索。"
+allowed_download_roots_for_outsider_groups:
+  - ~/.hermes/tmp
+  - ~/.hermes/cache
+  - /tmp
+
+allowed_script_roots_for_outsider_groups:
+  - ~/.hermes/my-skills
+  - ~/.hermes/skills
+
+block_message: "本会话不支持该工具。当前会话仅开放：聊天问答 / 联网搜索 / 网页正文抓取 / 图片理解 / 图片生成；群聊额外开放只读知识库、飞书文档读取、/tmp 与 Hermes 缓存/临时目录读取、受限下载、以及运行已配置目录里的既有脚本。"
+terminal_block_message: "群聊里的 terminal 只允许两类操作：curl/wget 下载到 /tmp、~/.hermes/tmp 或缓存目录；python 运行 ~/.hermes/my-skills / ~/.hermes/skills 下已经存在的脚本。"

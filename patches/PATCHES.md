@@ -20,12 +20,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表                | 管理方式                                                                                                                                                                      |
-| -------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/2/7/9/10/11 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                          |
-| **工程外补丁** | PATCH-3             | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                           |
-| **运行时补丁** | PATCH-6             | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                               |
-| **已上游合并** | PATCH-3/4/5/8       | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；本地冗余代码已移除 |
+| 类型           | 代表                   | 管理方式                                                                                                                                                                      |
+| -------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/2/7/9/10/11/12 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                          |
+| **工程外补丁** | PATCH-3                | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                           |
+| **运行时补丁** | PATCH-6                | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                               |
+| **已上游合并** | PATCH-3/4/5/8          | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -117,7 +117,7 @@ Step 3 只负责 `PATCHED_FILES` 之外的临时改动。脚本会用 `git stash
 ```bash
 # 查看自上次 patch 刷新以来上游改了哪些相关文件
 BASE=$(cut -d' ' -f1 ~/.hermes/patches/.local-patches.base)
-cd ~/.hermes/hermes-agent && git log --oneline ${BASE}..HEAD -- tools/skill_manager_tool.py tests/tools/test_skill_manager_tool.py hermes_cli/doctor.py pyproject.toml tools/lazy_deps.py gateway/platforms/feishu.py gateway/run.py agent/skill_utils.py tools/skills_tool.py toolsets.py
+cd ~/.hermes/hermes-agent && git log --oneline ${BASE}..HEAD -- tools/skill_manager_tool.py tests/tools/test_skill_manager_tool.py hermes_cli/doctor.py pyproject.toml tools/lazy_deps.py plugins/platforms/feishu/adapter.py gateway/run.py agent/skill_utils.py tools/skills_tool.py toolsets.py
 ```
 
 #### 7. 上游吸收检测
@@ -145,14 +145,19 @@ PATCHED_FILES=(
     "website/docs/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
     "gateway/config.py"
-    "gateway/platforms/feishu.py"
+    "plugins/platforms/feishu/adapter.py"
     "gateway/run.py"
     "gateway/session_context.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
     "tools/skills_tool.py"
+    "tests/tools/test_skills_tool.py"
     "toolsets.py"
+    "tools/feishu_doc_tool.py"
+    "tests/tools/test_feishu_tools.py"
+    "tools/file_operations.py"
+    "tests/tools/test_file_operations.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
     "tests/gateway/test_feishu.py"
@@ -182,20 +187,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `f1e6d39a`，2026-06-23)
+## 当前版本：v0.17.0 (upstream `main` `bb7ff7dc`，2026-06-23)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12（共 8 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+5 commits，basis `b1b20270` → `f1e6d39a`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+52 commits，basis `f1e6d39a` → `bb7ff7dc`）要点**：
 
-- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**computer_use**——`cua-driver` 遥测默认关闭、改为显式 opt-in（#50842）。**Slack**——尊重文档化的 `mention_patterns` 唤醒词、补 csv mention pattern fallback（salvaged fix + `AUTHOR_MAP`）。**Delegation**——高并发成本告警每进程只发一次（#50848）。5 个 commit 均未触及 Feishu / 本地 patch 区域。
-- patch apply：**全部 clean apply**——28 个 patched files 从 `local-patches.diff` 干净落到新基线 `f1e6d39a`，无 3-way、无冲突。**本轮在升级前于本会话优化 PATCH-10 的 assistant-mode 文案**（仅改 `plugins/platforms/feishu/adapter.py` 与 `tests/gateway/test_feishu.py`）：身份统一为「琛哥的赛博小助手『木马牛』」；自我介绍节流——`_format_channel_context` 不再丢弃 bot 自身历史消息、改标注 `木马牛 (assistant, you)`，prompt 据此规定近 ~10 条 / ~5 分钟内已自我介绍则不再重复；风控话术——遇沙箱拦截/不允许操作时不以「能力不足」道歉，而是自然说明这是琛哥有意设计的安全边界（护机密、防照搬）并引导找琛哥。经脚本 save→revert→pull(5 commits)→reapply 全流程 clean apply，并验证该三处改动在 reapply 后仍在——幂等成立。PATCH-1/2/7/9/10/11/12 全部行为化验证通过、PATCH-4/5 仍由上游 sentinel 覆盖；28 个 patched files 留在内层 `hermes-agent` modified，`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `f1e6d39a`，`tests/gateway/test_feishu.py` 207 passed。
-- 依赖：`uv` 仍触发 `/Users/chenzhou/.local/share/uv/python` mismatch，脚本用 `--python venv/bin/python` fallback 自愈（"Install recovered via explicit --python fallback"）；`npm audit fix` 报 no vulnerabilities 但仍改动 tracked `package-lock.json`（脚本告警，未纳入 `local-patches.diff`）；Skills mirror **+0 / ~0 / -1**。
-- 已知摩擦：`uv` python-path mismatch 每轮复发靠 fallback 兜底；`package-lock.json` 仍 dirty 且不纳入 `local-patches.diff`。
-- 配置漂移：无 schema migration，`config.yaml` 仍为 v30（doctor `Config version up to date`）；doctor 剩 `ALIBABA_CODING_PLAN_API_KEY` 无效与若干可选 API key 未配置；Gateway 经 stop→start 重启加载补丁，service loaded、running。
-- 依赖：`uv` 仍因 `/Users/chenzhou/.local/share/uv/python` 报 python-path mismatch，脚本 step 3 用 `--python venv/bin/python` fallback 自愈（日志 "Install recovered via explicit --python fallback"）；`npm audit fix` 报 no vulnerabilities 但仍改动 tracked `hermes-agent/package-lock.json`；Skills mirror 同步 **+1 / ~1 / -3**。
-- 已知摩擦：`uv` python-path mismatch 每轮复发，靠 `--python venv/bin/python` fallback 兜底；`hermes-agent/package-lock.json` 仍被 npm 步骤改动且不纳入 `local-patches.diff`，保持为待审查工作树改动（脚本已告警）。本轮 patch 全程 in-script clean apply，无需手工 remap。
-- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 `ALIBABA_CODING_PLAN_API_KEY` 无效与若干可选 API keys 未配置。Gateway 经脚本 Step 8d stop→start 重启加载补丁，service loaded，PID `62183`，`LastExitStatus=0`，Feishu WS 重新连上。
+- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**安全 / Dashboard**——限制 dashboard plugin backend import 只能加载 bundled plugins（#43719），集中非 bundled plugin source 常量，TUI/gateway approval prompt 发送前 redact 凭据（#48456），media delivery 拒绝 root-level credential stores，git checkout/container 环境允许 dashboard updates（#51005）。**Desktop**——修 floating composer portal/clamp/out-of-bounds，新增长线程 timeline rail，tool preview 进入 composer status stack，补 preview rail toggle / open-in-browser，并柔化 inline code 与 expanded tool chrome。**computer-use**——新增 whole-screen/desktop capture target，cua-driver vision capture 改走 `get_window_state`，跨平台 preflight（win/linux）、macOS permission preflight 面板、`stdin=DEVNULL` 与 cua-driver >=0.5.x capture 修复。**Memory / Goals / Cron**——Honcho OAuth desktop + CLI connect/token refresh（#44335），no-agent memory char limit 与 `/memory approve` fresh-store 修复，`/goal` evidence-based completion contracts（#50501），background-review aux-model selector（#49252），cron profile execution 修复后又按 #51116 回退 job storage 到 per-profile。**工具 / 平台 / Skills**——`file_tools` 按 profile home 解析 `~`（#48552），新增 cloudflare-temporary-deploy optional skill（#50849），image/video schema delivery instruction 平台中性化（#51031），Telegram stale topic binding prune，Discord 100-command sync limit 清理，agent 最后一轮 final text 补全。
+- patch apply：**全部 clean apply**——33 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到新基线 `bb7ff7dc`，无 3-way、无冲突；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `bb7ff7dc302cbcbe41cf6bc09424ffc9fb2d062f`。本轮未发现 PATCH 被上游吸收，PATCH-10/11/12 仍活跃，PATCH-4/5 仍由上游 sentinel 覆盖。锚点漂移均为上下文行号漂移：如 `hermes_cli/tools_config.py` 的 `_get_platform_tools` 从约 `1571 → 1503`，Feishu adapter 相关 hunk 随本地 assistant identity throttle / channel context snapshot 扩展漂移到约 `395 → 403`、`4223 → 4658`、`4460 → 5002`；行为化验证全部 OK。
+- 依赖：`uv` 仍触发 `/Users/chenzhou/.local/share/uv/python` mismatch，日志中先出现 2 次失败，随后脚本用 `--python venv/bin/python` fallback 自愈（"Install recovered via explicit --python fallback"）；`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`，按设计不纳入 `local-patches.diff`。Skills mirror 同步 **+0 / ~0 / -3**。
+- 已知摩擦：`uv` python-path mismatch 每轮复发，当前 fallback 可恢复；`hermes-agent/package-lock.json` 仍为 npm/audit 生成漂移，保持在补丁跟踪之外，脚本已提示单独 review；本轮 patch 全程 in-script clean apply，无需手工 remap。
+- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 1 个 issue：`ALIBABA_CODING_PLAN_API_KEY` 无效。Gateway 已由脚本重启并加载补丁，service loaded，PID `46146`，`LastExitStatus=0`。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -279,18 +281,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-10] Feishu 群聊提及触发、上下文回填与群聊配置隔离
 
-| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/run.py`, `gateway/session_context.py`, `gateway/authz_mixin.py`, `hermes_cli/tools_config.py`, `tests/gateway/feishu_helpers.py`, `tests/gateway/test_config.py`, `tests/gateway/test_feishu.py`, `tests/gateway/test_feishu_bot_admission.py`, `tests/gateway/test_feishu_bot_auth_bypass.py`, `tests/gateway/test_session_env.py`, `website/docs/reference/environment-variables.md`, `website/docs/user-guide/configuration.md`, `website/docs/user-guide/messaging/feishu.md` |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/run.py`, `gateway/session_context.py`, `gateway/authz_mixin.py`, `hermes_cli/tools_config.py`, `tools/feishu_doc_tool.py`, `tools/file_operations.py`, `tests/gateway/feishu_helpers.py`, `tests/gateway/test_config.py`, `tests/gateway/test_feishu.py`, `tests/gateway/test_feishu_bot_admission.py`, `tests/gateway/test_feishu_bot_auth_bypass.py`, `tests/gateway/test_session_env.py`, `tests/tools/test_feishu_tools.py`, `tests/tools/test_file_operations.py`, `website/docs/reference/environment-variables.md`, `website/docs/user-guide/configuration.md`, `website/docs/user-guide/messaging/feishu.md` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
-**问题**：上游 Feishu 群聊主要按 `@bot` 触发，无法表达“@bot 或 @指定本人账号才回复；其他群消息静默”。同时群聊和私聊共用 `feishu` 平台工具配置，难以给群聊设置更窄工具面；被触发时也缺少最近群消息上下文，导致只能看当前消息，不能基于近 30 条群聊记录回复。
+**问题**：上游 Feishu 群聊主要按 `@bot` 触发，无法表达“@bot 或 @指定本人账号才回复；其他群消息静默”。同时群聊和私聊共用 `feishu` 平台工具配置，难以给群聊设置更窄工具面；被触发时也缺少最近群消息上下文，导致只能看当前消息，不能基于近 30 条群聊记录回复。群聊/普通 gateway 工具调用中也没有 Feishu comment context 的 thread-local client，`feishu_doc_read` 即使有 tenant credentials 也会失败；飞书缓存目录里的 `.xlsx` 附件会被通用 `read_file` 判成二进制，无法读出表格内容。
 
-**修复**：新增 `mention_triggers`、`assistant_user_ids`、`assistant_identity_label`，支持 `bot` 与 `assistant_users` 两类触发；`@配置本人账号` 时注入 assistant-mode 约束：明确自己是琛哥的赛博小助手「木马牛」、琛哥可能在忙、只能先尝试代答；技术问题按 `llm-wiki → web_search/web_extract → 模型通用知识` 优先级回答；使用 `llm-wiki` 时明确先 `skill_view` 读取说明，再用 `read_file` / `search_files` 读取 `~/.hermes/wiki` 的真实内容，不把缺少 terminal 误判为缺少 wiki 权限；不懂/不确定时直接说明需要琛哥确认；工作安排、责任归属、承诺类事项使用强势明确口吻，但不得替琛哥承诺、担责或定责。新增 Feishu group history backfill：`history_backfill_limit`、`history_backfill_seconds`、`history_backfill_max_chars`。Gateway session 新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，Feishu 群聊映射到 `feishu_group`，私聊仍为 `feishu`。授权层新增 `FEISHU_GROUP_ALLOWED_CHATS`，可授权群 chat_id 或 `*`，但不放开 DM。
+**修复**：新增 `mention_triggers`、`assistant_user_ids`、`assistant_identity_label`，支持 `bot` 与 `assistant_users` 两类触发；`@配置本人账号` 时注入 assistant-mode 约束：明确自己是琛哥的赛博小助手「木马牛」、琛哥可能在忙、只能先尝试代答；技术问题按 `llm-wiki → web_search/web_extract → 模型通用知识` 优先级回答；使用 `llm-wiki` 时明确先 `skill_view` 读取说明，再用 `read_file` / `search_files` 读取 `~/.hermes/wiki` 的真实内容，不把缺少 terminal 误判为缺少 wiki 权限；不懂/不确定时直接说明需要琛哥确认；工作安排、责任归属、承诺类事项使用强势明确口吻，但不得替琛哥承诺、担责或定责。新增 Feishu group history backfill：`history_backfill_limit`、`history_backfill_seconds`、`history_backfill_max_chars`。Gateway session 新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，Feishu 群聊映射到 `feishu_group`，私聊仍为 `feishu`。授权层新增 `FEISHU_GROUP_ALLOWED_CHATS`，可授权群 chat_id 或 `*`，但不放开 DM。`feishu_doc_read` 无 comment client 时可从 env / `~/.hermes/.env` 构建 tenant client；`read_file` 在二进制检测前识别 `.xlsx`，用标准库 zip/xml 抽取 sheet 文本，旧 `.xls` 明确提示需要转换器。
 
-**验证**：Step 8b grep `assistant_user_ids`、`_fetch_channel_context`、`HERMES_SESSION_PLATFORM_CONFIG_KEY`、`feishu_group`、`FEISHU_GROUP_ALLOWED_CHATS`、`history_backfill_max_chars`。定向测试覆盖设置加载、群历史格式化、未 @ 静默、@bot 触发、@本人账号触发、`feishu_group` session key、群授权不放开 DM。
+**验证**：Step 8b grep `assistant_user_ids`、`_fetch_channel_context`、`HERMES_SESSION_PLATFORM_CONFIG_KEY`、`feishu_group`、`FEISHU_GROUP_ALLOWED_CHATS`、`history_backfill_max_chars`、`_client_from_env`、`_read_spreadsheet`、`test_doc_read_builds_env_client_outside_comment_context`、`test_read_file_extracts_xlsx_as_text`。定向测试覆盖设置加载、群历史格式化、未 @ 静默、@bot 触发、@本人账号触发、`feishu_group` session key、群授权不放开 DM、无 comment context 时从 env 构建 Feishu client 读 doc，以及最小 `.xlsx` 文件被 `read_file` 抽取出 sheet 名、表头和数据行。
 
-**上游吸收判断**：如果上游后续原生提供等价的 Feishu mention trigger、assistant-user trigger、history backfill、per-group platform config key 和 group chat allowlist，可将本补丁归档；保留验证 grep 作为 sentinel，或改成上游行为测试。
+**上游吸收判断**：如果上游后续原生提供等价的 Feishu mention trigger、assistant-user trigger、history backfill、per-group platform config key、group chat allowlist、Feishu doc tenant-client fallback 与 `.xlsx` 附件文本读取，可将本补丁归档；保留验证 grep 作为 sentinel，或改成上游行为测试。
 
 > **2026-06-22（落点迁移，非归档）**：上游 `560010547` `refactor(gateway): migrate ... adapters to bundled plugins` 把 `gateway/platforms/feishu.py` 整体迁移为 bundled plugin `plugins/platforms/feishu/adapter.py`（约 5511 行单体）。本补丁的 feishu hunk 落点随之从 `gateway/platforms/feishu.py` 改为 `plugins/platforms/feishu/adapter.py`，19 个 hunk 内容不变、上下文锚点一致，改写路径后 `git apply` 干净落地；`feishu_helpers.py` 与 `test_feishu*.py` 中的 `FeishuAdapter` import 同步从 `gateway.platforms.feishu` 改为 `plugins.platforms.feishu.adapter`。`hermes-update.sh` 的 `PATCHED_FILES`、`FEISHU_PY` 与本块文件清单已同步。补丁功能未被上游吸收，仍为活跃补丁。
 
@@ -306,18 +308,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-11] 平台级 skill allowlist 与只读 skill 工具集
 
-| 字段     | 内容                                                                                                                                                                                                                    |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/skill_utils.py`, `agent/prompt_builder.py`, `tools/skills_tool.py`, `toolsets.py`, `tests/hermes_cli/test_skills_config.py`, `tests/hermes_cli/test_tools_config.py`, `website/docs/user-guide/configuration.md` |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                           |
+| 字段     | 内容                                                                                                                                                                                                                                                       |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/skill_utils.py`, `agent/prompt_builder.py`, `tools/skills_tool.py`, `tests/tools/test_skills_tool.py`, `toolsets.py`, `tests/hermes_cli/test_skills_config.py`, `tests/hermes_cli/test_tools_config.py`, `website/docs/user-guide/configuration.md` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                              |
 
 **问题**：`skills.disabled` 只能做全局/平台禁用，无法表达“群聊只允许少数安全 skill，但私聊保持不受限”。同时上游 `skills` toolset 同时包含 `skills_list`、`skill_view`、`skill_manage`；群聊只想读取 `llm-wiki` 时，如果直接启用 `skills`，会把写/改 skill 的 `skill_manage` 也暴露给群成员。
 
-**修复**：新增 `skills.platform_allowed.<platform>` allowlist。未配置表示保持原行为；配置为空列表表示该平台禁用所有 skill；配置具体名称表示只允许这些 skill。`build_skills_system_prompt`、`skills_list`、`skill_view`、skill config var discovery 都遵守该 allowlist，并优先使用 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，因此 Feishu 群聊能独立使用 `feishu_group` allowlist。新增内部工具集 `skills_readonly`，只包含 `skills_list` 与 `skill_view`，不包含 `skill_manage`。
+**修复**：新增 `skills.platform_allowed.<platform>` allowlist。未配置表示保持原行为；配置为空列表表示该平台禁用所有 skill；配置具体名称表示只允许这些 skill。`build_skills_system_prompt`、`skills_list`、`skill_view`、skill config var discovery 都遵守该 allowlist，并优先使用 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，因此 Feishu 群聊能独立使用 `feishu_group` allowlist。新增内部工具集 `skills_readonly`，只包含 `skills_list` 与 `skill_view`，不包含 `skill_manage`。本地分类 skill 的 `category:skill` 规范名也按短名兜底匹配 allowlist，避免配置已允许 `feishu-docs` 时 `skill_view("productivity:feishu-docs")` 被误拒。
 
-**验证**：Step 8b grep `get_allowed_skill_names` 在 `agent/skill_utils.py`、`agent/prompt_builder.py`、`tools/skills_tool.py` 中存在，并 grep `toolsets.py` 中存在 `skills_readonly`、`file_readonly`、`skills_list`、`skill_view`、`read_file`、`search_files`。定向测试覆盖空 allowlist 禁用全部 skill、命名 allowlist 只允许指定 skill、`feishu_group` 独立工具集配置，以及内部 `file_readonly` 工具集不会被平台配置过滤。
+**验证**：Step 8b grep `get_allowed_skill_names` 在 `agent/skill_utils.py`、`agent/prompt_builder.py`、`tools/skills_tool.py` 中存在，并 grep `toolsets.py` 中存在 `skills_readonly`、`file_readonly`、`skills_list`、`skill_view`、`read_file`、`search_files`，另 grep `tests/tools/test_skills_tool.py` 中存在 `test_qualified_local_skill_allowed_by_bare_name`。定向测试覆盖空 allowlist 禁用全部 skill、命名 allowlist 只允许指定 skill、qualified 本地分类 skill 按短名通过、`feishu_group` 独立工具集配置，以及内部 `file_readonly` 工具集不会被平台配置过滤。
 
-**本机当前配置**：`config.yaml` 中 `platform_toolsets.feishu_group` 使用 `[web, clarify, feishu_doc, skills_readonly, file_readonly]`，`skills.platform_allowed.feishu_group: [llm-wiki]`。`plugins/sandbox/config.yaml` 对非 owner Feishu 群聊额外放行 `skills_list`、`skill_view`、`feishu_doc_read`、`read_file`、`search_files`，但 skill 名单仍被 `feishu_group` allowlist 限制为 `llm-wiki`，文件读取/检索也被 `allowed_read_roots_for_outsider_groups: [~/.hermes/wiki]` 限制。因此群聊可读取/加载 `llm-wiki` 并只读检索本地 wiki 内容，但没有 `skill_manage`、`write_file`、`patch`、`todo` 和 `terminal`；Feishu 私聊未配置 `skills.platform_allowed.feishu`，保持 skill 不受群聊 allowlist 限制。
+**本机当前配置**：`config.yaml` 中 `platform_toolsets.feishu_group` 使用 `[web, clarify, feishu_doc, skills_readonly, file_readonly]`，`skills.platform_allowed.feishu_group: [llm-wiki, feishu-docs, character-voices]`。`plugins/sandbox/config.yaml` 对非 owner Feishu 群聊额外放行 `skills_list`、`skill_view`、`feishu_doc_read`、`read_file`、`search_files`、`terminal`，但 skill 名单仍被 `feishu_group` allowlist 限制；文件读取/检索也被 `allowed_read_roots_for_outsider_groups` 限制到 wiki/cache/tmp 相关目录。因此群聊可读取允许的 skill、读取 Feishu 文档和已缓存/临时文件，但没有 `skill_manage`、`write_file`、`patch`、`todo`；Feishu 私聊未配置 `skills.platform_allowed.feishu`，保持 skill 不受群聊 allowlist 限制。
 
 **上游吸收判断**：如果上游后续提供平台级 skill allowlist 与只读 skill 工具集，且能通过 `feishu_group` 或等价群聊上下文独立约束 skills，可归档本补丁。
 

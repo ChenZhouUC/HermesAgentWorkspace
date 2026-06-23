@@ -1,9 +1,6 @@
 ---
 name: network-diagnostics
-description: Advanced network and DNS probing, diagnostics, and metrics (CHAOS / ECS / NXDOMAIN / DoT-DoH / ASN).
-category: devops
-version: 2026.06.03
-author: Chen Zhou <chenzhou@uchicago.edu>
+description: Use when probing network, DNS resolver, or OpenWRT/ImmortalWRT proxy performance issues, including CHAOS, ECS, NXDOMAIN, DoT/DoH, and ASN diagnostics.
 ---
 
 # Network Diagnostics & Advanced DNS Probing

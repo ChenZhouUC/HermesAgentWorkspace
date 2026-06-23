@@ -1,9 +1,6 @@
 ---
 name: hermes-agent-meta-ops
-description: "Hermes Agent 的自我运维与错误排查指南：技能 (Skill) 治理、记忆系统恢复、Gateway 权限与会话沙箱、Python 执行环境选择。"
-category: autonomous-ai-agents
-version: 2026.06.08
-author: Chen Zhou <chenzhou@uchicago.edu>
+description: "Use when maintaining or debugging Hermes Agent itself: skill governance, memory recovery, Gateway permissions/session sandboxing, and Python execution environment choice."
 ---
 
 # Hermes Agent Meta-Ops

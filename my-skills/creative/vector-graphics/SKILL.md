@@ -1,9 +1,6 @@
 ---
 name: vector-graphics
-description: Use when the user sends an icon / logo (Feishu image attachment, local PNG/SVG path, or http(s) URL — including HTML pages whose og:image is the icon) and asks for a square SVG, "方形 SVG", "正方形 SVG", or just expects the image normalized. Produces a square-canvas SVG with content centred and the long edge flush to the canvas, written to ~/.hermes/tmp/.
-category: creative
-version: 2026.06.03
-author: Chen Zhou <chenzhou@uchicago.edu>
+description: Use when converting an icon or logo from a Feishu image attachment, local PNG/SVG path, image URL, or HTML page with og:image into a normalized square SVG written to ~/.hermes/tmp/.
 license: MIT
 metadata:
   hermes:

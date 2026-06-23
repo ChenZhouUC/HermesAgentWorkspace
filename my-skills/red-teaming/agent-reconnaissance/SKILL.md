@@ -1,9 +1,6 @@
 ---
 name: agent-reconnaissance
-description: Techniques for reverse-engineering AI agents you own or are authorized to assess via prompt probing, sandbox introspection, and packaged binary analysis.
-category: red-teaming
-version: 2026.06.08
-author: Chen Zhou <chenzhou@uchicago.edu>
+description: Use when authorized to assess an AI agent you own or may red-team, including prompt probing, sandbox introspection, and packaged binary analysis.
 ---
 
 # Agent Reconnaissance & Reverse Engineering

@@ -180,10 +180,10 @@ index bcefb4eec..33c0748a0 100644
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index e1556b37d..ac88556cc 100644
+index e1556b37d..5941876e9 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
-@@ -1013,6 +1013,20 @@ def load_gateway_config() -> GatewayConfig:
+@@ -1013,6 +1013,22 @@ def load_gateway_config() -> GatewayConfig:
                      bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
                  if "group_user_allowed_commands" in platform_cfg:
                      bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
@@ -194,6 +194,8 @@ index e1556b37d..ac88556cc 100644
 +                        "mention_triggers",
 +                        "assistant_user_ids",
 +                        "assistant_identity_label",
++                        "assistant_identity_throttle_messages",
++                        "assistant_identity_throttle_seconds",
 +                        "history_backfill",
 +                        "history_backfill_limit",
 +                        "history_backfill_seconds",
@@ -391,10 +393,10 @@ index 7aadc58f5..a7484dc9c 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index 741dbb267..3241e50fc 100644
+index dfd7c60e7..07bc7e0ab 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -1571,35 +1571,46 @@ def _get_platform_tools(
+@@ -1503,35 +1503,46 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -487,7 +489,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index bf3c49d3b..a1492f788 100644
+index bf3c49d3b..fc366fb6c 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -97,6 +97,7 @@ try:
@@ -506,13 +508,28 @@ index bf3c49d3b..a1492f788 100644
      is_all: bool = False
      is_self: bool = False
  
-@@ -395,6 +397,13 @@ class FeishuAdapterSettings:
+@@ -360,6 +362,12 @@ class FeishuNormalizedMessage:
+     metadata: Dict[str, Any] = field(default_factory=dict)
+ 
+ 
++@dataclass(frozen=True)
++class FeishuChannelContextSnapshot:
++    text: str
++    recent_self_intro_seen: bool = False
++
++
+ @dataclass(frozen=True)
+ class FeishuAdapterSettings:
+     app_id: str  # Canonical bot/app identifier (credential, not from event payloads)
+@@ -395,6 +403,15 @@ class FeishuAdapterSettings:
      group_rules: Dict[str, FeishuGroupRule] = field(default_factory=dict)
      allow_bots: str = "none"  # "none" | "mentions" | "all"
      require_mention: bool = True
 +    mention_triggers: frozenset[str] = frozenset({"bot"})
 +    assistant_user_ids: frozenset[str] = frozenset()
 +    assistant_identity_label: str = "cyber assistant"
++    assistant_identity_throttle_messages: int = 20
++    assistant_identity_throttle_seconds: int = 600
 +    history_backfill: bool = False
 +    history_backfill_limit: int = 20
 +    history_backfill_seconds: int = 1800
@@ -520,7 +537,7 @@ index bf3c49d3b..a1492f788 100644
  
  
  @dataclass
-@@ -424,6 +433,7 @@ RejectReason = Literal[
+@@ -424,6 +441,7 @@ RejectReason = Literal[
      "self_ids_unknown",
      "bots_disabled",
      "bot_not_mentioned",
@@ -528,7 +545,7 @@ index bf3c49d3b..a1492f788 100644
      "group_policy_rejected",
  ]
  
-@@ -543,6 +553,18 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
+@@ -543,6 +561,18 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
      return default if parsed is None else parsed
  
  
@@ -547,7 +564,7 @@ index bf3c49d3b..a1492f788 100644
  # ---------------------------------------------------------------------------
  # Post payload builders and parsers
  # ---------------------------------------------------------------------------
-@@ -1212,6 +1234,7 @@ def _build_mentions_map(
+@@ -1212,6 +1242,7 @@ def _build_mentions_map(
          result[key] = FeishuMentionRef(
              name=name,
              open_id=open_id,
@@ -555,7 +572,7 @@ index bf3c49d3b..a1492f788 100644
              is_self=bot.matches(open_id=open_id, user_id=user_id, name=name),
          )
      return result
-@@ -1361,6 +1384,7 @@ def check_feishu_requirements() -> bool:
+@@ -1361,6 +1392,7 @@ def check_feishu_requirements() -> bool:
              CreateImageRequest, CreateImageRequestBody,
              CreateMessageRequest, CreateMessageRequestBody,
              GetChatRequest, GetMessageRequest, GetMessageResourceRequest,
@@ -563,7 +580,7 @@ index bf3c49d3b..a1492f788 100644
              P2ImMessageMessageReadV1,
              ReplyMessageRequest, ReplyMessageRequestBody,
              UpdateMessageRequest, UpdateMessageRequestBody,
-@@ -1385,6 +1409,7 @@ def check_feishu_requirements() -> bool:
+@@ -1385,6 +1417,7 @@ def check_feishu_requirements() -> bool:
              "GetChatRequest": GetChatRequest,
              "GetMessageRequest": GetMessageRequest,
              "GetMessageResourceRequest": GetMessageResourceRequest,
@@ -571,7 +588,7 @@ index bf3c49d3b..a1492f788 100644
              "P2ImMessageMessageReadV1": P2ImMessageMessageReadV1,
              "ReplyMessageRequest": ReplyMessageRequest,
              "ReplyMessageRequestBody": ReplyMessageRequestBody,
-@@ -1513,6 +1538,28 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1513,6 +1546,28 @@ class FeishuAdapter(BasePlatformAdapter):
                  allow_bots,
              )
              allow_bots = "none"
@@ -600,13 +617,29 @@ index bf3c49d3b..a1492f788 100644
  
          return FeishuAdapterSettings(
              app_id=str(extra.get("app_id") or os.getenv("FEISHU_APP_ID", "")).strip(),
-@@ -1576,6 +1623,27 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1576,6 +1631,43 @@ class FeishuAdapter(BasePlatformAdapter):
              require_mention=_to_boolean(
                  extra.get("require_mention", os.getenv("FEISHU_REQUIRE_MENTION", "true"))
              ),
 +            mention_triggers=mention_triggers,
 +            assistant_user_ids=assistant_user_ids,
 +            assistant_identity_label=assistant_identity_label,
++            assistant_identity_throttle_messages=_coerce_required_int(
++                extra.get(
++                    "assistant_identity_throttle_messages",
++                    os.getenv("FEISHU_ASSISTANT_IDENTITY_THROTTLE_MESSAGES", 20),
++                ),
++                default=20,
++                min_value=0,
++            ),
++            assistant_identity_throttle_seconds=_coerce_required_int(
++                extra.get(
++                    "assistant_identity_throttle_seconds",
++                    os.getenv("FEISHU_ASSISTANT_IDENTITY_THROTTLE_SECONDS", 600),
++                ),
++                default=600,
++                min_value=0,
++            ),
 +            history_backfill=_to_boolean(
 +                extra.get("history_backfill", os.getenv("FEISHU_HISTORY_BACKFILL", "false"))
 +            ),
@@ -628,13 +661,15 @@ index bf3c49d3b..a1492f788 100644
          )
  
      def _apply_settings(self, settings: FeishuAdapterSettings) -> None:
-@@ -1608,6 +1676,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1608,6 +1700,15 @@ class FeishuAdapter(BasePlatformAdapter):
          self._ws_ping_timeout = settings.ws_ping_timeout
          self._allow_bots = settings.allow_bots
          self._require_mention = settings.require_mention
 +        self._mention_triggers = set(settings.mention_triggers)
 +        self._assistant_user_ids = set(settings.assistant_user_ids)
 +        self._assistant_identity_label = settings.assistant_identity_label
++        self._assistant_identity_throttle_messages = settings.assistant_identity_throttle_messages
++        self._assistant_identity_throttle_seconds = settings.assistant_identity_throttle_seconds
 +        self._history_backfill = settings.history_backfill
 +        self._history_backfill_limit = settings.history_backfill_limit
 +        self._history_backfill_seconds = settings.history_backfill_seconds
@@ -642,7 +677,7 @@ index bf3c49d3b..a1492f788 100644
  
      def _build_event_handler(self) -> Any:
          if EventDispatcherHandler is None:
-@@ -3107,6 +3182,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3107,6 +3208,12 @@ class FeishuAdapter(BasePlatformAdapter):
          is_bot: bool = False,
      ) -> None:
          text, inbound_type, media_urls, media_types, mentions = await self._extract_message_content(message)
@@ -651,32 +686,57 @@ index bf3c49d3b..a1492f788 100644
 +            if chat_type != "p2p"
 +            else "dm"
 +        )
++        chat_id = getattr(message, "chat_id", "") or ""
  
          if inbound_type == MessageType.TEXT:
              text = _strip_edge_self_mentions(text, mentions)
-@@ -3122,6 +3202,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3118,10 +3225,26 @@ class FeishuAdapter(BasePlatformAdapter):
+             logger.debug("[Feishu] Ignoring empty text message id=%s", message_id)
+             return
+ 
++        chat_info = await self.get_chat_info(chat_id)
++        source_chat_type = self._resolve_source_chat_type(chat_info=chat_info, event_chat_type=chat_type)
++        channel_context = await self._fetch_channel_context(
++            chat_id=chat_id,
++            trigger_message_id=message_id,
++            trigger_timestamp=getattr(message, "create_time", None),
++            chat_type=source_chat_type,
++        )
++
+         if inbound_type != MessageType.COMMAND:
              hint = _build_mention_hint(mentions)
              if hint:
                  text = f"{hint}\n\n{text}" if text else hint
 +            if trigger_kind == "assistant_user":
-+                text = self._prepend_assistant_user_reply_instruction(text)
++                text = self._prepend_assistant_user_reply_instruction(
++                    text,
++                    recent_self_intro_seen=bool(
++                        channel_context and channel_context.recent_self_intro_seen
++                    ),
++                )
  
          thread_id = getattr(message, "thread_id", None) or getattr(message, "root_id", None) or None
          reply_to_message_id = (
-@@ -3175,8 +3257,133 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3150,13 +3273,11 @@ class FeishuAdapter(BasePlatformAdapter):
+             len(media_urls),
+         )
+ 
+-        chat_id = getattr(message, "chat_id", "") or ""
+-        chat_info = await self.get_chat_info(chat_id)
+         sender_profile = await self._resolve_sender_profile(sender_id, is_bot=is_bot)
+         source = self.build_source(
+             chat_id=chat_id,
+             chat_name=chat_info.get("name") or chat_id or "Feishu Chat",
+-            chat_type=self._resolve_source_chat_type(chat_info=chat_info, event_chat_type=chat_type),
++            chat_type=source_chat_type,
+             user_id=sender_profile["user_id"],
+             user_name=sender_profile["user_name"],
+             thread_id=thread_id,
+@@ -3175,8 +3296,184 @@ class FeishuAdapter(BasePlatformAdapter):
              reply_to_text=reply_to_text,
              timestamp=datetime.now(),
          )
-+        normalized.channel_context = await self._fetch_channel_context(
-+            chat_id=chat_id,
-+            trigger_message_id=message_id,
-+            trigger_timestamp=getattr(message, "create_time", None),
-+            chat_type=getattr(
-+                source,
-+                "chat_type",
-+                self._resolve_source_chat_type(chat_info=chat_info, event_chat_type=chat_type),
-+            ),
-+        )
++        normalized.channel_context = channel_context.text if channel_context else None
          await self._dispatch_inbound_event(normalized)
  
 +    async def _fetch_channel_context(
@@ -686,7 +746,7 @@ index bf3c49d3b..a1492f788 100644
 +        trigger_message_id: str,
 +        trigger_timestamp: Any,
 +        chat_type: str,
-+    ) -> Optional[str]:
++    ) -> Optional[FeishuChannelContextSnapshot]:
 +        """Fetch recent Feishu group messages as one-turn channel context.
 +
 +        The gateway prepends ``MessageEvent.channel_context`` to the current
@@ -706,11 +766,16 @@ index bf3c49d3b..a1492f788 100644
 +        start_ts = max(0, end_ts - self._history_backfill_seconds)
 +
 +        try:
++            page_size = max(
++                self._history_backfill_limit + 1,
++                self._assistant_identity_throttle_messages + 1,
++                1,
++            )
 +            request = self._build_list_message_request(
 +                chat_id=chat_id,
 +                start_time=str(start_ts),
 +                end_time=str(end_ts),
-+                page_size=min(max(self._history_backfill_limit + 1, 1), 50),
++                page_size=min(page_size, 50),
 +            )
 +            response = await asyncio.to_thread(self._client.im.v1.message.list, request)
 +            if not response or getattr(response, "success", lambda: False)() is False:
@@ -722,6 +787,7 @@ index bf3c49d3b..a1492f788 100644
 +            return self._format_channel_context(
 +                items,
 +                trigger_message_id=trigger_message_id,
++                trigger_timestamp=end_ts,
 +            )
 +        except Exception:
 +            logger.warning("[Feishu] Failed to fetch channel context for %s", chat_id, exc_info=True)
@@ -745,11 +811,13 @@ index bf3c49d3b..a1492f788 100644
 +        items: Sequence[Any],
 +        *,
 +        trigger_message_id: str,
-+    ) -> Optional[str]:
-+        lines: List[str] = []
++        trigger_timestamp: Optional[int] = None,
++    ) -> Optional[FeishuChannelContextSnapshot]:
++        throttle_messages = max(0, int(getattr(self, "_assistant_identity_throttle_messages", 20) or 0))
++        throttle_seconds = max(0, int(getattr(self, "_assistant_identity_throttle_seconds", 600) or 0))
++        label_markers = self._assistant_identity_markers()
++        records: List[tuple[int, str, bool, str]] = []
 +        for item in sorted(items, key=lambda msg: self._coerce_feishu_epoch_seconds(getattr(msg, "create_time", None)) or 0):
-+            if len(lines) >= self._history_backfill_limit:
-+                break
 +            if getattr(item, "deleted", False):
 +                continue
 +            if str(getattr(item, "message_id", "") or "") == trigger_message_id:
@@ -767,16 +835,48 @@ index bf3c49d3b..a1492f788 100644
 +            if not text:
 +                continue
 +            sender_label = self._history_sender_label(sender)
++            is_self = self._history_sender_is_self(sender)
++            item_ts = self._coerce_feishu_epoch_seconds(getattr(item, "create_time", None))
++            records.append((item_ts or 0, sender_label, is_self, text))
++
++        recent_self_intro_seen = False
++        for seen_for_throttle, (item_ts, _sender_label, is_self, text) in enumerate(reversed(records)):
++            within_message_window = throttle_messages > 0 and seen_for_throttle < throttle_messages
++            within_time_window = (
++                throttle_seconds > 0
++                and trigger_timestamp is not None
++                and item_ts > 0
++                and 0 <= trigger_timestamp - item_ts <= throttle_seconds
++            )
++            if (
++                is_self
++                and not recent_self_intro_seen
++                and (within_message_window or within_time_window)
++                and self._text_contains_identity_marker(text, label_markers)
++            ):
++                recent_self_intro_seen = True
++                break
++
++        lines: List[str] = []
++        for _item_ts, sender_label, _is_self, text in records[-self._history_backfill_limit :]:
 +            line = f"[{sender_label}] {self._compact_context_text(text)}"
 +            lines.append(line)
 +
 +        if not lines:
++            if recent_self_intro_seen:
++                return FeishuChannelContextSnapshot(
++                    text="",
++                    recent_self_intro_seen=True,
++                )
 +            return None
 +
 +        context = "[Recent channel messages]\n" + "\n".join(lines)
-+        if len(context) <= self._history_backfill_max_chars:
-+            return context
-+        return context[: self._history_backfill_max_chars].rstrip() + "\n[truncated]"
++        if len(context) > self._history_backfill_max_chars:
++            context = context[: self._history_backfill_max_chars].rstrip() + "\n[truncated]"
++        return FeishuChannelContextSnapshot(
++            text=context,
++            recent_self_intro_seen=recent_self_intro_seen,
++        )
 +
 +    def _history_sender_label(self, sender: Any) -> str:
 +        sender_type = str(getattr(sender, "sender_type", "") or "").strip().lower()
@@ -790,6 +890,26 @@ index bf3c49d3b..a1492f788 100644
 +            return f"{label} [bot]"
 +        return label
 +
++    def _history_sender_is_self(self, sender: Any) -> bool:
++        return bool(str(getattr(sender, "id", "") or "").strip() == self._app_id)
++
++    def _assistant_identity_markers(self) -> tuple[str, ...]:
++        label = (getattr(self, "_assistant_identity_label", "") or "").strip()
++        markers = [
++            label,
++            "我是琛哥的赛博小助手",
++            "我是琛哥的赛博助手",
++            "木马牛",
++        ]
++        return tuple(dict.fromkeys(marker for marker in markers if marker))
++
++    @staticmethod
++    def _text_contains_identity_marker(text: str, markers: Sequence[str]) -> bool:
++        compacted = re.sub(r"\s+", "", str(text or ""))
++        if not compacted:
++            return False
++        return any(re.sub(r"\s+", "", marker) in compacted for marker in markers if marker)
++
 +    @staticmethod
 +    def _compact_context_text(text: str) -> str:
 +        return re.sub(r"\s+", " ", str(text or "").replace("\\n", " ")).strip()
@@ -797,7 +917,174 @@ index bf3c49d3b..a1492f788 100644
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -4099,6 +4306,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3618,6 +3915,24 @@ class FeishuAdapter(BasePlatformAdapter):
+             message_id=message_id,
+             normalized=normalized,
+         )
++        if normalized.raw_type == "merge_forward":
++            expanded_text, expanded_media_urls, expanded_media_types = await self._expand_merge_forward_message(
++                message_id=message_id,
++            )
++            if expanded_text:
++                text_prefix = "" if normalized.text_content == FALLBACK_FORWARD_TEXT else normalized.text_content
++                normalized = FeishuNormalizedMessage(
++                    raw_type=normalized.raw_type,
++                    text_content="\n\n".join(part for part in (text_prefix, expanded_text) if part),
++                    preferred_message_type=normalized.preferred_message_type,
++                    image_keys=normalized.image_keys,
++                    media_refs=normalized.media_refs,
++                    mentions=normalized.mentions,
++                    relation_kind=normalized.relation_kind,
++                    metadata=normalized.metadata,
++                )
++            media_urls.extend(expanded_media_urls)
++            media_types.extend(expanded_media_types)
+         inbound_type = self._resolve_normalized_message_type(normalized, media_types)
+         text = normalized.text_content
+ 
+@@ -3632,6 +3947,110 @@ class FeishuAdapter(BasePlatformAdapter):
+ 
+         return text, inbound_type, media_urls, media_types, list(normalized.mentions)
+ 
++    async def _expand_merge_forward_message(self, *, message_id: str) -> tuple[str, List[str], List[str]]:
++        if not self._client or not message_id:
++            return "", [], []
++        try:
++            request = self._build_get_message_request(message_id)
++            response = await asyncio.to_thread(self._client.im.v1.message.get, request)
++            if not response or getattr(response, "success", lambda: False)() is False:
++                code = getattr(response, "code", "unknown")
++                msg = getattr(response, "msg", "message lookup failed")
++                logger.warning("[Feishu] Failed to expand merge_forward %s: [%s] %s", message_id, code, msg)
++                return "", [], []
++            items = getattr(getattr(response, "data", None), "items", None) or []
++        except Exception:
++            logger.warning("[Feishu] Failed to expand merge_forward %s", message_id, exc_info=True)
++            return "", [], []
++
++        child_items = [
++            item
++            for item in items
++            if str(getattr(item, "upper_message_id", "") or "") == message_id
++        ]
++        if not child_items:
++            return "", [], []
++
++        lines: List[str] = []
++        media_urls: List[str] = []
++        media_types: List[str] = []
++        for item in sorted(child_items, key=lambda msg: self._coerce_feishu_epoch_seconds(getattr(msg, "create_time", None)) or 0):
++            child_message_id = str(getattr(item, "message_id", "") or "")
++            body = getattr(item, "body", None)
++            raw_type = str(getattr(item, "msg_type", "") or "")
++            raw_content = str(getattr(body, "content", "") or "")
++            normalized = normalize_feishu_message(
++                message_type=raw_type,
++                raw_content=raw_content,
++                mentions=getattr(item, "mentions", None),
++                bot=self._bot_identity(),
++            )
++            child_media_urls, child_media_types = await self._download_feishu_message_resources(
++                message_id=child_message_id,
++                normalized=normalized,
++            )
++            media_urls.extend(child_media_urls)
++            media_types.extend(child_media_types)
++
++            sender_label = self._history_sender_label(getattr(item, "sender", None))
++            rendered = self._message_context_text(
++                normalized=normalized,
++                media_urls=child_media_urls,
++            )
++            if rendered:
++                lines.append(f"- {sender_label}: {rendered}")
++
++        if not lines:
++            return "", media_urls, media_types
++        return "[Merged forwarded messages]\n" + "\n".join(lines), media_urls, media_types
++
++    @staticmethod
++    def _merge_forward_attachment_notes(
++        *,
++        normalized: FeishuNormalizedMessage,
++        media_urls: Sequence[str],
++    ) -> List[str]:
++        try:
++            from tools.credential_files import to_agent_visible_cache_path
++        except Exception:
++            to_agent_visible_cache_path = lambda path: path
++
++        notes: List[str] = []
++        media_index = 0
++        for _image_key in normalized.image_keys:
++            path = to_agent_visible_cache_path(media_urls[media_index]) if media_index < len(media_urls) else ""
++            notes.append(f"[Image saved at: {path}]" if path else "[Image]")
++            media_index += 1
++        for media_ref in normalized.media_refs:
++            path = to_agent_visible_cache_path(media_urls[media_index]) if media_index < len(media_urls) else ""
++            label = _attachment_placeholder(media_ref.file_name)
++            notes.append(f"{label} saved at: {path}" if path else label)
++            media_index += 1
++        return notes
++
++    @classmethod
++    def _message_context_text(
++        cls,
++        *,
++        normalized: FeishuNormalizedMessage,
++        media_urls: Sequence[str],
++    ) -> str:
++        text = normalized.text_content
++        placeholder = normalized.metadata.get("placeholder_text") if isinstance(normalized.metadata, dict) else None
++        if not text and placeholder:
++            text = str(placeholder)
++
++        notes = cls._merge_forward_attachment_notes(
++            normalized=normalized,
++            media_urls=media_urls,
++        )
++        compact_text = cls._compact_context_text(text)
++        if compact_text and any(note == compact_text or note.startswith(f"{compact_text} saved at:") for note in notes):
++            parts = notes
++        else:
++            parts = [compact_text, *notes]
++        return " ".join(part for part in parts if part).strip()
++
+     async def _download_feishu_message_resources(
+         self,
+         *,
+@@ -3686,6 +4105,8 @@ class FeishuAdapter(BasePlatformAdapter):
+             return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.AUDIO)
+         if preferred == "document":
+             return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
++        if media_types and normalized.raw_type in {"image", "file", "audio", "media"}:
++            return self._resolve_media_message_type(media_types[0], default=MessageType.DOCUMENT)
+         return MessageType.TEXT
+ 
+     async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
+@@ -4043,10 +4464,19 @@ class FeishuAdapter(BasePlatformAdapter):
+             msg_type = getattr(parent, "msg_type", "") or ""
+             raw_content = getattr(body, "content", "") or ""
+             parent_mentions = getattr(parent, "mentions", None) if parent else None
+-            text = self._extract_text_from_raw_content(
+-                msg_type=msg_type,
++            normalized = normalize_feishu_message(
++                message_type=msg_type,
+                 raw_content=raw_content,
+                 mentions=parent_mentions,
++                bot=self._bot_identity(),
++            )
++            media_urls, _media_types = await self._download_feishu_message_resources(
++                message_id=message_id,
++                normalized=normalized,
++            )
++            text = self._message_context_text(
++                normalized=normalized,
++                media_urls=media_urls,
+             )
+             self._message_text_cache[message_id] = text
+             while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
+@@ -4099,6 +4529,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -809,7 +1096,7 @@ index bf3c49d3b..a1492f788 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4114,7 +4326,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4114,7 +4549,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -818,7 +1105,7 @@ index bf3c49d3b..a1492f788 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4124,8 +4336,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4124,8 +4559,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -829,7 +1116,7 @@ index bf3c49d3b..a1492f788 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4223,6 +4435,97 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4223,6 +4658,113 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -842,8 +1129,25 @@ index bf3c49d3b..a1492f788 100644
 +            return "bot"
 +        return "none"
 +
-+    def _prepend_assistant_user_reply_instruction(self, text: str) -> str:
++    def _prepend_assistant_user_reply_instruction(
++        self,
++        text: str,
++        *,
++        recent_self_intro_seen: bool = False,
++    ) -> str:
 +        label = (self._assistant_identity_label or "cyber assistant").strip()
++        if recent_self_intro_seen:
++            self_intro_policy = (
++                "A recent assistant self-introduction is already visible in the group context. "
++                "Do NOT repeat any explicit identity line such as 我是琛哥的赛博小助手「木马牛」. "
++                "Just answer naturally as the ongoing assistant.\n"
++            )
++        else:
++            self_intro_policy = (
++                "No recent assistant self-introduction is visible in the configured throttle window. "
++                "If the conversation needs identity clarity, you may open once with something natural like: "
++                "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。\n"
++            )
 +        instruction = (
 +            "[Feishu assistant mode]\n"
 +            "The triggering group message mentioned the configured human user, 琛哥 / Zhou Chen. "
@@ -852,11 +1156,10 @@ index bf3c49d3b..a1492f788 100644
 +            "Make clear, when you do introduce yourself, that 琛哥 may be busy and you are only making an initial reply on his behalf. "
 +            "Do not claim to be the human user. Use the recent group context when relevant.\n"
 +            # --- self-introduction throttle (avoid repeating who you are) ---
-+            "Self-introduction is for first contact, not every reply. The recent channel context includes your own past "
-+            "messages, labelled '木马牛 (assistant, you)'. Before introducing yourself, scan that context: if you have "
-+            "already disclosed your identity within roughly the last 10 messages or 5 minutes, DO NOT introduce yourself "
-+            "again — just answer naturally as the ongoing assistant. Only when no recent self-introduction is visible, open "
-+            "with something natural like: 我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。\n"
++            "Self-introduction is for first contact, not every reply. "
++            f"The adapter has already checked the recent group window ({self._assistant_identity_throttle_messages} "
++            f"message(s) or {self._assistant_identity_throttle_seconds} second(s)). "
++            f"{self_intro_policy}"
 +            # --- technical answering priority ---
 +            "For technical knowledge questions, use this priority: llm-wiki first when available, "
 +            "then web_search/web_extract for current or missing facts, then general model knowledge. "
@@ -927,7 +1230,7 @@ index bf3c49d3b..a1492f788 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4460,9 +4763,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4460,9 +5002,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -943,7 +1246,7 @@ index bf3c49d3b..a1492f788 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4711,6 +5018,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4711,6 +5257,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -992,7 +1295,7 @@ index d269ba840..411c65927 100644
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
 diff --git a/tests/gateway/feishu_helpers.py b/tests/gateway/feishu_helpers.py
-index ae8a4bfc3..bdf5368fa 100644
+index ae8a4bfc3..24beb0931 100644
 --- a/tests/gateway/feishu_helpers.py
 +++ b/tests/gateway/feishu_helpers.py
 @@ -34,10 +34,14 @@ def make_adapter_skeleton(
@@ -1010,21 +1313,23 @@ index ae8a4bfc3..bdf5368fa 100644
      adapter._bot_open_id = bot_open_id
      adapter._bot_user_id = bot_user_id
      adapter._bot_name = ""
-@@ -49,6 +53,9 @@ def make_adapter_skeleton(
+@@ -49,6 +53,11 @@ def make_adapter_skeleton(
      adapter._allowed_group_users = frozenset()
      adapter._allow_bots = allow_bots
      adapter._require_mention = require_mention
 +    adapter._mention_triggers = mention_triggers or {"bot"}
 +    adapter._assistant_user_ids = assistant_user_ids or set()
 +    adapter._assistant_identity_label = "我的赛博助手"
++    adapter._assistant_identity_throttle_messages = 20
++    adapter._assistant_identity_throttle_seconds = 600
      return adapter
  
  
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index 2542ff431..4b74438db 100644
+index 2542ff431..2c5e33382 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
-@@ -835,6 +835,45 @@ class TestLoadGatewayConfig:
+@@ -835,6 +835,49 @@ class TestLoadGatewayConfig:
  
          assert os.environ.get("FEISHU_ALLOW_BOTS") == "none"
  
@@ -1041,6 +1346,8 @@ index 2542ff431..4b74438db 100644
 +            "  assistant_user_ids:\n"
 +            "    - ou_owner\n"
 +            "  assistant_identity_label: 我的赛博助手\n"
++            "  assistant_identity_throttle_messages: 20\n"
++            "  assistant_identity_throttle_seconds: 600\n"
 +            "  history_backfill: true\n"
 +            "  history_backfill_limit: 12\n"
 +            "  history_backfill_seconds: 900\n"
@@ -1061,6 +1368,8 @@ index 2542ff431..4b74438db 100644
 +        assert extra["mention_triggers"] == ["bot", "assistant_users"]
 +        assert extra["assistant_user_ids"] == ["ou_owner"]
 +        assert extra["assistant_identity_label"] == "我的赛博助手"
++        assert extra["assistant_identity_throttle_messages"] == 20
++        assert extra["assistant_identity_throttle_seconds"] == 600
 +        assert extra["history_backfill"] is True
 +        assert extra["history_backfill_limit"] == 12
 +        assert extra["history_backfill_seconds"] == 900
@@ -1071,10 +1380,111 @@ index 2542ff431..4b74438db 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..de57926bb 100644
+index bb97c7e72..7a5895ae8 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
-@@ -331,6 +331,138 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+@@ -159,6 +159,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
+             "Build Failed\nService: payments-api\nBranch: main\nView Logs\nRetry\nActions: View Logs, Retry",
+         )
+ 
++    @patch.dict(os.environ, {}, clear=True)
++    def test_extract_merge_forward_expands_child_messages_and_media(self):
++        from gateway.config import PlatformConfig
++        from gateway.platforms.base import MessageType
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig())
++        adapter._app_id = "cli_app"
++        adapter._sender_name_cache = {
++            "ou_alice": ("Alice", time.time() + 60),
++            "ou_bob": ("Bob", time.time() + 60),
++        }
++
++        class _MessageAPI:
++            def get(self, request):
++                self.request = request
++                return SimpleNamespace(
++                    success=lambda: True,
++                    data=SimpleNamespace(
++                        items=[
++                            SimpleNamespace(
++                                message_id="om_top",
++                                upper_message_id="",
++                                create_time="1710000000000",
++                                msg_type="merge_forward",
++                                sender=SimpleNamespace(id="ou_alice", sender_type="user"),
++                                body=SimpleNamespace(content='"Merged and Forwarded Message"'),
++                                mentions=[],
++                            ),
++                            SimpleNamespace(
++                                message_id="om_child_text",
++                                upper_message_id="om_top",
++                                create_time="1710000001000",
++                                msg_type="text",
++                                sender=SimpleNamespace(id="ou_alice", sender_type="user"),
++                                body=SimpleNamespace(content=json.dumps({"text": "第一条"})),
++                                mentions=[],
++                            ),
++                            SimpleNamespace(
++                                message_id="om_child_image",
++                                upper_message_id="om_top",
++                                create_time="1710000002000",
++                                msg_type="image",
++                                sender=SimpleNamespace(id="ou_bob", sender_type="user"),
++                                body=SimpleNamespace(content=json.dumps({"image_key": "img_key"})),
++                                mentions=[],
++                            ),
++                        ]
++                    ),
++                )
++
++        class _ResourceAPI:
++            def get(self, request):
++                return SimpleNamespace(
++                    success=lambda: True,
++                    file=SimpleNamespace(read=lambda: b"image-bytes"),
++                    raw=SimpleNamespace(headers={"Content-Type": "image/png"}),
++                    file_name="forward.png",
++                )
++
++        adapter._client = SimpleNamespace(
++            im=SimpleNamespace(
++                v1=SimpleNamespace(
++                    message=_MessageAPI(),
++                    message_resource=_ResourceAPI(),
++                )
++            )
++        )
++
++        async def _direct(func, *args, **kwargs):
++            return func(*args, **kwargs)
++
++        with (
++            patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct),
++            patch("plugins.platforms.feishu.adapter.cache_image_from_bytes", return_value="/tmp/forward.png"),
++        ):
++            text, inbound_type, media_urls, media_types, _mentions = asyncio.run(
++                adapter._extract_message_content(
++                    SimpleNamespace(
++                        message_id="om_top",
++                        message_type="merge_forward",
++                        content='"Merged and Forwarded Message"',
++                        mentions=[],
++                    )
++                )
++            )
++
++        self.assertEqual(inbound_type, MessageType.TEXT)
++        self.assertIn("[Merged forwarded messages]", text)
++        self.assertIn("- Alice: 第一条", text)
++        self.assertIn("- Bob: [Image saved at: /tmp/forward.png]", text)
++        self.assertEqual(media_urls, ["/tmp/forward.png"])
++        self.assertEqual(media_types, ["image/png"])
++
+ 
+ class TestFeishuAdapterMessaging(unittest.TestCase):
+     @patch.dict(os.environ, {
+@@ -331,6 +425,265 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
          self.assertEqual(sleeps, [1])
          self.assertEqual(fake_loop.calls, 2)
  
@@ -1176,20 +1586,147 @@ index bb97c7e72..de57926bb 100644
 +        # The assistant's own prior messages (sender id == app_id) are kept and
 +        # labelled "木马牛 (assistant, you)" so assistant mode can detect a recent
 +        # self-introduction and avoid repeating it.
++        self.assertIsNotNone(result)
 +        self.assertEqual(
-+            result,
++            result.text,
 +            "[Recent channel messages]\n"
 +            "[Bob] hello there\n"
 +            "[BuildBot [bot]] bot note\n"
 +            "[木马牛 (assistant, you)] prior self",
 +        )
++        self.assertFalse(result.recent_self_intro_seen)
 +        request = captured["request"]
 +        self.assertEqual(request.container_id_type, "chat")
 +        self.assertEqual(request.container_id, "oc_chat")
 +        self.assertEqual(request.start_time, "1709999405")
 +        self.assertEqual(request.end_time, "1710000005")
 +        self.assertEqual(request.sort_type, "ByCreateTimeDesc")
-+        self.assertEqual(request.page_size, 4)
++        self.assertEqual(request.page_size, 21)
++
++    @patch.dict(os.environ, {}, clear=True)
++    def test_fetch_channel_context_detects_recent_self_intro(self):
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(
++            PlatformConfig(
++                extra={
++                    "history_backfill": True,
++                    "history_backfill_limit": 3,
++                    "history_backfill_seconds": 1800,
++                    "assistant_identity_throttle_messages": 20,
++                    "assistant_identity_throttle_seconds": 600,
++                    "assistant_identity_label": "琛哥的赛博助手「木马牛」",
++                }
++            )
++        )
++        adapter._app_id = "cli_self"
++        adapter._sender_name_cache = {}
++
++        class _MessageAPI:
++            def list(self, request):
++                return SimpleNamespace(
++                    success=lambda: True,
++                    data=SimpleNamespace(
++                        items=[
++                            SimpleNamespace(
++                                message_id="om_trigger",
++                                create_time="1710000005000",
++                                deleted=False,
++                                msg_type="text",
++                                sender=SimpleNamespace(id="ou_alice", sender_type="user"),
++                                body=SimpleNamespace(content=json.dumps({"text": "trigger"})),
++                                mentions=[],
++                            ),
++                            SimpleNamespace(
++                                message_id="om_self_intro",
++                                create_time="1710000000000",
++                                deleted=False,
++                                msg_type="text",
++                                sender=SimpleNamespace(id="cli_self", sender_type="app"),
++                                body=SimpleNamespace(
++                                    content=json.dumps(
++                                        {"text": "我是琛哥的赛博小助手「木马牛」，我先帮你看看。"},
++                                        ensure_ascii=False,
++                                    )
++                                ),
++                                mentions=[],
++                            ),
++                        ]
++                    ),
++                )
++
++        adapter._client = SimpleNamespace(
++            im=SimpleNamespace(v1=SimpleNamespace(message=_MessageAPI()))
++        )
++
++        async def _direct(func, *args, **kwargs):
++            return func(*args, **kwargs)
++
++        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
++            result = asyncio.run(
++                adapter._fetch_channel_context(
++                    chat_id="oc_chat",
++                    trigger_message_id="om_trigger",
++                    trigger_timestamp="1710000005000",
++                    chat_type="group",
++                )
++            )
++
++        self.assertIsNotNone(result)
++        self.assertTrue(result.recent_self_intro_seen)
++
++    @patch.dict(os.environ, {}, clear=True)
++    def test_format_channel_context_includes_latest_messages_when_throttle_window_is_larger(self):
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(
++            PlatformConfig(
++                extra={
++                    "history_backfill": True,
++                    "history_backfill_limit": 2,
++                    "assistant_identity_throttle_messages": 20,
++                }
++            )
++        )
++        adapter._app_id = "cli_self"
++        adapter._sender_name_cache = {
++            "ou_a": ("A", time.time() + 60),
++            "ou_b": ("B", time.time() + 60),
++            "ou_c": ("C", time.time() + 60),
++        }
++        items = [
++            SimpleNamespace(
++                message_id=f"om_{idx}",
++                create_time=str(1710000000000 + idx * 1000),
++                deleted=False,
++                msg_type="text",
++                sender=SimpleNamespace(id=sender, sender_type="user"),
++                body=SimpleNamespace(content=json.dumps({"text": text})),
++                mentions=[],
++            )
++            for idx, (sender, text) in enumerate(
++                [
++                    ("ou_a", "oldest"),
++                    ("ou_b", "middle"),
++                    ("ou_c", "latest"),
++                ],
++                start=1,
++            )
++        ]
++
++        result = adapter._format_channel_context(
++            items,
++            trigger_message_id="om_trigger",
++            trigger_timestamp=1710000005000,
++        )
++
++        self.assertIsNotNone(result)
++        self.assertEqual(
++            result.text,
++            "[Recent channel messages]\n[B] middle\n[C] latest",
++        )
 +
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_fetch_channel_context_skips_dm(self):
@@ -1213,7 +1750,7 @@ index bb97c7e72..de57926bb 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1953,7 +2085,8 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1953,7 +2306,8 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -1223,7 +1760,7 @@ index bb97c7e72..de57926bb 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -1991,10 +2124,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1991,10 +2345,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -1236,7 +1773,7 @@ index bb97c7e72..de57926bb 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2030,7 +2163,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2030,7 +2384,7 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -1245,7 +1782,7 @@ index bb97c7e72..de57926bb 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2121,7 +2254,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2121,7 +2475,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -1254,7 +1791,7 @@ index bb97c7e72..de57926bb 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2173,7 +2306,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2173,7 +2527,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -1263,8 +1800,35 @@ index bb97c7e72..de57926bb 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
+@@ -4682,6 +5036,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+         result = asyncio.run(adapter._fetch_message_text("m_parent"))
+         self.assertEqual(result, "@Hermes hi")
+ 
++    def test_fetch_message_text_includes_downloaded_attachment_path(self):
++        adapter = self._build_adapter()
++        adapter._download_feishu_message_resources = AsyncMock(
++            return_value=(["/tmp/doc_123_report.pdf"], ["application/pdf"])
++        )
++        parent = SimpleNamespace(
++            body=SimpleNamespace(content=json.dumps({"file_key": "file_doc", "file_name": "report.pdf"})),
++            msg_type="file",
++            mentions=[],
++        )
++        response = Mock()
++        response.success = Mock(return_value=True)
++        response.data = SimpleNamespace(items=[parent])
++        adapter._client.im.v1.message.get = Mock(return_value=response)
++
++        result = asyncio.run(adapter._fetch_message_text("m_parent"))
++
++        self.assertEqual(result, "[Attachment: report.pdf] saved at: /tmp/doc_123_report.pdf")
++        adapter._download_feishu_message_resources.assert_awaited_once()
++
+     def test_build_mentions_map_string_id_shape(self):
+         """_build_mentions_map accepts the reply-history shape (id as str +
+         id_type='open_id'). user_id id_type is not load-bearing for self
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
-index 61628f933..b40afcc5a 100644
+index 61628f933..56efc358c 100644
 --- a/tests/gateway/test_feishu_bot_admission.py
 +++ b/tests/gateway/test_feishu_bot_admission.py
 @@ -3,6 +3,7 @@
@@ -1275,7 +1839,7 @@ index 61628f933..b40afcc5a 100644
  
  import pytest
  
-@@ -72,6 +73,49 @@ def test_feishu_load_settings_falls_back_to_env_when_extra_missing(monkeypatch):
+@@ -72,6 +73,53 @@ def test_feishu_load_settings_falls_back_to_env_when_extra_missing(monkeypatch):
      assert settings.allow_bots == "mentions"
  
  
@@ -1314,18 +1878,22 @@ index 61628f933..b40afcc5a 100644
 +            "mention_triggers": ["bot", "assistant_users"],
 +            "assistant_user_ids": ["ou_owner", "u_owner"],
 +            "assistant_identity_label": "我的赛博助手",
++            "assistant_identity_throttle_messages": 20,
++            "assistant_identity_throttle_seconds": 600,
 +        }
 +    )
 +
 +    assert settings.mention_triggers == frozenset({"bot", "assistant_users"})
 +    assert settings.assistant_user_ids == frozenset({"ou_owner", "u_owner"})
 +    assert settings.assistant_identity_label == "我的赛博助手"
++    assert settings.assistant_identity_throttle_messages == 20
++    assert settings.assistant_identity_throttle_seconds == 600
 +
 +
  def test_feishu_load_settings_warns_on_unknown_allow_bots(monkeypatch, caplog):
      import logging
  
-@@ -372,6 +416,20 @@ _ADMIT_CASES = [
+@@ -372,6 +420,20 @@ _ADMIT_CASES = [
          ),
          id="require_mention_false:group_bot_mentions_mode_still_gated",
      ),
@@ -1346,7 +1914,7 @@ index 61628f933..b40afcc5a 100644
  ]
  
  
-@@ -444,10 +502,33 @@ def test_admit_per_group_require_mention_overrides_global():
+@@ -444,10 +506,33 @@ def test_admit_per_group_require_mention_overrides_global():
      assert adapter._admit(sender, make_message(chat_id="oc_free", chat_type="group")) is None
      assert (
          adapter._admit(sender, make_message(chat_id="oc_other", chat_type="group"))
@@ -1381,7 +1949,7 @@ index 61628f933..b40afcc5a 100644
  # --- Hydration -------------------------------------------------------------
  
  
-@@ -771,3 +852,68 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
+@@ -771,3 +856,92 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
      assert captured.get("sender_id") is sender.sender_id
      assert captured.get("is_bot") is True
      assert captured.get("message_id") == "om_bot_ok"
@@ -1389,6 +1957,8 @@ index 61628f933..b40afcc5a 100644
 +
 +def test_process_inbound_message_injects_assistant_identity_for_owner_mention(monkeypatch):
 +    import asyncio
++
++    from plugins.platforms.feishu.adapter import FeishuChannelContextSnapshot
 +
 +    adapter = make_adapter_skeleton(
 +        bot_open_id="ou_self",
@@ -1443,13 +2013,35 @@ index 61628f933..b40afcc5a 100644
 +    text = captured["event"].text
 +    assert "[Feishu assistant mode]" in text
 +    assert "我的赛博助手" in text
-+    assert "我是琛哥的赛博助手「木马牛」，琛哥可能在忙，由我先尝试回答你。" in text
++    assert "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。" in text
 +    assert "llm-wiki first" in text
 +    assert "read_file/search_files" in text
 +    assert "~/.hermes/wiki" in text
 +    assert "Do not use todo for capability checks" in text
 +    assert "never make commitments" in text
 +    assert "@Owner 能帮忙看下这个吗" in text
++
++    adapter._fetch_channel_context = AsyncMock(
++        return_value=FeishuChannelContextSnapshot(
++            text="[Recent channel messages]\n[木马牛 (assistant, you)] 我是琛哥的赛博小助手「木马牛」",
++            recent_self_intro_seen=True,
++        )
++    )
++    captured.clear()
++
++    asyncio.run(
++        adapter._process_inbound_message(
++            data=SimpleNamespace(),
++            message=message,
++            sender_id=SimpleNamespace(open_id="ou_human", user_id=None, union_id=None),
++            chat_type="group",
++            message_id="om_owner",
++        )
++    )
++
++    throttled_text = captured["event"].text
++    assert "Do NOT repeat any explicit identity line" in throttled_text
++    assert "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。" not in throttled_text
 diff --git a/tests/gateway/test_feishu_bot_auth_bypass.py b/tests/gateway/test_feishu_bot_auth_bypass.py
 index 4dd83a1bd..740d41aed 100644
 --- a/tests/gateway/test_feishu_bot_auth_bypass.py
@@ -1783,6 +2375,153 @@ index 235c7d99a..e36871842 100644
      assert ((new_enabled2 - current) & universe) == {"vision"}
 -
 -
+diff --git a/tests/tools/test_feishu_tools.py b/tests/tools/test_feishu_tools.py
+index 15b27b4ab..0a3f0723f 100644
+--- a/tests/tools/test_feishu_tools.py
++++ b/tests/tools/test_feishu_tools.py
+@@ -1,7 +1,10 @@
+ """Tests for feishu_doc_tool and feishu_drive_tool — registration and schema validation."""
+ 
+ import importlib
++import json
++from types import SimpleNamespace
+ import unittest
++from unittest.mock import Mock, patch
+ 
+ from tools.registry import registry
+ 
+@@ -48,6 +51,65 @@ class TestFeishuToolRegistration(unittest.TestCase):
+         props = entry.schema["parameters"].get("properties", {})
+         self.assertIn("doc_token", props)
+ 
++    def test_doc_read_builds_env_client_outside_comment_context(self):
++        from tools import feishu_doc_tool
++
++        class _Builder:
++            def app_id(self, value):
++                self.app_id_value = value
++                return self
++
++            def app_secret(self, value):
++                self.app_secret_value = value
++                return self
++
++            def domain(self, value):
++                self.domain_value = value
++                return self
++
++            def log_level(self, value):
++                self.log_level_value = value
++                return self
++
++            def build(self):
++                return fake_client
++
++        fake_client = Mock()
++        fake_client.request.return_value = SimpleNamespace(
++            code=0,
++            raw=SimpleNamespace(content=json.dumps({"data": {"content": "doc body"}}).encode()),
++        )
++        fake_lark = SimpleNamespace(
++            AccessTokenType=SimpleNamespace(TENANT="tenant"),
++            Client=SimpleNamespace(builder=lambda: _Builder()),
++            LogLevel=SimpleNamespace(WARNING="warning"),
++        )
++        fake_base_request = Mock()
++        fake_base_request.builder.return_value.http_method.return_value.uri.return_value.token_types.return_value.paths.return_value.build.return_value = object()
++
++        with (
++            patch.object(feishu_doc_tool, "get_client", return_value=None),
++            patch.object(feishu_doc_tool, "_env_value", side_effect=lambda name: {
++                "FEISHU_APP_ID": "cli_app",
++                "FEISHU_APP_SECRET": "secret",
++                "FEISHU_DOMAIN": "feishu",
++            }.get(name, "")),
++            patch.dict(
++                "sys.modules",
++                {
++                    "lark_oapi": fake_lark,
++                    "lark_oapi.core.const": SimpleNamespace(FEISHU_DOMAIN="feishu", LARK_DOMAIN="lark"),
++                    "lark_oapi.core.enum": SimpleNamespace(HttpMethod=SimpleNamespace(GET="GET")),
++                    "lark_oapi.core.model.base_request": SimpleNamespace(BaseRequest=fake_base_request),
++                },
++            ),
++        ):
++            result = json.loads(feishu_doc_tool._handle_feishu_doc_read({"doc_token": "doc_1"}))
++
++        self.assertTrue(result["success"])
++        self.assertEqual(result["content"], "doc body")
++        fake_client.request.assert_called_once()
++
+     def test_drive_tools_require_file_token(self):
+         for tool_name in self.EXPECTED_TOOLS:
+             if tool_name == "feishu_doc_read":
+diff --git a/tests/tools/test_file_operations.py b/tests/tools/test_file_operations.py
+index eda5140b0..e244a84d1 100644
+--- a/tests/tools/test_file_operations.py
++++ b/tests/tools/test_file_operations.py
+@@ -4,6 +4,7 @@ import os
+ import re
+ import pytest
+ import subprocess
++import zipfile
+ from pathlib import Path
+ from unittest.mock import MagicMock
+ 
+@@ -577,6 +578,53 @@ class TestShellFileOpsHelpers:
+         assert result.error is None
+         assert result.content == "alpha\n"
+ 
++    def test_read_file_extracts_xlsx_as_text(self, tmp_path):
++        from tools.environments.local import LocalEnvironment
++
++        xlsx_path = tmp_path / "report.xlsx"
++        with zipfile.ZipFile(xlsx_path, "w") as zf:
++            zf.writestr(
++                "xl/workbook.xml",
++                """<?xml version="1.0" encoding="UTF-8"?>
++<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
++ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
++  <sheets><sheet name="指标" sheetId="1" r:id="rId1"/></sheets>
++</workbook>""",
++            )
++            zf.writestr(
++                "xl/_rels/workbook.xml.rels",
++                """<?xml version="1.0" encoding="UTF-8"?>
++<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
++  <Relationship Id="rId1" Type="worksheet" Target="worksheets/sheet1.xml"/>
++</Relationships>""",
++            )
++            zf.writestr(
++                "xl/sharedStrings.xml",
++                """<?xml version="1.0" encoding="UTF-8"?>
++<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
++  <si><t>日期</t></si><si><t>客流</t></si>
++</sst>""",
++            )
++            zf.writestr(
++                "xl/worksheets/sheet1.xml",
++                """<?xml version="1.0" encoding="UTF-8"?>
++<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
++  <sheetData>
++    <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>
++    <row r="2"><c r="A2"><v>2026-06-23</v></c><c r="B2"><v>128</v></c></row>
++  </sheetData>
++</worksheet>""",
++            )
++
++        ops = ShellFileOperations(LocalEnvironment(cwd=str(tmp_path)))
++        result = ops.read_file(str(xlsx_path), offset=1, limit=20)
++
++        assert result.error is None
++        assert result.is_binary is False
++        assert "1|## Sheet: 指标" in result.content
++        assert "2|日期\t客流" in result.content
++        assert "3|2026-06-23\t128" in result.content
++
+ 
+ class TestSearchPathValidation:
+     """Test that search() returns an error for non-existent paths."""
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
 index 245ca9347..016c7e101 100644
 --- a/tests/tools/test_skill_manager_tool.py
@@ -1833,6 +2572,311 @@ index 245ca9347..016c7e101 100644
      def test_create_duplicate_blocked(self, tmp_path):
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
+diff --git a/tests/tools/test_skills_tool.py b/tests/tools/test_skills_tool.py
+index a7445207c..c48e60159 100644
+--- a/tests/tools/test_skills_tool.py
++++ b/tests/tools/test_skills_tool.py
+@@ -1044,6 +1044,50 @@ class TestSkillViewPrerequisites:
+         assert result["success"] is False
+         assert "Failed to read skill 'broken-skill'" in result["error"]
+ 
++    def test_qualified_local_skill_allowed_by_bare_name(
++        self, tmp_path, monkeypatch
++    ):
++        config_home = tmp_path / ".hermes"
++        config_home.mkdir()
++        (config_home / "config.yaml").write_text(
++            "skills:\n"
++            "  platform_allowed:\n"
++            "    feishu_group:\n"
++            "      - feishu-docs\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(config_home))
++        monkeypatch.setenv("HERMES_PLATFORM", "feishu_group")
++        _make_skill(tmp_path, "feishu-docs", category="productivity")
++
++        with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
++            raw = skill_view("productivity:feishu-docs")
++
++        result = json.loads(raw)
++        assert result["success"] is True
++        assert "feishu-docs" in result["content"]
++
++    def test_qualified_local_skill_still_rejects_unlisted_bare_name(
++        self, tmp_path, monkeypatch
++    ):
++        config_home = tmp_path / ".hermes"
++        config_home.mkdir()
++        (config_home / "config.yaml").write_text(
++            "skills:\n"
++            "  platform_allowed:\n"
++            "    feishu_group:\n"
++            "      - feishu-docs\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(config_home))
++        monkeypatch.setenv("HERMES_PLATFORM", "feishu_group")
++        _make_skill(tmp_path, "other-docs", category="productivity")
++
++        with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
++            raw = skill_view("productivity:other-docs")
++
++        result = json.loads(raw)
++        assert result["success"] is False
++        assert "not allowed" in result["error"]
++
+     def test_legacy_flat_md_skill_preserves_frontmatter_metadata(self, tmp_path):
+         flat_skill = tmp_path / "legacy-skill.md"
+         flat_skill.write_text(
+diff --git a/tools/feishu_doc_tool.py b/tools/feishu_doc_tool.py
+index 6d2aad8fc..9fdf4348a 100644
+--- a/tools/feishu_doc_tool.py
++++ b/tools/feishu_doc_tool.py
+@@ -6,7 +6,10 @@ Uses the same lazy-import + BaseRequest pattern as feishu_comment.py.
+ 
+ import json
+ import logging
++import os
++import re
+ import threading
++from pathlib import Path
+ 
+ from tools.registry import registry, tool_error, tool_result
+ 
+@@ -26,6 +29,45 @@ def get_client():
+     return getattr(_local, "client", None)
+ 
+ 
++def _env_value(name: str) -> str:
++    value = os.environ.get(name, "").strip()
++    if value:
++        return value
++    env_path = Path.home() / ".hermes" / ".env"
++    try:
++        content = env_path.read_text(encoding="utf-8")
++    except OSError:
++        return ""
++    match = re.search(rf"^\s*(?:export\s+)?{re.escape(name)}\s*=\s*(.*)\s*$", content, re.MULTILINE)
++    if not match:
++        return ""
++    return match.group(1).strip().strip("'\"")
++
++
++def _client_from_env():
++    app_id = _env_value("FEISHU_APP_ID")
++    app_secret = _env_value("FEISHU_APP_SECRET")
++    if not app_id or not app_secret:
++        return None
++
++    try:
++        import lark_oapi as lark
++        from lark_oapi.core.const import FEISHU_DOMAIN, LARK_DOMAIN
++    except ImportError:
++        return None
++
++    domain_name = (_env_value("FEISHU_DOMAIN") or "feishu").lower()
++    domain = LARK_DOMAIN if domain_name == "lark" else FEISHU_DOMAIN
++    return (
++        lark.Client.builder()
++        .app_id(app_id)
++        .app_secret(app_secret)
++        .domain(domain)
++        .log_level(lark.LogLevel.WARNING)
++        .build()
++    )
++
++
+ # ---------------------------------------------------------------------------
+ # feishu_doc_read
+ # ---------------------------------------------------------------------------
+@@ -73,7 +115,9 @@ def _handle_feishu_doc_read(args: dict, **kwargs) -> str:
+ 
+     client = get_client()
+     if client is None:
+-        return tool_error("Feishu client not available (not in a Feishu comment context)")
++        client = _client_from_env()
++    if client is None:
++        return tool_error("Feishu client not available (missing FEISHU_APP_ID / FEISHU_APP_SECRET)")
+ 
+     try:
+         from lark_oapi import AccessTokenType
+diff --git a/tools/file_operations.py b/tools/file_operations.py
+index 78bdd8d63..e8d2ebd4f 100644
+--- a/tools/file_operations.py
++++ b/tools/file_operations.py
+@@ -28,6 +28,7 @@ Usage:
+ import os
+ import re
+ import difflib
++import json
+ from abc import ABC, abstractmethod
+ from dataclasses import dataclass, field
+ from typing import Optional, List, Dict, Any, ClassVar
+@@ -1088,6 +1089,9 @@ class ShellFileOperations(FileOperations):
+                     "Use vision_analyze with this file path to inspect the image contents."
+                 ),
+             )
++
++        if self._is_spreadsheet(path):
++            return self._read_spreadsheet(path, offset=offset, limit=limit, file_size=file_size)
+         
+         # Read a sample to check for binary content
+         sample_cmd = f"head -c 1000 {self._escape_shell_arg(path)} 2>/dev/null"
+@@ -1229,6 +1233,155 @@ class ShellFileOperations(FileOperations):
+             file_size=file_size,
+         )
+ 
++    @staticmethod
++    def _is_spreadsheet(path: str) -> bool:
++        return Path(path or "").suffix.lower() in {".xlsx", ".xls"}
++
++    def _read_spreadsheet(self, path: str, *, offset: int, limit: int, file_size: int) -> ReadResult:
++        ext = Path(path).suffix.lower()
++        if ext == ".xls":
++            return ReadResult(
++                is_binary=True,
++                file_size=file_size,
++                error=(
++                    "Legacy .xls spreadsheet detected. This backend can read .xlsx files, "
++                    "but .xls requires a converter such as libreoffice or python-xlrd."
++                ),
++            )
++
++        script = r'''
++import json
++import re
++import sys
++import xml.etree.ElementTree as ET
++import zipfile
++
++path = sys.argv[1]
++ns = {
++    "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
++    "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
++}
++
++def local_name(tag):
++    return tag.rsplit("}", 1)[-1]
++
++def text_from_rich(node):
++    parts = []
++    for text in node.iter("{%s}t" % ns["main"]):
++        parts.append(text.text or "")
++    return "".join(parts)
++
++def col_index(cell_ref):
++    letters = re.sub(r"[^A-Z]", "", cell_ref.upper())
++    total = 0
++    for char in letters:
++        total = total * 26 + (ord(char) - 64)
++    return max(total - 1, 0)
++
++def cell_text(cell, shared):
++    cell_type = cell.attrib.get("t", "")
++    value_node = cell.find("main:v", ns)
++    if cell_type == "inlineStr":
++        inline = cell.find("main:is", ns)
++        return text_from_rich(inline) if inline is not None else ""
++    if value_node is None:
++        return ""
++    raw = value_node.text or ""
++    if cell_type == "s":
++        try:
++            return shared[int(raw)]
++        except (ValueError, IndexError):
++            return raw
++    if cell_type == "b":
++        return "TRUE" if raw == "1" else "FALSE"
++    return raw
++
++with zipfile.ZipFile(path) as zf:
++    shared = []
++    if "xl/sharedStrings.xml" in zf.namelist():
++        root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
++        for item in root.findall("main:si", ns):
++            shared.append(text_from_rich(item))
++
++    workbook = ET.fromstring(zf.read("xl/workbook.xml"))
++    rels = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
++    rel_map = {rel.attrib["Id"]: rel.attrib["Target"] for rel in rels}
++    lines = []
++
++    for sheet in workbook.findall("main:sheets/main:sheet", ns):
++        sheet_name = sheet.attrib.get("name", "Sheet")
++        rel_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
++        target = rel_map.get(rel_id, "")
++        if not target:
++            continue
++        sheet_path = "xl/" + target.lstrip("/")
++        sheet_path = sheet_path.replace("xl/xl/", "xl/")
++        if sheet_path not in zf.namelist():
++            continue
++
++        root = ET.fromstring(zf.read(sheet_path))
++        rows = []
++        for row in root.findall(".//main:sheetData/main:row", ns):
++            values = []
++            for cell in row.findall("main:c", ns):
++                ref = cell.attrib.get("r", "")
++                idx = col_index(ref) if ref else len(values)
++                while len(values) < idx:
++                    values.append("")
++                values.append(cell_text(cell, shared))
++            while values and values[-1] == "":
++                values.pop()
++            if values:
++                rows.append("\t".join(values))
++
++        lines.append("## Sheet: " + sheet_name)
++        lines.extend(rows or ["[empty sheet]"])
++
++print(json.dumps({"content": "\n".join(lines)}, ensure_ascii=False))
++'''
++        result = self._exec(
++            f"python3 -c {self._escape_shell_arg(script)} {self._escape_shell_arg(path)}",
++            timeout=30,
++        )
++        if result.exit_code != 0:
++            result = self._exec(
++                f"python -c {self._escape_shell_arg(script)} {self._escape_shell_arg(path)}",
++                timeout=30,
++            )
++        if result.exit_code != 0:
++            return ReadResult(
++                is_binary=True,
++                file_size=file_size,
++                error=f"Failed to read spreadsheet: {(result.stdout or '').strip() or 'python unavailable'}",
++            )
++        try:
++            payload = json.loads(_strip_terminal_fence_leaks(result.stdout))
++            content = str(payload.get("content", ""))
++        except (json.JSONDecodeError, AttributeError):
++            return ReadResult(
++                is_binary=True,
++                file_size=file_size,
++                error=f"Failed to parse spreadsheet output: {(result.stdout or '').strip()[:500]}",
++            )
++
++        lines = content.splitlines()
++        total_lines = len(lines)
++        start = max(offset - 1, 0)
++        end = start + limit
++        page = "\n".join(lines[start:end])
++        truncated = total_lines > end
++        hint = None
++        if truncated:
++            hint = f"Use offset={end + 1} to continue reading (showing {offset}-{end} of {total_lines} lines)"
++        return ReadResult(
++            content=self._add_line_numbers(page, offset),
++            total_lines=total_lines,
++            file_size=file_size,
++            truncated=truncated,
++            hint=hint,
++            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++        )
++
+     def delete_file(self, path: str) -> WriteResult:
+         """Delete a single file.
+ 
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
 index b7883aaba..0b2989ff7 100644
 --- a/tools/lazy_deps.py
@@ -1916,7 +2960,7 @@ index e3f48b2b6..bc1ebfca7 100644
  
      message = f"Skill '{name}' deleted."
 diff --git a/tools/skills_tool.py b/tools/skills_tool.py
-index 2ba57adc5..e01c71a2a 100644
+index 2ba57adc5..f0b82f107 100644
 --- a/tools/skills_tool.py
 +++ b/tools/skills_tool.py
 @@ -568,7 +568,11 @@ def _get_session_platform() -> str:
@@ -2027,11 +3071,15 @@ index 2ba57adc5..e01c71a2a 100644
                  if not plugin_skill_md.exists():
                      # Stale registry entry — file deleted out of band
                      pm.remove_plugin_skill(name)
-@@ -1118,6 +1155,26 @@ def skill_view(
+@@ -1118,6 +1155,30 @@ def skill_view(
                  ensure_ascii=False,
              )
  
-+        if not _is_skill_allowed(name):
++        allowed_name_candidates = [name]
++        if local_category_name and "/" in local_category_name:
++            allowed_name_candidates.append(local_category_name.rsplit("/", 1)[-1])
++
++        if not any(_is_skill_allowed(candidate) for candidate in allowed_name_candidates):
 +            return json.dumps(
 +                {
 +                    "success": False,
@@ -2054,7 +3102,7 @@ index 2ba57adc5..e01c71a2a 100644
          # Read the file once — reused for platform check and main content below
          try:
              content = skill_md.read_text(encoding="utf-8")
-@@ -1177,6 +1234,15 @@ def skill_view(
+@@ -1177,6 +1238,15 @@ def skill_view(
  
          # Check if the skill is disabled by the user
          resolved_name = parsed_frontmatter.get("name", skill_md.parent.name)
@@ -2113,7 +3161,7 @@ index 38a27e622..4590ea5f0 100644
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 3387c80c7..8e8e9be73 100644
+index 31a8c0f1c..0d9f0aa4f 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
 @@ -353,8 +353,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
@@ -2131,10 +3179,10 @@ index 3387c80c7..8e8e9be73 100644
  | `WECOM_BOT_ID` | WeCom AI Bot ID from admin console |
  | `WECOM_SECRET` | WeCom AI Bot secret |
 diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
-index 4208868cb..fb03f515d 100644
+index 4208868cb..540058f35 100644
 --- a/website/docs/user-guide/configuration.md
 +++ b/website/docs/user-guide/configuration.md
-@@ -695,6 +695,52 @@ the `hermes tools` UI.
+@@ -695,6 +695,56 @@ the `hermes tools` UI.
  
  Leaving the list empty, or omitting the key, is a no-op.
  
@@ -2178,17 +3226,21 @@ index 4208868cb..fb03f515d 100644
 +  history_backfill_limit: 20
 +  history_backfill_seconds: 1800
 +  history_backfill_max_chars: 6000
++  assistant_identity_throttle_messages: 20
++  assistant_identity_throttle_seconds: 600
 +```
 +
 +History backfill uses Feishu's group message list API and injects the formatted
 +messages into the current turn only. It does not permanently import group
-+history into the Hermes transcript.
++history into the Hermes transcript. The assistant identity throttle settings
++stop group assistant mode from repeating explicit self-introductions when one
++already appears in the recent room context.
 +
  ## Git Worktree Isolation
  
  Enable isolated git worktrees for running multiple agents in parallel on the same repo:
 diff --git a/website/docs/user-guide/messaging/feishu.md b/website/docs/user-guide/messaging/feishu.md
-index 1c5a66543..11ef86cce 100644
+index 1c5a66543..ba6adb3e2 100644
 --- a/website/docs/user-guide/messaging/feishu.md
 +++ b/website/docs/user-guide/messaging/feishu.md
 @@ -189,6 +189,16 @@ FEISHU_ALLOWED_USERS=ou_xxx,ou_yyy
@@ -2208,7 +3260,7 @@ index 1c5a66543..11ef86cce 100644
  ### Webhook Encryption Key
  
  When running in webhook mode, set an encryption key to enable signature verification of inbound webhook payloads:
-@@ -528,6 +538,36 @@ Set `require_mention: false` on a `group_rules` entry to skip the @-mention requ
+@@ -528,6 +538,43 @@ Set `require_mention: false` on a `group_rules` entry to skip the @-mention requ
  
  Groups not listed in `group_rules` fall back to `default_group_policy` (defaults to the value of `FEISHU_GROUP_POLICY`).
  
@@ -2230,6 +3282,8 @@ index 1c5a66543..11ef86cce 100644
 +  history_backfill_limit: 20
 +  history_backfill_seconds: 1800
 +  history_backfill_max_chars: 6000
++  assistant_identity_throttle_messages: 20
++  assistant_identity_throttle_seconds: 600
 +```
 +
 +| Setting | Default | Description |
@@ -2238,14 +3292,19 @@ index 1c5a66543..11ef86cce 100644
 +| `history_backfill_limit` | `20` | Maximum historical messages to include |
 +| `history_backfill_seconds` | `1800` | Time window before the trigger message |
 +| `history_backfill_max_chars` | `6000` | Maximum formatted context characters |
++| `assistant_identity_throttle_messages` | `20` | Suppress repeated assistant self-introductions if one appears in this many recent group messages |
++| `assistant_identity_throttle_seconds` | `600` | Suppress repeated assistant self-introductions if one appears in this many seconds |
 +
 +History backfill is skipped for Feishu DMs. Deleted messages, the trigger
 +message, and Hermes' own prior bot messages are excluded from the context block.
++Merged forwarded messages (`merge_forward`) are expanded through the message
++detail API when possible; nested images and files are cached as normal inbound
++attachments so vision and document handling can reuse the same paths.
 +
  ## Deduplication
  
  Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedup state is persisted across restarts to `~/.hermes/feishu_seen_message_ids.json`.
-@@ -545,8 +585,13 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
+@@ -545,8 +592,13 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
  | `FEISHU_DOMAIN` | — | `feishu` | `feishu` (China) or `lark` (international) |
  | `FEISHU_CONNECTION_MODE` | — | `websocket` | `websocket` or `webhook` |
  | `FEISHU_ALLOWED_USERS` | — | _(empty)_ | Comma-separated open_id list for user allowlist |

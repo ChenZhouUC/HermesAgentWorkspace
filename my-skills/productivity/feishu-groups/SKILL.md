@@ -1,9 +1,6 @@
 ---
 name: feishu-groups
-description: "Directory of frequently used Feishu group chat_ids, plus how to interact with groups via the Open API: sending messages, listing available groups (GET /im/v1/chats), bot availability scope (Error 230013), and reading shared contact cards (share_user). Use when sending messages or scheduling cron jobs to Feishu groups."
-category: productivity
-version: 2026.06.23
-author: Chen Zhou <chenzhou@uchicago.edu>
+description: "Use when sending messages or cron jobs to Feishu groups, resolving known chat_ids, listing groups, handling bot availability, reading chat history/merge_forward messages, or parsing share_user contact cards."
 ---
 
 # Feishu Group Directory
@@ -53,5 +50,37 @@ Sending DMs via `receive_id_type=open_id` returns **Error 230013** (`Bot has NO 
 ### Reading Contact Cards (share_user)
 
 When users share contact cards, message type is `share_user` with content `{"user_id": "ou_xxxxx"}`. Query chat history via `GET /im/v1/messages?container_id_type=chat&container_id=oc_xxxxx` and filter for `msg_type == "share_user"`.
+
+### Reading Chat History & Merged Messages (merge_forward)
+
+To retrieve recent messages in a group chat, query `GET /im/v1/messages` with `container_id_type=chat` and a group `chat_id`:
+
+```python
+url = "https://open.feishu.cn/open-apis/im/v1/messages?container_id_type=chat&container_id=oc_xxxxx&page_size=50"
+headers = {"Authorization": f"Bearer {token}"}
+res = requests.get(url, headers=headers).json()
+```
+
+#### Parsing Merged and Forwarded Messages (merge_forward)
+
+When a user forwards a bundle of messages, the top-level message type is `merge_forward` and its raw content is simply `"Merged and Forwarded Message"`. To extract the actual nested conversation logs:
+
+1. Get the top-level `message_id` of the `merge_forward` message (e.g., `om_xxxxxx`).
+2. Query `GET /im/v1/messages/:message_id`. This endpoint expands and returns the top-level message along with **all nested child messages** in the response `items` array, marked with `upper_message_id`.
+
+```python
+# Fetch details for the merge_forward message_id
+url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}"
+res = requests.get(url, headers=headers).json()
+items = res.get("data", {}).get("items", [])
+
+# Extract children linked to the merge_forward message
+child_messages = [item for item in items if item.get("upper_message_id") == message_id]
+for msg in child_messages:
+    # content is usually a JSON string
+    content_raw = msg.get("body", {}).get("content", "{}")
+    content = json.loads(content_raw)
+    print(f"[{msg.get('sender', {}).get('id')}]: {content.get('text')}")
+```
 
 See `references/bot-messaging-and-availability.md` for full patterns.

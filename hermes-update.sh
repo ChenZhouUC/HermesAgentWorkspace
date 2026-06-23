@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.17.0 / main 9bf9a9f1, `hermes completion zsh` already emits the
+# As of v0.17.0 / main bb7ff7dc, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -72,7 +72,12 @@ PATCHED_FILES=(
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
     "tools/skills_tool.py"
+    "tests/tools/test_skills_tool.py"
     "toolsets.py"
+    "tools/feishu_doc_tool.py"
+    "tests/tools/test_feishu_tools.py"
+    "tools/file_operations.py"
+    "tests/tools/test_file_operations.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
     "tests/gateway/test_feishu.py"
@@ -681,15 +686,23 @@ SESSION_CONTEXT_PY="${HERMES_AGENT}/gateway/session_context.py"
 GATEWAY_CONFIG_PY="${HERMES_AGENT}/gateway/config.py"
 AUTHZ_MIXIN_PY="${HERMES_AGENT}/gateway/authz_mixin.py"
 TOOLS_CONFIG_PY="${HERMES_AGENT}/hermes_cli/tools_config.py"
-if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" ]]; then
+FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
+FILE_OPERATIONS_PY="${HERMES_AGENT}/tools/file_operations.py"
+FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
+FILE_OPERATIONS_TEST_PY="${HERMES_AGENT}/tests/tools/test_file_operations.py"
+if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
         grep -q 'feishu_group' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'FEISHU_GROUP_ALLOWED_CHATS' "${AUTHZ_MIXIN_PY}" 2>/dev/null &&
         grep -q 'history_backfill_max_chars' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
-        grep -q 'recover_platform_tools' "${TOOLS_CONFIG_PY}" 2>/dev/null; then
-        ok "Feishu group mention/context patch: active (bot/@assistant trigger, group history, feishu_group key)"
+        grep -q 'recover_platform_tools' "${TOOLS_CONFIG_PY}" 2>/dev/null &&
+        grep -q '_client_from_env' "${FEISHU_DOC_TOOL_PY}" 2>/dev/null &&
+        grep -q '_read_spreadsheet' "${FILE_OPERATIONS_PY}" 2>/dev/null &&
+        grep -q 'test_doc_read_builds_env_client_outside_comment_context' "${FEISHU_TOOLS_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_read_file_extracts_xlsx_as_text' "${FILE_OPERATIONS_TEST_PY}" 2>/dev/null; then
+        ok "Feishu group mention/context patch: active (bot/@assistant trigger, group history, feishu_group key, doc/xlsx reads)"
         _FEISHU_GROUP_PATCH_OK=true
     else
         warn "Feishu group mention/context patch inactive or partial"
@@ -702,11 +715,13 @@ fi
 SKILL_UTILS_PY="${HERMES_AGENT}/agent/skill_utils.py"
 PROMPT_BUILDER_PY="${HERMES_AGENT}/agent/prompt_builder.py"
 SKILLS_TOOL_PY="${HERMES_AGENT}/tools/skills_tool.py"
+SKILLS_TOOL_TEST_PY="${HERMES_AGENT}/tests/tools/test_skills_tool.py"
 TOOLSETS_PY="${HERMES_AGENT}/toolsets.py"
-if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${TOOLSETS_PY}" ]]; then
+if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${SKILLS_TOOL_TEST_PY}" && -f "${TOOLSETS_PY}" ]]; then
     if grep -q 'get_allowed_skill_names' "${SKILL_UTILS_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${PROMPT_BUILDER_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${SKILLS_TOOL_PY}" 2>/dev/null &&
+        grep -q 'test_qualified_local_skill_allowed_by_bare_name' "${SKILLS_TOOL_TEST_PY}" 2>/dev/null &&
         grep -q 'skills_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'file_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'skill_view' "${TOOLSETS_PY}" 2>/dev/null &&

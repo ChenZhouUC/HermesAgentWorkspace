@@ -132,6 +132,7 @@ _hermes() {
                     computer_use_cmds=(
                     'doctor:Run cua-driver `health_report` and surface the check matrix'
                     'install:Install or repair the cua-driver binary (macOS/Windows/Linux'
+                    'permissions:Check or grant macOS Accessibility + Screen Recording (macOS'
                     'status:Print whether cua-driver is installed and on PATH'
                     )
                     _describe 'computer-use command' computer_use_cmds

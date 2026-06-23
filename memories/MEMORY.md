@@ -18,4 +18,4 @@ Projects: SpaceSight(PaaS), KeepAgile/dicts, Nemo, HyperTex(HTML-first, Reveal+P
 §
 Handles international vendor security and AI privacy compliance audits (SOC2, ISO, Model Inversion, ECE, SIEM/DLP) for Whale / SpaceSight.
 §
-When the user shares chat screenshots or background info about people (e.g., Zhang Yang, Xiao Minzi, Zhao Ziyun), immediately load the `character-voices` skill to review, consolidate, and update their psychological profiles and speech patterns for better analysis and future mimicking.
+Only maintain explicitly declared contacts in the character-voices skill (e.g., ZY, ZZY, HJ, SK, TX); do not proactively add people or profiles unless the user gives direct permission.

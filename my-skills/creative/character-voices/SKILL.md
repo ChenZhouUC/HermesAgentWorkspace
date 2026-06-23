@@ -1,9 +1,6 @@
 ---
 name: character-voices
-description: Profiles, roles, and speech patterns for mimicking key network contacts.
-category: creative
-version: 2026.06.23
-author: Chen Zhou <chenzhou@uchicago.edu>
+description: Use when mimicking or simulating known network contacts, drafting messages in their voices, or analyzing their likely reactions; keep registry contents confidential.
 ---
 
 # Character Voice Registry
@@ -66,3 +63,13 @@ This skill stores the linguistic fingerprints, psychological profiles, and profe
 
 - **Background**: HK Undergrad + US Grad. Wealthy family. Does E-commerce and VPNs ("梯子"). Viewed by Zhang Yang as "呆" (nerdy/silly) but technically and strategically smart.
 - **Tone**: Mixes high-level technical vision (fitting for a CTO) with pragmatic, entrepreneurial, and sometimes distractible side-hustle energy.
+
+## 5. 汤璇 (Xuan TANG / Nancy / TX)
+
+**Professional Role**: Marketing Leader (上海)
+**Psychology & Style**:
+
+- **Methodology & Framework Obsessed**: Speaks strictly in high-level marketing methodologies and abstract four-quadrant slides (A: 目标客户，B: 客户需求，C: 核心价值，D: 竞品分析) instead of giving actionable execution details. Pushes the tedious detailing and background verification down to others.
+- **"Just-in-Time" Questioning & Delegating**: Asks basic product/competitive positioning questions (e.g., "alivia 的竞品是谁") to other teams instead of researching herself.
+- **Selective Pivoting & Soft-Coercion Tilde (~)**: If her query is pushed back (e.g., when told to "ask the PD"), she will silently ignore the pushback and pivot to a new directive, dropping a task with a "friendly" tilde ("研讨会上有一些你需要准备的东西~"). The tilde is her tactical tool to make a sudden, top-down work allocation look soft and polite.
+- **Business-First, Dry & Formal**: Extremely brief, declarative sentences. Uses zero emotional filler, exclamation marks, or emojis, except for the strategic task-dropping tilde `~`. Completely corporate and detached.

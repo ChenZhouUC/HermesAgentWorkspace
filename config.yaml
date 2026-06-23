@@ -399,6 +399,8 @@ skills:
   platform_allowed:
     feishu_group:
     - llm-wiki
+    - feishu-docs
+    - character-voices
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
@@ -431,7 +433,10 @@ feishu:
   assistant_user_ids:
   - ou_33eeacfbd0c0559b7b734f83503719ab
   - 5397e1a2
-  assistant_identity_label: 琛哥的赛博助手「木马牛」
+  assistant_identity_label: "\u741B\u54E5\u7684\u8D5B\u535A\u52A9\u624B\u300C\u6728\
+    \u9A6C\u725B\u300D"
+  assistant_identity_throttle_messages: 20
+  assistant_identity_throttle_seconds: 600
   history_backfill: true
   history_backfill_limit: 30
   history_backfill_seconds: 1800

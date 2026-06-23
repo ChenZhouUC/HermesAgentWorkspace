@@ -1,9 +1,6 @@
 ---
 name: feishu-docs
-description: "Master guide for Feishu (Lark) Docs: read via Bot API, convert Markdown via Import API, update existing docs (precise indexing, tables, mentions), and read Minutes."
-category: productivity
-version: 2026.06.03
-author: Chen Zhou <chenzhou@uchicago.edu>
+description: "Use when reading, summarizing, creating, importing, updating, rebuilding, deleting, or exporting Feishu/Lark Docs, Docx, file attachments, or Minutes."
 ---
 
 # Feishu (Lark) Docs & Minutes Management
@@ -52,6 +49,20 @@ If you absolutely MUST create a new document (e.g., explicitly forced), you MUST
 
 ```bash
 uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/create_new_doc_from_md.py <md_file_path> "<Professional_Title>"
+```
+
+**Feishu group sandbox command:** In group chats, `uv run`, shell redirection, and
+general file writes may be unavailable. Use the existing script directly and
+pass the Markdown body as data:
+
+```bash
+python ~/.hermes/my-skills/productivity/feishu-docs/scripts/create_new_doc_from_md.py --title "<Professional_Title>" --content "# Title\n\nMarkdown body..."
+```
+
+For quoting-heavy content, pass base64 instead:
+
+```bash
+python ~/.hermes/my-skills/productivity/feishu-docs/scripts/create_new_doc_from_md.py --title "<Professional_Title>" --content-b64 "<base64_utf8_markdown>"
 ```
 
 **Transient Error Pitfall (code: 5006):** If the script fails during the `CreateObjNode` step with `job_status=3 detail={'extra': ['_pod_name'], 'job_error_msg': 'call CreateObjNode return error code, code: 5006...`, this is a transient Feishu API sync/rate-limit issue. **Do not modify the file or script.** Simply re-run the exact same command and it will usually succeed immediately.
