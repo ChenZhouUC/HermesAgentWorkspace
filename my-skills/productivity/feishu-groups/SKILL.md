@@ -11,8 +11,7 @@ This skill acts as a persistent directory for frequently used Feishu groups.
 
 | Group Name             | chat_id                               | Notes           |
 | :--------------------- | :------------------------------------ | :-------------- |
-| SI Owners              | `oc_baeecd57161e7ffd13ab880596f418d2` | Added June 2026 |
-| 无能宝们               | `oc_762bc7151b62028453555c1ecef97fec` | Added June 2026 |
+| SpaceSight 救命稻草    | `oc_4ca3cb5ee37232ca0b244f139ae785fa` | Added June 2026 |
 | Data Pipeline Workshop | `oc_e11903076f3393e0f237cb406b6c3a07` | Added June 2026 |
 
 ## Instructions

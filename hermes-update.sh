@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.17.0 / main bb7ff7dc, `hermes completion zsh` already emits the
+# As of v0.17.0 / main 5ecf3bf0, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -690,8 +690,10 @@ FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
 FILE_OPERATIONS_PY="${HERMES_AGENT}/tools/file_operations.py"
 FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
 FILE_OPERATIONS_TEST_PY="${HERMES_AGENT}/tests/tools/test_file_operations.py"
-if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" ]]; then
+FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admission.py"
+if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_sender_is_configured_assistant_user' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
         grep -q 'feishu_group' "${GATEWAY_RUN_PY}" 2>/dev/null &&
@@ -701,8 +703,9 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" 
         grep -q '_client_from_env' "${FEISHU_DOC_TOOL_PY}" 2>/dev/null &&
         grep -q '_read_spreadsheet' "${FILE_OPERATIONS_PY}" 2>/dev/null &&
         grep -q 'test_doc_read_builds_env_client_outside_comment_context' "${FEISHU_TOOLS_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_read_file_extracts_xlsx_as_text' "${FILE_OPERATIONS_TEST_PY}" 2>/dev/null; then
-        ok "Feishu group mention/context patch: active (bot/@assistant trigger, group history, feishu_group key, doc/xlsx reads)"
+        ok "Feishu group mention/context patch: active (bot/@assistant trigger, configured-human no-intro, group history, feishu_group key, doc/xlsx reads)"
         _FEISHU_GROUP_PATCH_OK=true
     else
         warn "Feishu group mention/context patch inactive or partial"

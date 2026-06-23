@@ -1,6 +1,9 @@
 ---
 name: character-voices
-description: Use when mimicking or simulating known network contacts, drafting messages in their voices, or analyzing their likely reactions; keep registry contents confidential.
+description: Profiles, roles, and speech patterns for mimicking key network contacts.
+category: creative
+version: 2026.06.23
+author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # Character Voice Registry
@@ -47,13 +50,14 @@ This skill stores the linguistic fingerprints, psychological profiles, and profe
 ## 3. 黄健 (Jian HUANG)
 
 **Professional Role**: SA 售前解决方案架构师负责人 (Head of Pre-sales Solution Architecture)
-**Psychology**: Solution Expert. Rational, boundaries-driven, corporate.
+**Psychology**: Solution Expert. Rational, boundaries-driven, corporate. Also deeply involved in hardware product execution and delivery workflows (SN rules, firmware switching).
 **Voice & Profile**:
 
-- **Tone**: Calm, rational, corporate, firm. Does not get dragged into emotional venting.
-- **Communication Style**: Sets clear boundaries and logical prerequisites. Protects pre-sales SA resources and insists on clear product/consulting scopes before committing efforts.
-  - "乐道的事情，BD 要求，我们支持配合。" (Process-driven)
-  - "所以我觉得你还是没想清楚 Consulting 的定位是啥。想清楚了，我们再聊这个吧，否则再聊也没结果。"
+- **Structured, Ticket-Style Communication**: Often starts with "Hello <写入沟通对象的称呼>" followed by highly detailed background context, then immediately lists numbered demands ("需要你帮忙：1. 定义... 2. 将该 SN 序列...").
+- **Obsessed with Process & Traceability**: Even for "one box, two uses" (hardware same, software unlock), he insists on distinct Serial Number (SN) rules for ERP management and delivery tracking to avoid "mix-ups" (e.g., standard vs. pro version).
+- **Risk Aversion via Documentation**: When facing complex deployments (e.g., SDP private deployment), explicitly demands written configuration specs ("配置规范，形成书面文档") from Product to shield the SA team from blame.
+- **Pragmatic Alignment**: Will quickly align with process-oriented proposals (like PMO's) if it unblocks the delivery. "I only care about solving the problem, no need to discuss the right or wrong of the past."
+- **Boundary-Setting & Firm**: Does not get dragged into emotional venting. Insists on clear scopes before committing efforts.
 
 ## 4. 谢树昆 (Xie Shukun / SK)
 
@@ -73,3 +77,14 @@ This skill stores the linguistic fingerprints, psychological profiles, and profe
 - **"Just-in-Time" Questioning & Delegating**: Asks basic product/competitive positioning questions (e.g., "alivia 的竞品是谁") to other teams instead of researching herself.
 - **Selective Pivoting & Soft-Coercion Tilde (~)**: If her query is pushed back (e.g., when told to "ask the PD"), she will silently ignore the pushback and pivot to a new directive, dropping a task with a "friendly" tilde ("研讨会上有一些你需要准备的东西~"). The tilde is her tactical tool to make a sudden, top-down work allocation look soft and polite.
 - **Business-First, Dry & Formal**: Extremely brief, declarative sentences. Uses zero emotional filler, exclamation marks, or emojis, except for the strategic task-dropping tilde `~`. Completely corporate and detached.
+
+## 6. 马捷 (Jie MA / James)
+
+**Professional Role**: PMO (Project Management Office)
+**Psychology**: The "Process Policeman" / The Detached Administrator. Focuses entirely on the ritual of resolution rather than the actual technical business problem.
+**Voice & Style**:
+
+- **Corporate Bureaucracy & Moralizing**: Loves formalizing conflicts into "Special Communication Meetings" and rigid "Escalation Mechanisms" (PMO -> CTO -> CEO). Preaches about behavior ("就事论事", "对事不对人", "保持理性平和", "不情绪化争执").
+- **Self-Righteous "Education"**: Likes to lecture others on how to collaborate. Uses phrases like "各方均应秉持自省复盘的心态", "先向内梳理本部门可优化环节", "换位思考".
+- **Detached from Reality**: Obsessed with creating written rules ("形成书面文档") but lacks practical business operational experience.
+- **Vocabulary**: "协同共赢", "对齐诉求", "知悉", "专项沟通", "闭环", "赋能" (if using AI tools).

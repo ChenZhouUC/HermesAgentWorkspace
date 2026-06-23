@@ -1,0 +1,48 @@
+{
+  "jobs": [
+    {
+      "id": "ccb273ada501",
+      "name": "\u6728\u9a6c\u725b\u665a\u5b89\u95ee\u5019",
+      "prompt": "Run the script at ~/.hermes/scripts/nightly_greeting.py to send the nightly greeting message to all groups registered in the feishu-groups skill.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 22 * * *",
+        "display": "0 22 * * *"
+      },
+      "schedule_display": "0 22 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 1
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-23T22:07:31.987308+08:00",
+      "next_run_at": "2026-06-24T22:00:00+08:00",
+      "last_run_at": "2026-06-23T22:08:22.378832+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_c8221472cf59b202ccd0682cf6cea296",
+        "chat_name": "oc_c8221472cf59b202ccd0682cf6cea296",
+        "thread_id": null
+      },
+      "enabled_toolsets": ["terminal", "file"],
+      "workdir": "/Users/chenzhou",
+      "fire_claim": null
+    }
+  ],
+  "updated_at": "2026-06-23T22:08:22.380059+08:00"
+}

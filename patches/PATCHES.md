@@ -84,6 +84,8 @@ Step 8d: Gateway restart（post-patch）
 
 `git diff --check` 同时报告冲突标记**和** trailing whitespace / indent 问题。上游代码风格变化（如多一个尾部空格）就会触发误报，导致功能完好的 patch 被回滚。
 
+外层仓库用 `.gitattributes` 对 `patches/*.diff` 设置 `-whitespace`：unified diff 里的合法空白上下文行可能表现为 `+ ` / ` `，不应让 `git diff --check` 把 patch 文件自身误判为 trailing whitespace。patch 文件有效性仍以 `git apply --check`、冲突标记扫描和重新生成 diff 比较为准。
+
 `_has_conflict_markers()` 只用 grep 精确匹配 `<<<<<<<`、`=======`、`>>>>>>>` 三种标记的标准格式，避免误判：
 
 ```bash
@@ -187,17 +189,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `bb7ff7dc`，2026-06-23)
+## 当前版本：v0.17.0 (upstream `main` `5ecf3bf0`，2026-06-23)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12（共 8 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+52 commits，basis `f1e6d39a` → `bb7ff7dc`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+5 commits，basis `bb7ff7dc` → `5ecf3bf0`）要点**：
 
-- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**安全 / Dashboard**——限制 dashboard plugin backend import 只能加载 bundled plugins（#43719），集中非 bundled plugin source 常量，TUI/gateway approval prompt 发送前 redact 凭据（#48456），media delivery 拒绝 root-level credential stores，git checkout/container 环境允许 dashboard updates（#51005）。**Desktop**——修 floating composer portal/clamp/out-of-bounds，新增长线程 timeline rail，tool preview 进入 composer status stack，补 preview rail toggle / open-in-browser，并柔化 inline code 与 expanded tool chrome。**computer-use**——新增 whole-screen/desktop capture target，cua-driver vision capture 改走 `get_window_state`，跨平台 preflight（win/linux）、macOS permission preflight 面板、`stdin=DEVNULL` 与 cua-driver >=0.5.x capture 修复。**Memory / Goals / Cron**——Honcho OAuth desktop + CLI connect/token refresh（#44335），no-agent memory char limit 与 `/memory approve` fresh-store 修复，`/goal` evidence-based completion contracts（#50501），background-review aux-model selector（#49252），cron profile execution 修复后又按 #51116 回退 job storage 到 per-profile。**工具 / 平台 / Skills**——`file_tools` 按 profile home 解析 `~`（#48552），新增 cloudflare-temporary-deploy optional skill（#50849），image/video schema delivery instruction 平台中性化（#51031），Telegram stale topic binding prune，Discord 100-command sync limit 清理，agent 最后一轮 final text 补全。
-- patch apply：**全部 clean apply**——33 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到新基线 `bb7ff7dc`，无 3-way、无冲突；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `bb7ff7dc302cbcbe41cf6bc09424ffc9fb2d062f`。本轮未发现 PATCH 被上游吸收，PATCH-10/11/12 仍活跃，PATCH-4/5 仍由上游 sentinel 覆盖。锚点漂移均为上下文行号漂移：如 `hermes_cli/tools_config.py` 的 `_get_platform_tools` 从约 `1571 → 1503`，Feishu adapter 相关 hunk 随本地 assistant identity throttle / channel context snapshot 扩展漂移到约 `395 → 403`、`4223 → 4658`、`4460 → 5002`；行为化验证全部 OK。
+- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**Agent / Gateway RPC**——`af7b7f632` 暴露 coding-context project facts 为结构化数据并新增 `project.facts` RPC（#51259），`211ba9c7d` 新增 one-shot LLM helper 与 `llm.oneshot` gateway RPC（#51261）。**Relay**——`45bc4fb37` 向 connector 声明 relevance policy，并补充 relay management plane contract 文档（#51248）。**Slack**——`219658416` 支持转录 Slack in-app voice message 的 `audio/mp4`，`5ecf3bf0e` 为重路由 voice clips 报告扩展名匹配出的 audio mimetype。
+- patch apply：**全部 clean apply**——33 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到新基线 `5ecf3bf0`，无 3-way、无冲突；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `5ecf3bf0e0726b8b33682bb5c3aad9679b7b5be4`。本轮未发现 PATCH 被上游吸收，PATCH-10/11/12 仍活跃，PATCH-4/5 仍由上游 sentinel 覆盖。上游只轻触 `gateway/run.py`（relay policy session var）这一处 patch 管理文件，相关 hunk 仅行号从约 `8390 → 8396`、`9705 → 9711` 等小幅漂移；行为化验证全部 OK。
 - 依赖：`uv` 仍触发 `/Users/chenzhou/.local/share/uv/python` mismatch，日志中先出现 2 次失败，随后脚本用 `--python venv/bin/python` fallback 自愈（"Install recovered via explicit --python fallback"）；`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`，按设计不纳入 `local-patches.diff`。Skills mirror 同步 **+0 / ~0 / -3**。
 - 已知摩擦：`uv` python-path mismatch 每轮复发，当前 fallback 可恢复；`hermes-agent/package-lock.json` 仍为 npm/audit 生成漂移，保持在补丁跟踪之外，脚本已提示单独 review；本轮 patch 全程 in-script clean apply，无需手工 remap。
-- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 1 个 issue：`ALIBABA_CODING_PLAN_API_KEY` 无效。Gateway 已由脚本重启并加载补丁，service loaded，PID `46146`，`LastExitStatus=0`。
+- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 1 个 issue：`ALIBABA_CODING_PLAN_API_KEY` 无效。Gateway 已由脚本重启并加载补丁，service loaded，PID `76156`，`LastExitStatus=0`。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -286,13 +288,13 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/run.py`, `gateway/session_context.py`, `gateway/authz_mixin.py`, `hermes_cli/tools_config.py`, `tools/feishu_doc_tool.py`, `tools/file_operations.py`, `tests/gateway/feishu_helpers.py`, `tests/gateway/test_config.py`, `tests/gateway/test_feishu.py`, `tests/gateway/test_feishu_bot_admission.py`, `tests/gateway/test_feishu_bot_auth_bypass.py`, `tests/gateway/test_session_env.py`, `tests/tools/test_feishu_tools.py`, `tests/tools/test_file_operations.py`, `website/docs/reference/environment-variables.md`, `website/docs/user-guide/configuration.md`, `website/docs/user-guide/messaging/feishu.md` |
 | **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
-**问题**：上游 Feishu 群聊主要按 `@bot` 触发，无法表达“@bot 或 @指定本人账号才回复；其他群消息静默”。同时群聊和私聊共用 `feishu` 平台工具配置，难以给群聊设置更窄工具面；被触发时也缺少最近群消息上下文，导致只能看当前消息，不能基于近 30 条群聊记录回复。群聊/普通 gateway 工具调用中也没有 Feishu comment context 的 thread-local client，`feishu_doc_read` 即使有 tenant credentials 也会失败；飞书缓存目录里的 `.xlsx` 附件会被通用 `read_file` 判成二进制，无法读出表格内容。
+**问题**：上游 Feishu 群聊主要按 `@bot` 触发，无法表达“@bot 或 @指定本人账号才回复；其他群消息静默”。同时群聊和私聊共用 `feishu` 平台工具配置，难以给群聊设置更窄工具面；被触发时也缺少最近群消息上下文，导致只能看当前消息，不能基于近 30 条群聊记录回复。代答身份也需要区分“别人 @琛哥，让木马牛先代答”和“琛哥本人直接 @Hermes/木马牛派活”：前者需要身份澄清，后者不应重复自我介绍。群聊/普通 gateway 工具调用中也没有 Feishu comment context 的 thread-local client，`feishu_doc_read` 即使有 tenant credentials 也会失败；飞书缓存目录里的 `.xlsx` 附件会被通用 `read_file` 判成二进制，无法读出表格内容。
 
-**修复**：新增 `mention_triggers`、`assistant_user_ids`、`assistant_identity_label`，支持 `bot` 与 `assistant_users` 两类触发；`@配置本人账号` 时注入 assistant-mode 约束：明确自己是琛哥的赛博小助手「木马牛」、琛哥可能在忙、只能先尝试代答；技术问题按 `llm-wiki → web_search/web_extract → 模型通用知识` 优先级回答；使用 `llm-wiki` 时明确先 `skill_view` 读取说明，再用 `read_file` / `search_files` 读取 `~/.hermes/wiki` 的真实内容，不把缺少 terminal 误判为缺少 wiki 权限；不懂/不确定时直接说明需要琛哥确认；工作安排、责任归属、承诺类事项使用强势明确口吻，但不得替琛哥承诺、担责或定责。新增 Feishu group history backfill：`history_backfill_limit`、`history_backfill_seconds`、`history_backfill_max_chars`。Gateway session 新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，Feishu 群聊映射到 `feishu_group`，私聊仍为 `feishu`。授权层新增 `FEISHU_GROUP_ALLOWED_CHATS`，可授权群 chat_id 或 `*`，但不放开 DM。`feishu_doc_read` 无 comment client 时可从 env / `~/.hermes/.env` 构建 tenant client；`read_file` 在二进制检测前识别 `.xlsx`，用标准库 zip/xml 抽取 sheet 文本，旧 `.xls` 明确提示需要转换器。
+**修复**：新增 `mention_triggers`、`assistant_user_ids`、`assistant_identity_label`，支持 `bot` 与 `assistant_users` 两类触发；第三方 `@配置本人账号` 时注入 assistant-mode 约束：明确自己是琛哥的赛博小助手「木马牛」、琛哥可能在忙、只能先尝试代答；配置本人账号作为发送者直接 `@bot` / `@Hermes` 时，注入 configured-human mention 指令，明确发送者已知道 Hermes/木马牛是谁，不自我介绍、直接回答；若配置本人账号触发 assistant-user 分支，也跳过自我介绍。技术问题按 `llm-wiki → web_search/web_extract → 模型通用知识` 优先级回答；使用 `llm-wiki` 时明确先 `skill_view` 读取说明，再用 `read_file` / `search_files` 读取 `~/.hermes/wiki` 的真实内容，不把缺少 terminal 误判为缺少 wiki 权限；不懂/不确定时直接说明需要琛哥确认；工作安排、责任归属、承诺类事项使用强势明确口吻，但不得替琛哥承诺、担责或定责。新增 Feishu group history backfill：`history_backfill_limit`、`history_backfill_seconds`、`history_backfill_max_chars`。Gateway session 新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，Feishu 群聊映射到 `feishu_group`，私聊仍为 `feishu`。授权层新增 `FEISHU_GROUP_ALLOWED_CHATS`，可授权群 chat_id 或 `*`，但不放开 DM。`feishu_doc_read` 无 comment client 时可从 env / `~/.hermes/.env` 构建 tenant client；`read_file` 在二进制检测前识别 `.xlsx`，用标准库 zip/xml 抽取 sheet 文本，旧 `.xls` 明确提示需要转换器。
 
-**验证**：Step 8b grep `assistant_user_ids`、`_fetch_channel_context`、`HERMES_SESSION_PLATFORM_CONFIG_KEY`、`feishu_group`、`FEISHU_GROUP_ALLOWED_CHATS`、`history_backfill_max_chars`、`_client_from_env`、`_read_spreadsheet`、`test_doc_read_builds_env_client_outside_comment_context`、`test_read_file_extracts_xlsx_as_text`。定向测试覆盖设置加载、群历史格式化、未 @ 静默、@bot 触发、@本人账号触发、`feishu_group` session key、群授权不放开 DM、无 comment context 时从 env 构建 Feishu client 读 doc，以及最小 `.xlsx` 文件被 `read_file` 抽取出 sheet 名、表头和数据行。
+**验证**：Step 8b grep `assistant_user_ids`、`_sender_is_configured_assistant_user`、`_fetch_channel_context`、`HERMES_SESSION_PLATFORM_CONFIG_KEY`、`feishu_group`、`FEISHU_GROUP_ALLOWED_CHATS`、`history_backfill_max_chars`、`_client_from_env`、`_read_spreadsheet`、`test_process_inbound_message_owner_bot_mention_skips_self_intro`、`test_doc_read_builds_env_client_outside_comment_context`、`test_read_file_extracts_xlsx_as_text`。定向测试覆盖设置加载、群历史格式化、未 @ 静默、@bot 触发、第三方 @本人账号触发代答、本人账号 @bot 触发免自我介绍、`feishu_group` session key、群授权不放开 DM、无 comment context 时从 env 构建 Feishu client 读 doc，以及最小 `.xlsx` 文件被 `read_file` 抽取出 sheet 名、表头和数据行。
 
-**上游吸收判断**：如果上游后续原生提供等价的 Feishu mention trigger、assistant-user trigger、history backfill、per-group platform config key、group chat allowlist、Feishu doc tenant-client fallback 与 `.xlsx` 附件文本读取，可将本补丁归档；保留验证 grep 作为 sentinel，或改成上游行为测试。
+**上游吸收判断**：如果上游后续原生提供等价的 Feishu mention trigger、assistant-user trigger、配置本人账号直接 @bot 时免自我介绍、history backfill、per-group platform config key、group chat allowlist、Feishu doc tenant-client fallback 与 `.xlsx` 附件文本读取，可将本补丁归档；保留验证 grep 作为 sentinel，或改成上游行为测试。
 
 > **2026-06-22（落点迁移，非归档）**：上游 `560010547` `refactor(gateway): migrate ... adapters to bundled plugins` 把 `gateway/platforms/feishu.py` 整体迁移为 bundled plugin `plugins/platforms/feishu/adapter.py`（约 5511 行单体）。本补丁的 feishu hunk 落点随之从 `gateway/platforms/feishu.py` 改为 `plugins/platforms/feishu/adapter.py`，19 个 hunk 内容不变、上下文锚点一致，改写路径后 `git apply` 干净落地；`feishu_helpers.py` 与 `test_feishu*.py` 中的 `FeishuAdapter` import 同步从 `gateway.platforms.feishu` 改为 `plugins.platforms.feishu.adapter`。`hermes-update.sh` 的 `PATCHED_FILES`、`FEISHU_PY` 与本块文件清单已同步。补丁功能未被上游吸收，仍为活跃补丁。
 
@@ -303,6 +305,10 @@ cat ~/.hermes/patches/.local-patches.base
 > 3. **风控/沙箱话术**：遇沙箱拦截或不允许的操作时，不以「能力不足」道歉，而是自然、轻松、多变地说明这是琛哥**有意设计**的安全边界（保护其电脑上的机密、防止 setup 被照搬/逆向），并引导对方等琛哥有空当面问；prompt 给出可自由改写的中文示例，强调不照搬模板、不僵硬。
 >
 > 验证：`tests/gateway/test_feishu.py` 207 passed（`test_fetch_channel_context_formats_recent_group_messages` 断言已更新为包含 `[木马牛 (assistant, you)] prior self` 行）。Step 8b 既有 sentinel（`_fetch_channel_context` 等）不变仍覆盖。
+
+> **2026-06-23（本人 @Hermes 免自我介绍，非归档）**：`plugins/platforms/feishu/adapter.py` 在群聊入站处理里新增 sender 身份判断：如果消息发送者本身就是 `assistant_user_ids` 中配置的琛哥账号，且本条消息是直接 `@bot` 触发，则注入短 prompt 明确“发送者已知道 Hermes/木马牛是谁，直接回答，不要自我介绍”；若别人 `@琛哥` 触发代答，仍保留 assistant-mode 的首次身份说明与节流逻辑。外层运行记忆 `memories/USER.md` 另行同步收窄全局自我介绍偏好，避免与该群聊分支冲突；该记忆文件不属于 `local-patches.diff` 管理范围。
+>
+> 验证：`venv/bin/python -m pytest tests/gateway/test_feishu_bot_admission.py -q`（66 passed）；`venv/bin/python -m pytest tests/gateway/test_feishu.py -q -k 'fetch_channel_context_detects_recent_self_intro or fetch_channel_context_formats_recent_group_messages'`（2 passed, 209 deselected）。
 
 ---
 

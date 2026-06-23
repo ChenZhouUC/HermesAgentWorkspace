@@ -207,7 +207,7 @@ index e1556b37d..5941876e9 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/run.py b/gateway/run.py
-index 4f3b12375..69d6f66b5 100644
+index 09b9e1c88..c97db22d9 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -2107,6 +2107,17 @@ def _platform_config_key(platform: "Platform") -> str:
@@ -237,7 +237,7 @@ index 4f3b12375..69d6f66b5 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -8390,8 +8401,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -8396,8 +8407,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -254,7 +254,7 @@ index 4f3b12375..69d6f66b5 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -9705,7 +9722,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9711,7 +9728,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -263,7 +263,7 @@ index 4f3b12375..69d6f66b5 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -9738,7 +9755,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9744,7 +9761,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -272,7 +272,7 @@ index 4f3b12375..69d6f66b5 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -11193,7 +11210,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11199,7 +11216,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -281,7 +281,7 @@ index 4f3b12375..69d6f66b5 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -12733,6 +12750,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12739,6 +12756,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -289,7 +289,7 @@ index 4f3b12375..69d6f66b5 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -14152,7 +14170,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14158,7 +14176,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -298,7 +298,7 @@ index 4f3b12375..69d6f66b5 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -14460,7 +14478,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14466,7 +14484,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -307,7 +307,7 @@ index 4f3b12375..69d6f66b5 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -15268,9 +15286,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15274,9 +15292,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # (concurrency-safe). Keep os.environ as fallback for CLI/cron.
              os.environ["HERMES_SESSION_KEY"] = session_key or ""
              
@@ -489,7 +489,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index bf3c49d3b..fc366fb6c 100644
+index bf3c49d3b..b3cbf93dc 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -97,6 +97,7 @@ try:
@@ -690,7 +690,7 @@ index bf3c49d3b..fc366fb6c 100644
  
          if inbound_type == MessageType.TEXT:
              text = _strip_edge_self_mentions(text, mentions)
-@@ -3118,10 +3225,26 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3118,10 +3225,30 @@ class FeishuAdapter(BasePlatformAdapter):
              logger.debug("[Feishu] Ignoring empty text message id=%s", message_id)
              return
  
@@ -707,17 +707,21 @@ index bf3c49d3b..fc366fb6c 100644
              hint = _build_mention_hint(mentions)
              if hint:
                  text = f"{hint}\n\n{text}" if text else hint
++            sender_is_configured_human = self._sender_is_configured_assistant_user(sender_id)
 +            if trigger_kind == "assistant_user":
 +                text = self._prepend_assistant_user_reply_instruction(
 +                    text,
 +                    recent_self_intro_seen=bool(
 +                        channel_context and channel_context.recent_self_intro_seen
 +                    ),
++                    triggered_by_configured_human_sender=sender_is_configured_human,
 +                )
++            elif trigger_kind == "bot" and sender_is_configured_human:
++                text = self._prepend_configured_human_bot_mention_instruction(text)
  
          thread_id = getattr(message, "thread_id", None) or getattr(message, "root_id", None) or None
          reply_to_message_id = (
-@@ -3150,13 +3273,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3150,13 +3277,11 @@ class FeishuAdapter(BasePlatformAdapter):
              len(media_urls),
          )
  
@@ -732,7 +736,7 @@ index bf3c49d3b..fc366fb6c 100644
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3175,8 +3296,184 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3175,8 +3300,184 @@ class FeishuAdapter(BasePlatformAdapter):
              reply_to_text=reply_to_text,
              timestamp=datetime.now(),
          )
@@ -917,7 +921,7 @@ index bf3c49d3b..fc366fb6c 100644
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -3618,6 +3915,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3618,6 +3919,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -942,7 +946,7 @@ index bf3c49d3b..fc366fb6c 100644
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3632,6 +3947,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3632,6 +3951,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -1053,7 +1057,7 @@ index bf3c49d3b..fc366fb6c 100644
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3686,6 +4105,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3686,6 +4109,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.AUDIO)
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -1062,7 +1066,7 @@ index bf3c49d3b..fc366fb6c 100644
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4043,10 +4464,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4043,10 +4468,19 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -1084,7 +1088,7 @@ index bf3c49d3b..fc366fb6c 100644
              )
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
-@@ -4099,6 +4529,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4099,6 +4533,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -1096,7 +1100,7 @@ index bf3c49d3b..fc366fb6c 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4114,7 +4549,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4114,7 +4553,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -1105,7 +1109,7 @@ index bf3c49d3b..fc366fb6c 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4124,8 +4559,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4124,8 +4563,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -1116,7 +1120,7 @@ index bf3c49d3b..fc366fb6c 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4223,6 +4658,113 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4223,6 +4662,141 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -1134,9 +1138,16 @@ index bf3c49d3b..fc366fb6c 100644
 +        text: str,
 +        *,
 +        recent_self_intro_seen: bool = False,
++        triggered_by_configured_human_sender: bool = False,
 +    ) -> str:
 +        label = (self._assistant_identity_label or "cyber assistant").strip()
-+        if recent_self_intro_seen:
++        if triggered_by_configured_human_sender:
++            self_intro_policy = (
++                "The triggering group message was sent by the configured human user. "
++                "They already know Hermes/木马牛, so do NOT open with a self-introduction. "
++                "Answer the request directly unless they explicitly ask who you are.\n"
++            )
++        elif recent_self_intro_seen:
 +            self_intro_policy = (
 +                "A recent assistant self-introduction is already visible in the group context. "
 +                "Do NOT repeat any explicit identity line such as 我是琛哥的赛博小助手「木马牛」. "
@@ -1185,6 +1196,27 @@ index bf3c49d3b..fc366fb6c 100644
 +        )
 +        return f"{instruction}\n\n{text}" if text else instruction
 +
++    @staticmethod
++    def _prepend_configured_human_bot_mention_instruction(text: str) -> str:
++        instruction = (
++            "[Feishu configured-human mention]\n"
++            "The triggering group message was sent by the configured human user, 琛哥 / Zhou Chen, "
++            "who deliberately mentioned Hermes. This sender already knows Hermes/木马牛. "
++            "Do not open with a self-introduction or explain who you are; answer the request directly. "
++            "If the message explicitly asks about your identity, answer briefly and then continue."
++        )
++        return f"{instruction}\n\n{text}" if text else instruction
++
++    def _sender_is_configured_assistant_user(self, sender_id: Any) -> bool:
++        assistant_user_ids = getattr(self, "_assistant_user_ids", set())
++        if not assistant_user_ids:
++            return False
++        for attr in ("open_id", "user_id", "union_id"):
++            value = str(getattr(sender_id, attr, "") or "").strip()
++            if value and value in assistant_user_ids:
++                return True
++        return False
++
 +    def _message_mentions_assistant_user(self, message: Any) -> bool:
 +        if not getattr(self, "_assistant_user_ids", set()):
 +            return False
@@ -1230,7 +1262,7 @@ index bf3c49d3b..fc366fb6c 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4460,9 +5002,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4460,9 +5034,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -1246,7 +1278,7 @@ index bf3c49d3b..fc366fb6c 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4711,6 +5257,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4711,6 +5289,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -1828,7 +1860,7 @@ index bb97c7e72..7a5895ae8 100644
          """_build_mentions_map accepts the reply-history shape (id as str +
          id_type='open_id'). user_id id_type is not load-bearing for self
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
-index 61628f933..56efc358c 100644
+index 61628f933..9fd507f0a 100644
 --- a/tests/gateway/test_feishu_bot_admission.py
 +++ b/tests/gateway/test_feishu_bot_admission.py
 @@ -3,6 +3,7 @@
@@ -1914,15 +1946,15 @@ index 61628f933..56efc358c 100644
  ]
  
  
-@@ -444,10 +506,33 @@ def test_admit_per_group_require_mention_overrides_global():
+@@ -444,9 +506,32 @@ def test_admit_per_group_require_mention_overrides_global():
      assert adapter._admit(sender, make_message(chat_id="oc_free", chat_type="group")) is None
      assert (
          adapter._admit(sender, make_message(chat_id="oc_other", chat_type="group"))
 -        == "group_policy_rejected"
 +        == "trigger_mention_missing"
-     )
- 
- 
++    )
++
++
 +def test_admit_group_message_when_assistant_user_is_mentioned():
 +    adapter = make_adapter_skeleton(
 +        bot_open_id="ou_self",
@@ -1940,16 +1972,15 @@ index 61628f933..56efc358c 100644
 +    message = make_message(
 +        chat_type="group",
 +        mentions=[mention],
-+    )
-+
+     )
+ 
 +    assert adapter._admit(sender, message) is None
 +    assert adapter._message_trigger_kind(message) == "assistant_user"
 +
-+
+ 
  # --- Hydration -------------------------------------------------------------
  
- 
-@@ -771,3 +856,92 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
+@@ -771,3 +856,153 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
      assert captured.get("sender_id") is sender.sender_id
      assert captured.get("is_bot") is True
      assert captured.get("message_id") == "om_bot_ok"
@@ -2042,6 +2073,67 @@ index 61628f933..56efc358c 100644
 +    throttled_text = captured["event"].text
 +    assert "Do NOT repeat any explicit identity line" in throttled_text
 +    assert "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。" not in throttled_text
++
++
++def test_process_inbound_message_owner_bot_mention_skips_self_intro(monkeypatch):
++    import asyncio
++
++    adapter = make_adapter_skeleton(
++        bot_open_id="ou_self",
++        group_policy="open",
++        mention_triggers={"bot", "assistant_users"},
++        assistant_user_ids={"ou_owner", "u_owner"},
++    )
++    adapter._client = None
++    adapter.config = SimpleNamespace(extra={})
++    adapter.get_chat_info = AsyncMock(return_value={"name": "Group", "type": "group"})
++    adapter._resolve_sender_profile = AsyncMock(
++        return_value={
++            "user_id": "u_owner",
++            "user_name": "琛哥",
++            "user_id_alt": None,
++        }
++    )
++    adapter._fetch_message_text = AsyncMock(return_value=None)
++    adapter._fetch_channel_context = AsyncMock(return_value=None)
++    captured = {}
++
++    async def _capture(event):
++        captured["event"] = event
++
++    adapter._dispatch_inbound_event = _capture
++
++    mention = SimpleNamespace(
++        key="@_user_1",
++        id=SimpleNamespace(open_id="ou_self", user_id=""),
++        name="木马牛",
++    )
++    message = SimpleNamespace(
++        message_id="om_owner_bot",
++        chat_id="oc_group",
++        chat_type="group",
++        message_type="text",
++        content='{"text":"@_user_1 帮我总结一下刚才的问题"}',
++        mentions=[mention],
++        create_time="1710000005000",
++    )
++
++    asyncio.run(
++        adapter._process_inbound_message(
++            data=SimpleNamespace(),
++            message=message,
++            sender_id=SimpleNamespace(open_id="ou_owner", user_id="u_owner", union_id=None),
++            chat_type="group",
++            message_id="om_owner_bot",
++        )
++    )
++
++    text = captured["event"].text
++    assert "[Feishu configured-human mention]" in text
++    assert "[Feishu assistant mode]" not in text
++    assert "Do not open with a self-introduction" in text
++    assert "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。" not in text
++    assert "帮我总结一下刚才的问题" in text
 diff --git a/tests/gateway/test_feishu_bot_auth_bypass.py b/tests/gateway/test_feishu_bot_auth_bypass.py
 index 4dd83a1bd..740d41aed 100644
 --- a/tests/gateway/test_feishu_bot_auth_bypass.py
