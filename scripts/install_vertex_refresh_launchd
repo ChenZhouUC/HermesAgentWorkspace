@@ -106,6 +106,7 @@ cat >"$TMP_INTERVAL_PLIST" <<EOF
     <key>ProgramArguments</key>
     <array>
         <string>${INTERVAL_RUNNER}</string>
+        <string>--wait-idle</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${ROOT}</string>

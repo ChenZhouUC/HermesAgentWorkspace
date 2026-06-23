@@ -91,6 +91,8 @@ final class WakeWatcher {
         log("Wake notification received; refreshing Vertex token")
         let task = Process()
         task.executableURL = URL(fileURLWithPath: refreshPath)
+        // hermes-managed watcher → graceful: drain active agents before restart.
+        task.arguments = ["--wait-idle"]
         task.environment = env
         task.standardOutput = FileHandle.standardOutput
         task.standardError = FileHandle.standardError

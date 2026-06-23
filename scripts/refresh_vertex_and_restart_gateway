@@ -22,11 +22,27 @@ release_lock() {
     rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
+on_signal_stop() {
+    # Clean, SUCCESSFUL stop when preempted by a manual run (or any signal).
+    # The watcher relies on this so a manual preemption is recorded as exit 0,
+    # not a failure.
+    log "Refresh run stopped (preempted by a manual run or signal); exiting cleanly"
+    release_lock
+    trap - EXIT
+    exit 0
+}
+
+set_lock_traps() {
+    trap release_lock EXIT
+    trap on_signal_stop INT TERM HUP
+}
+
 acquire_lock() {
+    force="${1:-false}"
     mkdir -p "$LOCK_ROOT"
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         printf '%s\n' "$$" >"${LOCK_DIR}/pid"
-        trap release_lock EXIT INT TERM HUP
+        set_lock_traps
         return 0
     fi
 
@@ -35,18 +51,41 @@ acquire_lock() {
         holder="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
     fi
     if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
-        log "Another Vertex refresh is already running (pid $holder); skipping"
-        exit 0
+        if [ "$force" != true ]; then
+            log "Another Vertex refresh is already running (pid $holder); skipping"
+            exit 0
+        fi
+        # Manual/urgent run must never be blocked. Stop the in-progress
+        # (usually idle-waiting) watcher refresh first, mark it stopped, then
+        # take over.
+        log "Manual run preempting in-progress watcher refresh (pid $holder)"
+        kill -TERM "$holder" 2>/dev/null || true
+        _i=0
+        while [ "$_i" -lt 5 ] && kill -0 "$holder" 2>/dev/null; do
+            sleep 1
+            _i=$((_i + 1))
+        done
+        if kill -0 "$holder" 2>/dev/null; then
+            kill -KILL "$holder" 2>/dev/null || true
+            log "Watcher refresh (pid $holder) did not stop in time; force-killed"
+        else
+            log "Watcher refresh (pid $holder) stopped successfully"
+        fi
     fi
 
     rm -f "${LOCK_DIR}/pid" 2>/dev/null || true
     rmdir "$LOCK_DIR" 2>/dev/null || true
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         printf '%s\n' "$$" >"${LOCK_DIR}/pid"
-        trap release_lock EXIT INT TERM HUP
+        set_lock_traps
         return 0
     fi
 
+    if [ "$force" = true ]; then
+        log "Proceeding without exclusive lock (manual force)"
+        set_lock_traps
+        return 0
+    fi
     log "Another Vertex refresh is already running; skipping"
     exit 0
 }
@@ -69,7 +108,35 @@ elif [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
     export GOOGLE_APPLICATION_CREDENTIALS
 fi
 
-acquire_lock
+# --- Parse our own flags; forward everything else to the token-refresh helper.
+WAIT_IDLE=false
+_kept=""
+for _arg in "$@"; do
+    case "$_arg" in
+    --wait-idle | --graceful)
+        WAIT_IDLE=true
+        ;;
+    -h | --help)
+        printf 'Usage: %s [--wait-idle] [refresh-args...]\n' "$(basename "$0")"
+        printf '  (default)    refresh token, then restart gateway IMMEDIATELY (no wait for active agents)\n'
+        printf '  --wait-idle  drain active agents, then request a graceful planned restart (watcher use)\n'
+        exit 0
+        ;;
+    *)
+        _kept="${_kept:+$_kept }$_arg"
+        ;;
+    esac
+done
+# shellcheck disable=SC2086
+set -- $_kept
+
+# Manual/urgent runs (default) preempt any in-progress watcher refresh; the
+# graceful watcher path (--wait-idle) waits its turn instead.
+if [ "$WAIT_IDLE" = true ]; then
+    acquire_lock
+else
+    acquire_lock true
+fi
 
 VERTEX_LOCATION_VALUE="$(read_env_value VERTEX_LOCATION || true)"
 if [ -z "$VERTEX_LOCATION_VALUE" ]; then
@@ -196,6 +263,52 @@ request_planned_gateway_restart() {
     return 1
 }
 
+gateway_running() {
+    pid="$(gateway_pid)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+force_restart_now() {
+    # Manual/urgent immediate restart: never wait for active agents, and keep
+    # escalating until the gateway is confirmed back up. In-flight agent runs
+    # are intentionally interrupted.
+    target="$(gateway_service_target)"
+    log "Immediate gateway restart (not waiting for active agents)"
+
+    pid="$(gateway_pid)"
+    if [ -n "$pid" ]; then
+        kill -KILL "$pid" 2>/dev/null || true
+        log "Sent SIGKILL to gateway pid ${pid}"
+    fi
+
+    # launchd KeepAlive auto-restarts on exit; kickstart makes it deterministic.
+    launchctl kickstart "$target" 2>/dev/null || true
+
+    waited=0
+    while [ "$waited" -lt 30 ]; do
+        if gateway_running; then
+            log "Gateway is back up (pid $(gateway_pid))"
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        if [ "$((waited % 5))" -eq 0 ]; then
+            launchctl kickstart -k "$target" 2>/dev/null ||
+                hermes gateway start 2>/dev/null || true
+        fi
+    done
+
+    log "WARNING: gateway not confirmed up after 30s; last-resort restart"
+    launchctl kickstart -k "$target" 2>/dev/null || true
+    hermes gateway start 2>/dev/null || true
+    if gateway_running; then
+        log "Gateway up after last-resort restart"
+    else
+        log "ERROR: gateway still not confirmed up"
+    fi
+    return 0
+}
+
 _refresh_ok=false
 for _attempt in $(seq 1 "$MAX_RETRIES"); do
     log "Refreshing Vertex access token (attempt ${_attempt}/${MAX_RETRIES})"
@@ -217,19 +330,28 @@ if ! $_refresh_ok; then
 fi
 
 if gateway_service_installed; then
-    wait_for_gateway_idle "$RESTART_IDLE_WAIT_SECONDS" "$RESTART_IDLE_POLL_SECONDS" || true
-    if request_planned_gateway_restart; then
-        :
-    else
-        log "Planned gateway restart failed, falling back to hermes gateway restart"
-        if hermes gateway restart; then
-            log "Hermes gateway restarted"
+    if [ "$WAIT_IDLE" = true ]; then
+        # Graceful path (hermes-managed watcher): let active agents finish, then
+        # request a planned drain-restart; fall back to a harder restart.
+        wait_for_gateway_idle "$RESTART_IDLE_WAIT_SECONDS" "$RESTART_IDLE_POLL_SECONDS" || true
+        if request_planned_gateway_restart; then
+            :
         else
-            log "Gateway restart failed, trying start"
-            hermes gateway start
-            log "Hermes gateway started"
+            log "Planned gateway restart failed, falling back to hermes gateway restart"
+            if hermes gateway restart; then
+                log "Hermes gateway restarted"
+            else
+                log "Gateway restart failed, trying start"
+                hermes gateway start
+                log "Hermes gateway started"
+            fi
         fi
+    else
+        # Default path (manual/urgent): restart NOW, never wait for active agents.
+        force_restart_now
     fi
 else
-    log "Gateway launchd service not installed; skipped gateway restart"
+    log "Gateway launchd service not installed; attempting best-effort start"
+    hermes gateway restart 2>/dev/null || hermes gateway start 2>/dev/null ||
+        log "WARNING: could not (re)start gateway — launchd service not installed"
 fi
