@@ -13,6 +13,7 @@ This skill acts as a persistent directory for frequently used Feishu groups.
 | :--------------------- | :------------------------------------ | :-------------- |
 | SpaceSight 救命稻草    | `oc_4ca3cb5ee37232ca0b244f139ae785fa` | Added June 2026 |
 | Data Pipeline Workshop | `oc_e11903076f3393e0f237cb406b6c3a07` | Added June 2026 |
+| AI 解放生产力          | `oc_0663408600b12ccec166f9889046a36a` | Added June 2026 |
 
 ## Instructions
 
