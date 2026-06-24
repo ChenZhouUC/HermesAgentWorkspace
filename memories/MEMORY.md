@@ -14,10 +14,8 @@ LLM Wiki `~/.hermes/wiki`. Bipartite Graph: L1 (\_living/) = Hubs. L2 (entities/
 §
 Skill maintenance: Prioritize execution efficiency. Keep SKILL.md concise by extracting inline scripts into separate files under a scripts/ directory to reduce token load. Prefers generic, scalable directory names (e.g., 'editor-configs').
 §
-Projects: SpaceSight(PaaS), KeepAgile/dicts, Nemo, HyperTex(HTML-first, Reveal+Playwright PDF, AI-gen H5 'Showcases' on Vercel), 帷幄。User focuses on Agent orchestration, not cloud infra.
+Projects: SpaceSight(SaaS Product by Whale Tech). User focuses on Agent orchestration, not cloud infra.
 §
 Handles international vendor security and AI privacy compliance audits (SOC2, ISO, Model Inversion, ECE, SIEM/DLP) for Whale / SpaceSight.
 §
 Only maintain explicitly declared contacts in the character-voices skill (e.g., ZY, ZZY, HJ, SK, TX); do not proactively add people or profiles unless the user gives direct permission.
-§
-SpaceSight 私有化估算：1. **按客流负载缩放**（非按门店数）：客流决定 GPU/大数据/OBS (占 60% 成本)。若客流不及 SaaS 总量的 1/3，资源可大幅削减。2. **信创（飞腾/鲲鹏/麒麟/达梦）= 定开**：必须单独评估改造人天，不可混入标准授权费。

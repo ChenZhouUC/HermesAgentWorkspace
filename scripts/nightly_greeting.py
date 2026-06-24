@@ -245,7 +245,7 @@ def build_generation_prompt(day: dt.date, session_text: str) -> str:
         1. 提取工作的部分，删除玩笑、吐槽、人身攻击、不正经内容。
         2. 工作口径要符合摄像头业务产品线 leader，重点围绕客流、巡检、热力图、动线、轨迹、图片、视频、大模型、小模型、报价、成本、私有化、汽车售后、算法/数据/交付方案、问题讨论与推进计划。
         3. 输出飞书日报两个字段：今日完成、明日计划。
-        4. 再输出一段群发晚安词，符合“琛哥的赛博助手/木马牛”人设；每天可以有新花样，但必须包含：你是谁、已经帮琛哥发好日报、大家工作辛苦了、晚安祝愿。
+        4. 再输出一段群发晚安词，符合“琛哥的赛博助手/木马牛”人设；每天可以有新花样，但必须按顺序自然包含且不要重复表达：先问好并自我介绍，再说明已经帮琛哥发好日报，最后说大家工作辛苦了并道晚安祝愿。
 
         严格格式：
         - 只输出一个 JSON 对象，不要 Markdown，不要解释。
@@ -367,18 +367,74 @@ def truncate_report_text(text: str, max_chars: int) -> str:
 def ensure_goodnight_requirements(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"[\U00010000-\U0010ffff]", "", text).strip()
-    missing: list[str] = []
-    if "木马牛" not in text and "赛博助手" not in text:
-        missing.append("我是琛哥的赛博助手木马牛。")
-    if "日报" not in text or not any(word in text for word in ("发好", "提交", "发完")):
-        missing.append("今天的日报已经帮琛哥发好了。")
-    if "辛苦" not in text:
-        missing.append("大家今天工作辛苦了。")
-    if "晚安" not in text:
-        missing.append("晚安，祝大家好梦。")
-    if missing:
-        text = " ".join(missing + [text])
+    text = dedupe_sentences(text)
+    text = dedupe_report_done_sentences(text)
+    if not goodnight_has_required_order(text):
+        return default_goodnight()
     return text
+
+
+def default_goodnight() -> str:
+    return "大家好，我是琛哥的赛博助手木马牛。今天的日报已经帮琛哥发好了。大家今天工作辛苦了，晚安，祝大家好梦。"
+
+
+def goodnight_has_required_order(text: str) -> bool:
+    intro_pos = first_index(text, ("木马牛", "赛博助手"))
+    report_pos = first_index(text, ("日报",))
+    work_pos = first_index(text, ("辛苦",))
+    night_pos = first_index(text, ("晚安",))
+    if min(intro_pos, report_pos, work_pos, night_pos) < 0:
+        return False
+    if not any(word in text for word in report_done_words()):
+        return False
+    return intro_pos <= report_pos <= min(work_pos, night_pos)
+
+
+def first_index(text: str, needles: tuple[str, ...]) -> int:
+    indexes = [text.find(needle) for needle in needles if needle in text]
+    return min(indexes) if indexes else -1
+
+
+def report_done_words() -> tuple[str, ...]:
+    return ("发好", "提交", "发完", "发送", "送出", "发出", "整理完", "完成", "处理完")
+
+
+def dedupe_report_done_sentences(text: str) -> str:
+    sentences = split_sentences(text)
+    report_indexes = [
+        idx
+        for idx, sentence in enumerate(sentences)
+        if "日报" in sentence and any(word in sentence for word in report_done_words())
+    ]
+    if len(report_indexes) <= 1:
+        return text
+
+    generic = "今天的日报已经帮琛哥发好了"
+
+    def score(idx: int) -> tuple[int, int]:
+        sentence = sentences[idx]
+        return (0 if generic in sentence else 1, len(sentence))
+
+    keep = max(report_indexes, key=score)
+    filtered = [sentence for idx, sentence in enumerate(sentences) if idx == keep or idx not in report_indexes]
+    return " ".join(filtered).strip()
+
+
+def dedupe_sentences(text: str) -> str:
+    parts = split_sentences(text)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for part in parts:
+        key = re.sub(r"[，,。！？!?.；;：:\\s]", "", part)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(part)
+    return " ".join(unique).strip()
+
+
+def split_sentences(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"(?<=[。！？!?.])\s*", text) if part.strip()]
 
 
 def load_state() -> dict[str, Any]:
