@@ -1,24 +1,117 @@
+#!/usr/bin/env python3
+"""Build and send Chen's nightly daily report, then greet known Feishu groups.
+
+Normal cron runs are intentionally silent on stdout. With Hermes cron
+``--no-agent``, empty stdout means no extra delivery message; the only user
+visible side effects are the Feishu report submission and group messages.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import datetime as dt
+import fcntl
+import hashlib
 import json
+import os
 import re
+import shutil
+import sqlite3
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
+from typing import Any
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - macOS system Python is new enough.
+    ZoneInfo = None
 
 HERMES_HOME = Path.home() / ".hermes"
+STATE_DB = HERMES_HOME / "state.db"
 FEISHU_DOCS_SCRIPTS = HERMES_HOME / "my-skills/productivity/feishu-docs/scripts"
 FEISHU_GROUPS_SKILL = HERMES_HOME / "my-skills/productivity/feishu-groups/SKILL.md"
+REPORT_PROJECT = Path("/Users/chenzhou/Documents/WhaleDocs/organization/Reporting_2026Q2")
+WORK_DIR = HERMES_HOME / "tmp/nightly_report"
+STATE_PATH = WORK_DIR / "state.json"
+LOCK_PATH = WORK_DIR / "nightly_report.lock"
+HERMES_BIN = Path("/Users/chenzhou/.local/bin/hermes")
+UV_BIN = Path("/opt/homebrew/bin/uv")
 
 sys.path.insert(0, str(FEISHU_DOCS_SCRIPTS))
-import feishu_common
+import feishu_common  # noqa: E402
 
 CHAT_ID_RE = re.compile(r"`(oc_[A-Za-z0-9_]+)`")
+CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+JSON_OBJECT_RE = re.compile(r"\{.*\}", re.S)
 
-MESSAGE = "大家好，琛哥的「木马牛」下班了。牛马也是要休息的，大家没啥事儿也都早点休息，晚安！如果有什么要紧的不要紧的事儿，尽量都天亮了再说，祝大家好梦，各位晚安！[天色已晚] （其实我在床上玩手机，没睡着的话还是会回你们的。但你们千万别告诉我老板，琛哥是真的会拉我起来干活的[新月脸]）"
+TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else dt.timezone(dt.timedelta(hours=8))
+MAX_CONTEXT_CHARS = 90000
+MAX_MESSAGE_CHARS = 1800
+TARGET_REPORT_CHARS = 200
+MAX_REPORT_CHARS = 260
 
 
-def load_group_ids(path=FEISHU_GROUPS_SKILL):
+def log(message: str) -> None:
+    print(f"[nightly] {message}", file=sys.stderr, flush=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", nargs="?", choices=("dryrun", "dry-run"), help=argparse.SUPPRESS)
+    parser.add_argument("--date", help="Local date to process, YYYY-MM-DD. Defaults to today.")
+    parser.add_argument(
+        "--dry-run",
+        "--dryrun",
+        action="store_true",
+        help="Send the prepared report and greeting preview to the main Feishu chat. No report submit, no group send.",
+    )
+    parser.add_argument("--skip-report", action="store_true", help="Do not submit the Feishu daily report.")
+    parser.add_argument("--skip-greeting", action="store_true", help="Do not send the nightly group greeting.")
+    parser.add_argument(
+        "--force-report", action="store_true", help="Submit the report even if today's local success marker exists."
+    )
+    parser.add_argument(
+        "--force-greeting", action="store_true", help="Send the greeting even if today's local success marker exists."
+    )
+    parser.add_argument(
+        "--force-dry-run",
+        "--force-dryrun",
+        action="store_true",
+        help="Send a dry-run preview even if one was already sent today.",
+    )
+    args = parser.parse_args()
+    if args.mode in {"dryrun", "dry-run"} or args.force_dry_run:
+        args.dry_run = True
+    return args
+
+
+def local_day(value: str | None) -> dt.date:
+    if value:
+        return dt.date.fromisoformat(value)
+    return dt.datetime.now(TZ).date()
+
+
+def day_bounds(day: dt.date) -> tuple[float, float]:
+    start = dt.datetime.combine(day, dt.time.min, TZ)
+    end = start + dt.timedelta(days=1)
+    return start.timestamp(), end.timestamp()
+
+
+def cjk_len(text: str) -> int:
+    return len(CJK_RE.findall(text or ""))
+
+
+def report_too_long(text: str) -> bool:
+    return cjk_len(text) > MAX_REPORT_CHARS or len(text) > MAX_REPORT_CHARS
+
+
+def load_group_ids(path: Path = FEISHU_GROUPS_SKILL) -> list[str]:
     """Read chat_ids from the Known Groups table in the feishu-groups skill."""
     in_known_groups = False
-    group_ids = []
+    group_ids: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("## "):
             in_known_groups = line.strip() == "## Known Groups"
@@ -33,24 +126,467 @@ def load_group_ids(path=FEISHU_GROUPS_SKILL):
     return group_ids
 
 
-def send_message(token, group_id, text):
+def send_message(token: str, chat_id: str, text: str) -> dict[str, Any]:
     url = f"{feishu_common.API}/im/v1/messages?receive_id_type=chat_id"
     payload = {
-        "receive_id": group_id,
+        "receive_id": chat_id,
         "msg_type": "text",
         "content": json.dumps({"text": text}, ensure_ascii=False),
     }
     res = feishu_common.do_req(token, url, method="POST", payload=payload)
     if res.get("code", 0):
-        raise RuntimeError(f"Failed to send to {group_id}: {res}")
-    print(f"Sent to {group_id}: {res}")
+        raise RuntimeError(f"Failed to send to {chat_id}: {res}")
+    log(f"Sent Feishu text to {chat_id}: {res}")
+    return res
 
 
-def main():
+def trim_message(content: str) -> str:
+    content = re.sub(r"\s+", " ", content or "").strip()
+    if len(content) <= MAX_MESSAGE_CHARS:
+        return content
+    return f"{content[:MAX_MESSAGE_CHARS]}..."
+
+
+def read_sessions_from_db(day: dt.date) -> str:
+    start_ts, end_ts = day_bounds(day)
+    if not STATE_DB.exists():
+        return ""
+    conn = sqlite3.connect(f"file:{STATE_DB}?mode=ro", uri=True, timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                s.id AS session_id,
+                COALESCE(s.source, '') AS source,
+                COALESCE(s.title, '') AS title,
+                m.role AS role,
+                COALESCE(m.content, '') AS content,
+                m.timestamp AS timestamp
+            FROM messages m
+            JOIN sessions s ON s.id = m.session_id
+            WHERE m.timestamp >= ?
+              AND m.timestamp < ?
+              AND m.active = 1
+              AND m.role IN ('user', 'assistant')
+              AND COALESCE(m.content, '') <> ''
+              AND COALESCE(s.source, '') NOT IN ('cron', 'nightly-report')
+            ORDER BY m.timestamp ASC, m.id ASC
+            """,
+            (start_ts, end_ts),
+        ).fetchall()
+    finally:
+        conn.close()
+    return format_session_rows(rows)
+
+
+def read_sessions_from_snapshots(day: dt.date) -> str:
+    """Fallback for older Hermes homes that only have JSON/JSONL snapshots."""
+    sessions_dir = HERMES_HOME / "sessions"
+    if not sessions_dir.exists():
+        return ""
+    day_prefix = day.strftime("%Y%m%d")
+    blocks: list[str] = []
+    for path in sorted(sessions_dir.glob(f"*{day_prefix}*")):
+        if path.name == "sessions.json" or path.suffix not in {".json", ".jsonl"}:
+            continue
+        try:
+            if path.suffix == ".jsonl":
+                messages = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            else:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                messages = data.get("messages") or data.get("conversation_history") or []
+        except Exception as exc:  # noqa: BLE001
+            log(f"Skipping unreadable session snapshot {path}: {exc}")
+            continue
+        for item in messages:
+            role = item.get("role")
+            content = item.get("content")
+            if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+                blocks.append(f"[{path.name}] {role}: {trim_message(content)}")
+    return "\n".join(blocks)
+
+
+def format_session_rows(rows: list[sqlite3.Row]) -> str:
+    blocks: list[str] = []
+    current_key: tuple[str, str, str] | None = None
+    current_len = 0
+    for row in rows:
+        key = (row["session_id"], row["source"], row["title"])
+        if key != current_key:
+            title = row["title"] or "(untitled)"
+            blocks.append(f"\n## Session {row['session_id']} | source={row['source']} | title={title}")
+            current_key = key
+        ts = dt.datetime.fromtimestamp(float(row["timestamp"]), TZ).strftime("%H:%M:%S")
+        content = trim_message(row["content"])
+        blocks.append(f"[{ts}] {row['role']}: {content}")
+        current_len += len(content)
+        if current_len >= MAX_CONTEXT_CHARS:
+            blocks.append("\n[context truncated at daily size limit]")
+            break
+    return "\n".join(blocks).strip()
+
+
+def read_daily_sessions(day: dt.date) -> str:
+    content = read_sessions_from_db(day)
+    if not content:
+        content = read_sessions_from_snapshots(day)
+    if not content:
+        content = "当天没有读取到可用于日报的 Hermes 会话内容。"
+    return content
+
+
+def build_generation_prompt(day: dt.date, session_text: str) -> str:
+    return textwrap.dedent(
+        f"""
+        你是琛哥的日报代笔，只根据下面的 Hermes 当天会话记录生成内容，不要调用工具，不要补充外部信息。
+
+        目标：
+        1. 提取工作的部分，删除玩笑、吐槽、人身攻击、不正经内容。
+        2. 工作口径要符合摄像头业务产品线 leader，重点围绕客流、巡检、热力图、动线、轨迹、图片、视频、大模型、小模型、报价、成本、私有化、汽车售后、算法/数据/交付方案、问题讨论与推进计划。
+        3. 输出飞书日报两个字段：今日完成、明日计划。
+        4. 再输出一段群发晚安词，符合“琛哥的赛博助手/木马牛”人设；每天可以有新花样，但必须包含：你是谁、已经帮琛哥发好日报、大家工作辛苦了、晚安祝愿。
+
+        严格格式：
+        - 只输出一个 JSON 对象，不要 Markdown，不要解释。
+        - JSON schema: {{"today":"1. ...\\n2. ...","plan":"1. ...\\n2. ...","goodnight":"..."}}
+        - today 和 plan 都必须是带序号的换行分点文本。
+        - today 和 plan 目标各自控制在 {TARGET_REPORT_CHARS} 字左右，略超可以；只有明显超过 {MAX_REPORT_CHARS} 字才需要压缩。
+        - 不要出现“骂、开除、喷、吹牛、老登、锅、完蛋”等玩笑或攻击性表达。
+        - 不要编造客户名称之外的新事实；可做适度职业化概括。
+
+        本地日期：{day.isoformat()}
+
+        Hermes 会话记录：
+        {session_text}
+        """
+    ).strip()
+
+
+def run_hermes_generation(prompt: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env["HERMES_SESSION_SOURCE"] = "nightly-report"
+    hermes_bin = str(HERMES_BIN if HERMES_BIN.exists() else shutil.which("hermes") or "hermes")
+    cmd = [hermes_bin, "--ignore-rules", "-t", "search", "-z", prompt]
+    res = subprocess.run(
+        cmd,
+        cwd=str(HERMES_HOME),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=420,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"Hermes generation failed ({res.returncode}): {res.stderr.strip() or res.stdout.strip()}")
+    return parse_generation_json(res.stdout)
+
+
+def parse_generation_json(raw: str) -> dict[str, str]:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?", "", text).strip()
+        text = re.sub(r"```$", "", text).strip()
+    match = JSON_OBJECT_RE.search(text)
+    if not match:
+        raise RuntimeError(f"Hermes generation did not return JSON: {raw[:500]}")
+    data = json.loads(match.group(0))
+    result = {
+        "today": str(data.get("today", "")).strip(),
+        "plan": str(data.get("plan", "")).strip(),
+        "goodnight": str(data.get("goodnight", "")).strip(),
+    }
+    if not all(result.values()):
+        raise RuntimeError(f"Hermes generation missed required fields: {data}")
+    return normalize_generation(result)
+
+
+def normalize_generation(data: dict[str, str]) -> dict[str, str]:
+    return {
+        "today": normalize_report_section(data["today"], "今日完成"),
+        "plan": normalize_report_section(data["plan"], "明日计划"),
+        "goodnight": ensure_goodnight_requirements(data["goodnight"]),
+    }
+
+
+def normalize_report_section(text: str, label: str) -> str:
+    raw_lines = [line.strip(" -\t") for line in text.splitlines() if line.strip()]
+    lines: list[str] = []
+    for line in raw_lines:
+        line = re.sub(r"^\d+[\.、)]\s*", "", line).strip()
+        line = re.sub(r"^[一二三四五六七八九十]+[、.]\s*", "", line).strip()
+        if line:
+            lines.append(line)
+    if not lines:
+        lines = [f"完成{label}梳理，聚焦客流、巡检与摄像头方案推进。"]
+
+    numbered: list[str] = []
+    for idx, line in enumerate(lines[:4], 1):
+        numbered.append(f"{idx}. {line}")
+        candidate = "\n".join(numbered)
+        if report_too_long(candidate):
+            numbered.pop()
+            break
+    if not numbered:
+        numbered = [f"1. {truncate_report_text(lines[0], MAX_REPORT_CHARS - 4)}"]
+
+    section = "\n".join(numbered)
+    while report_too_long(section) and numbered:
+        last = numbered.pop()
+        existing = "\n".join(numbered)
+        remaining = max(20, MAX_REPORT_CHARS - max(cjk_len(existing), len(existing)) - 4)
+        numbered.append(truncate_numbered_line(last, remaining))
+        section = "\n".join(numbered)
+        if not report_too_long(section):
+            break
+        numbered.pop()
+        section = "\n".join(numbered)
+    return section.strip()
+
+
+def truncate_numbered_line(line: str, max_chars: int) -> str:
+    prefix_match = re.match(r"^(\d+\.\s*)(.*)$", line)
+    if not prefix_match:
+        return truncate_report_text(line, max_chars)
+    prefix, body = prefix_match.groups()
+    return prefix + truncate_report_text(body, max_chars)
+
+
+def truncate_report_text(text: str, max_chars: int) -> str:
+    count = 0
+    out: list[str] = []
+    for char in text:
+        if CJK_RE.match(char):
+            count += 1
+        if count > max_chars or len(out) >= max_chars:
+            break
+        out.append(char)
+    return "".join(out).rstrip("，、；。,. ") + "。"
+
+
+def ensure_goodnight_requirements(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[\U00010000-\U0010ffff]", "", text).strip()
+    missing: list[str] = []
+    if "木马牛" not in text and "赛博助手" not in text:
+        missing.append("我是琛哥的赛博助手木马牛。")
+    if "日报" not in text or not any(word in text for word in ("发好", "提交", "发完")):
+        missing.append("今天的日报已经帮琛哥发好了。")
+    if "辛苦" not in text:
+        missing.append("大家今天工作辛苦了。")
+    if "晚安" not in text:
+        missing.append("晚安，祝大家好梦。")
+    if missing:
+        text = " ".join(missing + [text])
+    return text
+
+
+def load_state() -> dict[str, Any]:
+    if not STATE_PATH.exists():
+        return {"reports": {}, "greetings": {}, "dry_runs": {}}
+    try:
+        data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        log(f"State file unreadable, starting fresh: {exc}")
+        return {"reports": {}, "greetings": {}, "dry_runs": {}}
+    data.setdefault("reports", {})
+    data.setdefault("greetings", {})
+    data.setdefault("dry_runs", {})
+    return data
+
+
+def save_state(data: dict[str, Any]) -> None:
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(STATE_PATH)
+
+
+def write_artifacts(day: dt.date, session_text: str, draft: dict[str, str]) -> None:
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    prefix = WORK_DIR / day.isoformat()
+    (prefix.with_suffix(".sessions.md")).write_text(session_text + "\n", encoding="utf-8")
+    (prefix.with_suffix(".draft.json")).write_text(
+        json.dumps(draft, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def submit_report(day: dt.date, draft: dict[str, str]) -> str:
+    uv_bin = str(UV_BIN if UV_BIN.exists() else shutil.which("uv") or "uv")
+    cmd = [uv_bin, "run", "python", "report.py", "--today", draft["today"], "--plan", draft["plan"]]
+    log(f"Submitting Feishu daily report for {day.isoformat()}")
+    res = subprocess.run(
+        cmd,
+        cwd=str(REPORT_PROJECT),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=600,
+    )
+    output_path = WORK_DIR / f"{day.isoformat()}.report-submit.log"
+    output_path.write_text(res.stdout or "", encoding="utf-8")
+    if res.returncode != 0:
+        raise RuntimeError(f"Report submit failed ({res.returncode}); see {output_path}")
+    log(f"Report submitted; log saved to {output_path}")
+    return str(output_path)
+
+
+def send_greetings(day: dt.date, text: str) -> list[dict[str, Any]]:
     token = feishu_common.get_tenant_token()
+    results = []
     for group_id in load_group_ids():
-        send_message(token, group_id, MESSAGE)
+        results.append({"group_id": group_id, "response": send_message(token, group_id, text)})
+    (WORK_DIR / f"{day.isoformat()}.greeting-results.json").write_text(
+        json.dumps(results, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return results
+
+
+def resolve_main_chat_id() -> str:
+    for key in ("HERMES_NIGHTLY_DRY_RUN_CHAT_ID", "FEISHU_NIGHTLY_DRY_RUN_CHAT_ID"):
+        value = os.getenv(key, "").strip()
+        if value.startswith("oc_"):
+            return value
+
+    jobs_path = HERMES_HOME / "cron/jobs.json"
+    try:
+        data = json.loads(jobs_path.read_text(encoding="utf-8"))
+        for job in data.get("jobs", []):
+            if job.get("script") == "nightly_greeting.py" or job.get("id") == "ccb273ada501":
+                chat_id = ((job.get("origin") or {}).get("chat_id") or "").strip()
+                if chat_id.startswith("oc_"):
+                    return chat_id
+    except Exception as exc:  # noqa: BLE001
+        log(f"Could not resolve dry-run chat from cron jobs: {exc}")
+
+    sandbox_cfg = HERMES_HOME / "plugins/sandbox/config.yaml"
+    try:
+        match = re.search(r"^\s*-\s*(oc_[A-Za-z0-9_]+)\s*$", sandbox_cfg.read_text(encoding="utf-8"), re.M)
+        if match:
+            return match.group(1)
+    except Exception as exc:  # noqa: BLE001
+        log(f"Could not resolve dry-run chat from sandbox config: {exc}")
+
+    raise RuntimeError("Cannot resolve main Feishu chat_id for dry-run preview")
+
+
+def draft_hash(draft: dict[str, str]) -> str:
+    raw = json.dumps(draft, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def preview_message(day: dt.date, draft: dict[str, str]) -> str:
+    return (
+        textwrap.dedent(
+            f"""
+        【日报 Dry Run】{day.isoformat()}
+        本次仅预览：不会提交飞书日报，也不会群发晚安词。
+
+        今日完成:
+        {draft["today"]}
+
+        明日计划:
+        {draft["plan"]}
+
+        晚安词:
+        {draft["goodnight"]}
+        """
+        )
+        .strip()
+        .replace("\n        ", "\n")
+    )
+
+
+def send_dry_run_preview(day: dt.date, draft: dict[str, str], state: dict[str, Any]) -> None:
+    chat_id = resolve_main_chat_id()
+    token = feishu_common.get_tenant_token()
+    response = send_message(token, chat_id, preview_message(day, draft))
+    day_key = day.isoformat()
+    state["dry_runs"][day_key] = {
+        "sent_at": dt.datetime.now(TZ).isoformat(),
+        "chat_id": chat_id,
+        "draft_hash": draft_hash(draft),
+        "response": response,
+    }
+    save_state(state)
+
+
+@contextlib.contextmanager
+def nightly_lock():
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    with LOCK_PATH.open("w", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            log("Another nightly report run is active; exiting silently.")
+            yield False
+            return
+        yield True
+
+
+def run(args: argparse.Namespace) -> str | None:
+    day = local_day(args.date)
+    with nightly_lock() as acquired:
+        if not acquired:
+            return None
+
+        state = load_state()
+        day_key = day.isoformat()
+        if args.dry_run and state["dry_runs"].get(day_key) and not args.force_dry_run:
+            log(f"Dry-run preview already sent for {day_key}; exiting silently.")
+            return None
+
+        report_done = bool(state["reports"].get(day_key)) or args.skip_report
+        greeting_done = bool(state["greetings"].get(day_key)) or args.skip_greeting
+        if not args.dry_run and report_done and greeting_done and not args.force_report and not args.force_greeting:
+            log(f"Nightly report and greeting already completed for {day_key}; exiting silently.")
+            return None
+
+        session_text = read_daily_sessions(day)
+        draft = run_hermes_generation(build_generation_prompt(day, session_text))
+        write_artifacts(day, session_text, draft)
+
+        if args.dry_run:
+            send_dry_run_preview(day, draft, state)
+            return None
+
+        if not args.skip_report:
+            if state["reports"].get(day_key) and not args.force_report:
+                log(f"Report already submitted for {day_key}; skipping report submit.")
+            else:
+                report_log = submit_report(day, draft)
+                state["reports"][day_key] = {
+                    "submitted_at": dt.datetime.now(TZ).isoformat(),
+                    "report_log": report_log,
+                    "today": draft["today"],
+                    "plan": draft["plan"],
+                }
+                save_state(state)
+        else:
+            log("Report submit skipped by flag.")
+
+        if not args.skip_greeting:
+            if state["greetings"].get(day_key) and not args.force_greeting:
+                log(f"Greeting already sent for {day_key}; skipping group send.")
+            else:
+                results = send_greetings(day, draft["goodnight"])
+                state["greetings"][day_key] = {
+                    "sent_at": dt.datetime.now(TZ).isoformat(),
+                    "groups": [item["group_id"] for item in results],
+                }
+                save_state(state)
+        else:
+            log("Greeting skipped by flag.")
+    return None
+
+
+def main() -> int:
+    args = parse_args()
+    with contextlib.redirect_stdout(sys.stderr):
+        run(args)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

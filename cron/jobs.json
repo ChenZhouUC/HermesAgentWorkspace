@@ -3,14 +3,14 @@
     {
       "id": "ccb273ada501",
       "name": "\u6728\u9a6c\u725b\u665a\u5b89\u95ee\u5019",
-      "prompt": "Run the script at ~/.hermes/scripts/nightly_greeting.py to send the nightly greeting message to all groups registered in the feishu-groups skill.",
+      "prompt": "Run ~/.hermes/scripts/nightly_greeting.py to submit Chen's concise Feishu daily report once per local day, then send the generated nightly greeting to all known Feishu groups.",
       "skills": [],
       "skill": null,
       "model": null,
       "provider": null,
       "base_url": null,
-      "script": null,
-      "no_agent": false,
+      "script": "nightly_greeting.py",
+      "no_agent": true,
       "context_from": null,
       "schedule": {
         "kind": "cron",
@@ -20,15 +20,15 @@
       "schedule_display": "0 22 * * *",
       "repeat": {
         "times": null,
-        "completed": 1
+        "completed": 2
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-06-23T22:07:31.987308+08:00",
-      "next_run_at": "2026-06-24T22:00:00+08:00",
-      "last_run_at": "2026-06-23T22:08:22.378832+08:00",
+      "next_run_at": "2026-06-25T22:00:00+08:00",
+      "last_run_at": "2026-06-24T22:01:47.426381+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -44,5 +44,5 @@
       "fire_claim": null
     }
   ],
-  "updated_at": "2026-06-23T22:08:22.380059+08:00"
+  "updated_at": "2026-06-24T22:44:28.988105+08:00"
 }
