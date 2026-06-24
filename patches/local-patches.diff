@@ -318,6 +318,49 @@ index 09b9e1c88..c97db22d9 100644
              
              # Combine platform context, per-channel context, and the user-configured
              # ephemeral system prompt.
+diff --git a/gateway/session.py b/gateway/session.py
+index 68df8f295..bd47b18ed 100644
+--- a/gateway/session.py
++++ b/gateway/session.py
+@@ -347,12 +347,22 @@ def build_session_context_prompt(
+     # changes per-turn and would bust the prompt cache.  Instead, note that
+     # this is a multi-user session; individual sender names are prefixed on
+     # each user message by the gateway.
++    current_author = ""
++    if context.source.user_name:
++        current_author = context.source.user_name
++    elif context.source.user_id:
++        current_author = _hash_sender_id(context.source.user_id) if redact_pii else context.source.user_id
++
+     if context.shared_multi_user_session:
+         session_label = "Multi-user thread" if context.source.thread_id else "Multi-user session"
+         lines.append(
+             f"**Session type:** {session_label} — messages are prefixed "
+             "with [sender name]. Multiple users may participate."
+         )
++        if current_author:
++            lines.append(f"**Current message author:** {current_author}")
++    elif current_author and context.source.chat_type != "dm":
++        lines.append(f"**Current message author:** {current_author}")
+     elif context.source.user_name:
+         lines.append(f"**User:** {context.source.user_name}")
+     elif context.source.user_id:
+@@ -361,6 +371,15 @@ def build_session_context_prompt(
+             uid = _hash_sender_id(uid)
+         lines.append(f"**User ID:** {uid}")
+ 
++    if current_author and context.source.chat_type != "dm":
++        lines.append(
++            "**Current-author rule:** The current message author is the "
++            "person who sent the message being answered now. Persistent "
++            "USER.md/profile information may describe the bot owner or "
++            "default user; do not treat it as the speaker unless it matches "
++            "this current author."
++        )
++
+     # Platform-specific behavioral notes
+     if context.source.platform == Platform.SLACK:
+         lines.append("")
 diff --git a/gateway/session_context.py b/gateway/session_context.py
 index 55f269df5..495a51f03 100644
 --- a/gateway/session_context.py
@@ -489,7 +532,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index bf3c49d3b..b3cbf93dc 100644
+index bf3c49d3b..72582f1bb 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -97,6 +97,7 @@ try:
@@ -921,7 +964,29 @@ index bf3c49d3b..b3cbf93dc 100644
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -3618,6 +3919,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3211,6 +3512,9 @@ class FeishuAdapter(BasePlatformAdapter):
+     def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
+         return (
+             existing.message_type == incoming.message_type
++            and existing.source.user_id == incoming.source.user_id
++            and existing.source.user_id_alt == incoming.source.user_id_alt
++            and existing.source.user_name == incoming.source.user_name
+             and existing.reply_to_message_id == incoming.reply_to_message_id
+             and existing.reply_to_text == incoming.reply_to_text
+             and existing.source.thread_id == incoming.source.thread_id
+@@ -3499,7 +3803,10 @@ class FeishuAdapter(BasePlatformAdapter):
+     def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
+         """Only merge text events when reply/thread context is identical."""
+         return (
+-            existing.reply_to_message_id == incoming.reply_to_message_id
++            existing.source.user_id == incoming.source.user_id
++            and existing.source.user_id_alt == incoming.source.user_id_alt
++            and existing.source.user_name == incoming.source.user_name
++            and existing.reply_to_message_id == incoming.reply_to_message_id
+             and existing.reply_to_text == incoming.reply_to_text
+             and existing.source.thread_id == incoming.source.thread_id
+         )
+@@ -3618,6 +3925,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -946,7 +1011,7 @@ index bf3c49d3b..b3cbf93dc 100644
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3632,6 +3951,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3632,6 +3957,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -1057,7 +1122,7 @@ index bf3c49d3b..b3cbf93dc 100644
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3686,6 +4109,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3686,6 +4115,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.AUDIO)
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -1066,7 +1131,7 @@ index bf3c49d3b..b3cbf93dc 100644
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4043,10 +4468,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4043,10 +4474,19 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -1088,7 +1153,7 @@ index bf3c49d3b..b3cbf93dc 100644
              )
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
-@@ -4099,6 +4533,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4099,6 +4539,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -1100,7 +1165,7 @@ index bf3c49d3b..b3cbf93dc 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4114,7 +4553,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4114,7 +4559,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -1109,7 +1174,7 @@ index bf3c49d3b..b3cbf93dc 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4124,8 +4563,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4124,8 +4569,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -1120,17 +1185,17 @@ index bf3c49d3b..b3cbf93dc 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4223,6 +4662,141 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4223,6 +4668,141 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
 +    def _message_trigger_kind(self, message: Any) -> str:
 +        """Return why a Feishu group message should trigger Hermes."""
 +        mention_triggers = getattr(self, "_mention_triggers", {"bot"})
-+        if "assistant_users" in mention_triggers and self._message_mentions_assistant_user(message):
-+            return "assistant_user"
 +        if "bot" in mention_triggers and self._mentions_self(message):
 +            return "bot"
++        if "assistant_users" in mention_triggers and self._message_mentions_assistant_user(message):
++            return "assistant_user"
 +        return "none"
 +
 +    def _prepend_assistant_user_reply_instruction(
@@ -1262,7 +1327,7 @@ index bf3c49d3b..b3cbf93dc 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4460,9 +5034,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4460,9 +5040,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -1278,7 +1343,7 @@ index bf3c49d3b..b3cbf93dc 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4711,6 +5289,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4711,6 +5295,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -1412,7 +1477,7 @@ index 2542ff431..2c5e33382 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..7a5895ae8 100644
+index bb97c7e72..156902d9a 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -159,6 +159,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -1782,7 +1847,65 @@ index bb97c7e72..7a5895ae8 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1953,7 +2306,8 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1655,6 +2008,57 @@ class TestAdapterBehavior(unittest.TestCase):
+         self.assertEqual(event.text, "A\nB")
+         self.assertEqual(event.message_type, MessageType.TEXT)
+ 
++    @patch.dict(os.environ, {}, clear=True)
++    def test_text_batch_does_not_merge_different_senders(self):
++        from gateway.config import PlatformConfig
++        from gateway.platforms.base import MessageEvent, MessageType
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++        from gateway.session import SessionSource
++
++        adapter = FeishuAdapter(PlatformConfig(extra={"group_sessions_per_user": False}))
++        adapter.handle_message = AsyncMock()
++        alice = SessionSource(
++            platform=adapter.platform,
++            chat_id="oc_chat",
++            chat_name="Feishu Group",
++            chat_type="group",
++            user_id="ou_alice",
++            user_name="Alice",
++        )
++        bob = SessionSource(
++            platform=adapter.platform,
++            chat_id="oc_chat",
++            chat_name="Feishu Group",
++            chat_type="group",
++            user_id="ou_bob",
++            user_name="Bob",
++        )
++
++        async def _sleep(_delay):
++            return None
++
++        async def _run() -> None:
++            with patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_sleep):
++                await adapter._dispatch_inbound_event(
++                    MessageEvent(text="A", message_type=MessageType.TEXT, source=alice, message_id="om_1")
++                )
++                await adapter._dispatch_inbound_event(
++                    MessageEvent(text="B", message_type=MessageType.TEXT, source=bob, message_id="om_2")
++                )
++                pending = list(adapter._pending_text_batch_tasks.values())
++                self.assertEqual(len(pending), 1)
++                await asyncio.gather(*pending, return_exceptions=True)
++
++        asyncio.run(_run())
++
++        self.assertEqual(adapter.handle_message.await_count, 2)
++        first_event = adapter.handle_message.await_args_list[0].args[0]
++        second_event = adapter.handle_message.await_args_list[1].args[0]
++        self.assertEqual(first_event.text, "A")
++        self.assertEqual(first_event.source.user_name, "Alice")
++        self.assertEqual(second_event.text, "B")
++        self.assertEqual(second_event.source.user_name, "Bob")
++
+     @patch.dict(
+         os.environ,
+         {
+@@ -1953,7 +2357,8 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -1792,7 +1915,7 @@ index bb97c7e72..7a5895ae8 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -1991,10 +2345,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1991,10 +2396,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -1805,7 +1928,7 @@ index bb97c7e72..7a5895ae8 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2030,7 +2384,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2030,7 +2435,7 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -1814,7 +1937,7 @@ index bb97c7e72..7a5895ae8 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2121,7 +2475,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2121,7 +2526,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -1823,7 +1946,7 @@ index bb97c7e72..7a5895ae8 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2173,7 +2527,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2173,7 +2578,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -1832,7 +1955,7 @@ index bb97c7e72..7a5895ae8 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -4682,6 +5036,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -4682,6 +5087,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -1860,7 +1983,7 @@ index bb97c7e72..7a5895ae8 100644
          """_build_mentions_map accepts the reply-history shape (id as str +
          id_type='open_id'). user_id id_type is not load-bearing for self
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
-index 61628f933..9fd507f0a 100644
+index 61628f933..3789ef0d2 100644
 --- a/tests/gateway/test_feishu_bot_admission.py
 +++ b/tests/gateway/test_feishu_bot_admission.py
 @@ -3,6 +3,7 @@
@@ -1946,15 +2069,15 @@ index 61628f933..9fd507f0a 100644
  ]
  
  
-@@ -444,9 +506,32 @@ def test_admit_per_group_require_mention_overrides_global():
+@@ -444,10 +506,59 @@ def test_admit_per_group_require_mention_overrides_global():
      assert adapter._admit(sender, make_message(chat_id="oc_free", chat_type="group")) is None
      assert (
          adapter._admit(sender, make_message(chat_id="oc_other", chat_type="group"))
 -        == "group_policy_rejected"
 +        == "trigger_mention_missing"
-+    )
-+
-+
+     )
+ 
+ 
 +def test_admit_group_message_when_assistant_user_is_mentioned():
 +    adapter = make_adapter_skeleton(
 +        bot_open_id="ou_self",
@@ -1972,15 +2095,42 @@ index 61628f933..9fd507f0a 100644
 +    message = make_message(
 +        chat_type="group",
 +        mentions=[mention],
-     )
- 
++    )
++
 +    assert adapter._admit(sender, message) is None
 +    assert adapter._message_trigger_kind(message) == "assistant_user"
 +
- 
++
++def test_bot_mention_takes_priority_over_assistant_user_mention():
++    adapter = make_adapter_skeleton(
++        bot_open_id="ou_self",
++        require_mention=True,
++        group_policy="open",
++        mention_triggers={"bot", "assistant_users"},
++        assistant_user_ids={"ou_owner", "u_owner"},
++    )
++    bot_mention = SimpleNamespace(
++        key="@_user_1",
++        id=SimpleNamespace(open_id="ou_self", user_id=""),
++        name="Hermes",
++    )
++    owner_mention = SimpleNamespace(
++        key="@_user_2",
++        id=SimpleNamespace(open_id="ou_owner", user_id="u_owner"),
++        name="Owner",
++    )
++    message = make_message(
++        chat_type="group",
++        mentions=[bot_mention, owner_mention],
++    )
++
++    assert adapter._message_trigger_kind(message) == "bot"
++
++
  # --- Hydration -------------------------------------------------------------
  
-@@ -771,3 +856,153 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
+ 
+@@ -771,3 +882,153 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
      assert captured.get("sender_id") is sender.sender_id
      assert captured.get("is_bot") is True
      assert captured.get("message_id") == "om_bot_ok"
@@ -2186,6 +2336,30 @@ index 4dd83a1bd..740d41aed 100644
  def test_feishu_bot_bypass_does_not_leak_to_other_platforms(monkeypatch):
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
+diff --git a/tests/gateway/test_session.py b/tests/gateway/test_session.py
+index c7f82b2d8..384863a46 100644
+--- a/tests/gateway/test_session.py
++++ b/tests/gateway/test_session.py
+@@ -384,7 +384,9 @@ class TestBuildSessionContextPrompt:
+         ctx = build_session_context(source, config)
+         prompt = build_session_context_prompt(ctx)
+ 
+-        assert "**User:** Alice" in prompt
++        assert "**Current message author:** Alice" in prompt
++        assert "**User:** Alice" not in prompt
++        assert "do not treat it as the speaker" in prompt
+         assert "Multi-user thread" not in prompt
+ 
+     def test_shared_non_thread_group_prompt_hides_single_user(self):
+@@ -407,6 +409,8 @@ class TestBuildSessionContextPrompt:
+ 
+         assert "Multi-user session" in prompt
+         assert "[sender name]" in prompt
++        assert "**Current message author:** Alice" in prompt
++        assert "do not treat it as the speaker" in prompt
+         assert "**User:** Alice" not in prompt
+ 
+     def test_dm_thread_shows_user_not_multi(self):
 diff --git a/tests/gateway/test_session_env.py b/tests/gateway/test_session_env.py
 index b0797467d..95b846653 100644
 --- a/tests/gateway/test_session_env.py

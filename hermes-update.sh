@@ -67,6 +67,7 @@ PATCHED_FILES=(
     "gateway/config.py"
     "plugins/platforms/feishu/adapter.py"
     "gateway/run.py"
+    "gateway/session.py"
     "gateway/session_context.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
@@ -83,6 +84,7 @@ PATCHED_FILES=(
     "tests/gateway/test_feishu.py"
     "tests/gateway/test_feishu_bot_admission.py"
     "tests/gateway/test_feishu_bot_auth_bypass.py"
+    "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
@@ -590,6 +592,7 @@ _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
 _FEISHU_GROUP_PATCH_OK=false
 _FEISHU_SKILL_SCOPE_PATCH_OK=false
 _FEISHU_NO_THREAD_PATCH_OK=false
+_GROUP_AUTHOR_IDENTITY_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -754,11 +757,31 @@ else
     warn "Could not locate Feishu adapter — skipping no-thread reply patch check"
 fi
 
+SESSION_PY="${HERMES_AGENT}/gateway/session.py"
+SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
+FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
+if [[ -f "${SESSION_PY}" && -f "${FEISHU_PY}" && -f "${SESSION_TEST_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" ]]; then
+    if grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'Current-author rule' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'do not treat it as the speaker' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'test_bot_mention_takes_priority_over_assistant_user_mention' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_text_batch_does_not_merge_different_senders' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'Current message author' "${SESSION_TEST_PY}" 2>/dev/null; then
+        ok "Group author identity patch: active (explicit current author, bot mention priority, per-sender batching)"
+        _GROUP_AUTHOR_IDENTITY_PATCH_OK=true
+    else
+        warn "Group author identity patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-13] group author identity"
+    fi
+else
+    warn "Could not locate group author identity files — skipping PATCH-13 check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

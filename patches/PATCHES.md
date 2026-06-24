@@ -62,7 +62,11 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-4: grep _web_ui_build_needed in main.py（✅ 已上游合并，仅验证）
   │   ├─ PATCH-5: grep override_acp_command + copilot-acp（✅ 已上游合并，仅验证）
   │   ├─ PATCH-7: grep 'python-socks' in pyproject.toml + tools/lazy_deps.py
-  │   └─ PATCH-9: grep 确认 OpenClaw 迁移不再写入 HERMES_GATEWAY_TOKEN
+  │   ├─ PATCH-9: grep 确认 OpenClaw 迁移不再写入 HERMES_GATEWAY_TOKEN
+  │   ├─ PATCH-10: grep Feishu group trigger/context/config/doc/xlsx sentinels
+  │   ├─ PATCH-11: grep per-platform skill allowlist + read-only toolset sentinels
+  │   ├─ PATCH-12: grep reply_in_thread = False
+  │   └─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -149,6 +153,7 @@ PATCHED_FILES=(
     "gateway/config.py"
     "plugins/platforms/feishu/adapter.py"
     "gateway/run.py"
+    "gateway/session.py"
     "gateway/session_context.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
@@ -165,6 +170,7 @@ PATCHED_FILES=(
     "tests/gateway/test_feishu.py"
     "tests/gateway/test_feishu_bot_admission.py"
     "tests/gateway/test_feishu_bot_auth_bypass.py"
+    "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
@@ -191,7 +197,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 ## 当前版本：v0.17.0 (upstream `main` `5ecf3bf0`，2026-06-23)
 
-**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12（共 8 条）。
+**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13（共 9 条）。
 
 **最近一次升级（v0.17.0 同 release 内迭代，+5 commits，basis `bb7ff7dc` → `5ecf3bf0`）要点**：
 
@@ -345,6 +351,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `reply_in_thread = False`。定向测试覆盖：带 `thread_id` metadata 的回复 `reply_in_thread` 为 False、用 `metadata["reply_to_message_id"]` 作引用目标且不开话题、文档回复同样不开话题（`test_send_never_replies_in_thread_even_with_thread_metadata`、`test_send_uses_metadata_reply_target_without_threading`、`test_send_document_reply_never_uses_thread_flag`）；`tests/gateway/test_feishu.py` 全量 207 passed。
 
 **上游吸收判断**：如果上游后续不再把 `root_id` 并入 `thread_id`、或为 Feishu 回复提供「普通引用 vs 话题」开关并默认普通引用，可归档本补丁。
+
+---
+
+### [PATCH-13] 群聊当前发言人身份锚定
+
+| 字段     | 内容                                                                                                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/session.py`, `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_session.py`, `tests/gateway/test_feishu.py`, `tests/gateway/test_feishu_bot_admission.py` |
+| **状态** | 🟡 未上游合并                                                                                                                                                              |
+
+**问题**：群聊里模型会把 `memories/USER.md` / profile 中的 owner 信息误当成当前说话人，尤其是全局记忆写着“周琛 / 琛哥”时；同时 Feishu 群消息触发逻辑先判断 `assistant_users` 再判断 `@bot`，一条消息同时提到 bot 和配置本人账号时会走错触发分支。另一个实际身份风险是 Feishu 文本/媒体 debounce 批处理只按会话和 reply/thread 上下文聚合，未显式要求发送者一致；在共享 session 或同线程场景里，短时间内不同人的消息可能被拼到第一条事件上，沿用第一条的 sender source。
+
+**修复**：非 DM session prompt 把当前说话人从 `User` 改为 `Current message author`，并加入 `Current-author rule`：当前回答必须以本条消息作者为准，持久 profile/USER.md 只能描述 bot owner/default user，不能自动当成 speaker。Feishu 触发顺序改为直接 `@bot` 优先于 `assistant_users`。文本和媒体批处理新增 sender identity 匹配，要求 `user_id`、`user_id_alt`、`user_name` 一致才允许合并。
+
+**验证**：Step 8b grep `gateway/session.py` 中存在 `Current message author`、`Current-author rule`、`do not treat it as the speaker`，并 grep 回归测试 `test_bot_mention_takes_priority_over_assistant_user_mention`、`test_text_batch_does_not_merge_different_senders` 与 session prompt 断言。定向测试覆盖群聊 prompt 不把 owner profile 当 speaker、直接 @bot 优先于 assistant-user trigger、不同发送者的 Feishu 文本批处理不会合并。
+
+**上游吸收判断**：如果上游后续在多用户 session prompt 中原生区分 current author 与 persistent owner/profile，并保证 Feishu trigger priority 与 batching 都按 sender identity 隔离，可归档本补丁。
 
 ---
 
