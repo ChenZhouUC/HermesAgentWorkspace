@@ -52,6 +52,7 @@ MAX_CONTEXT_CHARS = 90000
 MAX_MESSAGE_CHARS = 1800
 TARGET_REPORT_CHARS = 200
 MAX_REPORT_CHARS = 260
+REPORT_SIGNATURE = "—— By 琛哥的赛博助手「木马牛」"
 
 
 def log(message: str) -> None:
@@ -303,10 +304,14 @@ def parse_generation_json(raw: str) -> dict[str, str]:
 
 def normalize_generation(data: dict[str, str]) -> dict[str, str]:
     return {
-        "today": normalize_report_section(data["today"], "今日完成"),
-        "plan": normalize_report_section(data["plan"], "明日计划"),
+        "today": append_report_signature(normalize_report_section(data["today"], "今日完成")),
+        "plan": append_report_signature(normalize_report_section(data["plan"], "明日计划")),
         "goodnight": ensure_goodnight_requirements(data["goodnight"]),
     }
+
+
+def append_report_signature(section: str) -> str:
+    return f"{section}\n\n{REPORT_SIGNATURE}"
 
 
 def normalize_report_section(text: str, label: str) -> str:
