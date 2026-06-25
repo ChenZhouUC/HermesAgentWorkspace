@@ -58,6 +58,7 @@ _hermes() {
                 'migrate:Migrate configuration for retired models or deprecated setti'
                 'model:Select default model and provider'
                 'pairing:Manage DM pairing codes for user authorization'
+                'pets:Browse, install, and select petdex animated pets'
                 'plugins:Manage plugins — install, update, remove, list'
                 'portal:Set up Nous Portal (login, model pick, Tool Gateway); see al'
                 'postinstall:Bootstrap non-Python deps for pip installs (node, browser, r'
@@ -332,6 +333,20 @@ _hermes() {
                     'revoke:Revoke user access'
                     )
                     _describe 'pairing command' pairing_cmds
+                    ;;
+                pets)
+                    local -a pets_cmds
+                    pets_cmds=(
+                    'doctor:Check pet setup + terminal graphics support'
+                    'install:Install a pet from the gallery'
+                    'list:Browse the petdex gallery'
+                    'off:Disable the pet display'
+                    'remove:Delete an installed pet'
+                    'scale:Resize the pet everywhere (display.pet.scale)'
+                    'select:Set the active pet (writes display.pet.*)'
+                    'show:Animate the active pet in the terminal'
+                    )
+                    _describe 'pets command' pets_cmds
                     ;;
                 plugins)
                     local -a plugins_cmds

@@ -195,16 +195,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `5ecf3bf0`，2026-06-23)
+## 当前版本：v0.17.0 (upstream `main` `d6269da7`，2026-06-25)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13（共 9 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+5 commits，basis `bb7ff7dc` → `5ecf3bf0`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+239 commits，basis `5ecf3bf0` → `d6269da7`）要点**：
 
-- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**Agent / Gateway RPC**——`af7b7f632` 暴露 coding-context project facts 为结构化数据并新增 `project.facts` RPC（#51259），`211ba9c7d` 新增 one-shot LLM helper 与 `llm.oneshot` gateway RPC（#51261）。**Relay**——`45bc4fb37` 向 connector 声明 relevance policy，并补充 relay management plane contract 文档（#51248）。**Slack**——`219658416` 支持转录 Slack in-app voice message 的 `audio/mp4`，`5ecf3bf0e` 为重路由 voice clips 报告扩展名匹配出的 audio mimetype。
-- patch apply：**全部 clean apply**——33 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到新基线 `5ecf3bf0`，无 3-way、无冲突；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `5ecf3bf0e0726b8b33682bb5c3aad9679b7b5be4`。本轮未发现 PATCH 被上游吸收，PATCH-10/11/12 仍活跃，PATCH-4/5 仍由上游 sentinel 覆盖。上游只轻触 `gateway/run.py`（relay policy session var）这一处 patch 管理文件，相关 hunk 仅行号从约 `8390 → 8396`、`9705 → 9711` 等小幅漂移；行为化验证全部 OK。
-- 依赖：`uv` 仍触发 `/Users/chenzhou/.local/share/uv/python` mismatch，日志中先出现 2 次失败，随后脚本用 `--python venv/bin/python` fallback 自愈（"Install recovered via explicit --python fallback"）；`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`，按设计不纳入 `local-patches.diff`。Skills mirror 同步 **+0 / ~0 / -3**。
-- 已知摩擦：`uv` python-path mismatch 每轮复发，当前 fallback 可恢复；`hermes-agent/package-lock.json` 仍为 npm/audit 生成漂移，保持在补丁跟踪之外，脚本已提示单独 review；本轮 patch 全程 in-script clean apply，无需手工 remap。
+- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**Pets / Petdex（新子系统）**——`32f837add` prompt→atlas sprite 生成引擎、`3faf768cd` OpenRouter + Nous Portal 图像后端、`aab49f692` 生成 RPC + 非阻塞 gallery、`743985bf1` Pokédex 生成 UI（overlay / 动画蛋 / 孵化 FX）、`e92b5c6af` quality-first OpenRouter 模型链 + 全局生成通知、`5196575d4` remix 草稿，并新增 `hermes pets` CLI 与 petdex skill/catalog（`6fd839ac8`）。**Agent 验证门**——`2f1a47b90` 要求收尾编辑前先验证、`a5849917a` 识别 ad-hoc 验证脚本、`7ef0f360d` 暴露 coding verification status、`fcbdf3c35` 记录验证证据账本。**Gateway scale-to-zero**——`d1cac0e5e` idle 检测 + dormant-quiesce Phase 0、`96af4bec3` `go_dormant()` transport、`d6269da7f` 加固 dormancy guards（#52359）。**Cron**——`1b181724f` 可选把 cron 投递镜像进目标会话、`b693bee10` thread-preferred 可续投递、`7a65800fe` content-address `prompt_cache_key` 让循环 cron 复用 warm prefix（#52295）。**Relay 授权**——`72ae16325` 按 delivery 而非 source.platform 授权 relay 事件（#52306）、`d33516483` inbound 走 connector 强制 upstream authz。**/learn**——`e32ebc6aa` 从描述蒸馏可复用 skill（#51506）、`e62afaca6` 补全 CONTRIBUTING.md skill 标准（#52372）。**Providers / auth**——Z.AI endpoint picker、named custom providers + Z.AI 过载重试、`736e981ab` `NOUS_INFERENCE_BASE_URL` 覆盖（#52270）、`2ee6449fe` anthropic OAuth 改走 `platform.claude.com`。
+- patch apply：**全部 clean apply**——35 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到新基线 `d6269da7`，无 3-way、无冲突；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `d6269da7fdfe3a80eee60a4675b9e6ef55a71559`。本轮未发现 PATCH 被上游吸收，PATCH-1/2/6/7/9/10/11/12/13 仍活跃，PATCH-3 上游 completion 语法仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖。尽管上游给 `gateway/run.py` +331 行（scale-to-zero）、`gateway/session.py` +52、`agent/prompt_builder.py` +19、`hermes_cli/doctor.py` +12，本地 hunk 仅行号小幅漂移，无需手工 remap；行为化验证全部 OK。
+- 依赖：本轮 `uv` 未触发 `~/.local/share/uv/python` mismatch，clean 安装无 fallback；2 个 lazy backend 刷新（`platform.dingtalk`、`platform.teams`）；`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`，按设计不纳入 `local-patches.diff`。Skills mirror 同步 **+0 / ~0 / -4**。
+- 已知摩擦：`hermes-agent/package-lock.json` 仍为 npm/audit 生成漂移，保持在补丁跟踪之外，脚本已提示单独 review；本轮 patch 全程 in-script clean apply，无需手工 remap；`uv` python-path mismatch 本轮未复发（前几轮靠 `--python venv/bin/python` fallback 兜底）。
 - 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 1 个 issue：`ALIBABA_CODING_PLAN_API_KEY` 无效。Gateway 已由脚本重启并加载补丁，service loaded，PID `76156`，`LastExitStatus=0`。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。

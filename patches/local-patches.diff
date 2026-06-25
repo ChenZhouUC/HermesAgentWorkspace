@@ -1,5 +1,5 @@
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index a731dbd1f..828f186a1 100644
+index 7f1986fbe..0accf20ee 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
 @@ -20,7 +20,10 @@ from agent.skill_utils import (
@@ -13,7 +13,7 @@ index a731dbd1f..828f186a1 100644
      iter_skill_index_files,
      parse_frontmatter,
      skill_matches_environment,
-@@ -1368,10 +1371,12 @@ def build_skills_system_prompt(
+@@ -1385,10 +1388,12 @@ def build_skills_system_prompt(
      from gateway.session_context import get_session_env
      _platform_hint = (
          os.environ.get("HERMES_PLATFORM")
@@ -26,7 +26,7 @@ index a731dbd1f..828f186a1 100644
      cache_key = (
          str(skills_dir.resolve()),
          tuple(str(d) for d in external_dirs),
-@@ -1379,6 +1384,7 @@ def build_skills_system_prompt(
+@@ -1396,6 +1401,7 @@ def build_skills_system_prompt(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
@@ -34,7 +34,7 @@ index a731dbd1f..828f186a1 100644
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1404,7 +1410,9 @@ def build_skills_system_prompt(
+@@ -1421,7 +1427,9 @@ def build_skills_system_prompt(
              platforms = entry.get("platforms") or []
              if not skill_matches_platform({"platforms": platforms}):
                  continue
@@ -45,7 +45,7 @@ index a731dbd1f..828f186a1 100644
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1429,7 +1437,9 @@ def build_skills_system_prompt(
+@@ -1446,7 +1454,9 @@ def build_skills_system_prompt(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
@@ -56,7 +56,7 @@ index a731dbd1f..828f186a1 100644
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -1484,6 +1494,8 @@ def build_skills_system_prompt(
+@@ -1501,6 +1511,8 @@ def build_skills_system_prompt(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
@@ -168,10 +168,10 @@ index 338fa37cb..b2a822d77 100644
                  continue
              if not skill_matches_platform(frontmatter):
 diff --git a/gateway/authz_mixin.py b/gateway/authz_mixin.py
-index bcefb4eec..33c0748a0 100644
+index a32200ad5..cc8154c30 100644
 --- a/gateway/authz_mixin.py
 +++ b/gateway/authz_mixin.py
-@@ -250,6 +250,7 @@ class GatewayAuthorizationMixin:
+@@ -304,6 +304,7 @@ class GatewayAuthorizationMixin:
          platform_group_chat_env_map = {
              Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_CHATS",
              Platform.QQBOT: "QQ_GROUP_ALLOWED_USERS",
@@ -207,10 +207,10 @@ index e1556b37d..5941876e9 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/run.py b/gateway/run.py
-index 09b9e1c88..c97db22d9 100644
+index 2071950df..09749aa07 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -2107,6 +2107,17 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2108,6 +2108,17 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -228,7 +228,7 @@ index 09b9e1c88..c97db22d9 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -4380,7 +4391,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -4587,7 +4598,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -237,7 +237,7 @@ index 09b9e1c88..c97db22d9 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -8396,8 +8407,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -8659,8 +8670,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -254,7 +254,7 @@ index 09b9e1c88..c97db22d9 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -9711,7 +9728,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9980,7 +9997,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -263,7 +263,7 @@ index 09b9e1c88..c97db22d9 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -9744,7 +9761,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10037,7 +10054,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -272,7 +272,7 @@ index 09b9e1c88..c97db22d9 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -11199,7 +11216,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11492,7 +11509,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -281,7 +281,7 @@ index 09b9e1c88..c97db22d9 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -12739,6 +12756,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13032,6 +13049,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -289,7 +289,7 @@ index 09b9e1c88..c97db22d9 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -14158,7 +14176,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14451,7 +14469,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -298,7 +298,7 @@ index 09b9e1c88..c97db22d9 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -14466,7 +14484,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14759,7 +14777,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -307,7 +307,7 @@ index 09b9e1c88..c97db22d9 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -15274,9 +15292,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15567,9 +15585,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # (concurrency-safe). Keep os.environ as fallback for CLI/cron.
              os.environ["HERMES_SESSION_KEY"] = session_key or ""
              
@@ -319,10 +319,10 @@ index 09b9e1c88..c97db22d9 100644
              # Combine platform context, per-channel context, and the user-configured
              # ephemeral system prompt.
 diff --git a/gateway/session.py b/gateway/session.py
-index 68df8f295..bd47b18ed 100644
+index 8f59d5495..9d98a46bb 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
-@@ -347,12 +347,22 @@ def build_session_context_prompt(
+@@ -360,12 +360,22 @@ def build_session_context_prompt(
      # changes per-turn and would bust the prompt cache.  Instead, note that
      # this is a multi-user session; individual sender names are prefixed on
      # each user message by the gateway.
@@ -345,7 +345,7 @@ index 68df8f295..bd47b18ed 100644
      elif context.source.user_name:
          lines.append(f"**User:** {context.source.user_name}")
      elif context.source.user_id:
-@@ -361,6 +371,15 @@ def build_session_context_prompt(
+@@ -374,6 +384,15 @@ def build_session_context_prompt(
              uid = _hash_sender_id(uid)
          lines.append(f"**User ID:** {uid}")
  
@@ -406,10 +406,10 @@ index 55f269df5..495a51f03 100644
          _SESSION_CHAT_ID,
          _SESSION_CHAT_NAME,
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 7aadc58f5..a7484dc9c 100644
+index 7377e2959..348baa175 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -2111,8 +2111,23 @@ def run_doctor(args):
+@@ -2121,8 +2121,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -1423,7 +1423,7 @@ index ae8a4bfc3..24beb0931 100644
  
  
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index 2542ff431..2c5e33382 100644
+index 79bccc100..886f4c051 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
 @@ -835,6 +835,49 @@ class TestLoadGatewayConfig:
@@ -3144,10 +3144,10 @@ index 78bdd8d63..e8d2ebd4f 100644
          """Delete a single file.
  
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index b7883aaba..0b2989ff7 100644
+index cec730dcb..efcad5aa7 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
-@@ -147,6 +147,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
+@@ -165,6 +165,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
      "platform.feishu": (
          "lark-oapi==1.5.3",
          "qrcode==7.4.2",
@@ -3427,7 +3427,7 @@ index 38a27e622..4590ea5f0 100644
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 31a8c0f1c..0d9f0aa4f 100644
+index 3387c80c7..8e8e9be73 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
 @@ -353,8 +353,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
