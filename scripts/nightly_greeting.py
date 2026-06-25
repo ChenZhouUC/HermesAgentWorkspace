@@ -492,6 +492,12 @@ def submit_report(day: dt.date, draft: dict[str, str]) -> str:
     )
     output_path = WORK_DIR / f"{day.isoformat()}.report-submit.log"
     output_path.write_text(res.stdout or "", encoding="utf-8")
+    if res.returncode == 4:
+        # rc=4: the report was submitted but report.py could not detect the
+        # success toast. Treat as submitted (avoid duplicate re-submits and do
+        # not block the greeting); flag for manual verification.
+        log(f"Report submitted but success toast not detected (rc=4); treating as submitted. Verify: {output_path}")
+        return str(output_path)
     if res.returncode != 0:
         raise RuntimeError(f"Report submit failed ({res.returncode}); see {output_path}")
     log(f"Report submitted; log saved to {output_path}")
@@ -618,18 +624,27 @@ def run(args: argparse.Namespace) -> str | None:
             send_dry_run_preview(day, draft, state)
             return None
 
+        # Report and greeting are decoupled: a failure in one must not block the
+        # other. Errors are collected and re-raised at the end so the cron run is
+        # still marked as failed for visibility.
+        errors: list[str] = []
+
         if not args.skip_report:
             if state["reports"].get(day_key) and not args.force_report:
                 log(f"Report already submitted for {day_key}; skipping report submit.")
             else:
-                report_log = submit_report(day, draft)
-                state["reports"][day_key] = {
-                    "submitted_at": dt.datetime.now(TZ).isoformat(),
-                    "report_log": report_log,
-                    "today": draft["today"],
-                    "plan": draft["plan"],
-                }
-                save_state(state)
+                try:
+                    report_log = submit_report(day, draft)
+                    state["reports"][day_key] = {
+                        "submitted_at": dt.datetime.now(TZ).isoformat(),
+                        "report_log": report_log,
+                        "today": draft["today"],
+                        "plan": draft["plan"],
+                    }
+                    save_state(state)
+                except Exception as exc:  # noqa: BLE001
+                    log(f"Report submit failed (continuing to greeting): {exc}")
+                    errors.append(f"report: {exc}")
         else:
             log("Report submit skipped by flag.")
 
@@ -637,14 +652,21 @@ def run(args: argparse.Namespace) -> str | None:
             if state["greetings"].get(day_key) and not args.force_greeting:
                 log(f"Greeting already sent for {day_key}; skipping group send.")
             else:
-                results = send_greetings(day, draft["goodnight"])
-                state["greetings"][day_key] = {
-                    "sent_at": dt.datetime.now(TZ).isoformat(),
-                    "groups": [item["group_id"] for item in results],
-                }
-                save_state(state)
+                try:
+                    results = send_greetings(day, draft["goodnight"])
+                    state["greetings"][day_key] = {
+                        "sent_at": dt.datetime.now(TZ).isoformat(),
+                        "groups": [item["group_id"] for item in results],
+                    }
+                    save_state(state)
+                except Exception as exc:  # noqa: BLE001
+                    log(f"Greeting send failed: {exc}")
+                    errors.append(f"greeting: {exc}")
         else:
             log("Greeting skipped by flag.")
+
+        if errors:
+            raise RuntimeError("; ".join(errors))
     return None
 
 
