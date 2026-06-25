@@ -52,7 +52,7 @@ MAX_CONTEXT_CHARS = 90000
 MAX_MESSAGE_CHARS = 1800
 TARGET_REPORT_CHARS = 200
 MAX_REPORT_CHARS = 260
-REPORT_SIGNATURE = "—— By 琛哥的赛博助手「木马牛」"
+REPORT_SIGNATURE = "—— By 琛哥的赛博助手「Gödel」"
 
 
 def log(message: str) -> None:
@@ -246,7 +246,7 @@ def build_generation_prompt(day: dt.date, session_text: str) -> str:
         1. 提取工作的部分，删除玩笑、吐槽、人身攻击、不正经内容。
         2. 业务范围限定：只保留 SpaceSight（摄像头 / 计算机视觉）产品线、且由琛哥本人负责或推进的工作；口径符合摄像头业务产品线 leader，重点围绕客流、巡检、热力图、动线、轨迹、图片、视频、大模型、小模型、报价、成本、私有化、（门店）汽车售后、算法/数据/交付方案、问题讨论与推进计划。
         3. 输出飞书日报两个字段：今日完成、明日计划。
-        4. 再输出一段群发晚安词，符合“琛哥的赛博助手/木马牛”人设；每天可以有新花样，但必须按顺序自然包含且不要重复表达：先问好并自我介绍，再说明已经帮琛哥发好日报，最后说大家工作辛苦了并道晚安祝愿。
+        4. 再输出一段群发晚安词，符合“琛哥的赛博助手 Gödel”人设；每天可以有新花样，但必须按顺序自然包含且不要重复表达：先问好并自我介绍，再说明已经帮琛哥发好日报，最后说大家工作辛苦了并道晚安祝愿。
 
         范围红线（不属于 SpaceSight 的内容必须剔除，不得写进今日完成/明日计划）：
         - 其它产品线/团队的客户与项目，尤其是 Echo / 语音工牌 / 声纹识别 / 语义聚合 / 视频质检(QA/QC) / Alivia 等 zy 团队的业务（例如资生堂、理想汽车这类语音工牌 POC）。
@@ -386,11 +386,11 @@ def ensure_goodnight_requirements(text: str) -> str:
 
 
 def default_goodnight() -> str:
-    return "大家好，我是琛哥的赛博助手木马牛。今天的日报已经帮琛哥发好了。大家今天工作辛苦了，晚安，祝大家好梦。"
+    return "大家好，我是琛哥的赛博助手 Gödel。今天的日报已经帮琛哥发好了。大家今天工作辛苦了，晚安，祝大家好梦。"
 
 
 def goodnight_has_required_order(text: str) -> bool:
-    intro_pos = first_index(text, ("木马牛", "赛博助手"))
+    intro_pos = first_index(text, ("Gödel", "赛博助手"))
     report_pos = first_index(text, ("日报",))
     work_pos = first_index(text, ("辛苦",))
     night_pos = first_index(text, ("晚安",))

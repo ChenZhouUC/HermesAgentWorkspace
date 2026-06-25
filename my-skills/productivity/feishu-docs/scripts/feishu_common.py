@@ -27,7 +27,7 @@ import urllib.request
 from datetime import datetime
 
 API = "https://open.feishu.cn/open-apis"
-BOT_OPEN_ID = "ou_0091f5c50226a4ee0dc8a6d51665db0f"  # @小聪明蛋
+BOT_OPEN_ID = "ou_0091f5c50226a4ee0dc8a6d51665db0f"  # @Gödel
 VERSION_RE = re.compile(r"^(\d{8})\.(\d+)ed$")
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 _RETRYABLE_CONN = (

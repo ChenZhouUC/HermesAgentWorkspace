@@ -17,7 +17,7 @@ Use this skill whenever you need to read, summarize, create, or update documents
 6. **Raw URLs Only (CRITICAL)**: When sending the final document URL to the user in Feishu chat, **always include the raw, unformatted URL string** (e.g., `https://domain.feishu.cn/docx/XYZ...`).
 7. **References**: ALWAYS append a `## References` section formatted in Chicago style at the bottom of the document if you used ANY external search information. Do not skip this even if the primary task was running local SSH commands. Format: `- Author. "Title." Website, Year. URL` (e.g., `- 周琛. "Doc Title." Feishu Wiki, 2026. https://...`). End each line IMMEDIATELY after the raw URL — no trailing period or markdown brackets (see rule 3), otherwise Feishu's parser breaks the link.
 8. **URL Verification**: NEVER rely on internal pre-training knowledge for documentation URLs, product links, or API endpoints. Training data gets stale. ALWAYS use `web_search` to find and verify the live, current URL before inserting it into a document.
-9. **Bot Native Mention**: The user expects a native Feishu mention card for the author (e.g., `@小聪明蛋`), not plain text. For the bot, `小聪明蛋`'s `open_id` is `ou_0091f5c50226a4ee0dc8a6d51665db0f`. You must POST or PATCH text elements with `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}` instead of a plain text `@...`.
+9. **Bot Native Mention**: The user expects a native Feishu mention card for the author (e.g., `@Gödel`), not plain text. For the bot, `Gödel`'s `open_id` is `ou_0091f5c50226a4ee0dc8a6d51665db0f`. You must POST or PATCH text elements with `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}` instead of a plain text `@...`.
 10. **Creating from Markdown**: **NEVER parse Markdown manually to use the Blocks API**. The only way to get perfect native formatting is to upload the `.md` file to Feishu Drive and use the `import_tasks` API.
 11. **Updating Existing Docs**: **NEVER BLINDLY APPEND** to the end. You MUST "blend" the new information into existing logical sections by finding the correct integer `index`.
 12. **Reading Docs (Scraping Fallacy)**: **NEVER use curl, wget, or BeautifulSoup to scrape Feishu URLs.** Feishu Docs are client-side rendered (SPA); HTML scraping only returns a loading screen. Always use the native `feishu_doc_read` tool or the `extract_docx_to_markdown.py` fallback script.
@@ -73,7 +73,7 @@ This script automatically handles:
 2. Polling the Import API.
 3. Patching the root block to set the professional title.
 4. Setting permissions to `tenant_editable`.
-5. Resolving plain text `@小聪明蛋` to native mention cards.
+5. Resolving plain text `@Gödel` to native mention cards.
 6. Writing the initial Version Table.
 
 ---
@@ -184,7 +184,7 @@ split that otherwise throws `HTTP 400 (1770001)`. If you ever must debug it, see
 When patching existing text blocks, you **MUST** use `update_text_elements`:
 `{"update_text_elements": {"elements": [{"text_run": {"content": "New Text"}}]}}`
 
-**Deep Traversal Pitfall (Tables & Cells):** When searching for text to patch (e.g., to fix plain text `@小聪明蛋` mentions), be aware that Table (31) and Cell (32) blocks might not reliably expose `has_child: true` in the parent's `/children` API response. You MUST explicitly check for `block_type in (31, 32)` and recursively fetch their children to reach the nested Text (2) blocks.
+**Deep Traversal Pitfall (Tables & Cells):** When searching for text to patch (e.g., to fix plain text `@Gödel` mentions), be aware that Table (31) and Cell (32) blocks might not reliably expose `has_child: true` in the parent's `/children` API response. You MUST explicitly check for `block_type in (31, 32)` and recursively fetch their children to reach the nested Text (2) blocks.
 
 ### 5. Document Metadata & Creation Time
 
@@ -254,7 +254,7 @@ When the user asks to extract a Feishu Document and save it into their local LLM
    - **Clean Feishu Artifacts**:
      - **Extract Dates**: Before deleting the Version Table, extract the creation date (first row) and update date (last row) to use in the YAML frontmatter.
      - **Remove the Version Table**: Delete the Markdown table at the top of the document that tracks `Version | Time | Author`. This is a Feishu-specific artifact that pollutes the static wiki. Use a regex to strip it (e.g., `re.sub(r"^\| Col 0.*?\n(?:\|.*?\n)+", "", content, count=1, flags=re.MULTILINE)`).
-     - **Remove Native Mentions**: Clean up any `@小聪明蛋` or similar Feishu user mentions, converting them to plain text (e.g., "周琛") or removing them entirely (e.g., `re.sub(r"\[@ou_[a-zA-Z0-9]+\]|@ou_[a-zA-Z0-9]+", "", content)`).
+     - **Remove Native Mentions**: Clean up any `@Gödel` or similar Feishu user mentions, converting them to plain text (e.g., "周琛") or removing them entirely (e.g., `re.sub(r"\[@ou_[a-zA-Z0-9]+\]|@ou_[a-zA-Z0-9]+", "", content)`).
 
 2. **Add Wiki YAML Frontmatter (CRITICAL)**:
    Prepend standard LLM Wiki frontmatter to the top of the file. You MUST include `type`, `tags`, and `sources` per the `llm-wiki` schema.

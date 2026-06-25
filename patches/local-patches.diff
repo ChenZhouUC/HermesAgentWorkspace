@@ -532,7 +532,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index bf3c49d3b..72582f1bb 100644
+index bf3c49d3b..dbdb15019 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -97,6 +97,7 @@ try:
@@ -929,7 +929,7 @@ index bf3c49d3b..72582f1bb 100644
 +        sender_type = str(getattr(sender, "sender_type", "") or "").strip().lower()
 +        sender_id = str(getattr(sender, "id", "") or "").strip()
 +        if sender_id and sender_id == self._app_id:
-+            return "木马牛 (assistant, you)"
++            return "Gödel (assistant, you)"
 +        label = self._get_cached_sender_name(sender_id) if sender_id else None
 +        if not label:
 +            label = sender_id or sender_type or "unknown"
@@ -946,7 +946,7 @@ index bf3c49d3b..72582f1bb 100644
 +            label,
 +            "我是琛哥的赛博小助手",
 +            "我是琛哥的赛博助手",
-+            "木马牛",
++            "Gödel",
 +        ]
 +        return tuple(dict.fromkeys(marker for marker in markers if marker))
 +
@@ -1209,25 +1209,25 @@ index bf3c49d3b..72582f1bb 100644
 +        if triggered_by_configured_human_sender:
 +            self_intro_policy = (
 +                "The triggering group message was sent by the configured human user. "
-+                "They already know Hermes/木马牛, so do NOT open with a self-introduction. "
++                "They already know Hermes/Gödel, so do NOT open with a self-introduction. "
 +                "Answer the request directly unless they explicitly ask who you are.\n"
 +            )
 +        elif recent_self_intro_seen:
 +            self_intro_policy = (
 +                "A recent assistant self-introduction is already visible in the group context. "
-+                "Do NOT repeat any explicit identity line such as 我是琛哥的赛博小助手「木马牛」. "
++                "Do NOT repeat any explicit identity line such as 我是琛哥的赛博小助手「Gödel」. "
 +                "Just answer naturally as the ongoing assistant.\n"
 +            )
 +        else:
 +            self_intro_policy = (
 +                "No recent assistant self-introduction is visible in the configured throttle window. "
 +                "If the conversation needs identity clarity, you may open once with something natural like: "
-+                "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。\n"
++                "我是琛哥的赛博小助手「Gödel」，琛哥可能在忙，我先帮你看看。\n"
 +            )
 +        instruction = (
 +            "[Feishu assistant mode]\n"
 +            "The triggering group message mentioned the configured human user, 琛哥 / Zhou Chen. "
-+            f"You are {label}; your assistant name is 木马牛 — 琛哥的赛博小助手 (Zhou Chen's personal cyber assistant). "
++            f"You are {label}; your assistant name is Gödel — 琛哥的赛博小助手 (Zhou Chen's personal cyber assistant). "
 +            "Reply in Chinese unless the conversation clearly uses another language. "
 +            "Make clear, when you do introduce yourself, that 琛哥 may be busy and you are only making an initial reply on his behalf. "
 +            "Do not claim to be the human user. Use the recent group context when relevant.\n"
@@ -1266,7 +1266,7 @@ index bf3c49d3b..72582f1bb 100644
 +        instruction = (
 +            "[Feishu configured-human mention]\n"
 +            "The triggering group message was sent by the configured human user, 琛哥 / Zhou Chen, "
-+            "who deliberately mentioned Hermes. This sender already knows Hermes/木马牛. "
++            "who deliberately mentioned Hermes. This sender already knows Hermes/Gödel. "
 +            "Do not open with a self-introduction or explain who you are; answer the request directly. "
 +            "If the message explicitly asks about your identity, answer briefly and then continue."
 +        )
@@ -1477,7 +1477,7 @@ index 79bccc100..886f4c051 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..156902d9a 100644
+index bb97c7e72..c8029d9bf 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -159,6 +159,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -1681,7 +1681,7 @@ index bb97c7e72..156902d9a 100644
 +            )
 +
 +        # The assistant's own prior messages (sender id == app_id) are kept and
-+        # labelled "木马牛 (assistant, you)" so assistant mode can detect a recent
++        # labelled "Gödel (assistant, you)" so assistant mode can detect a recent
 +        # self-introduction and avoid repeating it.
 +        self.assertIsNotNone(result)
 +        self.assertEqual(
@@ -1689,7 +1689,7 @@ index bb97c7e72..156902d9a 100644
 +            "[Recent channel messages]\n"
 +            "[Bob] hello there\n"
 +            "[BuildBot [bot]] bot note\n"
-+            "[木马牛 (assistant, you)] prior self",
++            "[Gödel (assistant, you)] prior self",
 +        )
 +        self.assertFalse(result.recent_self_intro_seen)
 +        request = captured["request"]
@@ -1713,7 +1713,7 @@ index bb97c7e72..156902d9a 100644
 +                    "history_backfill_seconds": 1800,
 +                    "assistant_identity_throttle_messages": 20,
 +                    "assistant_identity_throttle_seconds": 600,
-+                    "assistant_identity_label": "琛哥的赛博助手「木马牛」",
++                    "assistant_identity_label": "琛哥的赛博助手「Gödel」",
 +                }
 +            )
 +        )
@@ -1743,7 +1743,7 @@ index bb97c7e72..156902d9a 100644
 +                                sender=SimpleNamespace(id="cli_self", sender_type="app"),
 +                                body=SimpleNamespace(
 +                                    content=json.dumps(
-+                                        {"text": "我是琛哥的赛博小助手「木马牛」，我先帮你看看。"},
++                                        {"text": "我是琛哥的赛博小助手「Gödel」，我先帮你看看。"},
 +                                        ensure_ascii=False,
 +                                    )
 +                                ),
@@ -1983,7 +1983,7 @@ index bb97c7e72..156902d9a 100644
          """_build_mentions_map accepts the reply-history shape (id as str +
          id_type='open_id'). user_id id_type is not load-bearing for self
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
-index 61628f933..3789ef0d2 100644
+index 61628f933..b2628a7d8 100644
 --- a/tests/gateway/test_feishu_bot_admission.py
 +++ b/tests/gateway/test_feishu_bot_admission.py
 @@ -3,6 +3,7 @@
@@ -2194,7 +2194,7 @@ index 61628f933..3789ef0d2 100644
 +    text = captured["event"].text
 +    assert "[Feishu assistant mode]" in text
 +    assert "我的赛博助手" in text
-+    assert "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。" in text
++    assert "我是琛哥的赛博小助手「Gödel」，琛哥可能在忙，我先帮你看看。" in text
 +    assert "llm-wiki first" in text
 +    assert "read_file/search_files" in text
 +    assert "~/.hermes/wiki" in text
@@ -2204,7 +2204,7 @@ index 61628f933..3789ef0d2 100644
 +
 +    adapter._fetch_channel_context = AsyncMock(
 +        return_value=FeishuChannelContextSnapshot(
-+            text="[Recent channel messages]\n[木马牛 (assistant, you)] 我是琛哥的赛博小助手「木马牛」",
++            text="[Recent channel messages]\n[Gödel (assistant, you)] 我是琛哥的赛博小助手「Gödel」",
 +            recent_self_intro_seen=True,
 +        )
 +    )
@@ -2222,7 +2222,7 @@ index 61628f933..3789ef0d2 100644
 +
 +    throttled_text = captured["event"].text
 +    assert "Do NOT repeat any explicit identity line" in throttled_text
-+    assert "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。" not in throttled_text
++    assert "我是琛哥的赛博小助手「Gödel」，琛哥可能在忙，我先帮你看看。" not in throttled_text
 +
 +
 +def test_process_inbound_message_owner_bot_mention_skips_self_intro(monkeypatch):
@@ -2256,7 +2256,7 @@ index 61628f933..3789ef0d2 100644
 +    mention = SimpleNamespace(
 +        key="@_user_1",
 +        id=SimpleNamespace(open_id="ou_self", user_id=""),
-+        name="木马牛",
++        name="Gödel",
 +    )
 +    message = SimpleNamespace(
 +        message_id="om_owner_bot",
@@ -2282,7 +2282,7 @@ index 61628f933..3789ef0d2 100644
 +    assert "[Feishu configured-human mention]" in text
 +    assert "[Feishu assistant mode]" not in text
 +    assert "Do not open with a self-introduction" in text
-+    assert "我是琛哥的赛博小助手「木马牛」，琛哥可能在忙，我先帮你看看。" not in text
++    assert "我是琛哥的赛博小助手「Gödel」，琛哥可能在忙，我先帮你看看。" not in text
 +    assert "帮我总结一下刚才的问题" in text
 diff --git a/tests/gateway/test_feishu_bot_auth_bypass.py b/tests/gateway/test_feishu_bot_auth_bypass.py
 index 4dd83a1bd..740d41aed 100644

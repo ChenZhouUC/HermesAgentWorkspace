@@ -13,6 +13,9 @@ state.db-wal
 kanban.db
 kanban.db-shm
 kanban.db-wal
+verification_evidence.db
+verification_evidence.db-shm
+verification_evidence.db-wal
 gateway.pid
 gateway_state.json
 auth.lock

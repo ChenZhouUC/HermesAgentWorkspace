@@ -125,7 +125,7 @@ def create_doc(md_path, title):
         for c in children:
             if c["block_type"] == 2:
                 for e in c.get("text", {}).get("elements", []):
-                    if e.get("text_run", {}).get("content", "").find("@小聪明蛋") != -1:
+                    if e.get("text_run", {}).get("content", "").find("@Gödel") != -1:
                         payload = {
                             "update_text_elements": {
                                 "elements": [{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}]
