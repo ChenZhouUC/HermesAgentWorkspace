@@ -233,6 +233,10 @@ Links in the form `https://whales.feishu.cn/file/TOKEN` are file attachments, no
 
 See `references/file-attachment-download.md` for the full pattern.
 
+## 📊 Reading Feishu Sheets (Spreadsheets)
+
+Links in the form `https://domain.feishu.cn/sheets/TOKEN` are native Feishu Spreadsheets. **Neither `feishu_doc_read` nor the docx extraction scripts work on sheet tokens** — they return `1770002 not found`. Use the Sheets Open API endpoints instead. See `references/sheet-api.md` for the complete pattern (list sheets → query cell values → optionally download as .xlsx).
+
 ## 💉 Custom Version Table Injection
 
 When the user asks to fabricate or insert custom version history entries (e.g., backdating versions), you must directly manipulate the version table via `feishu_common` internals (delete existing table + write new rows with `_write_version_tables`). See `references/version-table-injection.md`.
