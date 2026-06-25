@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.17.0 / main d6269da7, `hermes completion zsh` already emits the
+# As of v0.17.0 / main a6a28ce3, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -593,6 +593,7 @@ _FEISHU_GROUP_PATCH_OK=false
 _FEISHU_SKILL_SCOPE_PATCH_OK=false
 _FEISHU_NO_THREAD_PATCH_OK=false
 _GROUP_AUTHOR_IDENTITY_PATCH_OK=false
+_PEOPLE_PROFILE_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -777,11 +778,29 @@ else
     warn "Could not locate group author identity files — skipping PATCH-13 check"
 fi
 
+# PATCH-14: per-person profile injection (people.yaml → system prompt).
+# Source-side hook lives in gateway/session.py; the data file ~/.hermes/people.yaml
+# is in the config repo and intentionally NOT a PATCHED_FILES entry.
+if [[ -f "${SESSION_PY}" && -f "${SESSION_TEST_PY}" ]]; then
+    if grep -q 'people-profile' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'def _load_people_profiles' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'def _lookup_person' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'class TestPeopleProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null; then
+        ok "People profile patch: active (people.yaml lookup + prompt injection)"
+        _PEOPLE_PROFILE_PATCH_OK=true
+    else
+        warn "People profile patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-14] people profile injection"
+    fi
+else
+    warn "Could not locate people profile files — skipping PATCH-14 check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

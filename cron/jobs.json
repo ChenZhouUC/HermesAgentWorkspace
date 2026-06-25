@@ -20,17 +20,17 @@
       "schedule_display": "0 22 * * *",
       "repeat": {
         "times": null,
-        "completed": 2
+        "completed": 3
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-06-23T22:07:31.987308+08:00",
-      "next_run_at": "2026-06-25T22:00:00+08:00",
-      "last_run_at": "2026-06-24T22:01:47.426381+08:00",
-      "last_status": "ok",
-      "last_error": null,
+      "next_run_at": "2026-06-26T22:00:00+08:00",
+      "last_run_at": "2026-06-25T22:01:49.303469+08:00",
+      "last_status": "error",
+      "last_error": "Script exited with code 1\nstderr:\n[nightly] Submitting Feishu daily report for 2026-06-25\nTraceback (most recent call last):\n  File \"/Users/chenzhou/.hermes/scripts/nightly_greeting.py\", line 659, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/Users/chenzhou/.hermes/scripts/nightly_greeting.py\", line 654, in main\n    run(args)\n  File \"/Users/chenzhou/.hermes/scripts/nightly_greeting.py\", line 625, in run\n    report_log = submit_report(day, draft)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/chenzhou/.hermes/scripts/nightly_greeting.py\", line 496, in submit_report\n    raise RuntimeError(f\"Report submit failed ({res.returncode}); see {output_path}\")\nRuntimeError: Report submit failed (4); see /Users/chenzhou/.hermes/tmp/nightly_report/2026-06-25.report-submit.log",
       "last_delivery_error": null,
       "deliver": "origin",
       "origin": {
@@ -44,5 +44,5 @@
       "fire_claim": null
     }
   ],
-  "updated_at": "2026-06-24T22:44:28.988105+08:00"
+  "updated_at": "2026-06-25T22:01:49.304402+08:00"
 }

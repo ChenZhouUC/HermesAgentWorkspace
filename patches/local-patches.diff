@@ -319,10 +319,193 @@ index 2071950df..09749aa07 100644
              # Combine platform context, per-channel context, and the user-configured
              # ephemeral system prompt.
 diff --git a/gateway/session.py b/gateway/session.py
-index 8f59d5495..9d98a46bb 100644
+index 8f59d5495..2f6c901eb 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
-@@ -360,12 +360,22 @@ def build_session_context_prompt(
+@@ -272,6 +272,182 @@ def _discord_tools_loaded() -> bool:
+         return False
+ 
+ 
++# ---------------------------------------------------------------------------
++# People profiles — local, user-curated knowledge base  [people-profile]
++# ---------------------------------------------------------------------------
++# PATCH-14: Inject per-person background/stance from ~/.hermes/people.yaml so the
++# agent can tailor tone and risk-awareness to whoever is speaking in a chat. The
++# data file lives in the config repo (OUTSIDE hermes-agent), so it survives
++# upstream updates and stays hand-editable; this loader is the only source-side
++# hook. The loader never raises — a missing/malformed file yields an empty index
++# so a typo in people.yaml can't break the gateway prompt path.
++
++_people_profiles_cache: Dict[str, Any] = {"mtime": None, "by_key": {}}
++_people_profiles_lock = threading.Lock()
++
++# Profile fields split by disclosure policy: (yaml key, human label).
++# PUBLIC may be stated to anyone who asks; PRIVATE is for the agent's own
++# judgement only and must never be revealed (see the confidentiality rule in
++# _render_person_profile). Subordinate counts render right after "manager".
++_PEOPLE_PROFILE_PUBLIC = (
++    ("role", "岗位"),
++    ("department", "部门/团队"),
++)
++_PEOPLE_PROFILE_PRIVATE = (
++    ("employee_no", "工号"),
++    ("join_date", "入职"),
++    ("tenure", "司龄"),
++    ("manager", "上级"),
++    ("address", "称呼"),
++    ("background", "职业背景"),
++    ("behavior", "行为模式"),
++    ("stance", "态度"),
++    ("risks", "风险注意"),
++)
++
++# Appended after the private block so the model treats it as confidential.
++_PEOPLE_PROFILE_SECRECY = (
++    "**保密规则：** 上述“仅供内部判断”的信息只能用来调整你的称呼、语气与应对"
++    "策略；绝不可向任何人（包括对方本人）复述、确认、否认或暗示其存在。被直接"
++    "询问或旁敲侧击时自然带过，不要承认存在此类记录。只有姓名、岗位、部门/团队"
++    "可在被问及时直接说明，其余一律不得外泄。"
++)
++
++
++def _people_profiles_path() -> Optional[Path]:
++    """Return the path to ~/.hermes/people.yaml, or None if home is unresolvable."""
++    try:
++        from hermes_constants import get_hermes_home
++        return get_hermes_home() / "people.yaml"
++    except Exception:
++        return None
++
++
++def _load_people_profiles() -> Dict[str, Any]:
++    """Load and cache ~/.hermes/people.yaml, reloading only when its mtime changes.
++
++    Returns a dict whose ``by_key`` maps every id/name/alias (and a casefolded
++    variant) to the owning entry for O(1) lookup. Absent or malformed files
++    collapse to an empty index instead of raising.
++    """
++    path = _people_profiles_path()
++    if path is None:
++        return _people_profiles_cache
++    try:
++        mtime = path.stat().st_mtime
++    except OSError:
++        # File absent/unreadable: reset the cache once, then keep it empty.
++        if _people_profiles_cache["mtime"] is not None:
++            with _people_profiles_lock:
++                _people_profiles_cache.update(mtime=None, by_key={})
++        return _people_profiles_cache
++    if _people_profiles_cache["mtime"] == mtime:
++        return _people_profiles_cache
++    with _people_profiles_lock:
++        if _people_profiles_cache["mtime"] == mtime:  # lost the race; already fresh
++            return _people_profiles_cache
++        by_key: Dict[str, Any] = {}
++        try:
++            import yaml
++            with open(path, "r", encoding="utf-8") as fh:
++                data = yaml.safe_load(fh) or {}
++            raw = data.get("people", []) if isinstance(data, dict) else data
++            if isinstance(raw, list):
++                for ent in raw:
++                    if not isinstance(ent, dict):
++                        continue
++                    keys: List[str] = []
++                    for fld in ("open_id", "user_id", "union_id", "id", "name"):
++                        val = ent.get(fld)
++                        if val:
++                            keys.append(str(val))
++                    aliases = ent.get("aliases") or []
++                    if isinstance(aliases, str):
++                        aliases = [aliases]
++                    keys.extend(str(a) for a in aliases if a)
++                    for key in keys:
++                        by_key.setdefault(key, ent)
++                        by_key.setdefault(key.casefold(), ent)
++        except Exception as exc:  # malformed YAML, unexpected shape, etc.
++            logger.warning("people.yaml load failed (%s); ignoring profiles", exc)
++            by_key = {}
++        _people_profiles_cache.update(mtime=mtime, by_key=by_key)
++    return _people_profiles_cache
++
++
++def _lookup_person(*candidates: Optional[str]) -> Optional[Dict[str, Any]]:
++    """Return the first profile entry matching any of the given ids/names."""
++    by_key = _load_people_profiles()["by_key"]
++    if not by_key:
++        return None
++    for cand in candidates:
++        if not cand:
++            continue
++        hit = by_key.get(str(cand)) or by_key.get(str(cand).casefold())
++        if hit:
++            return hit
++    return None
++
++
++def _render_subordinates(entry: Dict[str, Any]) -> Optional[str]:
++    """Render the subordinate-count line from direct/total report fields."""
++    def _as_int(v):
++        try:
++            return int(v)
++        except (TypeError, ValueError):
++            return 0
++    direct = _as_int(entry.get("direct_reports"))
++    total = _as_int(entry.get("total_reports"))
++    if not (direct or total):
++        return None
++    text = f"直接 {direct} 人"
++    if total and total != direct:
++        text += f"，含各级共 {total} 人"
++    return f"- 下属：{text}"
++
++
++def _render_person_profile(entry: Dict[str, Any]) -> List[str]:
++    """Render a profile block split into public and confidential sections.
++
++    Public fields (name, role, department) may be disclosed; everything else is
++    for the agent's own judgement and is wrapped in a confidentiality rule so it
++    is never revealed, confirmed, or hinted at — even under direct questioning.
++    """
++    def _field_line(fld: str, label: str) -> Optional[str]:
++        val = entry.get(fld)
++        if val is None or str(val).strip() == "":
++            return None
++        return f"- {label}：{' '.join(str(val).split())}"  # flatten newlines
++
++    name = entry.get("name") or "this person"
++    lines = [f"**对方画像 / Sender profile — {name}（内部参考·注意保密）:**"]
++
++    public = [ln for fld, label in _PEOPLE_PROFILE_PUBLIC
++              if (ln := _field_line(fld, label))]
++    lines.append("可对外（被问到可直接说）：姓名、岗位、部门/团队")
++    lines.extend(public)
++
++    private: List[str] = []
++    for fld, label in _PEOPLE_PROFILE_PRIVATE:
++        ln = _field_line(fld, label)
++        if ln:
++            private.append(ln)
++        # Subordinate counts sit right after "manager" (a status signal).
++        if fld == "manager":
++            sub = _render_subordinates(entry)
++            if sub:
++                private.append(sub)
++    notes = _field_line("notes", "备注")
++    if notes:
++        private.append(notes)
++
++    if private:
++        lines.append("仅供你内部判断，严禁透露/确认/暗示（哪怕被直接问或旁敲侧击）：")
++        lines.extend(private)
++        lines.append(_PEOPLE_PROFILE_SECRECY)
++    return lines
++
++
+ def build_session_context_prompt(
+     context: SessionContext,
+     *,
+@@ -360,12 +536,22 @@ def build_session_context_prompt(
      # changes per-turn and would bust the prompt cache.  Instead, note that
      # this is a multi-user session; individual sender names are prefixed on
      # each user message by the gateway.
@@ -345,7 +528,7 @@ index 8f59d5495..9d98a46bb 100644
      elif context.source.user_name:
          lines.append(f"**User:** {context.source.user_name}")
      elif context.source.user_id:
-@@ -374,6 +384,15 @@ def build_session_context_prompt(
+@@ -374,6 +560,29 @@ def build_session_context_prompt(
              uid = _hash_sender_id(uid)
          lines.append(f"**User ID:** {uid}")
  
@@ -357,6 +540,20 @@ index 8f59d5495..9d98a46bb 100644
 +            "default user; do not treat it as the speaker unless it matches "
 +            "this current author."
 +        )
++
++    # PATCH-14: per-person profile injection  [people-profile]
++    # Look the current author up in ~/.hermes/people.yaml (by id, then name)
++    # and inline a compact background/stance block so replies can be tailored.
++    # Skipped under PII redaction so the contract for PII-safe platforms holds.
++    if not redact_pii:
++        _person = _lookup_person(
++            context.source.user_id,
++            context.source.user_id_alt,
++            context.source.user_name,
++        )
++        if _person:
++            lines.append("")
++            lines.extend(_render_person_profile(_person))
 +
      # Platform-specific behavioral notes
      if context.source.platform == Platform.SLACK:
@@ -2347,7 +2544,7 @@ index 4dd83a1bd..740d41aed 100644
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
 diff --git a/tests/gateway/test_session.py b/tests/gateway/test_session.py
-index c7f82b2d8..384863a46 100644
+index c7f82b2d8..1014c92f2 100644
 --- a/tests/gateway/test_session.py
 +++ b/tests/gateway/test_session.py
 @@ -384,7 +384,9 @@ class TestBuildSessionContextPrompt:
@@ -2370,6 +2567,138 @@ index c7f82b2d8..384863a46 100644
          assert "**User:** Alice" not in prompt
  
      def test_dm_thread_shows_user_not_multi(self):
+@@ -1400,3 +1404,131 @@ class TestRewriteTranscriptPreservesReasoning:
+             "before user",
+             "before assistant",
+         ]
++
++
++class TestPeopleProfileInjection:
++    """PATCH-14 people-profile: ~/.hermes/people.yaml → system prompt.
++
++    Verifies per-person background/stance injection: matched by id and by
++    name/alias, skipped for unknown authors, and resilient to a missing or
++    malformed data file (must never raise on the prompt path).
++    """
++
++    @staticmethod
++    def _install(tmp_path, monkeypatch, body):
++        from gateway import session as _session
++        path = tmp_path / "people.yaml"
++        path.write_text(body, encoding="utf-8")
++        monkeypatch.setattr(_session, "_people_profiles_path", lambda: path)
++        # Reset the mtime cache so each test reloads from its own temp file.
++        _session._people_profiles_cache.update(mtime=None, by_key={})
++        return path
++
++    @staticmethod
++    def _clear(monkeypatch):
++        from gateway import session as _session
++        monkeypatch.setattr(_session, "_people_profiles_path", lambda: None)
++        _session._people_profiles_cache.update(mtime=None, by_key={})
++
++    def _group_prompt(self, user_id=None, user_name=None):
++        config = GatewayConfig(
++            platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="fake")},
++        )
++        source = SessionSource(
++            platform=Platform.TELEGRAM,
++            chat_id="g1",
++            chat_name="Team",
++            chat_type="group",
++            user_id=user_id,
++            user_name=user_name,
++        )
++        return build_session_context_prompt(build_session_context(source, config))
++
++    _SAMPLE = (
++        "people:\n"
++        "  - open_id: ou_abc\n"
++        "    name: 周琛\n"
++        "    aliases: [琛哥]\n"
++        "    role: 老板\n"
++        "    address: 琛哥\n"
++        "    stance: 最高优先级，技术问题要严谨\n"
++        "    risks: 别当成默认用户\n"
++    )
++
++    def test_profile_injected_when_matched_by_id(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._SAMPLE)
++        prompt = self._group_prompt(user_id="ou_abc", user_name="周琛")
++        assert "对方画像 / Sender profile — 周琛" in prompt
++        assert "最高优先级" in prompt
++        assert "别当成默认用户" in prompt
++
++    def test_profile_injected_when_matched_by_alias(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._SAMPLE)
++        # No id available; fall back to the display name / alias match.
++        prompt = self._group_prompt(user_id=None, user_name="琛哥")
++        assert "对方画像 / Sender profile" in prompt
++        assert "老板" in prompt
++
++    def test_profile_not_injected_for_unknown_author(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._SAMPLE)
++        prompt = self._group_prompt(user_id="ou_stranger", user_name="路人")
++        assert "对方画像" not in prompt
++
++    def test_missing_file_is_safe(self, monkeypatch):
++        self._clear(monkeypatch)
++        prompt = self._group_prompt(user_id="ou_abc", user_name="周琛")
++        assert "对方画像" not in prompt
++
++    def test_malformed_yaml_is_safe(self, tmp_path, monkeypatch):
++        # Broken YAML must collapse to an empty index, not raise.
++        self._install(tmp_path, monkeypatch, "people: [ this : is : not valid")
++        prompt = self._group_prompt(user_id="ou_abc", user_name="周琛")
++        assert "对方画像" not in prompt
++
++    _ORG_SAMPLE = (
++        "people:\n"
++        "  - open_id: ou_org\n"
++        "    name: 张三\n"
++        "    role: 后端工程师\n"
++        "    department: 技术部\n"
++        "    employee_no: WH0123\n"
++        "    join_date: '2021-09-23'\n"
++        "    tenure: 4.7年\n"
++        "    manager: 李四\n"
++        "    direct_reports: 3\n"
++        "    total_reports: 8\n"
++    )
++
++    def test_org_fields_and_subordinates_rendered(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._ORG_SAMPLE)
++        prompt = self._group_prompt(user_id="ou_org", user_name="张三")
++        assert "部门/团队：技术部" in prompt
++        assert "工号：WH0123" in prompt
++        assert "入职：2021-09-23" in prompt
++        assert "司龄：4.7年" in prompt
++        assert "上级：李四" in prompt
++        # direct + total subordinate counts collapse into one line.
++        assert "下属：直接 3 人，含各级共 8 人" in prompt
++
++    def test_confidentiality_split_public_vs_private(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._ORG_SAMPLE)
++        prompt = self._group_prompt(user_id="ou_org", user_name="张三")
++        # A secrecy rule is present and public fields precede the private block.
++        assert "保密规则" in prompt
++        assert "可对外" in prompt
++        assert "严禁透露" in prompt
++        i_pub = prompt.index("可对外")
++        i_priv = prompt.index("仅供你内部判断")
++        i_role = prompt.index("岗位：后端工程师")
++        i_eno = prompt.index("工号：WH0123")
++        # role is public (before the private divider); employee_no is private (after).
++        assert i_pub < i_role < i_priv < i_eno
++        assert i_priv < prompt.index("保密规则")
++
++    def test_zero_subordinates_omits_line(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch,
++                      "people:\n  - open_id: ou_ic\n    name: 新人\n"
++                      "    direct_reports: 0\n    total_reports: 0\n")
++        prompt = self._group_prompt(user_id="ou_ic", user_name="新人")
++        assert "对方画像" in prompt
++        assert "下属" not in prompt
 diff --git a/tests/gateway/test_session_env.py b/tests/gateway/test_session_env.py
 index b0797467d..95b846653 100644
 --- a/tests/gateway/test_session_env.py

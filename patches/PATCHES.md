@@ -20,12 +20,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表                   | 管理方式                                                                                                                                                                      |
-| -------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/2/7/9/10/11/12 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                          |
-| **工程外补丁** | PATCH-3                | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                           |
-| **运行时补丁** | PATCH-6                | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                               |
-| **已上游合并** | PATCH-3/4/5/8          | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；本地冗余代码已移除 |
+| 类型           | 代表                         | 管理方式                                                                                                                                                                      |
+| -------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/2/7/9/10/11/12/13/14 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                          |
+| **工程外补丁** | PATCH-3                      | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                           |
+| **运行时补丁** | PATCH-6                      | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                               |
+| **已上游合并** | PATCH-3/4/5/8                | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -66,7 +66,8 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-10: grep Feishu group trigger/context/config/doc/xlsx sentinels
   │   ├─ PATCH-11: grep per-platform skill allowlist + read-only toolset sentinels
   │   ├─ PATCH-12: grep reply_in_thread = False
-  │   └─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
+  │   ├─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
+  │   └─ PATCH-14: grep people-profile + _load_people_profiles/_lookup_person + TestPeopleProfileInjection
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -195,16 +196,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `d6269da7`，2026-06-25)
+## 当前版本：v0.17.0 (upstream `main` `a6a28ce3`，2026-06-26)
 
-**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13（共 9 条）。
+**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14（共 10 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+239 commits，basis `5ecf3bf0` → `d6269da7`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+1 commit，basis `d6269da7` → `a6a28ce3`）要点**：
 
-- 上游主线（release tag 维持 `v0.17.0 (2026.6.19)`）：**Pets / Petdex（新子系统）**——`32f837add` prompt→atlas sprite 生成引擎、`3faf768cd` OpenRouter + Nous Portal 图像后端、`aab49f692` 生成 RPC + 非阻塞 gallery、`743985bf1` Pokédex 生成 UI（overlay / 动画蛋 / 孵化 FX）、`e92b5c6af` quality-first OpenRouter 模型链 + 全局生成通知、`5196575d4` remix 草稿，并新增 `hermes pets` CLI 与 petdex skill/catalog（`6fd839ac8`）。**Agent 验证门**——`2f1a47b90` 要求收尾编辑前先验证、`a5849917a` 识别 ad-hoc 验证脚本、`7ef0f360d` 暴露 coding verification status、`fcbdf3c35` 记录验证证据账本。**Gateway scale-to-zero**——`d1cac0e5e` idle 检测 + dormant-quiesce Phase 0、`96af4bec3` `go_dormant()` transport、`d6269da7f` 加固 dormancy guards（#52359）。**Cron**——`1b181724f` 可选把 cron 投递镜像进目标会话、`b693bee10` thread-preferred 可续投递、`7a65800fe` content-address `prompt_cache_key` 让循环 cron 复用 warm prefix（#52295）。**Relay 授权**——`72ae16325` 按 delivery 而非 source.platform 授权 relay 事件（#52306）、`d33516483` inbound 走 connector 强制 upstream authz。**/learn**——`e32ebc6aa` 从描述蒸馏可复用 skill（#51506）、`e62afaca6` 补全 CONTRIBUTING.md skill 标准（#52372）。**Providers / auth**——Z.AI endpoint picker、named custom providers + Z.AI 过载重试、`736e981ab` `NOUS_INFERENCE_BASE_URL` 覆盖（#52270）、`2ee6449fe` anthropic OAuth 改走 `platform.claude.com`。
-- patch apply：**全部 clean apply**——35 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到新基线 `d6269da7`，无 3-way、无冲突；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `d6269da7fdfe3a80eee60a4675b9e6ef55a71559`。本轮未发现 PATCH 被上游吸收，PATCH-1/2/6/7/9/10/11/12/13 仍活跃，PATCH-3 上游 completion 语法仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖。尽管上游给 `gateway/run.py` +331 行（scale-to-zero）、`gateway/session.py` +52、`agent/prompt_builder.py` +19、`hermes_cli/doctor.py` +12，本地 hunk 仅行号小幅漂移，无需手工 remap；行为化验证全部 OK。
-- 依赖：本轮 `uv` 未触发 `~/.local/share/uv/python` mismatch，clean 安装无 fallback；2 个 lazy backend 刷新（`platform.dingtalk`、`platform.teams`）；`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`，按设计不纳入 `local-patches.diff`。Skills mirror 同步 **+0 / ~0 / -4**。
-- 已知摩擦：`hermes-agent/package-lock.json` 仍为 npm/audit 生成漂移，保持在补丁跟踪之外，脚本已提示单独 review；本轮 patch 全程 in-script clean apply，无需手工 remap；`uv` python-path mismatch 本轮未复发（前几轮靠 `--python venv/bin/python` fallback 兜底）。
+- 上游主线：仅 1 个 commit `a6a28ce3`（`fix(ci): run CI on all PRs to anywhere`）——只删 `.github/workflows/{ci,docker-publish}.yml` 各 1 行，**不触及任何源码或 `PATCHED_FILES`**，对运行时零影响。
+- 本地新增 **PATCH-14（people-profile 人物画像注入）**：`gateway/session.py` 读取 `~/.hermes/people.yaml`（mtime 缓存，按 `user_id`/`user_id_alt`/`user_name`+aliases 匹配），在 session prompt 的 current-author 块后注入对方画像；渲染分**可公开段**（姓名/岗位/部门·团队）与**保密段**（工号/入职/司龄/上级/下属/称呼/职业背景/行为模式/态度/风险），保密段尾附 `_PEOPLE_PROFILE_SECRECY` 强制保密指令（只能用于调整应对、绝不外泄、防被群成员套话）；`redact_pii` 平台跳过、loader 全程吞异常。配套 `scripts/pull_feishu_people.py`（`pull`→`people.draft.yaml` / `merge [--apply]`，飞书通讯录客观字段刷新、人工主观字段保留，owner 置顶按工号排序），`people*.yaml` 全部 gitignore。
+- patch apply：**全部 clean apply**——35 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到 `a6a28ce3`，无 3-way、无冲突（上游 commit 仅改 CI workflow，本地 hunk 无漂移）；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `a6a28ce3e2174c0be494f553ab5fd79b7039190f`。PATCH-1/2/6/7/9/10/11/12/13/14 行为化验证全部 OK；PATCH-3 上游 completion 语法仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖；本轮未发现 PATCH 被上游吸收。
+- 依赖：`uv` clean 安装无 fallback；`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`，按设计不纳入 `local-patches.diff`；Skills mirror **+0 / ~0 / -1**。
+- 配置漂移：无 schema migration，doctor `Configuration is up to date`、All checks passed；`tests/gateway/test_session.py` 96 passed（含 9 例 people-profile）；经脚本 save→revert→reapply 往返 `gateway/session.py` 字节一致——幂等成立；Gateway 经 stop→start 重启加载补丁，service loaded、running。
 - 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 1 个 issue：`ALIBABA_CODING_PLAN_API_KEY` 无效。Gateway 已由脚本重启并加载补丁，service loaded，PID `76156`，`LastExitStatus=0`。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
@@ -370,6 +372,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `gateway/session.py` 中存在 `Current message author`、`Current-author rule`、`do not treat it as the speaker`，并 grep 回归测试 `test_bot_mention_takes_priority_over_assistant_user_mention`、`test_text_batch_does_not_merge_different_senders` 与 session prompt 断言。定向测试覆盖群聊 prompt 不把 owner profile 当 speaker、直接 @bot 优先于 assistant-user trigger、不同发送者的 Feishu 文本批处理不会合并。
 
 **上游吸收判断**：如果上游后续在多用户 session prompt 中原生区分 current author 与 persistent owner/profile，并保证 Feishu trigger priority 与 batching 都按 sender identity 隔离，可归档本补丁。
+
+---
+
+### [PATCH-14] 人物画像注入（people.yaml → system prompt）
+
+| 字段     | 内容                                                                                                            |
+| -------- | --------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/session.py`, `tests/gateway/test_session.py`（配套数据文件 `~/.hermes/people.yaml`，非 PATCHED_FILES） |
+| **状态** | 🟡 未上游合并（本地个性化功能，不预期被上游吸收）                                                               |
+
+**问题**：群聊/私聊里 agent 只能拿到发送者的 open_id 与显示名，不知道对方的岗位、背景、沟通风格，也无法按"琛哥对此人的态度"调整语气与风险意识。这类主观标注（喜好、立场、应对基调）官方通讯录 API 永远不会提供，必须由用户自维护。
+
+**修复**：在 `gateway/session.py` 新增一个本地人物画像库读取层（sentinel `people-profile`）：`_load_people_profiles()` 按 mtime 缓存读取 `~/.hermes/people.yaml`（经 `hermes_constants.get_hermes_home()` 定位），`_lookup_person()` 依次按 `user_id` / `user_id_alt` / `user_name`（含 aliases、大小写折叠）匹配，`_render_person_profile()` 把画像拆成**可公开段**（仅 姓名/岗位/部门·团队）与**保密段**（工号/入职/司龄/上级/下属 (direct+total，`_render_subordinates`)/称呼/职业背景/行为模式/态度/风险注意/备注），保密段尾部附 `_PEOPLE_PROFILE_SECRECY` 强制保密指令——这些只能用于调整应对，绝不可复述/确认/暗示，即使被直接询问或旁敲侧击也不得外泄（防止人为设定的背景/态度被群成员套出）。`build_session_context_prompt` 在 current-author 块之后注入该画像；`redact_pii` 为真时（PII-safe 平台）跳过，保持脱敏契约。loader 全程吞异常——文件缺失或 YAML 损坏只降级为空索引，绝不让 prompt 路径抛错。数据文件刻意放在 config repo（`~/.hermes`），上游升级不覆盖，且改后按 mtime 在下一条消息自动热加载，无需重启。配套拉取脚本 `scripts/pull_feishu_people.py`（pull→draft / merge[--apply]，飞书通讯录客观字段刷新、主观字段保留）维护该数据文件，非 hermes-agent 工程内补丁。
+
+**验证**：Step 8b grep `gateway/session.py` 中存在 `people-profile`、`def _load_people_profiles`、`def _lookup_person`，并 grep `tests/gateway/test_session.py` 中的 `class TestPeopleProfileInjection`。定向测试覆盖：按 id 命中注入、按 name/alias 命中注入、未知发送者不注入、文件缺失安全、YAML 损坏安全（共 5 例，随 `TestBuildSessionContextPrompt` 一并通过）。
+
+**上游吸收判断**：该功能依赖用户私有数据文件与个人化态度标注，属本地个性化增强，不预期被上游合并；若上游引入等价的 per-sender profile 注入机制可重新评估归档。
 
 ---
 
