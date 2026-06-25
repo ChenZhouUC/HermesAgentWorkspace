@@ -316,6 +316,8 @@ cat ~/.hermes/patches/.local-patches.base
 >
 > 验证：`venv/bin/python -m pytest tests/gateway/test_feishu_bot_admission.py -q`（66 passed）；`venv/bin/python -m pytest tests/gateway/test_feishu.py -q -k 'fetch_channel_context_detects_recent_self_intro or fetch_channel_context_formats_recent_group_messages'`（2 passed, 209 deselected）。
 
+> **2026-06-25（改名 Gödel + 历史 backfill 旧名纠偏，非归档）**：助手统一更名为 `Gödel`（专名，任何语言都不翻译；飞书开放平台 app 名称已同步改为 Gödel，机器人显示名生效）。弃用旧名「木马牛」「小聪明蛋」。改动覆盖所有实际对外输出身份的位置：`config.yaml` 的 `assistant_identity_label` →「琛哥的赛博助手「Gödel」」；adapter 的 assistant-mode / configured-human mention 文案、`_history_sender_label`（`Gödel (assistant, you)`）、`_assistant_identity_markers` 自我介绍检测；外层 `scripts/nightly_greeting.py` 日报签名与晚安词、`feishu-docs` skill 的 `@Gödel` mention 与 `BOT_OPEN_ID` 注释、`memories/MEMORY.md`+`USER.md`（去掉「哥德尔」翻译、标注专名不翻译、记录两个弃用旧名）。**核心新增**：`_format_channel_context` 在回填的群历史顶部注入一行 identity note，明确历史里出现的「木马牛/小聪明蛋」即本助手、现已改名 Gödel、必须一律自称 Gödel——根治「近 30 条历史 backfill 里的旧自我介绍诱导模型延续旧名」的问题（重启群聊 session 无效，因 backfill 每次都从飞书服务器实时拉取群历史）。历史快照（上方 2026-06-23 各条仍写「木马牛」）按惯例保留不改。验证：`tests/gateway/test_feishu.py` + `test_feishu_bot_admission.py` 共 279 passed（`test_fetch_channel_context_*` 断言已含 identity note 行）；本次改动经一次完整 `hermes-update` 流程（save→revert→reapply→refresh）round-trip，`local-patches.diff` 逐字节一致，确认对升级**幂等**。
+
 ---
 
 ### [PATCH-11] 平台级 skill allowlist 与只读 skill 工具集
