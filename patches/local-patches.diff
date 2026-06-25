@@ -532,7 +532,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index bf3c49d3b..dbdb15019 100644
+index bf3c49d3b..db105754d 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -97,6 +97,7 @@ try:
@@ -779,7 +779,7 @@ index bf3c49d3b..dbdb15019 100644
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3175,8 +3300,184 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3175,8 +3300,189 @@ class FeishuAdapter(BasePlatformAdapter):
              reply_to_text=reply_to_text,
              timestamp=datetime.now(),
          )
@@ -917,7 +917,12 @@ index bf3c49d3b..dbdb15019 100644
 +                )
 +            return None
 +
-+        context = "[Recent channel messages]\n" + "\n".join(lines)
++        context = (
++            "[Recent channel messages]\n"
++            "(Identity note: you are now named Gödel; earlier messages may use your old "
++            "names 木马牛/小聪明蛋 for you — always call yourself Gödel, never the old names.)\n"
++            + "\n".join(lines)
++        )
 +        if len(context) > self._history_backfill_max_chars:
 +            context = context[: self._history_backfill_max_chars].rstrip() + "\n[truncated]"
 +        return FeishuChannelContextSnapshot(
@@ -964,7 +969,7 @@ index bf3c49d3b..dbdb15019 100644
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -3211,6 +3512,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3211,6 +3517,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -974,7 +979,7 @@ index bf3c49d3b..dbdb15019 100644
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3499,7 +3803,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3499,7 +3808,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -986,7 +991,7 @@ index bf3c49d3b..dbdb15019 100644
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3618,6 +3925,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3618,6 +3930,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -1011,7 +1016,7 @@ index bf3c49d3b..dbdb15019 100644
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3632,6 +3957,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3632,6 +3962,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -1122,7 +1127,7 @@ index bf3c49d3b..dbdb15019 100644
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3686,6 +4115,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3686,6 +4120,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.AUDIO)
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -1131,7 +1136,7 @@ index bf3c49d3b..dbdb15019 100644
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4043,10 +4474,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4043,10 +4479,19 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -1153,7 +1158,7 @@ index bf3c49d3b..dbdb15019 100644
              )
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
-@@ -4099,6 +4539,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4099,6 +4544,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -1165,7 +1170,7 @@ index bf3c49d3b..dbdb15019 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4114,7 +4559,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4114,7 +4564,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -1174,7 +1179,7 @@ index bf3c49d3b..dbdb15019 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4124,8 +4569,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4124,8 +4574,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -1185,7 +1190,7 @@ index bf3c49d3b..dbdb15019 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4223,6 +4668,141 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4223,6 +4673,141 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -1327,7 +1332,7 @@ index bf3c49d3b..dbdb15019 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4460,9 +5040,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4460,9 +5045,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -1343,7 +1348,7 @@ index bf3c49d3b..dbdb15019 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4711,6 +5295,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4711,6 +5300,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -1477,7 +1482,7 @@ index 79bccc100..886f4c051 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..c8029d9bf 100644
+index bb97c7e72..45f28f4c1 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -159,6 +159,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -1581,7 +1586,7 @@ index bb97c7e72..c8029d9bf 100644
  
  class TestFeishuAdapterMessaging(unittest.TestCase):
      @patch.dict(os.environ, {
-@@ -331,6 +425,265 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+@@ -331,6 +425,270 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
          self.assertEqual(sleeps, [1])
          self.assertEqual(fake_loop.calls, 2)
  
@@ -1687,6 +1692,8 @@ index bb97c7e72..c8029d9bf 100644
 +        self.assertEqual(
 +            result.text,
 +            "[Recent channel messages]\n"
++            "(Identity note: you are now named Gödel; earlier messages may use your old "
++            "names 木马牛/小聪明蛋 for you — always call yourself Gödel, never the old names.)\n"
 +            "[Bob] hello there\n"
 +            "[BuildBot [bot]] bot note\n"
 +            "[Gödel (assistant, you)] prior self",
@@ -1822,7 +1829,10 @@ index bb97c7e72..c8029d9bf 100644
 +        self.assertIsNotNone(result)
 +        self.assertEqual(
 +            result.text,
-+            "[Recent channel messages]\n[B] middle\n[C] latest",
++            "[Recent channel messages]\n"
++            "(Identity note: you are now named Gödel; earlier messages may use your old "
++            "names 木马牛/小聪明蛋 for you — always call yourself Gödel, never the old names.)\n"
++            "[B] middle\n[C] latest",
 +        )
 +
 +    @patch.dict(os.environ, {}, clear=True)
@@ -1847,7 +1857,7 @@ index bb97c7e72..c8029d9bf 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1655,6 +2008,57 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1655,6 +2013,57 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.text, "A\nB")
          self.assertEqual(event.message_type, MessageType.TEXT)
  
@@ -1905,7 +1915,7 @@ index bb97c7e72..c8029d9bf 100644
      @patch.dict(
          os.environ,
          {
-@@ -1953,7 +2357,8 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1953,7 +2362,8 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -1915,7 +1925,7 @@ index bb97c7e72..c8029d9bf 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -1991,10 +2396,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1991,10 +2401,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -1928,7 +1938,7 @@ index bb97c7e72..c8029d9bf 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2030,7 +2435,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2030,7 +2440,7 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -1937,7 +1947,7 @@ index bb97c7e72..c8029d9bf 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2121,7 +2526,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2121,7 +2531,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -1946,7 +1956,7 @@ index bb97c7e72..c8029d9bf 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2173,7 +2578,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2173,7 +2583,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -1955,7 +1965,7 @@ index bb97c7e72..c8029d9bf 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -4682,6 +5087,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -4682,6 +5092,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
