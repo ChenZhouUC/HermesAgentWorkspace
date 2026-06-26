@@ -20,12 +20,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表                         | 管理方式                                                                                                                                                                      |
-| -------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/2/7/9/10/11/12/13/14 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                          |
-| **工程外补丁** | PATCH-3                      | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                           |
-| **运行时补丁** | PATCH-6                      | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                               |
-| **已上游合并** | PATCH-3/4/5/8                | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；本地冗余代码已移除 |
+| 类型           | 代表                            | 管理方式                                                                                                                                                                      |
+| -------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/2/7/9/10/11/12/13/14/15 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                          |
+| **工程外补丁** | PATCH-3                         | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                           |
+| **运行时补丁** | PATCH-6                         | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                               |
+| **已上游合并** | PATCH-3/4/5/8                   | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -67,7 +67,8 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-11: grep per-platform skill allowlist + read-only toolset sentinels
   │   ├─ PATCH-12: grep reply_in_thread = False
   │   ├─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
-  │   └─ PATCH-14: grep people-profile/_load_people_profiles/_lookup_person + group-profile/_load_group_profiles/_lookup_group/_GROUP_TOOL_LIMITATION_RULE + TestPeopleProfileInjection/TestGroupProfileInjection
+  │   ├─ PATCH-14: grep people-profile/_load_people_profiles/_lookup_person + group-profile/_load_group_profiles/_lookup_group/_GROUP_TOOL_LIMITATION_RULE + TestPeopleProfileInjection/TestGroupProfileInjection
+  │   └─ PATCH-15: grep _backfill_sender_attachments/_backfill_reply_attachments/_mark_attachment_backfilled + _FEISHU_BACKFILL_WINDOW_SECONDS/_backfilled_attachment_ids in adapter.py
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -196,17 +197,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `0f81b0d4`，2026-06-26)
+## 当前版本：v0.17.0 (upstream `main` `e3db1ef9`，2026-06-26)
 
-**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14（共 10 条）。
+**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15（共 11 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+31 commit，basis `233ef98a` → `0f81b0d4`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+28 commit，basis `0f81b0d4` → `e3db1ef9`）要点**：
 
-- 上游主线（31 commit，release tag 仍 `v0.17.0 (2026.6.19)` 未变）：**安全**——`fix(email)` 拒绝伪造 `From:` 头做授权（GHSA-rxqh-5572-8m77）、`fix(browser)` 强制对 `browser_type` 显示与键入文本做 secret 脱敏。**Gateway / 状态**：`fix(gateway)` scale-to-zero arm-gate 漏配 disabled placeholder 平台、`_make_agent` 加 init-time provider fallback；`fix(state)` 检测并修复 FTS 写损坏导致 gateway 历史被静默丢弃。**Curator**：`fix(curator)` 让 external-skill 写保护在 curation 时真正生效、后台 curation 不再动外部 skill（正好护住 `my-skills/`）。**Desktop / TUI**（本轮重头但与本地补丁无关）：宠物随光标缩放、Alt+ 滚轮缩放不裁切、WSL2 剪贴板贴图 / 标题栏 / GPU 加速、`fix(tui)` stop 可中断排队的 desktop turn。**其它**：`fix(telegram)` 重连时保留 Bot API update 队列、`fix(interrupt)` 中途停止保留已流式产出、`fix(fuzzy-match)` 规范化后保留边界空格、`feat(agent)` 按推理模型设 stale-timeout 下限、`feat(kanban)` typed block reasons + 解死锁。无任何 commit 触及 Feishu / people / group / session 画像相关本地补丁区域。
-- 本地变更：**本轮无 patch 新增 / 修改 / 退役**——10 条活跃补丁与 `PATCHED_FILES`、各 sentinel 完全不变。期间的本地改动全部落在 **config-repo（`~/.hermes` 非 hermes-agent 源码）**，不进 `PATCHED_FILES`/`local-patches.diff`：群信息单一入口重构（`groups.yaml` 成为飞书群 chat_id 唯一源、`nightly_greeting.py` 改从 `groups.yaml` 读群发列表、`feishu-groups` skill 不再维护 chat_id 表）、`config.yaml` 群聊 skill 白名单调整（`platform_allowed.feishu_group` 移除 `character-voices`、加入 `feishu-people-search`）、`people.yaml` 批量补 `aliases`、新增 `feishu-people-search` skill。
-- patch apply：**全部 clean apply**——35 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到 `0f81b0d4`，无 3-way、无冲突（31 commit 未碰本地补丁区域，`local-patches.diff` 仅 `index` blob 指针 + `@@` 行号偏移变化，patch 代码内容**零语义漂移**、字节数仍 187661）；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `0f81b0d458e6b862b4037f5aaedf9c425369abaf`。PATCH-1/2/6/7/9/10/11/12/13/14 行为化验证全部 OK；PATCH-3 上游 completion 语法仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖；本轮未发现 PATCH 被上游吸收。
-- 依赖：`uv` clean 安装无 fallback（0 次）；`npm audit` 报 no vulnerabilities（web / ui-tui / agent-browser 工作区均 clean）；Skills mirror **+0 / ~0 / -3**（上游移除 3 个 skill）。本轮无 lockfile stash 摩擦、无 Recommended actions。
-- 配置漂移：无 schema migration（`hermes doctor` 报 `Configuration is up to date`、All checks passed、Skills up to date）；`tests/gateway/test_session.py` + `test_feishu.py` + `test_feishu_bot_admission.py` 共 **382 passed**（含 `TestGroupProfileInjection` 7 例）；幂等直接验证：脚本 refresh 后 `git diff HEAD` 与已存 `local-patches.diff` **逐字节一致**（187661 == 187661）——幂等成立；Gateway 经 stop→start 重启加载补丁，service loaded、running、`LastExitStatus=0`。
+- 上游主线（28 commit，release tag 仍 `v0.17.0 (2026.6.19)` 未变）：**安全**——`fix(security)` 给 tirith 崩溃加 circuit breaker 防 agent 挂死（#41400）、对齐 cron 不可见 unicode 集与安装期扫描器、停止误拦命名 agent 为 `Praxis` 的 `AGENTS.md/SOUL.md`（#52925）。**配置**：`fix(config)` 对非法 `platform_toolsets` 改为**显式报错**而非静默丢工具（#38798，正好是群聊工具集所在区，本仓 `config.yaml` 合法、无影响）。**Gateway / Relay**：external drain trigger + accept-gating 控制通道、`feat(relay)` multi-platform-per-agent Phase 1.5（#52830）、`fix(whatsapp)` 解析 reply-to 文本让 agent 看到引用上下文（#52957）。**Auxiliary**：非法 provider 响应触发 fallback、`fix(auxiliary)` 仅在 Anthropic 兼容 host 上覆盖 base_url（#52608）。**MCP**：stale OAuth client 注册自动从 `invalid_client` 恢复。**Dashboard**：socket drop 后重连 PTY chat、dashboard-auth 共享 bearer-secret + 非交互 API-token capability。**Desktop / macOS / TUI**（与本地补丁无关）：clarify 提示重做（#52993）、pending prompt 视为 paused-on-you、`fix(macos)` 在 gateway status 里**明确区分 launchd 监管 vs detached fallback**、settle TUI resume scroll。**其它**：`fix(install)` stash 前丢弃托管 lockfile churn、`fix(agent)` 对消息面关闭 verify-on-stop nudge。除上游 #38798 触及 `platform_toolsets`（配置层、未碰本地 patch 代码）外，无 commit 触及 Feishu adapter / session 本地补丁区域。
+- 本地变更：**本轮新增 PATCH-15**（Feishu 群聊 @ 触发时回看并附上同发送者最近图片/文件，解决「图片/文件与 @ 分属两条消息、图片在 `_admit` 被丢、模型看不到」）——改 `plugins/platforms/feishu/adapter.py`（已在 `PATCHED_FILES`，无需扩数组），新增 `_backfill_sender_attachments` / `_backfill_reply_attachments` / `_mark_attachment_backfilled` + 模块常量 + `_backfilled_attachment_ids` LRU；同步在 `hermes-update.sh` 加 PATCH-15 sentinel 验证块并纳入 refresh gate。配套 config-repo（非 hermes-agent）改动：扩 `feishu-docs` skill——新增确定性读取脚本 `read_sheet.py` / `read_bitable.py` / `download_feishu_file.py` / `read_feishu_url.py`（分发器）/ `feishu_render.py`，更新 `SKILL.md`（统一入口 + 群沙箱必须用 venv python、URL 需加引号两条硬规矩）。
+- patch apply：**全部 clean apply**——35 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到 `e3db1ef9`，无 3-way、无冲突（28 commit 未碰除 adapter 外的补丁区域；PATCH-15 干净落到新基线）；`local-patches.diff` 字节数 **187661 → 200097**（PATCH-15 净增 ~12.4KB），`patches/.local-patches.base` 刷新到 `e3db1ef92d1f741935b6b06c689e929bdcc1aff2`。PATCH-1/2/6/7/9/10/11/12/13/14 + 新增 PATCH-15 行为化验证全部 OK；PATCH-3 上游 completion 语法仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖；本轮未发现 PATCH 被上游吸收。
+- 依赖：`uv` clean 安装无 fallback（仅 rebuild hermes-agent 自身 1 包）；`npm audit` 报 no vulnerabilities（web / ui-tui / agent-browser 工作区均 clean）；Skills mirror **+0 / ~0 / -3**（上游移除 3 个 skill）。
+- 已知摩擦：脚本结尾 `✗ Gateway is not running` 系上游 `e3db1ef9 fix(macos)` 改了 gateway status 对 launchd-supervised vs detached 的判定后、OnDemand 重启的**时序竞态**——实际网关由 launchd 监管已拉起（PID 91165、feishu websocket connected、28 channels），手动复检 running，非真故障。无 lockfile stash 摩擦。
+- 配置漂移：无 schema migration（`hermes doctor` 报 `Config version up to date (v30)`、All checks passed、Skills up to date）；`tests/gateway/test_session.py` + `test_feishu.py` + `test_feishu_bot_admission.py` 共 **382 passed**；幂等直接验证：脚本 refresh 后 `git diff HEAD` 与已存 `local-patches.diff` **逐字节一致**（200097 == 200097，含 PATCH-15）——幂等成立；Gateway running、feishu connected。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -390,6 +392,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `gateway/session.py` 中存在 `people-profile`、`def _load_people_profiles`、`def _lookup_person`、`group-profile`、`def _load_group_profiles`、`def _lookup_group`、`_GROUP_TOOL_LIMITATION_RULE`，并 grep `tests/gateway/test_session.py` 中的 `class TestPeopleProfileInjection`、`class TestGroupProfileInjection`。定向测试覆盖：人物层 按 id / name·alias 命中、未知不注入、缺文件 / 坏 YAML 安全；群聊层 按 chat_id / alias 命中、未命中仍保留声明规则、声明规则在 group 出现、DM 既无画像也无声明规则、缺文件 / 坏 YAML 安全（`TestGroupProfileInjection` 7 例）。`tests/gateway/test_session.py` 全量 103 passed。
 
 **上游吸收判断**：该功能依赖用户私有/本地数据文件与个人化标注（态度、群人设），属本地个性化增强，不预期被上游合并；若上游引入等价的 per-sender / per-group profile 注入机制可重新评估归档。
+
+---
+
+### [PATCH-15] Feishu 群聊 @ 触发时回看并附上同发送者最近图片/文件
+
+| 字段     | 内容                                  |
+| -------- | ------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py` |
+| **状态** | 🟡 未上游合并                         |
+
+**问题**：飞书群聊 `require_mention: true` 下，图片/文件消息身上挂不了 @，用户「发图」是一条独立消息、「@机器人 看看这个」是另一条纯文本消息。图片消息在 `_admit()` 处因 `trigger_kind="none"` 被判 `trigger_mention_missing` 丢弃，从不进入处理；机器人被那条纯文本触发时手里只有 `channel_context` 里的 `[图片]` 文字占位符，看不到像素（日志无任何 `Image routing` 记录）。结果群里「读不了图/表格/文件」，沙箱其实没拦图——真因在送达层。
+
+**修复**：在 `_process_inbound_message` 拿到 `reply_to_message_id` 之后、构造 `MessageEvent` 之前，新增一个内聚回看块：当 `_history_backfill` 开启、是 group/forum/channel、`trigger_kind == "bot"`、本条无 `media_urls`、非 COMMAND 时，回看同一发送者最近 `_FEISHU_BACKFILL_WINDOW_SECONDS=120` 秒内的 image/file/media 消息并把资源附到当轮。新增 `_backfill_sender_attachments`/`_collect_sender_attachments`（复用 `_build_list_message_request` + `im.v1.message.list`，按 `item.sender.id ∈ {open_id,user_id,union_id}` 判同发送者，`normalize_feishu_message` + `_download_feishu_message_resources` 下载，上限 `MAX_ATTACH_MSGS=3`/`MAX_TOTAL_FILES=6`，整体 `asyncio.wait_for` 8s 兜底）、`_backfill_reply_attachments`/`_collect_reply_attachments`（覆盖「引用图片消息 + @」子场景，`_fetch_message_text` 只取文字会丢 media，这里直接取资源）、`_mark_attachment_backfilled`（有界 LRU `_backfilled_attachment_ids`，cap 1024，防多轮 @ 窗口重叠重复附图）。触发消息保持 `TEXT` → 走文本队列、不进 media 批处理，与被丢弃的图片消息天然互斥不重复；全程 try/except + 超时静默降级，绝不阻塞纯文本回复。下游无需改：`media_urls` 非空 → `gateway/run.py` 自动判 native 把像素附给主模型。
+
+**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `_backfill_sender_attachments`、`_backfill_reply_attachments`、`_mark_attachment_backfilled`、`_FEISHU_BACKFILL_WINDOW_SECONDS`、`_backfilled_attachment_ids`。真机：群里发截图后 2 分钟内 @机器人，`logs/agent.log` 出现 `Image routing: native ...` 且能描述图片；引用旧图 + @ 能读到被引用图；不发图直接 @ 纯文本正常回复（回看静默降级无报错）；连续两次 @ 同一旧图不重复下载。
+
+**上游吸收判断**：若上游为「附件与 @mention 分属两条消息」场景原生提供回看/拼接机制（或允许图片消息直接触发），可归档本补丁。
 
 ---
 

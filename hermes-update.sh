@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.17.0 / main 0f81b0d4, `hermes completion zsh` already emits the
+# As of v0.17.0 / main e3db1ef9, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -594,6 +594,7 @@ _FEISHU_SKILL_SCOPE_PATCH_OK=false
 _FEISHU_NO_THREAD_PATCH_OK=false
 _GROUP_AUTHOR_IDENTITY_PATCH_OK=false
 _PEOPLE_PROFILE_PATCH_OK=false
+_FEISHU_BACKFILL_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -802,11 +803,31 @@ else
     warn "Could not locate people/group profile files — skipping PATCH-14 check"
 fi
 
+# PATCH-15: Feishu group @-mention attachment backfill. When a bare @mention
+# arrives in a group, the adapter looks back over the same sender's recent
+# image/file messages (un-mentionable, _admit-dropped) and stitches them onto
+# the turn so the model can actually see them. Source lives in adapter.py.
+if [[ -f "${FEISHU_PY}" ]]; then
+    if grep -q 'def _backfill_sender_attachments' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_FEISHU_BACKFILL_WINDOW_SECONDS' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_backfilled_attachment_ids' "${FEISHU_PY}" 2>/dev/null; then
+        ok "Feishu attachment backfill patch: active (bare @mention stitches sender's recent image/file)"
+        _FEISHU_BACKFILL_PATCH_OK=true
+    else
+        warn "Feishu attachment backfill patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-15] Feishu attachment backfill"
+    fi
+else
+    warn "Could not locate Feishu adapter — skipping PATCH-15 check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

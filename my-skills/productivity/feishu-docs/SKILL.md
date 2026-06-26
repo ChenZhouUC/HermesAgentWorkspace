@@ -204,6 +204,32 @@ To merge large Markdown content into an existing document with perfect native fo
 
 ---
 
+## 🚀 读取任意飞书链接 (统一入口 / 群聊首选)
+
+`scripts/read_feishu_url.py` 是一个分发器：传入任意飞书链接，自动识别类型并路由到对应读取逻辑，打印文本/markdown。
+
+```bash
+~/.hermes/hermes-agent/venv/bin/python \
+  ~/.hermes/my-skills/productivity/feishu-docs/scripts/read_feishu_url.py "<feishu_url>"
+```
+
+支持：`/docx` `/docs`(文档→markdown)、`/wiki`(解析节点后递归)、`/sheets`(电子表格→markdown 表)、`/base`(多维表格→markdown 表)、`/file`(下载附件，再用 `read_file` 抽取)。
+
+**🚨 群聊里两条硬规矩 (实测沙箱会拦):**
+
+1. **必须用 venv 解释器，不要用 `uv run`**:群聊沙箱的 terminal 只放行 `python`/`python3` 运行配置目录下的既有脚本 (`uv` 会被拦)。`~/.hermes/hermes-agent/venv/bin/python` 的 `Path(...).name == "python"` 能过沙箱，且 venv 自带 `requests`/`lark_oapi`。
+2. **URL 必须用双引号包起来**:`/base/`、`/sheets/` 链接常带 `?table=x&view=y`,裸 `&` 会被沙箱判成 shell 控制符直接拦截。加引号 `"https://...&..."` 即放行。
+
+新读取脚本本体 (`read_sheet.py`/`read_bitable.py`/`download_feishu_file.py`/`feishu_render.py`) 是纯标准库，复用 `feishu_common.py` 取 token。
+
+单独调用各子脚本：
+
+- 电子表格：`venv/bin/python scripts/read_sheet.py <sheets_url> [range]`(默认 `A1:Z300`)
+- 多维表格：`venv/bin/python scripts/read_bitable.py <base_url> [table_id] [max_records]`
+- 文件附件：`venv/bin/python scripts/download_feishu_file.py <file_url>` → 打印落地路径 (默认 `~/.hermes/tmp/`,在群沙箱读根内)→ `read_file(path)` 抽取 `.docx/.xlsx`
+
+**已知限制**:docx 内嵌的表格/图片仍渲染为占位符 (块抽取器的固有限制);**独立**的电子表格/多维表格才渲染为完整 markdown 表。图片/截图走原生 vision(被 @ 时网关自动附图),不需要脚本。
+
 ## 📖 Reading Feishu Docs (Fallback)
 
 If the native `feishu_doc_read` tool fails with `Feishu client not available (not in a Feishu comment context)`, use the bundled extraction scripts via the Open API.
@@ -226,7 +252,7 @@ If the user has already granted permission but the API is slow to sync, wait a m
 
 ## 📎 Downloading File Attachments (Excel, PDF, etc.)
 
-Links in the form `https://whales.feishu.cn/file/TOKEN` are file attachments, not docs. `feishu_doc_read` and docx scripts **will not work** on these. Use the `drive/v1/files/:token/download` endpoint to download raw binary, then:
+Links in the form `https://whales.feishu.cn/file/TOKEN` are file attachments, not docs. `feishu_doc_read` and docx scripts **will not work** on these. **Easiest path**: `venv/bin/python scripts/download_feishu_file.py <file_url>` downloads to `~/.hermes/tmp/` (correct extension inferred) and prints the path; then `read_file(path)` auto-extracts `.docx/.xlsx`. Manual fallback — use the `drive/v1/files/:token/download` endpoint to download raw binary, then:
 
 - For `.xlsx`: rename with `.xlsx` extension and use `read_file` (auto-extracts to text)
 - For other types: inspect `Content-Type` header and handle accordingly
@@ -235,7 +261,7 @@ See `references/file-attachment-download.md` for the full pattern.
 
 ## 📊 Reading Feishu Sheets (Spreadsheets)
 
-Links in the form `https://domain.feishu.cn/sheets/TOKEN` are native Feishu Spreadsheets. **Neither `feishu_doc_read` nor the docx extraction scripts work on sheet tokens** — they return `1770002 not found`. Use the Sheets Open API endpoints instead. See `references/sheet-api.md` for the complete pattern (list sheets → query cell values → optionally download as .xlsx).
+Links in the form `https://domain.feishu.cn/sheets/TOKEN` are native Feishu Spreadsheets. **Neither `feishu_doc_read` nor the docx extraction scripts work on sheet tokens** — they return `1770002 not found`. **Easiest path**: `venv/bin/python scripts/read_sheet.py <sheets_url>` lists every worksheet and prints each as a markdown table. 多维表格 (`/base/`) 用 `scripts/read_bitable.py`。底层 API 模式见 `references/sheet-api.md`(list sheets → query cell values → optionally download as .xlsx)。
 
 ## 💉 Custom Version Table Injection
 

@@ -303,6 +303,7 @@ _hermes() {
                     'list:List configured MCP servers'
                     'login:Force re-authentication for an OAuth-based MCP server'
                     'picker:Interactive catalog picker (also the default for `hermes mcp'
+                    'reauth:Re-authenticate one OAuth MCP server, or all of them (--all)'
                     'remove:Remove an MCP server'
                     'serve:Run Hermes as an MCP server (expose conversations to other a'
                     'test:Test MCP server connection'
