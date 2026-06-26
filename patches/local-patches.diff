@@ -1,5 +1,5 @@
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index 7f1986fbe..0accf20ee 100644
+index 1a87e66cd..bd9070e3d 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
 @@ -20,7 +20,10 @@ from agent.skill_utils import (
@@ -13,7 +13,7 @@ index 7f1986fbe..0accf20ee 100644
      iter_skill_index_files,
      parse_frontmatter,
      skill_matches_environment,
-@@ -1385,10 +1388,12 @@ def build_skills_system_prompt(
+@@ -1388,10 +1391,12 @@ def build_skills_system_prompt(
      from gateway.session_context import get_session_env
      _platform_hint = (
          os.environ.get("HERMES_PLATFORM")
@@ -26,7 +26,7 @@ index 7f1986fbe..0accf20ee 100644
      cache_key = (
          str(skills_dir.resolve()),
          tuple(str(d) for d in external_dirs),
-@@ -1396,6 +1401,7 @@ def build_skills_system_prompt(
+@@ -1399,6 +1404,7 @@ def build_skills_system_prompt(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
@@ -34,7 +34,7 @@ index 7f1986fbe..0accf20ee 100644
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1421,7 +1427,9 @@ def build_skills_system_prompt(
+@@ -1424,7 +1430,9 @@ def build_skills_system_prompt(
              platforms = entry.get("platforms") or []
              if not skill_matches_platform({"platforms": platforms}):
                  continue
@@ -45,7 +45,7 @@ index 7f1986fbe..0accf20ee 100644
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1446,7 +1454,9 @@ def build_skills_system_prompt(
+@@ -1449,7 +1457,9 @@ def build_skills_system_prompt(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
@@ -56,7 +56,7 @@ index 7f1986fbe..0accf20ee 100644
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -1501,6 +1511,8 @@ def build_skills_system_prompt(
+@@ -1504,6 +1514,8 @@ def build_skills_system_prompt(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
@@ -207,7 +207,7 @@ index e1556b37d..5941876e9 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/run.py b/gateway/run.py
-index 2071950df..09749aa07 100644
+index 8555480d7..86fb928bf 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -2108,6 +2108,17 @@ def _platform_config_key(platform: "Platform") -> str:
@@ -237,7 +237,7 @@ index 2071950df..09749aa07 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -8659,8 +8670,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -8704,8 +8715,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -254,7 +254,7 @@ index 2071950df..09749aa07 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -9980,7 +9997,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10037,7 +10054,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -263,7 +263,7 @@ index 2071950df..09749aa07 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -10037,7 +10054,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10094,7 +10111,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -272,7 +272,7 @@ index 2071950df..09749aa07 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -11492,7 +11509,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11565,7 +11582,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -281,7 +281,7 @@ index 2071950df..09749aa07 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -13032,6 +13049,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13105,6 +13122,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -289,7 +289,7 @@ index 2071950df..09749aa07 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -14451,7 +14469,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14524,7 +14542,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -298,7 +298,7 @@ index 2071950df..09749aa07 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -14759,7 +14777,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14836,7 +14854,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -307,7 +307,7 @@ index 2071950df..09749aa07 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -15567,9 +15585,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15644,9 +15662,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # (concurrency-safe). Keep os.environ as fallback for CLI/cron.
              os.environ["HERMES_SESSION_KEY"] = session_key or ""
              
@@ -319,10 +319,10 @@ index 2071950df..09749aa07 100644
              # Combine platform context, per-channel context, and the user-configured
              # ephemeral system prompt.
 diff --git a/gateway/session.py b/gateway/session.py
-index 8f59d5495..2f6c901eb 100644
+index f79e371d8..1ef3e72b4 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
-@@ -272,6 +272,182 @@ def _discord_tools_loaded() -> bool:
+@@ -272,6 +272,321 @@ def _discord_tools_loaded() -> bool:
          return False
  
  
@@ -502,10 +502,149 @@ index 8f59d5495..2f6c901eb 100644
 +    return lines
 +
 +
++# ---------------------------------------------------------------------------
++# Group profiles — local, user-curated per-group persona  [group-profile]
++# ---------------------------------------------------------------------------
++# PATCH-14: Inject per-group language style + capability framing from
++# ~/.hermes/groups.yaml so the agent can present itself differently per audience
++# (tone, and what it tells people it can do) while the sandbox/safety boundary
++# stays identical across groups. Same contract as people profiles: the data file
++# lives in the config repo (OUTSIDE hermes-agent) so it survives upstream
++# updates and stays hand-editable, it hot-reloads by mtime, and the loader never
++# raises — a missing/malformed file yields an empty index so a typo can't break
++# the gateway prompt path. Unlike people profiles, nothing here is confidential.
++
++_group_profiles_cache: Dict[str, Any] = {"mtime": None, "by_key": {}}
++_group_profiles_lock = threading.Lock()
++
++# Per-group persona fields: (yaml key, human label). All presentational.
++_GROUP_PROFILE_FIELDS = (
++    ("style", "语言风格 / 语气"),
++    ("capabilities", "能力栈（可对外介绍自己能做什么）"),
++    ("audience", "群成员画像"),
++    ("intro", "自我介绍口径"),
++    ("notes", "备注"),
++)
++
++# Injected for every group/channel session (whether or not a per-group profile
++# matched): when missing tools/permissions degrade a task, the final answer must
++# say so, and deeper conclusions/decisions are deferred to 琛哥 rather than
++# asserted. The sandbox itself is identical across groups — this is about
++# honestly reporting a degraded result, not about apologising for the boundary.
++_GROUP_TOOL_LIMITATION_RULE = (
++    "**能力受限声明规则（群聊）：** 如果本次任务因为某些工具不可用、权限被沙箱"
++    "拦截、缺少凭证或访问失败而**没能完成或效果打折**（例如查不到、没法验证、"
++    "只拿到片面信息），最终产出里必须**明确声明**存在这一限制：说清楚哪一步因为"
++    "什么受限、结论的可信度边界在哪；绝不能把受限当成已验证，也不要假装结果完整。"
++    "凡涉及更深入的结论、判断、决策或对外承诺，宁可保守——给出基于现有信息的"
++    "初步看法即可，并建议**等琛哥确认**后再作准，不替琛哥拍板或担责。"
++)
++
++
++def _group_profiles_path() -> Optional[Path]:
++    """Return the path to ~/.hermes/groups.yaml, or None if home is unresolvable."""
++    try:
++        from hermes_constants import get_hermes_home
++        return get_hermes_home() / "groups.yaml"
++    except Exception:
++        return None
++
++
++def _load_group_profiles() -> Dict[str, Any]:
++    """Load and cache ~/.hermes/groups.yaml, reloading only when its mtime changes.
++
++    Returns a dict whose ``by_key`` maps every chat_id/name/alias (and a
++    casefolded variant) to the owning entry. Absent or malformed files collapse
++    to an empty index instead of raising, mirroring _load_people_profiles.
++    """
++    path = _group_profiles_path()
++    if path is None:
++        return _group_profiles_cache
++    try:
++        mtime = path.stat().st_mtime
++    except OSError:
++        if _group_profiles_cache["mtime"] is not None:
++            with _group_profiles_lock:
++                _group_profiles_cache.update(mtime=None, by_key={})
++        return _group_profiles_cache
++    if _group_profiles_cache["mtime"] == mtime:
++        return _group_profiles_cache
++    with _group_profiles_lock:
++        if _group_profiles_cache["mtime"] == mtime:  # lost the race; already fresh
++            return _group_profiles_cache
++        by_key: Dict[str, Any] = {}
++        try:
++            import yaml
++            with open(path, "r", encoding="utf-8") as fh:
++                data = yaml.safe_load(fh) or {}
++            raw = data.get("groups", []) if isinstance(data, dict) else data
++            if isinstance(raw, list):
++                for ent in raw:
++                    if not isinstance(ent, dict):
++                        continue
++                    keys: List[str] = []
++                    for fld in ("chat_id", "chat_id_alt", "id", "name"):
++                        val = ent.get(fld)
++                        if val:
++                            keys.append(str(val))
++                    aliases = ent.get("aliases") or []
++                    if isinstance(aliases, str):
++                        aliases = [aliases]
++                    keys.extend(str(a) for a in aliases if a)
++                    for key in keys:
++                        by_key.setdefault(key, ent)
++                        by_key.setdefault(key.casefold(), ent)
++        except Exception as exc:  # malformed YAML, unexpected shape, etc.
++            logger.warning("groups.yaml load failed (%s); ignoring group profiles", exc)
++            by_key = {}
++        _group_profiles_cache.update(mtime=mtime, by_key=by_key)
++    return _group_profiles_cache
++
++
++def _lookup_group(*candidates: Optional[str]) -> Optional[Dict[str, Any]]:
++    """Return the first group profile matching any of the given chat ids/names."""
++    by_key = _load_group_profiles()["by_key"]
++    if not by_key:
++        return None
++    for cand in candidates:
++        if not cand:
++            continue
++        hit = by_key.get(str(cand)) or by_key.get(str(cand).casefold())
++        if hit:
++            return hit
++    return None
++
++
++def _render_group_profile(entry: Dict[str, Any]) -> List[str]:
++    """Render the per-group persona block (style + capability framing).
++
++    Purely presentational: it changes how the agent talks and what it says it
++    can do in this group, never the sandbox/safety boundary (identical across
++    groups). Nothing here is confidential.
++    """
++    def _field_line(fld: str, label: str) -> Optional[str]:
++        val = entry.get(fld)
++        if val is None or str(val).strip() == "":
++            return None
++        return f"- {label}：{' '.join(str(val).split())}"  # flatten newlines
++
++    name = entry.get("name") or entry.get("chat_id") or "this group"
++    lines = [f"**本群画像 / Group profile — {name}（按本群定制语气与介绍口径）:**"]
++    for fld, label in _GROUP_PROFILE_FIELDS:
++        ln = _field_line(fld, label)
++        if ln:
++            lines.append(ln)
++    lines.append(
++        "用上面的语言风格与能力栈来应对本群：自我介绍、说明你能做什么、整体语气"
++        "都据此调整。这只改变“怎么表达/介绍”，不改变沙箱与安全边界（各群一致）。"
++    )
++    return lines
++
++
  def build_session_context_prompt(
      context: SessionContext,
      *,
-@@ -360,12 +536,22 @@ def build_session_context_prompt(
+@@ -360,12 +675,22 @@ def build_session_context_prompt(
      # changes per-turn and would bust the prompt cache.  Instead, note that
      # this is a multi-user session; individual sender names are prefixed on
      # each user message by the gateway.
@@ -528,7 +667,7 @@ index 8f59d5495..2f6c901eb 100644
      elif context.source.user_name:
          lines.append(f"**User:** {context.source.user_name}")
      elif context.source.user_id:
-@@ -374,6 +560,29 @@ def build_session_context_prompt(
+@@ -374,6 +699,52 @@ def build_session_context_prompt(
              uid = _hash_sender_id(uid)
          lines.append(f"**User ID:** {uid}")
  
@@ -554,6 +693,29 @@ index 8f59d5495..2f6c901eb 100644
 +        if _person:
 +            lines.append("")
 +            lines.extend(_render_person_profile(_person))
++
++    # PATCH-14: per-group persona + capability framing  [group-profile]
++    # In groups/channels, look the chat up in ~/.hermes/groups.yaml and inline a
++    # per-group language-style / capability block so the agent presents itself
++    # differently per audience. Independent of any matched profile, always inject
++    # the tool-limitation disclosure rule for groups: a degraded result (blocked
++    # tools/permissions) must be declared and deep calls deferred to 琛哥. The
++    # sandbox/safety boundary itself stays identical across groups.
++    if (
++        context.source.platform != Platform.LOCAL
++        and context.source.chat_type in ("group", "channel")
++    ):
++        _group = _lookup_group(
++            context.source.chat_id,
++            context.source.parent_chat_id,
++            context.source.chat_id_alt,
++            context.source.chat_name,
++        )
++        if _group:
++            lines.append("")
++            lines.extend(_render_group_profile(_group))
++        lines.append("")
++        lines.append(_GROUP_TOOL_LIMITATION_RULE)
 +
      # Platform-specific behavioral notes
      if context.source.platform == Platform.SLACK:
@@ -633,10 +795,10 @@ index 7377e2959..348baa175 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index dfd7c60e7..07bc7e0ab 100644
+index cd8d8bf65..6c9efbee4 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -1503,35 +1503,46 @@ def _get_platform_tools(
+@@ -1501,35 +1501,46 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -2544,7 +2706,7 @@ index 4dd83a1bd..740d41aed 100644
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
 diff --git a/tests/gateway/test_session.py b/tests/gateway/test_session.py
-index c7f82b2d8..1014c92f2 100644
+index c7f82b2d8..a8dc7f751 100644
 --- a/tests/gateway/test_session.py
 +++ b/tests/gateway/test_session.py
 @@ -384,7 +384,9 @@ class TestBuildSessionContextPrompt:
@@ -2567,7 +2729,7 @@ index c7f82b2d8..1014c92f2 100644
          assert "**User:** Alice" not in prompt
  
      def test_dm_thread_shows_user_not_multi(self):
-@@ -1400,3 +1404,131 @@ class TestRewriteTranscriptPreservesReasoning:
+@@ -1400,3 +1404,243 @@ class TestRewriteTranscriptPreservesReasoning:
              "before user",
              "before assistant",
          ]
@@ -2699,6 +2861,118 @@ index c7f82b2d8..1014c92f2 100644
 +        prompt = self._group_prompt(user_id="ou_ic", user_name="新人")
 +        assert "对方画像" in prompt
 +        assert "下属" not in prompt
++
++
++class TestGroupProfileInjection:
++    """PATCH-14 group-profile: ~/.hermes/groups.yaml → system prompt.
++
++    Verifies per-group persona injection (language style + capability framing):
++    matched by chat_id and by name/alias, skipped for DMs and unknown chats, and
++    resilient to a missing/malformed data file. The tool-limitation disclosure
++    rule is always present for groups (even with no matched profile) and absent
++    for DMs.
++    """
++
++    @staticmethod
++    def _install(tmp_path, monkeypatch, body):
++        from gateway import session as _session
++        path = tmp_path / "groups.yaml"
++        path.write_text(body, encoding="utf-8")
++        monkeypatch.setattr(_session, "_group_profiles_path", lambda: path)
++        # Reset the mtime cache so each test reloads from its own temp file.
++        _session._group_profiles_cache.update(mtime=None, by_key={})
++        return path
++
++    @staticmethod
++    def _clear(monkeypatch):
++        from gateway import session as _session
++        monkeypatch.setattr(_session, "_group_profiles_path", lambda: None)
++        _session._group_profiles_cache.update(mtime=None, by_key={})
++
++    def _group_prompt(self, chat_id="oc_g1", chat_name="Team", chat_type="group"):
++        config = GatewayConfig(
++            platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="fake")},
++        )
++        source = SessionSource(
++            platform=Platform.TELEGRAM,
++            chat_id=chat_id,
++            chat_name=chat_name,
++            chat_type=chat_type,
++            user_id="ou_member",
++            user_name="某成员",
++        )
++        return build_session_context_prompt(build_session_context(source, config))
++
++    def _dm_prompt(self):
++        config = GatewayConfig(
++            platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="fake")},
++        )
++        source = SessionSource(
++            platform=Platform.TELEGRAM,
++            chat_id="ou_dm",
++            chat_type="dm",
++            user_id="ou_member",
++            user_name="某成员",
++        )
++        return build_session_context_prompt(build_session_context(source, config))
++
++    _SAMPLE = (
++        "groups:\n"
++        "  - chat_id: oc_g1\n"
++        "    name: SpaceSight 救命稻草\n"
++        "    aliases: [稻草群]\n"
++        "    style: 偏正式、术语精确，面向投资人\n"
++        "    capabilities: 行业调研、文档解读、会议纪要\n"
++        "    intro: 我是琛哥的赛博助手 Gödel，这个群里主要帮忙做调研和文档\n"
++    )
++
++    def test_profile_injected_when_matched_by_chat_id(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._SAMPLE)
++        prompt = self._group_prompt(chat_id="oc_g1")
++        assert "本群画像 / Group profile — SpaceSight 救命稻草" in prompt
++        assert "偏正式、术语精确" in prompt
++        assert "行业调研、文档解读、会议纪要" in prompt
++
++    def test_profile_injected_when_matched_by_alias(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._SAMPLE)
++        # No chat_id match; fall back to the alias.
++        prompt = self._group_prompt(chat_id="oc_other", chat_name="稻草群")
++        assert "本群画像 / Group profile" in prompt
++        assert "面向投资人" in prompt
++
++    def test_unknown_group_skips_profile_but_keeps_disclosure(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._SAMPLE)
++        prompt = self._group_prompt(chat_id="oc_stranger", chat_name="路人群")
++        assert "本群画像" not in prompt
++        # The disclosure rule is universal for groups, profile or not.
++        assert "能力受限声明规则" in prompt
++        assert "等琛哥确认" in prompt
++
++    def test_disclosure_rule_present_for_group(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._SAMPLE)
++        prompt = self._group_prompt(chat_id="oc_g1")
++        assert "能力受限声明规则" in prompt
++        assert "明确声明" in prompt
++
++    def test_dm_gets_neither_profile_nor_disclosure(self, tmp_path, monkeypatch):
++        self._install(tmp_path, monkeypatch, self._SAMPLE)
++        prompt = self._dm_prompt()
++        assert "本群画像" not in prompt
++        assert "能力受限声明规则" not in prompt
++
++    def test_missing_file_is_safe(self, monkeypatch):
++        self._clear(monkeypatch)
++        prompt = self._group_prompt(chat_id="oc_g1")
++        # No profile, but the loader must not raise and disclosure still applies.
++        assert "本群画像" not in prompt
++        assert "能力受限声明规则" in prompt
++
++    def test_malformed_yaml_is_safe(self, tmp_path, monkeypatch):
++        # Broken YAML must collapse to an empty index, not raise.
++        self._install(tmp_path, monkeypatch, "groups: [ this : is : not valid")
++        prompt = self._group_prompt(chat_id="oc_g1")
++        assert "本群画像" not in prompt
++        assert "能力受限声明规则" in prompt
 diff --git a/tests/gateway/test_session_env.py b/tests/gateway/test_session_env.py
 index b0797467d..95b846653 100644
 --- a/tests/gateway/test_session_env.py
@@ -3724,10 +3998,10 @@ index 2ba57adc5..f0b82f107 100644
              return json.dumps(
                  {
 diff --git a/toolsets.py b/toolsets.py
-index 14ec3ccbd..43a4e234e 100644
+index ef7c41e91..9dffaa67d 100644
 --- a/toolsets.py
 +++ b/toolsets.py
-@@ -167,6 +167,12 @@ TOOLSETS = {
+@@ -166,6 +166,12 @@ TOOLSETS = {
          "tools": ["skills_list", "skill_view", "skill_manage"],
          "includes": []
      },
@@ -3740,7 +4014,7 @@ index 14ec3ccbd..43a4e234e 100644
      
      "browser": {
          "description": "Browser automation for web interaction (navigate, click, type, scroll, iframes, hold-click) with web search for finding URLs",
-@@ -192,6 +198,12 @@ TOOLSETS = {
+@@ -191,6 +197,12 @@ TOOLSETS = {
          "tools": ["read_file", "write_file", "patch", "search_files"],
          "includes": []
      },

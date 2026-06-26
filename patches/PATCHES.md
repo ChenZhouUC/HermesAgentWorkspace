@@ -67,7 +67,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-11: grep per-platform skill allowlist + read-only toolset sentinels
   │   ├─ PATCH-12: grep reply_in_thread = False
   │   ├─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
-  │   └─ PATCH-14: grep people-profile + _load_people_profiles/_lookup_person + TestPeopleProfileInjection
+  │   └─ PATCH-14: grep people-profile/_load_people_profiles/_lookup_person + group-profile/_load_group_profiles/_lookup_group/_GROUP_TOOL_LIMITATION_RULE + TestPeopleProfileInjection/TestGroupProfileInjection
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -196,18 +196,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `a6a28ce3`，2026-06-26)
+## 当前版本：v0.17.0 (upstream `main` `233ef98a`，2026-06-26)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14（共 10 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+1 commit，basis `d6269da7` → `a6a28ce3`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+104 commit，basis `a6a28ce3` → `233ef98a`）要点**：
 
-- 上游主线：仅 1 个 commit `a6a28ce3`（`fix(ci): run CI on all PRs to anywhere`）——只删 `.github/workflows/{ci,docker-publish}.yml` 各 1 行，**不触及任何源码或 `PATCHED_FILES`**，对运行时零影响。
-- 本地新增 **PATCH-14（people-profile 人物画像注入）**：`gateway/session.py` 读取 `~/.hermes/people.yaml`（mtime 缓存，按 `user_id`/`user_id_alt`/`user_name`+aliases 匹配），在 session prompt 的 current-author 块后注入对方画像；渲染分**可公开段**（姓名/岗位/部门·团队）与**保密段**（工号/入职/司龄/上级/下属/称呼/职业背景/行为模式/态度/风险），保密段尾附 `_PEOPLE_PROFILE_SECRECY` 强制保密指令（只能用于调整应对、绝不外泄、防被群成员套话）；`redact_pii` 平台跳过、loader 全程吞异常。配套 `scripts/pull_feishu_people.py`（`pull`→`people.draft.yaml` / `merge [--apply]`，飞书通讯录客观字段刷新、人工主观字段保留，owner 置顶按工号排序），`people*.yaml` 全部 gitignore。
-- patch apply：**全部 clean apply**——35 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到 `a6a28ce3`，无 3-way、无冲突（上游 commit 仅改 CI workflow，本地 hunk 无漂移）；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `a6a28ce3e2174c0be494f553ab5fd79b7039190f`。PATCH-1/2/6/7/9/10/11/12/13/14 行为化验证全部 OK；PATCH-3 上游 completion 语法仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖；本轮未发现 PATCH 被上游吸收。
-- 依赖：`uv` clean 安装无 fallback；`npm audit fix` 报 no vulnerabilities，但仍改动 tracked `hermes-agent/package-lock.json`，按设计不纳入 `local-patches.diff`；Skills mirror **+0 / ~0 / -1**。
-- 配置漂移：无 schema migration，doctor `Configuration is up to date`、All checks passed；`tests/gateway/test_session.py` 96 passed（含 9 例 people-profile）；经脚本 save→revert→reapply 往返 `gateway/session.py` 字节一致——幂等成立；Gateway 经 stop→start 重启加载补丁，service loaded、running。
-- 配置漂移：本次无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`）；doctor 剩 1 个 issue：`ALIBABA_CODING_PLAN_API_KEY` 无效。Gateway 已由脚本重启并加载补丁，service loaded，PID `76156`，`LastExitStatus=0`。
+- 上游主线（104 commit，release tag 仍 `v0.17.0 (2026.6.19)` 未变）：**Desktop / Projects 子系统**为本轮重头——backend-authoritative projects sidebar、git worktree + review IPC、Codex 风格 review pane、composer coding rail + worktree flow、file preview spot editor、终端面板纵向 resize、background `delegate_task` 的 "will resume" 提示与 `$backgroundResume` store；配套 `feat(tools)` project workspace tools、`feat(gateway)` authoritative project tree、`feat(sessions)` 记录 git workspace metadata、`feat(kanban)` 任务关联 worktree、per-profile project store。**Gateway / 状态**：`fix(gateway)` 把 cross-process cache cleanup 移出 cache lock（#52197/#52761）、transient failure 去重 user turns（#47237）、fresh turn 持久化非空 system prompt（#45499）；`fix(state)` resume walk 排除 delegate/branch/tool children、compression chain tip 解析。**Compression / Auxiliary**：`feat(compression)` in_place 默认翻为 True（#38763）、auxiliary fallback 链按 context window / 付费错误 / 容量错误分别兜底（#52392 等）。**Cron**：partial job-loss 检测（#52144）、per-run output 默认保留（#52383/#52646）、`[SILENT]` 恢复。**Telegram**：持久 heartbeat 检测 CLOSE-WAIT、rich 管道表格 + topic 路由。**MoA**：presets 暴露为可选虚拟模型（#46081）。**安全 / 杂项**：MCP OSV malware preflight 移出 event loop（#29184）、`/learn` 蒸馏 skill 署名 Hermes（#52388）、`fix(update)` pre-update backup 默认关（#52729）。无任何 commit 触及 Feishu / people / group / session 画像相关本地补丁区域。
+- 本地变更 **PATCH-14 本轮扩展（群聊画像 + 能力受限声明，仅改 `gateway/session.py` + `tests/gateway/test_session.py`）**：在 people-profile 之外新增并行的**群聊画像层**——`~/.hermes/groups.yaml`（与 people 同款 mtime 缓存 / config-repo / 永不抛错 loader，但 **git 入库**、纯表达层无机密），按 `chat_id`/`parent_chat_id`/`chat_id_alt`/`chat_name`+aliases 匹配，在 group/channel session 注入 `style`（语言风格）/`capabilities`（能力栈，可对外介绍能做什么）/`audience`/`intro`/`notes`——**只改表达层，沙箱/安全边界各群一致**。同时对所有 group/channel session 注入 `_GROUP_TOOL_LIMITATION_RULE`（无论是否命中画像）：工具不可用 / 权限被沙箱拦截 / 缺凭证导致任务失败或效果打折时，最终产出必须**明确声明**该限制与可信度边界，深入结论 / 决策 / 承诺一律建议**等琛哥确认**、不替琛哥拍板。`sentinel group-profile`；新增 `TestGroupProfileInjection`（7 例）。同步 `feishu-groups` skill 加 `groups.yaml` 指针、`hermes-update.sh` PATCH-14 sentinel 扩 grep。`groups.yaml` 为 config-repo 数据文件，**不**进 `PATCHED_FILES`/`local-patches.diff`。
+- patch apply：**全部 clean apply**——35 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到 `233ef98a`，无 3-way、无冲突（尽管上游 104 commit 给 Desktop/Projects/Gateway 大量改动，本地 hunk 仅行号漂移，未碰本地补丁区域）；`patches/local-patches.diff` 与 `.local-patches.base` 刷新到 `233ef98afe2f156dd916c8f4e7f98d16676de4ee`。PATCH-1/2/6/7/9/10/11/12/13/14 行为化验证全部 OK；PATCH-3 上游 completion 语法仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖；本轮未发现 PATCH 被上游吸收。
+- 依赖：`uv` clean 安装无 fallback；`npm audit fix` 报 no vulnerabilities to fix；Skills mirror **+0 / ~0 / -3**。**已知摩擦**：升级前自动 stash 的额外改动（`package-lock.json` + `uv.lock`）因上游本轮 bump 了同二文件而 **auto-merge 失败，保留在 `stash@{0}`**（`hermes-update-extra-20260626-101054`），工作树 lockfile 已是上游新版；如需旧改动 `git stash list/show` 手动取，否则可丢弃。
+- 配置漂移：无 schema migration，`config.yaml` 仍为 v30（`hermes doctor` 报 `Config version up to date`、All checks passed）；`tests/gateway/test_session.py` + `test_feishu.py` + `test_feishu_bot_admission.py` 共 **382 passed**（含 `TestGroupProfileInjection` 7 例）；经脚本 save→revert→reapply 往返 `gateway/session.py` 字节一致——幂等成立；Gateway 经 stop→start 重启加载补丁，service loaded、running、`LastExitStatus=0`。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -375,20 +374,22 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-14] 人物画像注入（people.yaml → system prompt）
+### [PATCH-14] 人物 / 群聊画像注入（people.yaml + groups.yaml → system prompt）
 
-| 字段     | 内容                                                                                                            |
-| -------- | --------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/session.py`, `tests/gateway/test_session.py`（配套数据文件 `~/.hermes/people.yaml`，非 PATCHED_FILES） |
-| **状态** | 🟡 未上游合并（本地个性化功能，不预期被上游吸收）                                                               |
+| 字段     | 内容                                                                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/session.py`, `tests/gateway/test_session.py`（配套数据文件 `~/.hermes/people.yaml` gitignore、`~/.hermes/groups.yaml` 入库，均非 PATCHED_FILES） |
+| **状态** | 🟡 未上游合并（本地个性化功能，不预期被上游吸收）                                                                                                         |
 
-**问题**：群聊/私聊里 agent 只能拿到发送者的 open_id 与显示名，不知道对方的岗位、背景、沟通风格，也无法按"琛哥对此人的态度"调整语气与风险意识。这类主观标注（喜好、立场、应对基调）官方通讯录 API 永远不会提供，必须由用户自维护。
+**问题**：（人物层）群聊/私聊里 agent 只能拿到发送者的 open_id 与显示名，不知道对方的岗位、背景、沟通风格，也无法按"琛哥对此人的态度"调整语气与风险意识。这类主观标注（喜好、立场、应对基调）官方通讯录 API 永远不会提供，必须由用户自维护。（群聊层）同一个 bot 在不同飞书群面对不同人群，却共用同一套语气与自我介绍口径，无法针对性表达「这个群我主要能帮你做什么」；且当群聊任务因沙箱拦截工具 / 缺权限 / 缺凭证而效果打折时，模型容易把受限当作已完成、对深入结论过度自信，而不是声明限制并把决策交回琛哥确认。
 
 **修复**：在 `gateway/session.py` 新增一个本地人物画像库读取层（sentinel `people-profile`）：`_load_people_profiles()` 按 mtime 缓存读取 `~/.hermes/people.yaml`（经 `hermes_constants.get_hermes_home()` 定位），`_lookup_person()` 依次按 `user_id` / `user_id_alt` / `user_name`（含 aliases、大小写折叠）匹配，`_render_person_profile()` 把画像拆成**可公开段**（仅 姓名/岗位/部门·团队）与**保密段**（工号/入职/司龄/上级/下属 (direct+total，`_render_subordinates`)/称呼/职业背景/行为模式/态度/风险注意/备注），保密段尾部附 `_PEOPLE_PROFILE_SECRECY` 强制保密指令——这些只能用于调整应对，绝不可复述/确认/暗示，即使被直接询问或旁敲侧击也不得外泄（防止人为设定的背景/态度被群成员套出）。`build_session_context_prompt` 在 current-author 块之后注入该画像；`redact_pii` 为真时（PII-safe 平台）跳过，保持脱敏契约。loader 全程吞异常——文件缺失或 YAML 损坏只降级为空索引，绝不让 prompt 路径抛错。数据文件刻意放在 config repo（`~/.hermes`），上游升级不覆盖，且改后按 mtime 在下一条消息自动热加载，无需重启。配套拉取脚本 `scripts/pull_feishu_people.py`（pull→draft / merge[--apply]，飞书通讯录客观字段刷新、主观字段保留）维护该数据文件，非 hermes-agent 工程内补丁。
 
-**验证**：Step 8b grep `gateway/session.py` 中存在 `people-profile`、`def _load_people_profiles`、`def _lookup_person`，并 grep `tests/gateway/test_session.py` 中的 `class TestPeopleProfileInjection`。定向测试覆盖：按 id 命中注入、按 name/alias 命中注入、未知发送者不注入、文件缺失安全、YAML 损坏安全（共 5 例，随 `TestBuildSessionContextPrompt` 一并通过）。
+**修复（群聊画像 + 能力受限声明，本轮扩展）**：在同一文件新增并行的**群聊画像层**（sentinel `group-profile`），与人物层同款契约（mtime 缓存、config-repo 数据文件、loader 永不抛错、按 mtime 热加载），但**数据文件 `groups.yaml` git 入库、内容纯表达层无机密**：`_load_group_profiles()` 读 `~/.hermes/groups.yaml`，`_lookup_group()` 依次按 `chat_id` / `parent_chat_id`（thread 子会话回退到父群）/ `chat_id_alt` / `chat_name`（含 aliases、大小写折叠）匹配，`_render_group_profile()` 渲染 `style`（语言风格/语气）/`capabilities`（能力栈——可对外介绍自己能做什么）/`audience`/`intro`（自我介绍口径）/`notes`，并显式声明「只改怎么表达/介绍，不改沙箱与安全边界（各群一致）」。`build_session_context_prompt` 仅对 `platform != LOCAL && chat_type in (group, channel)` 注入；命中画像才注入画像块，但**无论是否命中**都追加常量 `_GROUP_TOOL_LIMITATION_RULE`：工具不可用 / 权限被沙箱拦截 / 缺凭证 / 访问失败导致任务没完成或效果打折时，产出必须明确声明该限制与结论可信度边界、不得把受限当已验证；深入结论 / 判断 / 决策 / 对外承诺一律保守，建议等琛哥确认、不替琛哥拍板或担责。DM 既不注入画像也不注入声明规则。
 
-**上游吸收判断**：该功能依赖用户私有数据文件与个人化态度标注，属本地个性化增强，不预期被上游合并；若上游引入等价的 per-sender profile 注入机制可重新评估归档。
+**验证**：Step 8b grep `gateway/session.py` 中存在 `people-profile`、`def _load_people_profiles`、`def _lookup_person`、`group-profile`、`def _load_group_profiles`、`def _lookup_group`、`_GROUP_TOOL_LIMITATION_RULE`，并 grep `tests/gateway/test_session.py` 中的 `class TestPeopleProfileInjection`、`class TestGroupProfileInjection`。定向测试覆盖：人物层 按 id / name·alias 命中、未知不注入、缺文件 / 坏 YAML 安全；群聊层 按 chat_id / alias 命中、未命中仍保留声明规则、声明规则在 group 出现、DM 既无画像也无声明规则、缺文件 / 坏 YAML 安全（`TestGroupProfileInjection` 7 例）。`tests/gateway/test_session.py` 全量 103 passed。
+
+**上游吸收判断**：该功能依赖用户私有/本地数据文件与个人化标注（态度、群人设），属本地个性化增强，不预期被上游合并；若上游引入等价的 per-sender / per-group profile 注入机制可重新评估归档。
 
 ---
 

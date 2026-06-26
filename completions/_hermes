@@ -56,6 +56,7 @@ _hermes() {
                 'mcp:Manage MCP servers and run Hermes as an MCP server'
                 'memory:Configure external memory provider'
                 'migrate:Migrate configuration for retired models or deprecated setti'
+                'moa:Configure Mixture of Agents provider/model slots'
                 'model:Select default model and provider'
                 'pairing:Manage DM pairing codes for user authorization'
                 'pets:Browse, install, and select petdex animated pets'
@@ -63,6 +64,7 @@ _hermes() {
                 'portal:Set up Nous Portal (login, model pick, Tool Gateway); see al'
                 'postinstall:Bootstrap non-Python deps for pip installs (node, browser, r'
                 'profile:Manage profiles — multiple isolated Hermes instances'
+                'project:Manage projects (named, multi-folder workspaces)'
                 'prompt-size:Show a byte breakdown of the system prompt + tool schemas'
                 'proxy:Local OpenAI-compatible proxy to OAuth providers'
                 'secrets:Manage external secret sources (Bitwarden Secrets Manager)'
@@ -324,6 +326,15 @@ _hermes() {
                     )
                     _describe 'migrate command' migrate_cmds
                     ;;
+                moa)
+                    local -a moa_cmds
+                    moa_cmds=(
+                    'configure:Interactively pick MoA models'
+                    'delete:Delete a MoA preset'
+                    'list:Show current MoA model slots'
+                    )
+                    _describe 'moa command' moa_cmds
+                    ;;
                 pairing)
                     local -a pairing_cmds
                     pairing_cmds=(
@@ -395,6 +406,23 @@ _hermes() {
                             _describe 'profile command' profile_cmds
                             ;;
                     esac
+                    ;;
+                project)
+                    local -a project_cmds
+                    project_cmds=(
+                    'add-folder:Add a folder to a project'
+                    'archive:Archive a project'
+                    'bind-board:Bind a kanban board to a project'
+                    'create:Create a new project'
+                    'list:List projects'
+                    'remove-folder:Remove a folder from a project'
+                    'rename:Rename a project'
+                    'restore:Restore an archived project'
+                    'set-primary:Set the primary folder'
+                    'show:Show a projects details'
+                    'use:Set the active project'
+                    )
+                    _describe 'project command' project_cmds
                     ;;
                 proxy)
                     local -a proxy_cmds

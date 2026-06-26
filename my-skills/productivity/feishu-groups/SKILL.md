@@ -20,6 +20,16 @@ This skill acts as a persistent directory for frequently used Feishu groups.
 1. **Routing / Delivery**: When the user wants to send a message or set up a cronjob targeted at these groups, use the `chat_id` from the table above (e.g., delivery target `feishu:oc_baeecd57161e7ffd13ab880596f418d2`).
 2. **Updating**: When the user provides a new group ID, immediately use `skill_manage(action='patch', name='feishu-groups', ...)` to add the new group to the Markdown table. Keep the table clean and readable.
 
+## Per-group persona (`~/.hermes/groups.yaml`)
+
+Per-group **language style + capability framing** (how the bot talks and what it
+says it can do in each group) lives in `~/.hermes/groups.yaml`, keyed by
+`chat_id`. The gateway injects the matched group's persona into the system
+prompt (`gateway/session.py`, sentinel `group-profile`, PATCH-14). This only
+changes presentation — the sandbox/read-only toolset is identical across groups.
+When you add a group to the table above, also add a matching entry to
+`groups.yaml` if it needs a distinct persona.
+
 ## 📮 Bot Messaging & Group Availability
 
 The bot can send messages to any Feishu group it's a member of via the Open API.
