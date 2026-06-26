@@ -16,16 +16,20 @@
 #   建议至少填 chat_id（最稳）+ name（给你自己看）。
 #
 # 字段（留空即不注入该行，全部是「表达层」，无机密）：
-#   style         语言风格 / 语气（正式 vs 轻松、术语精度、回复长度偏好…）
-#   capabilities  能力栈：在这个群你可以对外介绍自己能做哪些事
-#   audience      群成员画像（面向谁、他们关心什么）
-#   intro         自我介绍口径（首次/被问到时怎么一句话介绍自己）
-#   notes         其它备注
+#   style            语言风格 / 语气（正式 vs 轻松、术语精度、回复长度偏好…）
+#   capabilities     能力栈：在这个群你可以对外介绍自己能做哪些事
+#   audience         群成员画像（面向谁、他们关心什么）
+#   intro            自我介绍口径（首次/被问到时怎么一句话介绍自己）
+#   nightly_greeting 设为 false 可让本群保留画像、但不收每日晚安群发；
+#                    缺省（不写）= 照常群发。见 scripts/nightly_greeting.py
+#   notes            其它备注
 #
 # 不在这里配的群：自动回退到「无画像」——仍会注入通用的「能力受限声明规则」，
 #                 只是没有定制语气。
 #
-# 群 chat_id 速查见 skill: my-skills/productivity/feishu-groups/SKILL.md
+# 唯一群信息入口：本文件是所有飞书群 chat_id 的唯一登记处（晚安群发、路由都从
+#                 这里取）。skill my-skills/productivity/feishu-groups/SKILL.md
+#                 只讲「怎么发消息」，不再单独维护 chat_id 列表。
 # ---------------------------------------------------------------------------
 
 groups:

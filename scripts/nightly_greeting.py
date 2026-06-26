@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - macOS system Python is new enough.
 HERMES_HOME = Path.home() / ".hermes"
 STATE_DB = HERMES_HOME / "state.db"
 FEISHU_DOCS_SCRIPTS = HERMES_HOME / "my-skills/productivity/feishu-docs/scripts"
-FEISHU_GROUPS_SKILL = HERMES_HOME / "my-skills/productivity/feishu-groups/SKILL.md"
+GROUPS_YAML = HERMES_HOME / "groups.yaml"
 REPORT_PROJECT = Path("/Users/chenzhou/Documents/WhaleDocs/organization/Reporting_2026Q2")
 WORK_DIR = HERMES_HOME / "tmp/nightly_report"
 STATE_PATH = WORK_DIR / "state.json"
@@ -43,7 +43,9 @@ UV_BIN = Path("/opt/homebrew/bin/uv")
 sys.path.insert(0, str(FEISHU_DOCS_SCRIPTS))
 import feishu_common  # noqa: E402
 
-CHAT_ID_RE = re.compile(r"`(oc_[A-Za-z0-9_]+)`")
+GROUP_ITEM_RE = re.compile(r"^\s*-\s")
+GROUP_CHAT_ID_RE = re.compile(r"\bchat_id:\s*(oc_[A-Za-z0-9_]+)")
+GROUP_NIGHTLY_OFF_RE = re.compile(r"^\s*nightly_greeting:\s*(?:false|no|off)\s*$", re.I)
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 JSON_OBJECT_RE = re.compile(r"\{.*\}", re.S)
 
@@ -109,19 +111,40 @@ def report_too_long(text: str) -> bool:
     return cjk_len(text) > MAX_REPORT_CHARS or len(text) > MAX_REPORT_CHARS
 
 
-def load_group_ids(path: Path = FEISHU_GROUPS_SKILL) -> list[str]:
-    """Read chat_ids from the Known Groups table in the feishu-groups skill."""
-    in_known_groups = False
+def load_group_ids(path: Path = GROUPS_YAML) -> list[str]:
+    """Read broadcast chat_ids from ``groups.yaml`` — the single source of truth.
+
+    ``~/.hermes/groups.yaml`` is the only place Feishu group ids are maintained.
+    Each list item under ``groups:`` contributes its ``chat_id`` to the nightly
+    greeting, unless that group opts out with ``nightly_greeting: false``. Parsed
+    with a small block scanner so the script keeps depending only on the stdlib
+    (the cron interpreter has no PyYAML).
+    """
     group_ids: list[str] = []
+    current_id: str | None = None
+    current_skip = False
+
+    def flush() -> None:
+        nonlocal current_id, current_skip
+        if current_id and not current_skip and current_id not in group_ids:
+            group_ids.append(current_id)
+        current_id = None
+        current_skip = False
+
     for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("## "):
-            in_known_groups = line.strip() == "## Known Groups"
+        if line.lstrip().startswith("#") or not line.strip():
             continue
-        if not in_known_groups or not line.startswith("|"):
+        if GROUP_ITEM_RE.match(line):
+            # A new "- ..." list item starts a fresh group block.
+            flush()
+        match = GROUP_CHAT_ID_RE.search(line)
+        if match:
+            current_id = match.group(1)
             continue
-        match = CHAT_ID_RE.search(line)
-        if match and match.group(1) not in group_ids:
-            group_ids.append(match.group(1))
+        if GROUP_NIGHTLY_OFF_RE.match(line):
+            current_skip = True
+    flush()
+
     if not group_ids:
         raise RuntimeError(f"No Feishu group chat_ids found in {path}")
     return group_ids

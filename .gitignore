@@ -24,7 +24,7 @@ channel_directory.json
 people.yaml
 people.draft.yaml
 people.merged.yaml
-people.yaml.bak
+people.yaml.bak*
 processes.json
 .update_check
 .tick.lock

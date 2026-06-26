@@ -400,7 +400,7 @@ skills:
     feishu_group:
     - llm-wiki
     - feishu-docs
-    - character-voices
+    - feishu-people-search
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10

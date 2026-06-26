@@ -5,30 +5,31 @@ description: "Use when sending messages or cron jobs to Feishu groups, resolving
 
 # Feishu Group Directory
 
-This skill acts as a persistent directory for frequently used Feishu groups.
+This skill documents how the bot talks to Feishu groups. The group roster itself
+— every `chat_id` plus its per-group persona — lives in **one** place:
+`~/.hermes/groups.yaml`. This skill no longer keeps a duplicate id table.
 
-## Known Groups
+## Group roster — single source of truth (`~/.hermes/groups.yaml`)
 
-| Group Name             | chat_id                               | Notes           |
-| :--------------------- | :------------------------------------ | :-------------- |
-| SpaceSight 救命稻草    | `oc_4ca3cb5ee37232ca0b244f139ae785fa` | Added June 2026 |
-| Data Pipeline Workshop | `oc_e11903076f3393e0f237cb406b6c3a07` | Added June 2026 |
-| AI 解放生产力          | `oc_0663408600b12ccec166f9889046a36a` | Added June 2026 |
+`~/.hermes/groups.yaml` is the **only** entry point for group information. Each
+list item under `groups:` carries the group's stable `chat_id` (plus `name`,
+`style`, `capabilities`, `audience`, `intro` …). The gateway injects the matched
+group's persona into the system prompt (`gateway/session.py`, sentinel
+`group-profile`, PATCH-14); this only changes presentation — the
+sandbox/read-only toolset is identical across groups.
 
 ## Instructions
 
-1. **Routing / Delivery**: When the user wants to send a message or set up a cronjob targeted at these groups, use the `chat_id` from the table above (e.g., delivery target `feishu:oc_baeecd57161e7ffd13ab880596f418d2`).
-2. **Updating**: When the user provides a new group ID, immediately use `skill_manage(action='patch', name='feishu-groups', ...)` to add the new group to the Markdown table. Keep the table clean and readable.
-
-## Per-group persona (`~/.hermes/groups.yaml`)
-
-Per-group **language style + capability framing** (how the bot talks and what it
-says it can do in each group) lives in `~/.hermes/groups.yaml`, keyed by
-`chat_id`. The gateway injects the matched group's persona into the system
-prompt (`gateway/session.py`, sentinel `group-profile`, PATCH-14). This only
-changes presentation — the sandbox/read-only toolset is identical across groups.
-When you add a group to the table above, also add a matching entry to
-`groups.yaml` if it needs a distinct persona.
+1. **Routing / Delivery**: To send a message or set up a cronjob targeted at a
+   group, look up its `chat_id` in `~/.hermes/groups.yaml` (delivery target
+   `feishu:<chat_id>`).
+2. **Adding / removing a group**: Edit `~/.hermes/groups.yaml` directly — add or
+   remove the list item (with at least `chat_id` + `name`, and persona fields if
+   it needs a distinct voice). Do **not** maintain a separate id list here.
+3. **Nightly greeting opt-out**: `scripts/nightly_greeting.py` broadcasts the
+   nightly greeting to every group in `groups.yaml`. To keep a group's persona
+   but exclude it from the greeting (e.g. a test group), add
+   `nightly_greeting: false` to that group's entry.
 
 ## 📮 Bot Messaging & Group Availability
 

@@ -66,7 +66,7 @@ index 1a87e66cd..bd9070e3d 100644
                      continue
                  if not _skill_should_show(
 diff --git a/agent/skill_utils.py b/agent/skill_utils.py
-index 338fa37cb..b2a822d77 100644
+index 187c47d70..00c4516d1 100644
 --- a/agent/skill_utils.py
 +++ b/agent/skill_utils.py
 @@ -350,6 +350,17 @@ def _load_raw_config() -> Dict[str, Any]:
@@ -150,7 +150,7 @@ index 338fa37cb..b2a822d77 100644
  def _normalize_string_set(values) -> Set[str]:
      if values is None:
          return set()
-@@ -602,6 +646,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+@@ -630,6 +674,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
      seen_keys: set = set()
  
      disabled = get_disabled_skill_names()
@@ -158,7 +158,7 @@ index 338fa37cb..b2a822d77 100644
      for skills_dir in get_all_skills_dirs():
          if not skills_dir.is_dir():
              continue
-@@ -613,6 +658,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+@@ -641,6 +686,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
                  continue
  
              skill_name = frontmatter.get("name") or skill_file.parent.name
@@ -207,10 +207,10 @@ index e1556b37d..5941876e9 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/run.py b/gateway/run.py
-index 8555480d7..86fb928bf 100644
+index 01429983e..c8c7a462f 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -2108,6 +2108,17 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2130,6 +2130,17 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -228,7 +228,7 @@ index 8555480d7..86fb928bf 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -4587,7 +4598,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -4679,7 +4690,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -237,7 +237,7 @@ index 8555480d7..86fb928bf 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -8704,8 +8715,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -8806,8 +8817,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -254,7 +254,7 @@ index 8555480d7..86fb928bf 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -10037,7 +10054,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10139,7 +10156,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -263,7 +263,7 @@ index 8555480d7..86fb928bf 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -10094,7 +10111,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10196,7 +10213,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -272,7 +272,7 @@ index 8555480d7..86fb928bf 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -11565,7 +11582,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11667,7 +11684,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -281,7 +281,7 @@ index 8555480d7..86fb928bf 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -13105,6 +13122,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13207,6 +13224,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -289,7 +289,7 @@ index 8555480d7..86fb928bf 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -14524,7 +14542,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14626,7 +14644,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -298,7 +298,7 @@ index 8555480d7..86fb928bf 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -14836,7 +14854,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14938,7 +14956,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -307,7 +307,7 @@ index 8555480d7..86fb928bf 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -15644,9 +15662,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15746,9 +15764,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # (concurrency-safe). Keep os.environ as fallback for CLI/cron.
              os.environ["HERMES_SESSION_KEY"] = session_key or ""
              
@@ -765,10 +765,10 @@ index 55f269df5..495a51f03 100644
          _SESSION_CHAT_ID,
          _SESSION_CHAT_NAME,
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 7377e2959..348baa175 100644
+index 496f7e907..21796a6ba 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -2121,8 +2121,23 @@ def run_doctor(args):
+@@ -2161,8 +2161,23 @@ def run_doctor(args):
              else:
                  check_warn(item["name"], "(system dependency not met)")
  
@@ -891,7 +891,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index bf3c49d3b..db105754d 100644
+index c3ce2c294..4676fa08e 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -97,6 +97,7 @@ try:
@@ -3402,7 +3402,7 @@ index eda5140b0..e244a84d1 100644
  class TestSearchPathValidation:
      """Test that search() returns an error for non-existent paths."""
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index 245ca9347..016c7e101 100644
+index 9b4e83bbf..bc403efcf 100644
 --- a/tests/tools/test_skill_manager_tool.py
 +++ b/tests/tools/test_skill_manager_tool.py
 @@ -25,10 +25,12 @@ from tools.skill_manager_tool import (
@@ -3769,10 +3769,10 @@ index cec730dcb..efcad5aa7 100644
      # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index e3f48b2b6..bc1ebfca7 100644
+index 3a6f315b2..2ed5eefe3 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -343,10 +343,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -416,10 +416,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -3811,7 +3811,7 @@ index e3f48b2b6..bc1ebfca7 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -611,7 +636,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -684,7 +709,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -3824,7 +3824,7 @@ index e3f48b2b6..bc1ebfca7 100644
          "skill_md": str(skill_md),
          "_change": {"description": _desc},
      }
-@@ -816,9 +845,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
+@@ -898,9 +927,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
  
      shutil.rmtree(skill_dir)
  
