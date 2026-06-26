@@ -15,6 +15,7 @@ platform_toolsets:
   - feishu_doc
   - skills_readonly
   - file_readonly
+  - terminal
 platform_toolset_options:
   feishu_group:
     recover_platform_tools: false
