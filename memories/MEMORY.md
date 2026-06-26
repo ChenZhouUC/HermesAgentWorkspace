@@ -2,7 +2,7 @@
 §
 400 loop fix: `hermes sessions delete SESSION_ID`
 §
-Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Docx read: `feishu_doc_read` tool or `extract_docx_to_markdown.py`. Sheets read: cannot use docx tools — must use Sheets API with tenant token: `/sheets/v3/spreadsheets/{token}/sheets/query` to get sheet_id, then `/sheets/v2/spreadsheets/{token}/values/{sheet_id}!A1:Z999` for cell data. Groups in `feishu-groups` skill.
+Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Docx read: `feishu_doc_read` tool or `extract_docx_to_markdown.py`. Sheets read: cannot use docx tools — must use Sheets API with tenant token: `/sheets/v3/spreadsheets/{token}/sheets/query` to get sheet_id, then `/sheets/v2/spreadsheets/{token}/values/{sheet_id}!A1:Z999` for cell data. Groups in `feishu-groups` skill. Chat emoji: ONLY standard Unicode emoji (✅📌🎉🐶🍉) render in text/post messages. `[中文名]` bracket emoji (`[狗头]`/`[吃瓜]`/`[微笑]`) and `:shortcode:` NEVER render via the send API — only the client input box converts them, so they ship as literal text (post API would need a structured `{tag:emotion,emoji_type:SMILE}` element, which our markdown→post path never emits). Use Unicode emoji or none; never write `[中文名]` brackets.
 §
 Skill maintenance: Prioritize execution efficiency. Keep SKILL.md concise by extracting inline scripts into separate files under a scripts/ directory to reduce token load. Prefers generic, scalable directory names (e.g., 'editor-configs').
 §
