@@ -7,15 +7,15 @@ providers: {}
 fallback_providers: []
 credential_pool_strategies: {}
 toolsets:
-- hermes-cli
+  - hermes-cli
 platform_toolsets:
   feishu_group:
-  - web
-  - clarify
-  - feishu_doc
-  - skills_readonly
-  - file_readonly
-  - terminal
+    - web
+    - clarify
+    - feishu_doc
+    - skills_readonly
+    - file_readonly
+    - terminal
 platform_toolset_options:
   feishu_group:
     recover_platform_tools: false
@@ -38,6 +38,7 @@ agent:
   image_input_mode: auto
   disabled_toolsets: []
   reasoning_effort: high
+  verify_on_stop: false
 terminal:
   backend: local
   modal_mode: auto
@@ -292,9 +293,9 @@ display:
   runtime_footer:
     enabled: false
     fields:
-    - model
-    - context_pct
-    - cwd
+      - model
+      - context_pct
+      - cwd
   copy_shortcut: auto
 dashboard:
   theme: mono
@@ -396,12 +397,12 @@ goals:
   max_turns: 20
 skills:
   external_dirs:
-  - ~/.hermes/my-skills
+    - ~/.hermes/my-skills
   platform_allowed:
     feishu_group:
-    - llm-wiki
-    - feishu-docs
-    - feishu-people-search
+      - llm-wiki
+      - feishu-docs
+      - feishu-people-search
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
@@ -429,12 +430,12 @@ feishu:
   require_mention: true
   default_group_policy: open
   mention_triggers:
-  - bot
-  - assistant_users
+    - bot
+    - assistant_users
   assistant_user_ids:
-  - ou_33eeacfbd0c0559b7b734f83503719ab
-  - 5397e1a2
-  assistant_identity_label: "\u741B\u54E5\u7684\u8D5B\u535A\u52A9\u624B\u300CG\u00F6del\u300D"
+    - ou_33eeacfbd0c0559b7b734f83503719ab
+    - 5397e1a2
+  assistant_identity_label: 琛哥的赛博助手「Gödel」
   assistant_identity_throttle_messages: 20
   assistant_identity_throttle_seconds: 600
   history_backfill: true
@@ -468,11 +469,11 @@ discord:
     speech_gain: 1.0
     ack_enabled: true
     ack_phrases:
-    - Let me look into that.
-    - One moment.
-    - Checking on that now.
-    - Give me a sec.
-    - On it.
+      - Let me look into that.
+      - One moment.
+      - Checking on that now.
+      - Give me a sec.
+      - On it.
 whatsapp: {}
 telegram:
   reactions: false
@@ -563,7 +564,7 @@ streaming:
   transport: edit
   edit_interval: 1.0
   buffer_threshold: 40
-  cursor: " \u2589"
+  cursor: ' ▉'
   fresh_final_after_seconds: 60.0
 sessions:
   auto_prune: false
@@ -602,7 +603,7 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 30
+_config_version: 31
 smart_model_routing:
   enabled: false
   max_simple_chars: 160
@@ -613,5 +614,5 @@ fallback_model:
   model: qwen3.6-plus
 plugins:
   enabled:
-  - sandbox
+    - sandbox
   disabled: []
