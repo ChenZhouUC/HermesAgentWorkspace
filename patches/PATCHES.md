@@ -197,18 +197,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `e3db1ef9`，2026-06-26)
+## 当前版本：v0.17.0 (upstream `main` `6f1a176b`，2026-06-28)
 
-**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15（共 11 条）。
+**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16（共 12 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+28 commit，basis `0f81b0d4` → `e3db1ef9`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+180 commit，basis `e3db1ef9` → `6f1a176b`）要点**：
 
-- 上游主线（28 commit，release tag 仍 `v0.17.0 (2026.6.19)` 未变）：**安全**——`fix(security)` 给 tirith 崩溃加 circuit breaker 防 agent 挂死（#41400）、对齐 cron 不可见 unicode 集与安装期扫描器、停止误拦命名 agent 为 `Praxis` 的 `AGENTS.md/SOUL.md`（#52925）。**配置**：`fix(config)` 对非法 `platform_toolsets` 改为**显式报错**而非静默丢工具（#38798，正好是群聊工具集所在区，本仓 `config.yaml` 合法、无影响）。**Gateway / Relay**：external drain trigger + accept-gating 控制通道、`feat(relay)` multi-platform-per-agent Phase 1.5（#52830）、`fix(whatsapp)` 解析 reply-to 文本让 agent 看到引用上下文（#52957）。**Auxiliary**：非法 provider 响应触发 fallback、`fix(auxiliary)` 仅在 Anthropic 兼容 host 上覆盖 base_url（#52608）。**MCP**：stale OAuth client 注册自动从 `invalid_client` 恢复。**Dashboard**：socket drop 后重连 PTY chat、dashboard-auth 共享 bearer-secret + 非交互 API-token capability。**Desktop / macOS / TUI**（与本地补丁无关）：clarify 提示重做（#52993）、pending prompt 视为 paused-on-you、`fix(macos)` 在 gateway status 里**明确区分 launchd 监管 vs detached fallback**、settle TUI resume scroll。**其它**：`fix(install)` stash 前丢弃托管 lockfile churn、`fix(agent)` 对消息面关闭 verify-on-stop nudge。除上游 #38798 触及 `platform_toolsets`（配置层、未碰本地 patch 代码）外，无 commit 触及 Feishu adapter / session 本地补丁区域。
-- 本地变更：**本轮新增 PATCH-15**（Feishu 群聊 @ 触发时回看并附上同发送者最近图片/文件，解决「图片/文件与 @ 分属两条消息、图片在 `_admit` 被丢、模型看不到」）——改 `plugins/platforms/feishu/adapter.py`（已在 `PATCHED_FILES`，无需扩数组），新增 `_backfill_sender_attachments` / `_backfill_reply_attachments` / `_mark_attachment_backfilled` + 模块常量 + `_backfilled_attachment_ids` LRU；同步在 `hermes-update.sh` 加 PATCH-15 sentinel 验证块并纳入 refresh gate。配套 config-repo（非 hermes-agent）改动：扩 `feishu-docs` skill——新增确定性读取脚本 `read_sheet.py` / `read_bitable.py` / `download_feishu_file.py` / `read_feishu_url.py`（分发器）/ `feishu_render.py`，更新 `SKILL.md`（统一入口 + 群沙箱必须用 venv python、URL 需加引号两条硬规矩）。
-- patch apply：**全部 clean apply**——35 个 `PATCHED_FILES` 从 `local-patches.diff` 干净回贴到 `e3db1ef9`，无 3-way、无冲突（28 commit 未碰除 adapter 外的补丁区域；PATCH-15 干净落到新基线）；`local-patches.diff` 字节数 **187661 → 200097**（PATCH-15 净增 ~12.4KB），`patches/.local-patches.base` 刷新到 `e3db1ef92d1f741935b6b06c689e929bdcc1aff2`。PATCH-1/2/6/7/9/10/11/12/13/14 + 新增 PATCH-15 行为化验证全部 OK；PATCH-3 上游 completion 语法仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖；本轮未发现 PATCH 被上游吸收。
-- 依赖：`uv` clean 安装无 fallback（仅 rebuild hermes-agent 自身 1 包）；`npm audit` 报 no vulnerabilities（web / ui-tui / agent-browser 工作区均 clean）；Skills mirror **+0 / ~0 / -3**（上游移除 3 个 skill）。
-- 已知摩擦：脚本结尾 `✗ Gateway is not running` 系上游 `e3db1ef9 fix(macos)` 改了 gateway status 对 launchd-supervised vs detached 的判定后、OnDemand 重启的**时序竞态**——实际网关由 launchd 监管已拉起（PID 91165、feishu websocket connected、28 channels），手动复检 running，非真故障。无 lockfile stash 摩擦。
-- 配置漂移：无 schema migration（`hermes doctor` 报 `Config version up to date (v30)`、All checks passed、Skills up to date）；`tests/gateway/test_session.py` + `test_feishu.py` + `test_feishu_bot_admission.py` 共 **382 passed**；幂等直接验证：脚本 refresh 后 `git diff HEAD` 与已存 `local-patches.diff` **逐字节一致**（200097 == 200097，含 PATCH-15）——幂等成立；Gateway running、feishu connected。
+- 上游主线（180 commit，release tag 仍 `v0.17.0 (2026.6.19)` 未变；本轮为一次较大跨度滚动，未逐 commit 审计，仅高层概述）：HEAD 为 `fix(gateway/discord): REST liveness probe to detect zombie clients (#26656)`；可观察到的主线包括 Gateway/Relay 稳定性（discord 僵尸连接探活、session_key 改走 contextvars 不再写 `os.environ` 防并发会话互相覆盖 #24100）、`platform_toolsets` 平台配置键 split 相关重构、Auxiliary/MCP OAuth 元数据落盘、Desktop/Projects 子系统等。本轮上游**确实触碰了本地补丁区域**：`gateway/run.py`（session_key/#24100 重写）与 `tests/hermes_cli/test_tools_config.py`（新增 vision picker 测试）与 PATCH-10/11 区域重叠，产生 2 处冲突（见下）。
+- 本地变更：**本轮新增 PATCH-16**（Feishu post/md 块级语法补渲染——ATX 标题 `#`→加粗、引用 `>`→`▎` 前缀，围栏内代码原样保留；解决群里 markdown 标题/引用显示成裸符号）——改 `plugins/platforms/feishu/adapter.py` + `tests/gateway/test_feishu.py`（均已在 `PATCHED_FILES`），新增纯函数 `_promote_block_markdown` + `_MARKDOWN_ATX_HEADING_RE`/`_MARKDOWN_BLOCKQUOTE_RE` + 3 个单测。配套 config-repo（非 hermes-agent）改动：`scripts/nightly_greeting.py` 新增 `is_chinese_workday`（`chinesecalendar` 离线判工作日，周末/法定节假日跳过日报与 greeting）+ `--ignore-holiday` 开关，不进 `local-patches.diff`。
+- patch apply：**33/35 干净，2 处冲突手动 3-way 解决**——上游 180 commit 跨度导致 `git apply` 整体原子失败；逐文件 `--check` 定位到仅 `gateway/run.py`、`tests/hermes_cli/test_tools_config.py` 冲突（皆 PATCH-10/11 区域），其余 33（含 PATCH-16 的 adapter.py / test_feishu.py）**clean**。冲突解决：`run.py` 采上游 #24100 的去 `os.environ` 写法 + 保留本地 `platform_key = _platform_config_key_for_source(source)`；`test_tools_config.py` 保留上游新增 vision 测试 + 丢弃本地无意义的尾部空行删除。解决后重生成 `local-patches.diff` 字节 **200097 → 204956**（PATCH-16 净增 ~4.9KB），`.local-patches.base` 刷新到 `6f1a176b3309d0474e0ef329834b622603c60471`。PATCH-3 上游 completion 仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖；本轮无 PATCH 被上游吸收。
+- 依赖：venv 新增 `chinesecalendar==1.11.0`（供 `nightly_greeting.py` 离线判节假日；缺包/年份越界自动降级 Mon–Fri 启发式）；`uv` clean 无 fallback；`npm audit` 报 no vulnerabilities；Skills mirror **+0 / ~0 / -2**（上游移除 2 个 skill）。
+- 已知摩擦：①脚本 Step 8 patch 回贴因上游触碰补丁区域而**整体失败**（`git apply` 原子性：2 文件冲突拖垮全部 35）→ 手动逐文件应用 + 3-way 解决 2 冲突，再按脚本同款 `git diff HEAD` 重生成 diff/base；②脚本结尾 gateway 未起、`Local patches were NOT applied` 告警系上述回贴失败的连带后果，手动解决补丁并 `hermes gateway restart` 后恢复（PID 33026、launchd 监管、run.py AST/import 自检 OK）。
+- 配置漂移：`hermes doctor` 报 **Config version outdated (v30 → v31)（有新设置可用）**——非阻塞，可按需 `hermes doctor --fix` 迁移（本轮未自动迁移，避免擅改设置）；`tests/hermes_cli/test_tools_config.py` + `tests/gateway/test_feishu.py` 共 **321 passed**；幂等直接验证：还原到 `6f1a176b` 干净态后 `git apply --check local-patches.diff` **全 35 文件零冲突 CLEAN**、重应用 35 文件无标记——幂等成立；Gateway running。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -409,6 +409,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `_backfill_sender_attachments`、`_backfill_reply_attachments`、`_mark_attachment_backfilled`、`_FEISHU_BACKFILL_WINDOW_SECONDS`、`_backfilled_attachment_ids`。真机：群里发截图后 2 分钟内 @机器人，`logs/agent.log` 出现 `Image routing: native ...` 且能描述图片；引用旧图 + @ 能读到被引用图；不发图直接 @ 纯文本正常回复（回看静默降级无报错）；连续两次 @ 同一旧图不重复下载。
 
 **上游吸收判断**：若上游为「附件与 @mention 分属两条消息」场景原生提供回看/拼接机制（或允许图片消息直接触发），可归档本补丁。
+
+---
+
+### [PATCH-16] Feishu post/md 块级语法补渲染（标题 / 引用）
+
+| 字段     | 内容                                                                  |
+| -------- | --------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_feishu.py` |
+| **状态** | 🟡 未上游合并                                                         |
+
+**问题**：bot 回复带 markdown 时，出站 `_build_outbound_payload` 已把内容转成飞书 post 富文本的 `md` 元素，**行内标记（加粗 / 斜体 / 列表 / 链接 / 行内代码）能正常渲染**，但飞书 post 的 `md` 渲染器**不支持 ATX 标题 `#` 与引用 `>`**——它们以原始符号字面显示（`# 标题` 直接显示成「# 标题」），群里看起来像「markdown 没渲染」。表格另由 `_MARKDOWN_TABLE_RE` 强制降级纯文本，代码块已有按 fence 拆行逻辑。
+
+**修复**：在 `_build_markdown_post_payload` 接入点前新增纯函数 fence-aware 预处理器 `_promote_block_markdown(content)`，把 post/md 渲染不出的块级语法就地转成可渲染等价物：ATX 标题 `^#{1,6}\s+...`→`**加粗**`（`_MARKDOWN_ATX_HEADING_RE`，要求 `#` 后有空格，故 `issue #5` 等行内 `#` 不误伤）、引用 `^>\s?...`→`▎前缀`（`_MARKDOWN_BLOCKQUOTE_RE`）；复用 `_MARKDOWN_FENCE_OPEN_RE`/`_MARKDOWN_FENCE_CLOSE_RE` 跟踪围栏，**代码块内的 `#`/`>` 原样保留**；无 `#`/`>` 时同对象快速返回。只改 `content → post rows` 这一段纯函数链路，消息更新 / 流式 / @提及 / 图片 / `_POST_CONTENT_INVALID_RE` 回退 / 卡片审批按钮均不碰；表格维持纯文本降级。
+
+**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `def _promote_block_markdown`、`_MARKDOWN_ATX_HEADING_RE`。定向测试覆盖：标题→加粗、引用→`▎`、嵌套引用、行内 `#`/`>` 不误伤、无标记快速返回（同对象）、围栏内 `#`/`>` 不动（`test_promote_block_markdown_headings_and_quotes`、`test_promote_block_markdown_ignores_inline_hash_and_fast_path`、`test_promote_block_markdown_leaves_fenced_code_untouched`），并同步更新 `test_build_post_payload_extracts_title_and_links` 期望为加粗标题；`tests/gateway/test_feishu.py` 全量 215 passed。
+
+**上游吸收判断**：若上游为 Feishu post/md 原生补齐标题/引用渲染、或将回复改走 interactive card markdown 元素，可归档本补丁。
 
 ---
 

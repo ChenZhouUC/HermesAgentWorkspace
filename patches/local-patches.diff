@@ -1,5 +1,5 @@
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index 1a87e66cd..bd9070e3d 100644
+index e136a9476..e2ed7525e 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
 @@ -20,7 +20,10 @@ from agent.skill_utils import (
@@ -13,7 +13,7 @@ index 1a87e66cd..bd9070e3d 100644
      iter_skill_index_files,
      parse_frontmatter,
      skill_matches_environment,
-@@ -1388,10 +1391,12 @@ def build_skills_system_prompt(
+@@ -1397,10 +1400,12 @@ def build_skills_system_prompt(
      from gateway.session_context import get_session_env
      _platform_hint = (
          os.environ.get("HERMES_PLATFORM")
@@ -26,7 +26,7 @@ index 1a87e66cd..bd9070e3d 100644
      cache_key = (
          str(skills_dir.resolve()),
          tuple(str(d) for d in external_dirs),
-@@ -1399,6 +1404,7 @@ def build_skills_system_prompt(
+@@ -1408,6 +1413,7 @@ def build_skills_system_prompt(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
@@ -34,7 +34,7 @@ index 1a87e66cd..bd9070e3d 100644
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1424,7 +1430,9 @@ def build_skills_system_prompt(
+@@ -1433,7 +1439,9 @@ def build_skills_system_prompt(
              platforms = entry.get("platforms") or []
              if not skill_matches_platform({"platforms": platforms}):
                  continue
@@ -45,7 +45,7 @@ index 1a87e66cd..bd9070e3d 100644
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1449,7 +1457,9 @@ def build_skills_system_prompt(
+@@ -1458,7 +1466,9 @@ def build_skills_system_prompt(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
@@ -56,7 +56,7 @@ index 1a87e66cd..bd9070e3d 100644
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -1504,6 +1514,8 @@ def build_skills_system_prompt(
+@@ -1513,6 +1523,8 @@ def build_skills_system_prompt(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
@@ -207,10 +207,10 @@ index e1556b37d..5941876e9 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/run.py b/gateway/run.py
-index 8e5416b95..af3d5e93e 100644
+index a60de0daa..608aef3a1 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -2130,6 +2130,17 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2210,6 +2210,17 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -228,7 +228,7 @@ index 8e5416b95..af3d5e93e 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -4769,7 +4780,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -4912,7 +4923,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -237,7 +237,7 @@ index 8e5416b95..af3d5e93e 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -8902,8 +8913,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9031,8 +9042,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -254,7 +254,7 @@ index 8e5416b95..af3d5e93e 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -10256,7 +10273,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10423,7 +10440,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -263,7 +263,7 @@ index 8e5416b95..af3d5e93e 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -10313,7 +10330,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10480,7 +10497,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -272,7 +272,7 @@ index 8e5416b95..af3d5e93e 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -11784,7 +11801,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11951,7 +11968,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -281,7 +281,7 @@ index 8e5416b95..af3d5e93e 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -13324,6 +13341,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13491,6 +13508,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -289,7 +289,7 @@ index 8e5416b95..af3d5e93e 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -14743,7 +14761,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14953,7 +14971,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -298,7 +298,7 @@ index 8e5416b95..af3d5e93e 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -15055,7 +15073,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15265,7 +15283,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -307,13 +307,15 @@ index 8e5416b95..af3d5e93e 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -15863,9 +15881,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-             # (concurrency-safe). Keep os.environ as fallback for CLI/cron.
-             os.environ["HERMES_SESSION_KEY"] = session_key or ""
-             
+@@ -16084,9 +16102,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             # --session-key argv, a separate process) — so removing this in-process
+             # gateway write does not affect any of them.
+ 
 -            # Map platform enum to the platform hint key the agent understands.
 -            # Platform.LOCAL ("local") maps to "cli"; others pass through as-is.
 -            platform_key = "cli" if source.platform == Platform.LOCAL else source.platform.value
++            # Map the source to its platform config key, including chat-scope
++            # splits (e.g. feishu → feishu_group for group/forum/channel).
 +            platform_key = _platform_config_key_for_source(source)
              
              # Combine platform context, per-channel context, and the user-configured
@@ -795,10 +797,10 @@ index 496f7e907..21796a6ba 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index eb7177afd..6753409d8 100644
+index 3dc4cecce..0fe94f87f 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -1506,35 +1506,46 @@ def _get_platform_tools(
+@@ -1545,35 +1545,46 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -891,10 +893,10 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index c3ce2c294..c46b5d0fd 100644
+index 42bd40410..3930a6175 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
-@@ -97,6 +97,7 @@ try:
+@@ -98,6 +98,7 @@ try:
          GetChatRequest,
          GetMessageRequest,
          GetMessageResourceRequest,
@@ -902,7 +904,7 @@ index c3ce2c294..c46b5d0fd 100644
          P2ImMessageMessageReadV1,
          ReplyMessageRequest,
          ReplyMessageRequestBody,
-@@ -242,6 +243,18 @@ _FEISHU_REACTION_FAILURE = "CrossMark"
+@@ -243,6 +244,18 @@ _FEISHU_REACTION_FAILURE = "CrossMark"
  _FEISHU_PROCESSING_REACTION_CACHE_SIZE = 1024
  _FEISHU_MESSAGE_TEXT_CACHE_SIZE = 512       # LRU cap for reply-context message text lookups
  
@@ -921,7 +923,7 @@ index c3ce2c294..c46b5d0fd 100644
  # QR onboarding constants
  _ONBOARD_ACCOUNTS_URLS = {
      "feishu": "https://accounts.feishu.cn",
-@@ -320,6 +333,7 @@ class FeishuPostMediaRef:
+@@ -321,6 +334,7 @@ class FeishuPostMediaRef:
  class FeishuMentionRef:
      name: str = ""
      open_id: str = ""
@@ -929,7 +931,7 @@ index c3ce2c294..c46b5d0fd 100644
      is_all: bool = False
      is_self: bool = False
  
-@@ -360,6 +374,12 @@ class FeishuNormalizedMessage:
+@@ -361,6 +375,12 @@ class FeishuNormalizedMessage:
      metadata: Dict[str, Any] = field(default_factory=dict)
  
  
@@ -942,7 +944,7 @@ index c3ce2c294..c46b5d0fd 100644
  @dataclass(frozen=True)
  class FeishuAdapterSettings:
      app_id: str  # Canonical bot/app identifier (credential, not from event payloads)
-@@ -395,6 +415,15 @@ class FeishuAdapterSettings:
+@@ -396,6 +416,15 @@ class FeishuAdapterSettings:
      group_rules: Dict[str, FeishuGroupRule] = field(default_factory=dict)
      allow_bots: str = "none"  # "none" | "mentions" | "all"
      require_mention: bool = True
@@ -958,7 +960,7 @@ index c3ce2c294..c46b5d0fd 100644
  
  
  @dataclass
-@@ -424,6 +453,7 @@ RejectReason = Literal[
+@@ -425,6 +454,7 @@ RejectReason = Literal[
      "self_ids_unknown",
      "bots_disabled",
      "bot_not_mentioned",
@@ -966,7 +968,7 @@ index c3ce2c294..c46b5d0fd 100644
      "group_policy_rejected",
  ]
  
-@@ -543,6 +573,18 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
+@@ -544,13 +574,75 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
      return default if parsed is None else parsed
  
  
@@ -985,7 +987,65 @@ index c3ce2c294..c46b5d0fd 100644
  # ---------------------------------------------------------------------------
  # Post payload builders and parsers
  # ---------------------------------------------------------------------------
-@@ -1212,6 +1254,7 @@ def _build_mentions_map(
+ 
+ 
++# Block-level markdown that Feishu's post `md` renderer ignores (showing the
++# raw markers instead of formatting). Promoted to renderable equivalents by
++# _promote_block_markdown below. ATX headings require a space after the #'s, so
++# mid-line tokens like "issue #5" are never matched.
++_MARKDOWN_ATX_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
++_MARKDOWN_BLOCKQUOTE_RE = re.compile(r"^(\s*)>\s?(.*)$")
++
++
++def _promote_block_markdown(content: str) -> str:
++    """Rewrite block-level markdown that Feishu post/md drops, outside code.
++
++    Feishu's post ``md`` element renders inline marks (bold, italics, lists,
++    links, inline code) but ignores ATX headings (``#``) and blockquotes
++    (``>``), leaving the raw markers visible. Promote headings to bold and
++    blockquotes to a ``▎`` prefix so they render, while leaving fenced code
++    blocks verbatim (so ``#``/``>`` inside code survive). Tables are left
++    untouched — the caller routes those to plain text separately.
++    """
++    if not content or ("#" not in content and ">" not in content):
++        return content
++
++    out: List[str] = []
++    in_code_block = False
++    for raw_line in content.splitlines():
++        stripped = raw_line.strip()
++        is_fence = bool(
++            _MARKDOWN_FENCE_CLOSE_RE.match(stripped)
++            if in_code_block
++            else _MARKDOWN_FENCE_OPEN_RE.match(stripped)
++        )
++        if is_fence:
++            in_code_block = not in_code_block
++            out.append(raw_line)
++            continue
++        if in_code_block:
++            out.append(raw_line)
++            continue
++        heading = _MARKDOWN_ATX_HEADING_RE.match(raw_line)
++        if heading:
++            title = heading.group(1).strip()
++            out.append(f"**{title}**" if title else "")
++            continue
++        quote = _MARKDOWN_BLOCKQUOTE_RE.match(raw_line)
++        if quote:
++            out.append(f"{quote.group(1)}▎{quote.group(2)}")
++            continue
++        out.append(raw_line)
++    return "\n".join(out)
++
++
+ def _build_markdown_post_payload(content: str) -> str:
+-    rows = _build_markdown_post_rows(content)
++    rows = _build_markdown_post_rows(_promote_block_markdown(content))
+     return json.dumps(
+         {
+             "zh_cn": {
+@@ -1213,6 +1305,7 @@ def _build_mentions_map(
          result[key] = FeishuMentionRef(
              name=name,
              open_id=open_id,
@@ -993,7 +1053,7 @@ index c3ce2c294..c46b5d0fd 100644
              is_self=bot.matches(open_id=open_id, user_id=user_id, name=name),
          )
      return result
-@@ -1361,6 +1404,7 @@ def check_feishu_requirements() -> bool:
+@@ -1362,6 +1455,7 @@ def check_feishu_requirements() -> bool:
              CreateImageRequest, CreateImageRequestBody,
              CreateMessageRequest, CreateMessageRequestBody,
              GetChatRequest, GetMessageRequest, GetMessageResourceRequest,
@@ -1001,7 +1061,7 @@ index c3ce2c294..c46b5d0fd 100644
              P2ImMessageMessageReadV1,
              ReplyMessageRequest, ReplyMessageRequestBody,
              UpdateMessageRequest, UpdateMessageRequestBody,
-@@ -1385,6 +1429,7 @@ def check_feishu_requirements() -> bool:
+@@ -1386,6 +1480,7 @@ def check_feishu_requirements() -> bool:
              "GetChatRequest": GetChatRequest,
              "GetMessageRequest": GetMessageRequest,
              "GetMessageResourceRequest": GetMessageResourceRequest,
@@ -1009,7 +1069,7 @@ index c3ce2c294..c46b5d0fd 100644
              "P2ImMessageMessageReadV1": P2ImMessageMessageReadV1,
              "ReplyMessageRequest": ReplyMessageRequest,
              "ReplyMessageRequestBody": ReplyMessageRequestBody,
-@@ -1457,6 +1502,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1468,6 +1563,9 @@ class FeishuAdapter(BasePlatformAdapter):
          self._sent_message_id_order: List[str] = []  # LRU order for _sent_message_ids_to_chat
          self._chat_info_cache: Dict[str, Dict[str, Any]] = {}
          self._message_text_cache: "OrderedDict[str, Optional[str]]" = OrderedDict()
@@ -1019,7 +1079,7 @@ index c3ce2c294..c46b5d0fd 100644
          self._app_lock_identity: Optional[str] = None
          self._text_batch_state = FeishuBatchState()
          self._pending_text_batches = self._text_batch_state.events
-@@ -1513,6 +1561,28 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1524,6 +1622,28 @@ class FeishuAdapter(BasePlatformAdapter):
                  allow_bots,
              )
              allow_bots = "none"
@@ -1048,7 +1108,7 @@ index c3ce2c294..c46b5d0fd 100644
  
          return FeishuAdapterSettings(
              app_id=str(extra.get("app_id") or os.getenv("FEISHU_APP_ID", "")).strip(),
-@@ -1576,6 +1646,43 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1587,6 +1707,43 @@ class FeishuAdapter(BasePlatformAdapter):
              require_mention=_to_boolean(
                  extra.get("require_mention", os.getenv("FEISHU_REQUIRE_MENTION", "true"))
              ),
@@ -1092,7 +1152,7 @@ index c3ce2c294..c46b5d0fd 100644
          )
  
      def _apply_settings(self, settings: FeishuAdapterSettings) -> None:
-@@ -1608,6 +1715,15 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1619,6 +1776,15 @@ class FeishuAdapter(BasePlatformAdapter):
          self._ws_ping_timeout = settings.ws_ping_timeout
          self._allow_bots = settings.allow_bots
          self._require_mention = settings.require_mention
@@ -1108,7 +1168,7 @@ index c3ce2c294..c46b5d0fd 100644
  
      def _build_event_handler(self) -> Any:
          if EventDispatcherHandler is None:
-@@ -3107,6 +3223,12 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3167,6 +3333,12 @@ class FeishuAdapter(BasePlatformAdapter):
          is_bot: bool = False,
      ) -> None:
          text, inbound_type, media_urls, media_types, mentions = await self._extract_message_content(message)
@@ -1121,7 +1181,7 @@ index c3ce2c294..c46b5d0fd 100644
  
          if inbound_type == MessageType.TEXT:
              text = _strip_edge_self_mentions(text, mentions)
-@@ -3118,10 +3240,30 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3178,10 +3350,30 @@ class FeishuAdapter(BasePlatformAdapter):
              logger.debug("[Feishu] Ignoring empty text message id=%s", message_id)
              return
  
@@ -1152,7 +1212,7 @@ index c3ce2c294..c46b5d0fd 100644
  
          thread_id = getattr(message, "thread_id", None) or getattr(message, "root_id", None) or None
          reply_to_message_id = (
-@@ -3132,6 +3274,44 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3192,6 +3384,44 @@ class FeishuAdapter(BasePlatformAdapter):
          )
          reply_to_text = await self._fetch_message_text(reply_to_message_id) if reply_to_message_id else None
  
@@ -1197,7 +1257,7 @@ index c3ce2c294..c46b5d0fd 100644
          sender_primary = (
              getattr(sender_id, "open_id", None)
              or getattr(sender_id, "user_id", None)
-@@ -3150,13 +3330,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3210,13 +3440,11 @@ class FeishuAdapter(BasePlatformAdapter):
              len(media_urls),
          )
  
@@ -1212,7 +1272,7 @@ index c3ce2c294..c46b5d0fd 100644
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3175,8 +3353,376 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3235,8 +3463,376 @@ class FeishuAdapter(BasePlatformAdapter):
              reply_to_text=reply_to_text,
              timestamp=datetime.now(),
          )
@@ -1589,7 +1649,7 @@ index c3ce2c294..c46b5d0fd 100644
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -3211,6 +3757,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3271,6 +3867,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -1599,7 +1659,7 @@ index c3ce2c294..c46b5d0fd 100644
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3499,7 +4048,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3559,7 +4158,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -1611,7 +1671,7 @@ index c3ce2c294..c46b5d0fd 100644
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3618,6 +4170,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3678,6 +4280,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -1636,7 +1696,7 @@ index c3ce2c294..c46b5d0fd 100644
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3632,6 +4202,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3692,6 +4312,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -1747,7 +1807,7 @@ index c3ce2c294..c46b5d0fd 100644
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3686,6 +4360,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3746,6 +4470,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.AUDIO)
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -1756,7 +1816,7 @@ index c3ce2c294..c46b5d0fd 100644
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4043,10 +4719,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4103,10 +4829,19 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -1778,7 +1838,7 @@ index c3ce2c294..c46b5d0fd 100644
              )
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
-@@ -4099,6 +4784,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4159,6 +4894,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -1790,7 +1850,7 @@ index c3ce2c294..c46b5d0fd 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4114,7 +4804,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4174,7 +4914,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -1799,7 +1859,7 @@ index c3ce2c294..c46b5d0fd 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4124,8 +4814,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4184,8 +4924,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -1810,7 +1870,7 @@ index c3ce2c294..c46b5d0fd 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4223,6 +4913,141 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4283,6 +5023,141 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -1952,7 +2012,7 @@ index c3ce2c294..c46b5d0fd 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4460,9 +5285,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4520,9 +5395,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -1968,7 +2028,7 @@ index c3ce2c294..c46b5d0fd 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4711,6 +5540,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4771,6 +5650,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -2102,7 +2162,7 @@ index 79bccc100..886f4c051 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..45f28f4c1 100644
+index bb97c7e72..ff9690883 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -159,6 +159,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -2585,7 +2645,52 @@ index bb97c7e72..45f28f4c1 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -4682,6 +5092,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -2499,8 +2909,10 @@ class TestAdapterBehavior(unittest.TestCase):
+         adapter = FeishuAdapter(PlatformConfig())
+         payload = json.loads(adapter._build_post_payload("# 标题\n访问 [文档](https://example.com)"))
+ 
++        # ATX headings are promoted to bold so Feishu post/md actually renders
++        # them (raw `#` is otherwise shown verbatim).
+         elements = payload["zh_cn"]["content"][0]
+-        self.assertEqual(elements, [{"tag": "md", "text": "# 标题\n访问 [文档](https://example.com)"}])
++        self.assertEqual(elements, [{"tag": "md", "text": "**标题**\n访问 [文档](https://example.com)"}])
+ 
+     @patch.dict(os.environ, {}, clear=True)
+     def test_build_post_payload_wraps_markdown_in_md_tag(self):
+@@ -2538,6 +2950,32 @@ class TestAdapterBehavior(unittest.TestCase):
+             [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
+         )
+ 
++    def test_promote_block_markdown_headings_and_quotes(self):
++        from plugins.platforms.feishu.adapter import _promote_block_markdown
++
++        out = _promote_block_markdown("# 一级\n### 三级 ###\n> 引用\n>> 嵌套")
++        self.assertEqual(out, "**一级**\n**三级**\n▎引用\n▎> 嵌套")
++
++    def test_promote_block_markdown_ignores_inline_hash_and_fast_path(self):
++        from plugins.platforms.feishu.adapter import _promote_block_markdown
++
++        # Mid-line '#'/'>' must not be treated as block markers.
++        text = "修复 issue #5 后 a > b 成立"
++        self.assertEqual(_promote_block_markdown(text), text)
++        # No '#'/'>' at all → returned unchanged (same object, fast path).
++        plain = "支持 **粗体** 和 `代码`\n- 列表"
++        self.assertIs(_promote_block_markdown(plain), plain)
++
++    def test_promote_block_markdown_leaves_fenced_code_untouched(self):
++        from plugins.platforms.feishu.adapter import _promote_block_markdown
++
++        src = "# 标题\n```python\n# 注释不能动\n> 引用不能动\n```\n> 真引用"
++        out = _promote_block_markdown(src)
++        self.assertEqual(
++            out,
++            "**标题**\n```python\n# 注释不能动\n> 引用不能动\n```\n▎真引用",
++        )
++
+     @patch.dict(os.environ, {}, clear=True)
+     def test_send_uses_post_for_inline_markdown(self):
+         from gateway.config import PlatformConfig
+@@ -4682,6 +5120,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -3235,7 +3340,7 @@ index c7f82b2d8..a8dc7f751 100644
 +        assert "本群画像" not in prompt
 +        assert "能力受限声明规则" in prompt
 diff --git a/tests/gateway/test_session_env.py b/tests/gateway/test_session_env.py
-index b0797467d..95b846653 100644
+index f5392ab2c..a2f3d7cef 100644
 --- a/tests/gateway/test_session_env.py
 +++ b/tests/gateway/test_session_env.py
 @@ -84,6 +84,29 @@ def test_session_source_uses_contextvars(monkeypatch):
@@ -3473,7 +3578,7 @@ index 8fbb063f6..cb693a861 100644
          """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
          config = tmp_path / "config.yaml"
 diff --git a/tests/hermes_cli/test_tools_config.py b/tests/hermes_cli/test_tools_config.py
-index 22f76e0f7..c64f09fd1 100644
+index 4280ab183..ff65bab46 100644
 --- a/tests/hermes_cli/test_tools_config.py
 +++ b/tests/hermes_cli/test_tools_config.py
 @@ -1343,6 +1343,32 @@ def test_get_platform_tools_feishu_includes_doc_and_drive():
@@ -3509,10 +3614,10 @@ index 22f76e0f7..c64f09fd1 100644
  def test_get_platform_tools_feishu_tools_not_on_other_platforms():
      for plat in ["cli", "telegram", "discord"]:
          enabled = _get_platform_tools({}, plat)
-@@ -1596,5 +1622,3 @@ def test_real_configurable_changes_still_reported_in_diff():
-     # User adds 'vision' (configurable) — must still report as added.
-     new_enabled2 = (current - {"kanban"}) | {"vision"}
-     assert ((new_enabled2 - current) & universe) == {"vision"}
+@@ -1674,5 +1700,3 @@ def test_vision_picker_custom_endpoint(tmp_path, monkeypatch):
+     # provider pinned to "custom" so the resolver routes through base_url.
+     assert v.get("provider") == "custom"
+     save_env.assert_called_once_with("OPENAI_API_KEY", "sk-secret")
 -
 -
 diff --git a/tests/tools/test_feishu_tools.py b/tests/tools/test_feishu_tools.py
@@ -3663,7 +3768,7 @@ index eda5140b0..e244a84d1 100644
  class TestSearchPathValidation:
      """Test that search() returns an error for non-existent paths."""
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index 9b4e83bbf..bc403efcf 100644
+index 579704943..81c0b6b43 100644
 --- a/tests/tools/test_skill_manager_tool.py
 +++ b/tests/tools/test_skill_manager_tool.py
 @@ -25,10 +25,12 @@ from tools.skill_manager_tool import (
@@ -4030,10 +4135,10 @@ index cec730dcb..efcad5aa7 100644
      # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index 3a6f315b2..2ed5eefe3 100644
+index 5d1e8fd11..a967f61d1 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -416,10 +416,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -437,10 +437,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -4072,7 +4177,7 @@ index 3a6f315b2..2ed5eefe3 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -684,7 +709,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -705,7 +730,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -4085,7 +4190,7 @@ index 3a6f315b2..2ed5eefe3 100644
          "skill_md": str(skill_md),
          "_change": {"description": _desc},
      }
-@@ -898,9 +927,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
+@@ -919,9 +948,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
  
      shutil.rmtree(skill_dir)
  
@@ -4301,7 +4406,7 @@ index 38a27e622..4590ea5f0 100644
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 3387c80c7..8e8e9be73 100644
+index 71525ef76..d0001444c 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
 @@ -353,8 +353,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI

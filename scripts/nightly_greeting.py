@@ -85,6 +85,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Send a dry-run preview even if one was already sent today.",
     )
+    parser.add_argument(
+        "--ignore-holiday",
+        action="store_true",
+        help="Run even on weekends / Chinese statutory holidays (skip the rest-day guard).",
+    )
     args = parser.parse_args()
     if args.mode in {"dryrun", "dry-run"} or args.force_dry_run:
         args.dry_run = True
@@ -95,6 +100,26 @@ def local_day(value: str | None) -> dt.date:
     if value:
         return dt.date.fromisoformat(value)
     return dt.datetime.now(TZ).date()
+
+
+def is_chinese_workday(day: dt.date) -> bool:
+    """True on workdays; False on weekends and Chinese statutory holidays.
+
+    Backed by ``chinesecalendar`` — a fully offline package with bundled data
+    (no network call), which also returns True for 调休补班 makeup workdays that
+    fall on a weekend. When the package is missing (e.g. the gateway venv was
+    rebuilt) or the year is outside its data range, degrade gracefully to a
+    Mon–Fri heuristic: never crashes, never blocks on I/O, and still skips
+    weekends correctly.
+    """
+    try:
+        import chinese_calendar
+    except ImportError:
+        return day.weekday() < 5
+    try:
+        return bool(chinese_calendar.is_workday(day))
+    except NotImplementedError:
+        return day.weekday() < 5
 
 
 def day_bounds(day: dt.date) -> tuple[float, float]:
@@ -638,6 +663,20 @@ def run(args: argparse.Namespace) -> str | None:
         greeting_done = bool(state["greetings"].get(day_key)) or args.skip_greeting
         if not args.dry_run and report_done and greeting_done and not args.force_report and not args.force_greeting:
             log(f"Nightly report and greeting already completed for {day_key}; exiting silently.")
+            return None
+
+        # Skip non-workdays (weekends + Chinese statutory holidays). A daily work
+        # report makes no sense on a rest day; bail before the expensive Hermes
+        # generation. Explicit overrides (dry-run / --force-* / --ignore-holiday)
+        # bypass the guard. 调休补班 weekends count as workdays and still send.
+        if (
+            not args.dry_run
+            and not args.ignore_holiday
+            and not args.force_report
+            and not args.force_greeting
+            and not is_chinese_workday(day)
+        ):
+            log(f"{day_key} is a Chinese rest day (weekend/holiday); skipping report and greeting.")
             return None
 
         session_text = read_daily_sessions(day)
