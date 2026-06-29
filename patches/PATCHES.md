@@ -267,9 +267,6 @@ cat ~/.hermes/patches/.local-patches.base
 
 **验证**：Step 8b grep `python-socks` 在 `pyproject.toml` 和 `tools/lazy_deps.py` 都存在。
 
-> **2026-05-14**：原 patch 是 `python-socks>=2.0,<3`，针对 `lark-oapi>=1.5.3,<2` 行追加。上游 `c1eb2dcda` + `3955aefce` 把 feishu 钉到 `==1.5.3`+`==7.4.2` 后 3way 在该 hunk 报冲突，手合时改 `==2.8.1`。
-> **2026-05-20**：上游 `[all]` 瘦身后 Feishu 等平台改走 `tools/lazy_deps.py` 首次使用时安装，PATCH-7 新增 `tools/lazy_deps.py` hunk 避免 clean venv 经 lazy install 启用 Feishu 时漏装。
-
 ---
 
 ### [PATCH-9] OpenClaw 迁移不再写入废弃 gateway token
@@ -284,8 +281,6 @@ cat ~/.hermes/patches/.local-patches.base
 **修复**：迁移脚本仍归档完整 gateway 配置，但不再把 `gateway.auth.token` 写进 `.env`；迁移文档同步删除该字段映射行。
 
 **验证**：Step 8b grep 确认迁移脚本和迁移文档都不再出现 `HERMES_GATEWAY_TOKEN` / `gateway.auth.token`。
-
-> **v0.15.1 升级注**：上游 `119390a2a` 在迁移文档同一表格里把 Working directory 行从 `MESSAGING_CWD` 改写到 `terminal.cwd`，与本地删 token 行不真冲突但相邻 hunk 上下文重合，3way 报冲突。手合规则：保留上游新版 Working directory 行 + 删 Gateway auth token 行。
 
 ---
 
@@ -303,22 +298,6 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `assistant_user_ids`、`_sender_is_configured_assistant_user`、`_fetch_channel_context`、`HERMES_SESSION_PLATFORM_CONFIG_KEY`、`feishu_group`、`FEISHU_GROUP_ALLOWED_CHATS`、`history_backfill_max_chars`、`_client_from_env`、`_read_spreadsheet`、`test_process_inbound_message_owner_bot_mention_skips_self_intro`、`test_doc_read_builds_env_client_outside_comment_context`、`test_read_file_extracts_xlsx_as_text`。定向测试覆盖设置加载、群历史格式化、未 @ 静默、@bot 触发、第三方 @本人账号触发代答、本人账号 @bot 触发免自我介绍、`feishu_group` session key、群授权不放开 DM、无 comment context 时从 env 构建 Feishu client 读 doc，以及最小 `.xlsx` 文件被 `read_file` 抽取出 sheet 名、表头和数据行。
 
 **上游吸收判断**：如果上游后续原生提供等价的 Feishu mention trigger、assistant-user trigger、配置本人账号直接 @bot 时免自我介绍、history backfill、per-group platform config key、group chat allowlist、Feishu doc tenant-client fallback 与 `.xlsx` 附件文本读取，可将本补丁归档；保留验证 grep 作为 sentinel，或改成上游行为测试。
-
-> **2026-06-22（落点迁移，非归档）**：上游 `560010547` `refactor(gateway): migrate ... adapters to bundled plugins` 把 `gateway/platforms/feishu.py` 整体迁移为 bundled plugin `plugins/platforms/feishu/adapter.py`（约 5511 行单体）。本补丁的 feishu hunk 落点随之从 `gateway/platforms/feishu.py` 改为 `plugins/platforms/feishu/adapter.py`，19 个 hunk 内容不变、上下文锚点一致，改写路径后 `git apply` 干净落地；`feishu_helpers.py` 与 `test_feishu*.py` 中的 `FeishuAdapter` import 同步从 `gateway.platforms.feishu` 改为 `plugins.platforms.feishu.adapter`。`hermes-update.sh` 的 `PATCHED_FILES`、`FEISHU_PY` 与本块文件清单已同步。补丁功能未被上游吸收，仍为活跃补丁。
-
-> **2026-06-23（assistant-mode 文案优化，非归档）**：仅改 `plugins/platforms/feishu/adapter.py` 与 `tests/gateway/test_feishu.py`，纯 prompt + 上下文可见性调整，无新增配置/字段。三处优化：
->
-> 1. **身份措辞**统一为「琛哥的赛博小助手『木马牛』」（原为「赛博助手」）。
-> 2. **自我介绍节流**：`_format_channel_context` 不再丢弃 bot 自身历史消息（原 `sender.id == _app_id` 直接 `continue`），改由 `_history_sender_label` 标注为 `木马牛 (assistant, you)`；assistant-mode prompt 据此规定——若近 ~10 条消息 / ~5 分钟内的频道上下文里已出现自我介绍，则不再重复介绍、直接自然作答（默认 backfill 窗口 20 条 / 1800s 足够覆盖）。属启发式（模型据可见历史判断），非硬编码计数。
-> 3. **风控/沙箱话术**：遇沙箱拦截或不允许的操作时，不以「能力不足」道歉，而是自然、轻松、多变地说明这是琛哥**有意设计**的安全边界（保护其电脑上的机密、防止 setup 被照搬/逆向），并引导对方等琛哥有空当面问；prompt 给出可自由改写的中文示例，强调不照搬模板、不僵硬。
->
-> 验证：`tests/gateway/test_feishu.py` 207 passed（`test_fetch_channel_context_formats_recent_group_messages` 断言已更新为包含 `[木马牛 (assistant, you)] prior self` 行）。Step 8b 既有 sentinel（`_fetch_channel_context` 等）不变仍覆盖。
-
-> **2026-06-23（本人 @Hermes 免自我介绍，非归档）**：`plugins/platforms/feishu/adapter.py` 在群聊入站处理里新增 sender 身份判断：如果消息发送者本身就是 `assistant_user_ids` 中配置的琛哥账号，且本条消息是直接 `@bot` 触发，则注入短 prompt 明确“发送者已知道 Hermes/木马牛是谁，直接回答，不要自我介绍”；若别人 `@琛哥` 触发代答，仍保留 assistant-mode 的首次身份说明与节流逻辑。外层运行记忆 `memories/USER.md` 另行同步收窄全局自我介绍偏好，避免与该群聊分支冲突；该记忆文件不属于 `local-patches.diff` 管理范围。
->
-> 验证：`venv/bin/python -m pytest tests/gateway/test_feishu_bot_admission.py -q`（66 passed）；`venv/bin/python -m pytest tests/gateway/test_feishu.py -q -k 'fetch_channel_context_detects_recent_self_intro or fetch_channel_context_formats_recent_group_messages'`（2 passed, 209 deselected）。
-
-> **2026-06-25（改名 Gödel + 历史 backfill 旧名纠偏，非归档）**：助手统一更名为 `Gödel`（专名，任何语言都不翻译；飞书开放平台 app 名称已同步改为 Gödel，机器人显示名生效）。弃用旧名「木马牛」「小聪明蛋」。改动覆盖所有实际对外输出身份的位置：`config.yaml` 的 `assistant_identity_label` →「琛哥的赛博助手「Gödel」」；adapter 的 assistant-mode / configured-human mention 文案、`_history_sender_label`（`Gödel (assistant, you)`）、`_assistant_identity_markers` 自我介绍检测；外层 `scripts/nightly_greeting.py` 日报签名与晚安词、`feishu-docs` skill 的 `@Gödel` mention 与 `BOT_OPEN_ID` 注释、`memories/MEMORY.md`+`USER.md`（去掉「哥德尔」翻译、标注专名不翻译、记录两个弃用旧名）。**核心新增**：`_format_channel_context` 在回填的群历史顶部注入一行 identity note，明确历史里出现的「木马牛/小聪明蛋」即本助手、现已改名 Gödel、必须一律自称 Gödel——根治「近 30 条历史 backfill 里的旧自我介绍诱导模型延续旧名」的问题（重启群聊 session 无效，因 backfill 每次都从飞书服务器实时拉取群历史）。历史快照（上方 2026-06-23 各条仍写「木马牛」）按惯例保留不改。验证：`tests/gateway/test_feishu.py` + `test_feishu_bot_admission.py` 共 279 passed（`test_fetch_channel_context_*` 断言已含 identity note 行）；本次改动经一次完整 `hermes-update` 流程（save→revert→reapply→refresh）round-trip，`local-patches.diff` 逐字节一致，确认对升级**幂等**。
 
 ---
 
