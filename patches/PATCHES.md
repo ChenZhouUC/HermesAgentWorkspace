@@ -197,18 +197,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `6f1a176b`，2026-06-28)
+## 当前版本：v0.17.0 (upstream `main` `7cfa2fa1`，2026-06-29)
 
 **活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16（共 12 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+180 commit，basis `e3db1ef9` → `6f1a176b`）要点**：
+**最近一次升级（v0.17.0 同 release 内迭代，+204 commit，basis `6f1a176b` → `7cfa2fa1`）要点**：
 
-- 上游主线（180 commit，release tag 仍 `v0.17.0 (2026.6.19)` 未变；本轮为一次较大跨度滚动，未逐 commit 审计，仅高层概述）：HEAD 为 `fix(gateway/discord): REST liveness probe to detect zombie clients (#26656)`；可观察到的主线包括 Gateway/Relay 稳定性（discord 僵尸连接探活、session_key 改走 contextvars 不再写 `os.environ` 防并发会话互相覆盖 #24100）、`platform_toolsets` 平台配置键 split 相关重构、Auxiliary/MCP OAuth 元数据落盘、Desktop/Projects 子系统等。本轮上游**确实触碰了本地补丁区域**：`gateway/run.py`（session_key/#24100 重写）与 `tests/hermes_cli/test_tools_config.py`（新增 vision picker 测试）与 PATCH-10/11 区域重叠，产生 2 处冲突（见下）。
-- 本地变更：**本轮新增 PATCH-16**（Feishu post/md 块级语法补渲染——ATX 标题 `#`→加粗、引用 `>`→`▎` 前缀，围栏内代码原样保留；解决群里 markdown 标题/引用显示成裸符号）——改 `plugins/platforms/feishu/adapter.py` + `tests/gateway/test_feishu.py`（均已在 `PATCHED_FILES`），新增纯函数 `_promote_block_markdown` + `_MARKDOWN_ATX_HEADING_RE`/`_MARKDOWN_BLOCKQUOTE_RE` + 3 个单测。配套 config-repo（非 hermes-agent）改动：`scripts/nightly_greeting.py` 新增 `is_chinese_workday`（`chinesecalendar` 离线判工作日，周末/法定节假日跳过日报与 greeting）+ `--ignore-holiday` 开关，不进 `local-patches.diff`。
-- patch apply：**33/35 干净，2 处冲突手动 3-way 解决**——上游 180 commit 跨度导致 `git apply` 整体原子失败；逐文件 `--check` 定位到仅 `gateway/run.py`、`tests/hermes_cli/test_tools_config.py` 冲突（皆 PATCH-10/11 区域），其余 33（含 PATCH-16 的 adapter.py / test_feishu.py）**clean**。冲突解决：`run.py` 采上游 #24100 的去 `os.environ` 写法 + 保留本地 `platform_key = _platform_config_key_for_source(source)`；`test_tools_config.py` 保留上游新增 vision 测试 + 丢弃本地无意义的尾部空行删除。解决后重生成 `local-patches.diff` 字节 **200097 → 204956**（PATCH-16 净增 ~4.9KB），`.local-patches.base` 刷新到 `6f1a176b3309d0474e0ef329834b622603c60471`。PATCH-3 上游 completion 仍 canonical（no-fix），PATCH-4/5 仍由上游 sentinel 覆盖；本轮无 PATCH 被上游吸收。
-- 依赖：venv 新增 `chinesecalendar==1.11.0`（供 `nightly_greeting.py` 离线判节假日；缺包/年份越界自动降级 Mon–Fri 启发式）；`uv` clean 无 fallback；`npm audit` 报 no vulnerabilities；Skills mirror **+0 / ~0 / -2**（上游移除 2 个 skill）。
-- 已知摩擦：①脚本 Step 8 patch 回贴因上游触碰补丁区域而**整体失败**（`git apply` 原子性：2 文件冲突拖垮全部 35）→ 手动逐文件应用 + 3-way 解决 2 冲突，再按脚本同款 `git diff HEAD` 重生成 diff/base；②脚本结尾 gateway 未起、`Local patches were NOT applied` 告警系上述回贴失败的连带后果，手动解决补丁并 `hermes gateway restart` 后恢复（PID 33026、launchd 监管、run.py AST/import 自检 OK）。
-- 配置漂移：`hermes doctor` 报 **Config version outdated (v30 → v31)（有新设置可用）**——非阻塞，可按需 `hermes doctor --fix` 迁移（本轮未自动迁移，避免擅改设置）；`tests/hermes_cli/test_tools_config.py` + `tests/gateway/test_feishu.py` 共 **321 passed**；幂等直接验证：还原到 `6f1a176b` 干净态后 `git apply --check local-patches.diff` **全 35 文件零冲突 CLEAN**、重应用 35 文件无标记——幂等成立；Gateway running。
+- 上游主线（204 commit，release tag 仍 `v0.17.0 (2026.6.19)` 未变）：HEAD 为 `fix(docker): gate resource limit flags on cgroup controller availability (#54516)`；可观察到的主线包括 Docker/cgroup 改进、Telegram bot auth policy (`TELEGRAM_ALLOW_BOTS`) 新增、Session recovery（`TestGatewaySessionDbRecovery` 入 `test_session.py`）、Feishu `history_backfill` / `FEISHU_GROUP_ALLOWED_CHATS` 新配置等。本轮上游**触碰了 4 个测试文件补丁区域**，均为上游在补丁插入点附近新增测试，产生 4 处 3-way 冲突（详见 patch apply 段）。
+- 本地变更：**PATCH-16 追加表格 text fallback strip**（`_build_outbound_payload` 表格分支改为 `_strip_markdown_to_plain_text(content)`，原先裸发原始 markdown；新增 `test_build_outbound_payload_table_strips_markdown` 单测）——含入已有 PATCH-16 diff，未单独归档；同步移除 `memories/USER.md` 末尾的 `NO bold formatting (Feishu rendering issue).`（该指令已过期：post/md 格式 bold 正常渲染，text fallback 路径已自动 strip）。
+- patch apply：**31/35 干净，4 处冲突手动 3-way 解决**——上游 204 commit 跨度导致 `git apply` 整体原子失败；`--3way` 后 4 个测试文件残留冲突标记，均为"双方各自新增测试在同区域插入"场景，解决策略：保留两端（HEAD 新增 + 本地 patch 新增）。解决详情：①`test_feishu_bot_auth_bypass.py`——保留 `TELEGRAM_ALLOW_BOTS`（上游）+ `FEISHU_GROUP_ALLOWED_CHATS`（本地 patch）双 env；②`test_config.py`——保留上游 Telegram 测试 × 2 + 本地新增 `test_bridges_feishu_history_backfill_from_config_yaml`；③`test_session.py`——保留上游 `TestGatewaySessionDbRecovery` + 本地 `TestPeopleProfileInjection`/`TestGroupProfileInjection`；④`test_tools_config.py`——上游已含 4 个 `test_save_platform_tools_*` 测试（本地 patch 欲添加者已在 HEAD），直接丢弃空 theirs 段。解决后重生成 `local-patches.diff`（35 文件），`.local-patches.base` 刷新到 `7cfa2fa13f998ebb5e7071b2edab45aeb4adebc8`。
+- 依赖：本轮未执行 `hermes update`（跳过 npm/uv/skills 步骤，仅做 patch 幂等验证）；无依赖变更。
+- 已知摩擦：patch apply 因上游在补丁插入点新增测试而整体失败（`git apply` 原子性）→ `--3way` 后手动解决 4 文件冲突；gateway 状态待确认（patch 已 apply，重启 gateway 可激活新代码）。
+- 配置漂移：`test_feishu.py` **216 passed**（含新增表格测试）；4 冲突文件合并后 **298 passed**；幂等验证通过（无残留冲突标记，`local-patches.diff` 已刷新至新 base）；`memories/USER.md` NO-bold 指令已清理。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -423,9 +423,11 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：在 `_build_markdown_post_payload` 接入点前新增纯函数 fence-aware 预处理器 `_promote_block_markdown(content)`，把 post/md 渲染不出的块级语法就地转成可渲染等价物：ATX 标题 `^#{1,6}\s+...`→`**加粗**`（`_MARKDOWN_ATX_HEADING_RE`，要求 `#` 后有空格，故 `issue #5` 等行内 `#` 不误伤）、引用 `^>\s?...`→`▎前缀`（`_MARKDOWN_BLOCKQUOTE_RE`）；复用 `_MARKDOWN_FENCE_OPEN_RE`/`_MARKDOWN_FENCE_CLOSE_RE` 跟踪围栏，**代码块内的 `#`/`>` 原样保留**；无 `#`/`>` 时同对象快速返回。只改 `content → post rows` 这一段纯函数链路，消息更新 / 流式 / @提及 / 图片 / `_POST_CONTENT_INVALID_RE` 回退 / 卡片审批按钮均不碰；表格维持纯文本降级。
 
-**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `def _promote_block_markdown`、`_MARKDOWN_ATX_HEADING_RE`。定向测试覆盖：标题→加粗、引用→`▎`、嵌套引用、行内 `#`/`>` 不误伤、无标记快速返回（同对象）、围栏内 `#`/`>` 不动（`test_promote_block_markdown_headings_and_quotes`、`test_promote_block_markdown_ignores_inline_hash_and_fast_path`、`test_promote_block_markdown_leaves_fenced_code_untouched`），并同步更新 `test_build_post_payload_extracts_title_and_links` 期望为加粗标题；`tests/gateway/test_feishu.py` 全量 215 passed。
+**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `def _promote_block_markdown`、`_MARKDOWN_ATX_HEADING_RE`、`_strip_markdown_to_plain_text(content)`（表格分支，需与 `_MARKDOWN_TABLE_RE` 上下文关联）；grep `tests/gateway/test_feishu.py` 中存在 `test_build_outbound_payload_table_strips_markdown`。定向测试覆盖：标题→加粗、引用→`▎`、嵌套引用、行内 `#`/`>` 不误伤、无标记快速返回（同对象）、围栏内 `#`/`>` 不动（`test_promote_block_markdown_headings_and_quotes`、`test_promote_block_markdown_ignores_inline_hash_and_fast_path`、`test_promote_block_markdown_leaves_fenced_code_untouched`），并同步更新 `test_build_post_payload_extracts_title_and_links` 期望为加粗标题；含表格内容路由到 text 类型且 markdown 已 strip、表格行保留（`test_build_outbound_payload_table_strips_markdown`）；`tests/gateway/test_feishu.py` 全量 216 passed。
 
 **上游吸收判断**：若上游为 Feishu post/md 原生补齐标题/引用渲染、或将回复改走 interactive card markdown 元素，可归档本补丁。
+
+> **2026-06-29（含表格消息 text fallback 补 strip，非归档）**：`_build_outbound_payload` 表格分支原先直接把原始内容 `{"text": content}` 发出，导致 `**bold**`、`## heading` 等 markdown 符号全裸显示。改为 `{"text": _strip_markdown_to_plain_text(content)}`，复用现有 strip 逻辑（保留 ASCII 表格行、去掉加粗/标题/引用等符号）；同步新增 `test_build_outbound_payload_table_strips_markdown`（1 测试）；`memories/USER.md` 同步移除已过时的 `NO bold formatting (Feishu rendering issue)` 指令（bold 在 post/md 格式正常渲染，text fallback 路径已 strip，该指令反而让模型回避可渲染的加粗）。
 
 ---
 

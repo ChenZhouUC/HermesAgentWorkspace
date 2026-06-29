@@ -1,5 +1,5 @@
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index e136a9476..e2ed7525e 100644
+index 319be7255..51a3745d8 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
 @@ -20,7 +20,10 @@ from agent.skill_utils import (
@@ -13,7 +13,7 @@ index e136a9476..e2ed7525e 100644
      iter_skill_index_files,
      parse_frontmatter,
      skill_matches_environment,
-@@ -1397,10 +1400,12 @@ def build_skills_system_prompt(
+@@ -1448,10 +1451,12 @@ def build_skills_system_prompt(
      from gateway.session_context import get_session_env
      _platform_hint = (
          os.environ.get("HERMES_PLATFORM")
@@ -26,7 +26,7 @@ index e136a9476..e2ed7525e 100644
      cache_key = (
          str(skills_dir.resolve()),
          tuple(str(d) for d in external_dirs),
-@@ -1408,6 +1413,7 @@ def build_skills_system_prompt(
+@@ -1459,6 +1464,7 @@ def build_skills_system_prompt(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
@@ -34,7 +34,7 @@ index e136a9476..e2ed7525e 100644
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1433,7 +1439,9 @@ def build_skills_system_prompt(
+@@ -1484,7 +1490,9 @@ def build_skills_system_prompt(
              platforms = entry.get("platforms") or []
              if not skill_matches_platform({"platforms": platforms}):
                  continue
@@ -45,7 +45,7 @@ index e136a9476..e2ed7525e 100644
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1458,7 +1466,9 @@ def build_skills_system_prompt(
+@@ -1509,7 +1517,9 @@ def build_skills_system_prompt(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
@@ -56,7 +56,7 @@ index e136a9476..e2ed7525e 100644
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -1513,6 +1523,8 @@ def build_skills_system_prompt(
+@@ -1564,6 +1574,8 @@ def build_skills_system_prompt(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
@@ -168,7 +168,7 @@ index 187c47d70..00c4516d1 100644
                  continue
              if not skill_matches_platform(frontmatter):
 diff --git a/gateway/authz_mixin.py b/gateway/authz_mixin.py
-index a32200ad5..cc8154c30 100644
+index 64fb05d3b..4f0b95094 100644
 --- a/gateway/authz_mixin.py
 +++ b/gateway/authz_mixin.py
 @@ -304,6 +304,7 @@ class GatewayAuthorizationMixin:
@@ -180,10 +180,10 @@ index a32200ad5..cc8154c30 100644
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index e1556b37d..5941876e9 100644
+index cdf895c4e..0eaebd780 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
-@@ -1013,6 +1013,22 @@ def load_gateway_config() -> GatewayConfig:
+@@ -1022,6 +1022,22 @@ def load_gateway_config() -> GatewayConfig:
                      bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
                  if "group_user_allowed_commands" in platform_cfg:
                      bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
@@ -207,10 +207,10 @@ index e1556b37d..5941876e9 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/run.py b/gateway/run.py
-index a60de0daa..608aef3a1 100644
+index d449bdcf9..24236d12f 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -2210,6 +2210,17 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2124,6 +2124,17 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -228,7 +228,7 @@ index a60de0daa..608aef3a1 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -4912,7 +4923,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -4853,7 +4864,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -237,7 +237,7 @@ index a60de0daa..608aef3a1 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -9031,8 +9042,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9070,8 +9081,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -254,7 +254,7 @@ index a60de0daa..608aef3a1 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -10423,7 +10440,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10464,7 +10481,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -263,7 +263,7 @@ index a60de0daa..608aef3a1 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -10480,7 +10497,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10521,7 +10538,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -272,7 +272,7 @@ index a60de0daa..608aef3a1 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -11951,7 +11968,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11992,7 +12009,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -281,7 +281,7 @@ index a60de0daa..608aef3a1 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -13491,6 +13508,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13532,6 +13549,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -289,7 +289,7 @@ index a60de0daa..608aef3a1 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -14953,7 +14971,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15004,7 +15022,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -298,7 +298,7 @@ index a60de0daa..608aef3a1 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -15265,7 +15283,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15316,7 +15334,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -307,7 +307,7 @@ index a60de0daa..608aef3a1 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -16084,9 +16102,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16135,9 +16153,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # --session-key argv, a separate process) — so removing this in-process
              # gateway write does not affect any of them.
  
@@ -321,7 +321,7 @@ index a60de0daa..608aef3a1 100644
              # Combine platform context, per-channel context, and the user-configured
              # ephemeral system prompt.
 diff --git a/gateway/session.py b/gateway/session.py
-index f79e371d8..1ef3e72b4 100644
+index ca91069da..45ee634e6 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
 @@ -272,6 +272,321 @@ def _discord_tools_loaded() -> bool:
@@ -797,7 +797,7 @@ index 496f7e907..21796a6ba 100644
              issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
      except Exception as e:
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index 3dc4cecce..0fe94f87f 100644
+index d0b024b74..e9bbf2eb4 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
 @@ -1545,35 +1545,46 @@ def _get_platform_tools(
@@ -893,7 +893,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 42bd40410..3930a6175 100644
+index 42bd40410..11b61c622 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -98,6 +98,7 @@ try:
@@ -2012,6 +2012,15 @@ index 42bd40410..3930a6175 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
+@@ -4439,7 +5314,7 @@ class FeishuAdapter(BasePlatformAdapter):
+         # table content as post causes the message to appear blank on the client.
+         # Force plain text for anything that looks like a markdown table.
+         if _MARKDOWN_TABLE_RE.search(content):
+-            text_payload = {"text": content}
++            text_payload = {"text": _strip_markdown_to_plain_text(content)}
+             return "text", json.dumps(text_payload, ensure_ascii=False)
+         if _MARKDOWN_HINT_RE.search(content):
+             return "post", _build_markdown_post_payload(content)
 @@ -4520,9 +5395,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
@@ -2108,12 +2117,12 @@ index ae8a4bfc3..24beb0931 100644
  
  
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index 79bccc100..886f4c051 100644
+index 7e29d75cc..68ad1c75d 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
-@@ -835,6 +835,49 @@ class TestLoadGatewayConfig:
+@@ -872,6 +872,49 @@ class TestLoadGatewayConfig:
  
-         assert os.environ.get("FEISHU_ALLOW_BOTS") == "none"
+         assert os.environ.get("TELEGRAM_ALLOW_BOTS") == "none"
  
 +    def test_bridges_feishu_history_backfill_from_config_yaml(self, tmp_path, monkeypatch):
 +        hermes_home = tmp_path / ".hermes"
@@ -2162,7 +2171,7 @@ index 79bccc100..886f4c051 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..ff9690883 100644
+index bb97c7e72..708191189 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -159,6 +159,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -2657,7 +2666,7 @@ index bb97c7e72..ff9690883 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_build_post_payload_wraps_markdown_in_md_tag(self):
-@@ -2538,6 +2950,32 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2538,6 +2950,55 @@ class TestAdapterBehavior(unittest.TestCase):
              [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
          )
  
@@ -2687,10 +2696,33 @@ index bb97c7e72..ff9690883 100644
 +            "**标题**\n```python\n# 注释不能动\n> 引用不能动\n```\n▎真引用",
 +        )
 +
++    @patch.dict(os.environ, {}, clear=True)
++    def test_build_outbound_payload_table_strips_markdown(self):
++        """Table content routes to text type with markdown stripped, table rows preserved."""
++        from plugins.platforms.feishu.adapter import _MARKDOWN_TABLE_RE, FeishuAdapter
++        from gateway.config import PlatformConfig
++        import json
++
++        content = (
++            "## 对比\n"
++            "- **功能 A**：说明\n\n"
++            "| 维度 | 免费 | Plus |\n"
++            "|---|---|---|\n"
++            "| 消息量 | 10/5h | 160/3h |\n"
++        )
++        self.assertTrue(_MARKDOWN_TABLE_RE.search(content))
++        adapter = FeishuAdapter(PlatformConfig())
++        msg_type, payload = adapter._build_outbound_payload(content)
++        data = json.loads(payload)
++        self.assertEqual(msg_type, "text")
++        self.assertNotIn("**", data["text"])
++        self.assertNotIn("##", data["text"])
++        self.assertIn("| 维度 |", data["text"])
++
      @patch.dict(os.environ, {}, clear=True)
      def test_send_uses_post_for_inline_markdown(self):
          from gateway.config import PlatformConfig
-@@ -4682,6 +5120,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -4682,6 +5143,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -3020,18 +3052,18 @@ index 61628f933..b2628a7d8 100644
 +    assert "我是琛哥的赛博小助手「Gödel」，琛哥可能在忙，我先帮你看看。" not in text
 +    assert "帮我总结一下刚才的问题" in text
 diff --git a/tests/gateway/test_feishu_bot_auth_bypass.py b/tests/gateway/test_feishu_bot_auth_bypass.py
-index 4dd83a1bd..740d41aed 100644
+index 3cd3a854a..d3d52ee2f 100644
 --- a/tests/gateway/test_feishu_bot_auth_bypass.py
 +++ b/tests/gateway/test_feishu_bot_auth_bypass.py
-@@ -21,6 +21,7 @@ def _isolate_feishu_env(monkeypatch):
-         "FEISHU_ALLOW_BOTS",
+@@ -22,6 +22,7 @@ def _isolate_feishu_env(monkeypatch):
          "FEISHU_ALLOWED_USERS",
          "FEISHU_ALLOW_ALL_USERS",
+         "TELEGRAM_ALLOW_BOTS",
 +        "FEISHU_GROUP_ALLOWED_CHATS",
          "GATEWAY_ALLOW_ALL_USERS",
          "GATEWAY_ALLOWED_USERS",
      ):
-@@ -98,6 +99,39 @@ def test_feishu_human_still_checked_against_allowlist_when_bot_policy_set(monkey
+@@ -99,6 +100,39 @@ def test_feishu_human_still_checked_against_allowlist_when_bot_policy_set(monkey
      assert runner._is_user_authorized(_make_feishu_human_source("ou_human")) is True
  
  
@@ -3072,7 +3104,7 @@ index 4dd83a1bd..740d41aed 100644
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
 diff --git a/tests/gateway/test_session.py b/tests/gateway/test_session.py
-index c7f82b2d8..a8dc7f751 100644
+index cf471a041..b58a45b2f 100644
 --- a/tests/gateway/test_session.py
 +++ b/tests/gateway/test_session.py
 @@ -384,7 +384,9 @@ class TestBuildSessionContextPrompt:
@@ -3095,10 +3127,10 @@ index c7f82b2d8..a8dc7f751 100644
          assert "**User:** Alice" not in prompt
  
      def test_dm_thread_shows_user_not_multi(self):
-@@ -1400,3 +1404,243 @@ class TestRewriteTranscriptPreservesReasoning:
-             "before user",
-             "before assistant",
-         ]
+@@ -1490,3 +1494,243 @@ class TestGatewaySessionDbRecovery:
+         assert reset.session_id != entry.session_id
+         assert reset.was_auto_reset is True
+         assert reset.auto_reset_reason == "idle"
 +
 +
 +class TestPeopleProfileInjection:
@@ -3578,7 +3610,7 @@ index 8fbb063f6..cb693a861 100644
          """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
          config = tmp_path / "config.yaml"
 diff --git a/tests/hermes_cli/test_tools_config.py b/tests/hermes_cli/test_tools_config.py
-index 4280ab183..ff65bab46 100644
+index dbe95a0cb..3f3db810b 100644
 --- a/tests/hermes_cli/test_tools_config.py
 +++ b/tests/hermes_cli/test_tools_config.py
 @@ -1343,6 +1343,32 @@ def test_get_platform_tools_feishu_includes_doc_and_drive():
@@ -3614,12 +3646,6 @@ index 4280ab183..ff65bab46 100644
  def test_get_platform_tools_feishu_tools_not_on_other_platforms():
      for plat in ["cli", "telegram", "discord"]:
          enabled = _get_platform_tools({}, plat)
-@@ -1674,5 +1700,3 @@ def test_vision_picker_custom_endpoint(tmp_path, monkeypatch):
-     # provider pinned to "custom" so the resolver routes through base_url.
-     assert v.get("provider") == "custom"
-     save_env.assert_called_once_with("OPENAI_API_KEY", "sk-secret")
--
--
 diff --git a/tests/tools/test_feishu_tools.py b/tests/tools/test_feishu_tools.py
 index 15b27b4ab..0a3f0723f 100644
 --- a/tests/tools/test_feishu_tools.py
@@ -3768,7 +3794,7 @@ index eda5140b0..e244a84d1 100644
  class TestSearchPathValidation:
      """Test that search() returns an error for non-existent paths."""
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index 579704943..81c0b6b43 100644
+index 05b6f7d2d..0aef85bf3 100644
 --- a/tests/tools/test_skill_manager_tool.py
 +++ b/tests/tools/test_skill_manager_tool.py
 @@ -25,10 +25,12 @@ from tools.skill_manager_tool import (
@@ -4123,7 +4149,7 @@ index 78bdd8d63..e8d2ebd4f 100644
          """Delete a single file.
  
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index cec730dcb..efcad5aa7 100644
+index 2e74f8391..65e68d5fc 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -165,6 +165,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
@@ -4135,10 +4161,10 @@ index cec730dcb..efcad5aa7 100644
      # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index 5d1e8fd11..a967f61d1 100644
+index faef98bb1..bae095649 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -437,10 +437,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -487,10 +487,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -4177,7 +4203,7 @@ index 5d1e8fd11..a967f61d1 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -705,7 +730,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -755,7 +780,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -4190,7 +4216,7 @@ index 5d1e8fd11..a967f61d1 100644
          "skill_md": str(skill_md),
          "_change": {"description": _desc},
      }
-@@ -919,9 +948,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
+@@ -1008,9 +1037,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
  
      shutil.rmtree(skill_dir)
  
@@ -4406,10 +4432,10 @@ index 38a27e622..4590ea5f0 100644
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 71525ef76..d0001444c 100644
+index c0ab01c01..a0a30803e 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
-@@ -353,8 +353,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
+@@ -375,8 +375,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
  | `FEISHU_ENCRYPT_KEY` | Optional encryption key for webhook mode |
  | `FEISHU_VERIFICATION_TOKEN` | Optional verification token for webhook mode |
  | `FEISHU_ALLOWED_USERS` | Comma-separated Feishu user IDs allowed to message the bot |
@@ -4421,10 +4447,10 @@ index 71525ef76..d0001444c 100644
 +| `FEISHU_HISTORY_BACKFILL_SECONDS` | Time window before the trigger message, in seconds. Default: `1800` |
 +| `FEISHU_HISTORY_BACKFILL_MAX_CHARS` | Maximum formatted context characters. Default: `6000` |
  | `FEISHU_HOME_CHANNEL` | Feishu chat ID for cron delivery and notifications |
- | `WECOM_BOT_ID` | WeCom AI Bot ID from admin console |
- | `WECOM_SECRET` | WeCom AI Bot secret |
+ | `FEISHU_HOME_CHANNEL_NAME` | Display name for the Feishu home channel. |
+ | `FEISHU_ALLOW_ALL_USERS` | Allow any Feishu user to trigger the bot (dev only). |
 diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
-index 4208868cb..540058f35 100644
+index ae7679349..81b38987c 100644
 --- a/website/docs/user-guide/configuration.md
 +++ b/website/docs/user-guide/configuration.md
 @@ -695,6 +695,56 @@ the `hermes tools` UI.
