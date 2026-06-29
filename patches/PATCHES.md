@@ -203,12 +203,11 @@ cat ~/.hermes/patches/.local-patches.base
 
 **最近一次升级（v0.17.0 同 release 内迭代，+204 commit，basis `6f1a176b` → `7cfa2fa1`）要点**：
 
-- 上游主线（204 commit，release tag 仍 `v0.17.0 (2026.6.19)` 未变）：HEAD 为 `fix(docker): gate resource limit flags on cgroup controller availability (#54516)`；可观察到的主线包括 Docker/cgroup 改进、Telegram bot auth policy (`TELEGRAM_ALLOW_BOTS`) 新增、Session recovery（`TestGatewaySessionDbRecovery` 入 `test_session.py`）、Feishu `history_backfill` / `FEISHU_GROUP_ALLOWED_CHATS` 新配置等。本轮上游**触碰了 4 个测试文件补丁区域**，均为上游在补丁插入点附近新增测试，产生 4 处 3-way 冲突（详见 patch apply 段）。
-- 本地变更：**PATCH-16 表格路由升级为 convert_table_to_bullets + post/md**（`_build_outbound_payload` 表格分支从 `text+strip` 改为先调 `convert_table_to_bullets` 把 `| table |` 转成 `**行标题**` + `• 字段: 值` bullet 组，再走 `post/md` 路由；无表格语法故不触发飞书空白 bug，同时列表/bold/标题全恢复原生渲染；测试改名为 `test_build_outbound_payload_table_converts_to_bullets_and_posts`）——含入已有 PATCH-16 diff，未单独归档；同步移除 `memories/USER.md` 末尾的 `NO bold formatting (Feishu rendering issue).`。
-- patch apply：**31/35 干净，4 处冲突手动 3-way 解决**——上游 204 commit 跨度导致 `git apply` 整体原子失败；`--3way` 后 4 个测试文件残留冲突标记，均为"双方各自新增测试在同区域插入"场景，解决策略：保留两端（HEAD 新增 + 本地 patch 新增）。解决详情：①`test_feishu_bot_auth_bypass.py`——保留 `TELEGRAM_ALLOW_BOTS`（上游）+ `FEISHU_GROUP_ALLOWED_CHATS`（本地 patch）双 env；②`test_config.py`——保留上游 Telegram 测试 × 2 + 本地新增 `test_bridges_feishu_history_backfill_from_config_yaml`；③`test_session.py`——保留上游 `TestGatewaySessionDbRecovery` + 本地 `TestPeopleProfileInjection`/`TestGroupProfileInjection`；④`test_tools_config.py`——上游已含 4 个 `test_save_platform_tools_*` 测试（本地 patch 欲添加者已在 HEAD），直接丢弃空 theirs 段。解决后重生成 `local-patches.diff`（35 文件），`.local-patches.base` 刷新到 `7cfa2fa13f998ebb5e7071b2edab45aeb4adebc8`。
-- 依赖：本轮未执行 `hermes update`（跳过 npm/uv/skills 步骤，仅做 patch 幂等验证）；无依赖变更。
-- 已知摩擦：patch apply 因上游在补丁插入点新增测试而整体失败（`git apply` 原子性）→ `--3way` 后手动解决 4 文件冲突；gateway 状态待确认（patch 已 apply，重启 gateway 可激活新代码）。
-- 配置漂移：`test_feishu.py` **216 passed**（含新增表格测试）；4 冲突文件合并后 **298 passed**；幂等验证通过（无残留冲突标记，`local-patches.diff` 已刷新至新 base）；`memories/USER.md` NO-bold 指令已清理。
+- 上游主线：Docker/cgroup 改进、Telegram bot auth policy、Session recovery、Feishu `history_backfill` / `FEISHU_GROUP_ALLOWED_CHATS` 新配置等；上游在 4 个测试文件的补丁插入点附近新增测试，产生 3-way 冲突（均以"双方新增内容全保留"策略解决）。
+- 本地变更：PATCH-16 新增飞书出站消息 markdown 完整渲染支持（标题 / 引用 / 表格 → bullet，详见 PATCH-16 节）；`memories/USER.md` 移除过时的 `NO bold formatting` 指令。
+- patch apply：31/35 干净，4 文件手动 3-way 解决；`local-patches.diff` 已刷新，`.local-patches.base` → `7cfa2fa1`。
+- 依赖：本轮无依赖变更。
+- 测试：`test_feishu.py` 216 passed；合并后 298 passed。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -412,24 +411,24 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-16] Feishu post/md 块级语法补渲染（标题 / 引用）
+### [PATCH-16] Feishu 出站消息 markdown 完整渲染
 
 | 字段     | 内容                                                                  |
 | -------- | --------------------------------------------------------------------- |
 | **文件** | `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_feishu.py` |
 | **状态** | 🟡 未上游合并                                                         |
 
-**问题**：bot 回复带 markdown 时，出站 `_build_outbound_payload` 已把内容转成飞书 post 富文本的 `md` 元素，**行内标记（加粗 / 斜体 / 列表 / 链接 / 行内代码）能正常渲染**，但飞书 post 的 `md` 渲染器**不支持 ATX 标题 `#` 与引用 `>`**——它们以原始符号字面显示（`# 标题` 直接显示成「# 标题」），群里看起来像「markdown 没渲染」。表格另由 `_MARKDOWN_TABLE_RE` 强制降级纯文本，代码块已有按 fence 拆行逻辑。
+**问题**：飞书 post/md 元素能渲染行内标记（加粗 / 斜体 / 列表 / 链接 / 行内代码），但有两类格式无法渲染：①ATX 标题 `## heading` 与引用 `> quote` 以原始符号字面显示；②GFM 表格会导致整条消息在飞书客户端显示为空白，原有实现因此把含表格的回复整体降级为纯文本，连带列表、标题等可渲染格式也一并失效。
 
-**修复**：在 `_build_markdown_post_payload` 接入点前新增纯函数 fence-aware 预处理器 `_promote_block_markdown(content)`，把 post/md 渲染不出的块级语法就地转成可渲染等价物：ATX 标题 `^#{1,6}\s+...`→`**加粗**`（`_MARKDOWN_ATX_HEADING_RE`，要求 `#` 后有空格，故 `issue #5` 等行内 `#` 不误伤）、引用 `^>\s?...`→`▎前缀`（`_MARKDOWN_BLOCKQUOTE_RE`）；复用 `_MARKDOWN_FENCE_OPEN_RE`/`_MARKDOWN_FENCE_CLOSE_RE` 跟踪围栏，**代码块内的 `#`/`>` 原样保留**；无 `#`/`>` 时同对象快速返回。只改 `content → post rows` 这一段纯函数链路，消息更新 / 流式 / @提及 / 图片 / `_POST_CONTENT_INVALID_RE` 回退 / 卡片审批按钮均不碰；表格维持纯文本降级。
+**修复**：两处改动，均在 `_build_outbound_payload` 出站路径：
 
-**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `def _promote_block_markdown`、`_MARKDOWN_ATX_HEADING_RE`、`convert_table_to_bullets`（表格分支调用点，需与 `_MARKDOWN_TABLE_RE` 上下文关联）；grep `tests/gateway/test_feishu.py` 中存在 `test_build_outbound_payload_table_converts_to_bullets_and_posts`。定向测试覆盖：标题→加粗、引用→`▎`、嵌套引用、行内 `#`/`>` 不误伤、无标记快速返回（同对象）、围栏内 `#`/`>` 不动（`test_promote_block_markdown_headings_and_quotes`、`test_promote_block_markdown_ignores_inline_hash_and_fast_path`、`test_promote_block_markdown_leaves_fenced_code_untouched`），并同步更新 `test_build_post_payload_extracts_title_and_links` 期望为加粗标题；含表格内容先经 `convert_table_to_bullets` 转 bullet 组再路由到 post 类型（`test_build_outbound_payload_table_converts_to_bullets_and_posts`）；`tests/gateway/test_feishu.py` 全量 216 passed。
+1. **标题 / 引用**：新增 fence-aware 预处理器 `_promote_block_markdown(content)`，将 post/md 渲染不出的块级语法转成等价可渲染形式：`## heading` → `**heading**`，`> quote` → `▎ quote`；代码块内的 `#` / `>` 原样保留。
 
-**上游吸收判断**：若上游为 Feishu post/md 原生补齐标题/引用渲染、或将回复改走 interactive card markdown 元素，可归档本补丁。
+2. **表格**：有 `_MARKDOWN_TABLE_RE` 检出时，先调 `convert_table_to_bullets()`（`gateway.platforms.helpers`）把 GFM 表格转成 `**行标题**` + `• 字段: 值` bullet 组，再走 post/md 路由。GFM 表格语法消失后不再触发空白消息 bug，同时列表 / 标题等恢复原生渲染。
 
-> **2026-06-29 迭代 2（表格转 bullet 路由 post/md，非归档）**：发现含表格内容在 text fallback 路径下 `- ` 列表前缀仍以字面符号显示。根本原因：有表格时整体降级 text 消息，列表/标题等可原生展示的格式也随之失效。修复：`_build_outbound_payload` 表格分支改为先调 `convert_table_to_bullets`（来自 `gateway.platforms.helpers`）把 `| table |` 语法转成 `**标题行**` + `• 字段: 值` bullet 组，再走 `post/md` 路由——GFM 表格语法消失后不再触发飞书空白消息 bug，同时列表/bold/标题等全部恢复原生渲染。同步把测试名改为 `test_build_outbound_payload_table_converts_to_bullets_and_posts`，验证路由类型为 `post`、`| 维度 |` 不出现在 payload、内容关键词保留。
+**验证**：Step 8b grep `adapter.py` 中存在 `def _promote_block_markdown`、`convert_table_to_bullets`；grep `test_feishu.py` 中存在 `test_build_outbound_payload_table_converts_to_bullets_and_posts`；`tests/gateway/test_feishu.py` 全量 216 passed。
 
-> **2026-06-29 迭代 1（含表格消息 text fallback strip，已被迭代 2 取代）**：`_build_outbound_payload` 表格分支原先直接把原始内容 `{"text": content}` 发出（裸 markdown 全显示），改为 `{"text": _strip_markdown_to_plain_text(content)}`；仅去掉 bold/heading 等，`- ` 列表前缀仍保留，为迭代 2 修复留口。`memories/USER.md` 同步移除已过时的 `NO bold formatting (Feishu rendering issue)` 指令。
+**上游吸收判断**：若上游为飞书 post/md 原生补齐标题 / 引用渲染，或将回复改走 interactive card markdown 元素，可归档本补丁。
 
 ---
 
