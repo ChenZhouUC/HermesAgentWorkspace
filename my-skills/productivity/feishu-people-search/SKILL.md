@@ -1,6 +1,5 @@
 ---
 name: feishu-people-search
-category: productivity
 description: 查同事的称谓/岗位/团队（姓名、称谓、岗位、团队四项，其余 PII 不展示）。唯一用法是用 terminal 跑下方脚本并传关键词；不要、也无法用 read_file / search_files 直接读 people.yaml 或翻 ~/.hermes（群聊沙箱会拦）。
 ---
 

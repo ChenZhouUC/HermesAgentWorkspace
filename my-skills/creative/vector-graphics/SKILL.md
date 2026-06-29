@@ -1,11 +1,6 @@
 ---
 name: vector-graphics
 description: Use when converting an icon or logo from a Feishu image attachment, local PNG/SVG path, image URL, or HTML page with og:image into a normalized square SVG written to ~/.hermes/tmp/.
-license: MIT
-metadata:
-  hermes:
-    tags: [svg, png, icon, normalization, feishu, square-canvas]
-    related_skills: []
 ---
 
 # Vector Graphics — Square Canvas Normalization

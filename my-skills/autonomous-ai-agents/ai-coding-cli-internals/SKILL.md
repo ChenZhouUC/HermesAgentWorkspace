@@ -5,13 +5,13 @@ description: Use when diagnosing OpenAI Codex or Claude Code CLI behavior, inclu
 
 # AI Coding CLI Internals & Diagnostics
 
-Operational quirks and token-economics gotchas for OpenAI Codex and Claude Code. For GitHub Copilot CLI (`gh copilot`), see the dedicated `github-copilot-cli` skill — it has fuller coverage of compaction, BYOK env vars, and geo config.
+Operational quirks and token-economics gotchas for OpenAI Codex and Claude Code.
 
 ## OpenAI Codex (GPT-5.5) Quirks
 
 - **Context Window Split**: While GPT-5.5 has a 1M+ physical window, Codex caps it at 400K, forcibly split into ~272K input and ~128K output. The UI will show max available input as `258K` (with safety margins).
 - **Rapid Token Consumption**: Hidden reasoning/CoT tokens consume input context rapidly.
-- **Auto-Compaction Threshold**: Configured via `model_auto_compact_token_limit` in `~/.config/openai/codex/config.toml` (can be scoped under `[profiles.name]`), not within `gh copilot` config.
+- **Auto-Compaction Threshold**: Configured via `model_auto_compact_token_limit` in `~/.config/openai/codex/config.toml` (can be scoped under `[profiles.name]`), not within tool-specific CLI config.
 
 ## Claude Code Quirks
 

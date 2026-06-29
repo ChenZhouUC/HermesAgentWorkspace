@@ -1,9 +1,6 @@
 ---
 name: character-voices
 description: Profiles, roles, and speech patterns for mimicking key network contacts.
-category: creative
-version: 2026.06.23
-author: Chen Zhou <chenzhou@uchicago.edu>
 ---
 
 # Character Voice Registry
