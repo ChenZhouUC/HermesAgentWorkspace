@@ -33,6 +33,7 @@ INDEX_SECTIONS = {
 META_FILES = {"SCHEMA.md", "index.md", "log.md"}
 META_SLUGS = {Path(name).stem for name in META_FILES}
 ACTIVE_FILENAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
+LIVING_TOPIC_DIR_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+){1,2}$")
 LIVING_SEMANTIC_FIELDS = {"type", "tags", "concepts", "links", "aliases", "category"}
 
 ALLOWED_TAGS = {
@@ -147,6 +148,10 @@ CHECKS = (
     (
         "_living frontmatter stays metadata-minimal",
         ("living_semantic_frontmatter",),
+    ),
+    (
+        "_living top-level topic directories use 2-3 word kebab-case names",
+        ("invalid_living_topic_dirs",),
     ),
 )
 
@@ -314,6 +319,7 @@ def validate(root: Path) -> dict[str, list[Any]]:
         "index_count_mismatch": [],
         "living_wikilinks": [],
         "living_semantic_frontmatter": [],
+        "invalid_living_topic_dirs": [],
     }
 
     pages = active_pages(root)
@@ -445,6 +451,12 @@ def validate(root: Path) -> dict[str, list[Any]]:
         semantic_fields = sorted(LIVING_SEMANTIC_FIELDS & set(frontmatter_key_order(text)))
         if semantic_fields:
             issues["living_semantic_frontmatter"].append([relative(path, root), semantic_fields])
+
+    living_root = root / "_living"
+    if living_root.exists():
+        for path in sorted(living_root.iterdir()):
+            if path.is_dir() and not LIVING_TOPIC_DIR_RE.match(path.name):
+                issues["invalid_living_topic_dirs"].append(relative(path, root))
 
     return issues
 

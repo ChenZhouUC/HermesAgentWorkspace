@@ -1,12 +1,12 @@
 ---
 title: trajex vs hidalgo (ReID 系统的感知层与计算层分工对比)
 created: 2026-05-26
-updated: 2026-05-26
+updated: 2026-06-29
 type: comparison
 tags: [comparison, computer-vision, reid, architecture]
 sources:
-  - _living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md
-  - _living/AI-Applications-and-Ops/ReID-Pipeline-Architecture.md
+  - _living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md
+  - _living/Whale-SpaceSight/ReID-Pipeline-Architecture.md
 confidence: high
 ---
 

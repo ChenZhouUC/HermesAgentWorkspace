@@ -1,10 +1,10 @@
 ---
 title: RK3576 Edge Device
 created: 2026-05-14
-updated: 2026-05-24
+updated: 2026-06-29
 type: entity
 tags: [edge-inference, rk3576, npu]
-sources: [_living/AI-Infrastructure/Edge-Compute-Boxes-RK3576-Sophon.md]
+sources: [_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md]
 confidence: high
 ---
 
@@ -22,7 +22,7 @@ confidence: high
 | 内存/存储 | 4GB RAM + 32GB eMMC                                         |
 | 特性      | 发热与功耗控制好，视频编解码能力强                          |
 
-算力以 INT8 吞吐为主要衡量口径；NPU 利用率可经 `/sys/kernel/debug/rknpu/load` 实时查看。相比同系列 [[edge-sophon]] 的 TPU 盒子，RK3576 偏轻量视觉推理。^[[[_living/AI-Infrastructure/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
+算力以 INT8 吞吐为主要衡量口径；NPU 利用率可经 `/sys/kernel/debug/rknpu/load` 实时查看。相比同系列 [[edge-sophon]] 的 TPU 盒子，RK3576 偏轻量视觉推理。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
 
 **Related:**
 

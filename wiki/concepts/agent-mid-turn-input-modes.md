@@ -1,16 +1,16 @@
 ---
 title: Agent Mid-Turn Input Modes (插入式输入调度)
 created: 2026-05-27
-updated: 2026-05-27
+updated: 2026-06-29
 type: concept
 tags: [agent, ops]
-sources: [_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md]
+sources: [_living/AI-Applications/Hermes-Agent-macOS-Ops.md]
 confidence: high
 ---
 
 # Agent Mid-Turn Input Modes (插入式输入调度)
 
-当用户在 Agent 一个回合（Turn）尚未结束、还在工具调用或思考链路中时追加新消息，Runtime 需要决定如何调度这条消息。三种基础模式构成对偶：**打断 (interrupt) / 排队 (queue) / 引导合并 (steer)**——每种模式在"是否终止当前回合"和"是否保留 Prompt Cache"这两个轴上有明确取舍。该机制由 [[hermes-agent]] 在 macOS Gateway 中实现并通过热切换命令暴露。^[[[_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
+当用户在 Agent 一个回合（Turn）尚未结束、还在工具调用或思考链路中时追加新消息，Runtime 需要决定如何调度这条消息。三种基础模式构成对偶：**打断 (interrupt) / 排队 (queue) / 引导合并 (steer)**——每种模式在"是否终止当前回合"和"是否保留 Prompt Cache"这两个轴上有明确取舍。该机制由 [[hermes-agent]] 在 macOS Gateway 中实现并通过热切换命令暴露。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
 
 ## 三模式对偶
 

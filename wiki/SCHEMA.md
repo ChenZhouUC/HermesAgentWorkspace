@@ -1,7 +1,7 @@
 ---
 title: Wiki Schema
 created: 2026-05-14
-updated: 2026-06-03
+updated: 2026-06-29
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -29,6 +29,7 @@ AI 算法工程与统计学习 (Algorithm Engineering & Statistical Learning)
 ## Conventions
 
 - Active Layer 2 file names: 小写字母，连字符分隔，无空格 (e.g., `model-quantization-ptq.md`)；Layer 1 原材料可保留来源标题的大小写以减少导入损耗
+- `_living/` 一级分类目录必须是 2 或 3 个词段组成的 kebab-case 主题名（如 `AI-Infrastructure`、`TCS-and-Math`、`Whale-SpaceSight`）；词段允许大小写字母与数字，禁止空格、下划线、单词数 < 2 或 > 3 的泛化桶目录
 - Active Layer 2 页面只允许放在 `entities/`、`concepts/`、`comparisons/`、`queries/` 下；**不得**漂浮在仓库根目录
 - Active Layer 2 slug 必须全库唯一；**禁止**出现同名节点
 - 所有 Active Layer 2 与 Meta 页面必须以 YAML frontmatter 开头；`_living/` 只要求保持最小必要元数据；`raw/` 推荐保留外部来源、访问/发布日期与 sha256 等可复核元数据
@@ -209,6 +210,7 @@ python3 scripts/wiki_lint.py
 10. `index.md` 不得登记不存在、已归档或已被替换的 slug
 11. 若 `index.md` 维护 `Total pages` 字段，则该值必须等于已登记的 Active Layer 2 节点数
 12. `_living/` 文档不得包含图谱 wikilinks 或语义型 frontmatter 字段（如 `type`, `tags`, `concepts`）
+13. `_living/` 一级分类目录必须符合 2–3 词段 kebab-case 主题命名规则
 
 ## Update Policy (更新策略)
 

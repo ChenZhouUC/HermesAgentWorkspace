@@ -1,10 +1,10 @@
 ---
 title: Multi-Stage Clustering (轨迹相似度图的多层级连通分量聚合)
 created: 2026-05-25
-updated: 2026-05-26
+updated: 2026-06-29
 type: concept
 tags: [computer-vision, reid, clustering, algorithm]
-sources: [_living/AI-Applications-and-Ops/ReID-Pipeline-Architecture.md]
+sources: [_living/Whale-SpaceSight/ReID-Pipeline-Architecture.md]
 confidence: high
 ---
 
@@ -20,7 +20,7 @@ confidence: high
 2. 用动作方向掩码、摄像头一致性掩码、时间窗掩码裁剪这张图；
 3. 在裁剪后的图上求连通分量——一个连通分量即一个行人。
 
-每个 tier 调整的就是 _mask 配置_ + _相似度阈值_ + _合并模式（all / max / exclusive）_，把"是否合并"从"挑选 linkage 函数 + 阈值"的二维选择，升级为"在多重正交语义掩码下逐层放宽"的多维过滤。^[[[_living/AI-Applications-and-Ops/ReID-Pipeline-Architecture|ReID-Pipeline-Architecture]]]
+每个 tier 调整的就是 _mask 配置_ + _相似度阈值_ + _合并模式（all / max / exclusive）_，把"是否合并"从"挑选 linkage 函数 + 阈值"的二维选择，升级为"在多重正交语义掩码下逐层放宽"的多维过滤。^[[[_living/Whale-SpaceSight/ReID-Pipeline-Architecture|ReID-Pipeline-Architecture]]]
 
 ## 核心思路：由严到松、由同向到异向、由轨迹到批次
 

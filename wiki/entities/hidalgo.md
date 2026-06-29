@@ -1,18 +1,18 @@
 ---
 title: Hidalgo (ReID 项目与计算层服务)
 created: 2026-05-26
-updated: 2026-05-26
+updated: 2026-06-29
 type: entity
 tags: [computer-vision, reid, pipeline, ops]
 sources:
-  - _living/AI-Applications-and-Ops/ReID-Pipeline-Architecture.md
-  - _living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md
+  - _living/Whale-SpaceSight/ReID-Pipeline-Architecture.md
+  - _living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md
 confidence: high
 ---
 
 # Hidalgo (ReID 项目与计算层服务)
 
-Hidalgo 是线下零售门店 ReID 重构项目的顶层项目名，也常用于指代其中负责**后续聚合、角色推断与结果回写**的计算层服务。它与 [[trajex]] 的关系不是"一个内部代号 vs 一个正式产品名"，而是同一 ReID 项目下两个边界不同的服务实体：trajex 负责特征推理，Hidalgo 负责消费特征并产出行人级结果。^[[[_living/AI-Applications-and-Ops/ReID-Pipeline-Architecture|ReID-Pipeline-Architecture]]]
+Hidalgo 是线下零售门店 ReID 重构项目的顶层项目名，也常用于指代其中负责**后续聚合、角色推断与结果回写**的计算层服务。它与 [[trajex]] 的关系不是"一个内部代号 vs 一个正式产品名"，而是同一 ReID 项目下两个边界不同的服务实体：trajex 负责特征推理，Hidalgo 负责消费特征并产出行人级结果。^[[[_living/Whale-SpaceSight/ReID-Pipeline-Architecture|ReID-Pipeline-Architecture]]]
 
 ## 职责边界
 
@@ -26,7 +26,7 @@ Hidalgo 是线下零售门店 ReID 重构项目的顶层项目名，也常用于
 
 ## 与 trajex 的关系
 
-[[trajex]] 是 Hidalgo 项目中的上游特征推理服务。两者之间通过数据库表握手：trajex 生产特征表，Hidalgo 消费特征表并写结果表；双方不通过 RPC 调用，也不共享运行时内存。这种服务边界是 [[schema-as-handoff-contract|DDL 作为契约]] 在 ReID 管线中的具体实践。^[[[_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
+[[trajex]] 是 Hidalgo 项目中的上游特征推理服务。两者之间通过数据库表握手：trajex 生产特征表，Hidalgo 消费特征表并写结果表；双方不通过 RPC 调用，也不共享运行时内存。这种服务边界是 [[schema-as-handoff-contract|DDL 作为契约]] 在 ReID 管线中的具体实践。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
 
 因此，[[reid-pipeline]] 是对 Hidalgo / trajex 这套系统分层方法的抽象描述；Hidalgo 本身是其中具体的软件实体。
 

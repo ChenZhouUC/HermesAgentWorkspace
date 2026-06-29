@@ -1,10 +1,10 @@
 ---
 title: Schema as Handoff Contract (DDL 作为生产者/消费者契约)
 created: 2026-05-26
-updated: 2026-05-26
+updated: 2026-06-29
 type: concept
 tags: [architecture, ops, pipeline]
-sources: [_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md]
+sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md]
 confidence: high
 ---
 
@@ -20,7 +20,7 @@ confidence: high
 2. 但**代码层强制单写权责**——P 只写自己的表，C 只写自己的表，反过来读对方的表；
 3. 这种"双方都拥有 DDL 知识、各自只能写一半"的设计让 schema 演化成为双方共同关心的变更点。
 
-[[trajex]] 与 [[hidalgo]] 计算层之间正是这种关系：trajex 声明上游特征表与下游结果表的全部 DDL，但只对前者写入；Hidalgo 反向消费特征表并写入结果表。两边都对 schema 演化有完整视野，无需通过 protobuf / OpenAPI 等额外定义层维持接口。^[[[_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
+[[trajex]] 与 [[hidalgo]] 计算层之间正是这种关系：trajex 声明上游特征表与下游结果表的全部 DDL，但只对前者写入；Hidalgo 反向消费特征表并写入结果表。两边都对 schema 演化有完整视野，无需通过 protobuf / OpenAPI 等额外定义层维持接口。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
 
 ## 与传统握手方式的对比
 

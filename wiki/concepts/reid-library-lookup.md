@@ -1,10 +1,10 @@
 ---
 title: ReID Library Lookup (库查询作为特征提取阶段)
 created: 2026-05-26
-updated: 2026-05-26
+updated: 2026-06-29
 type: concept
 tags: [computer-vision, reid, algorithm]
-sources: [_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md]
+sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md]
 confidence: high
 ---
 
@@ -14,7 +14,7 @@ confidence: high
 
 ## 设计选择：把角色判定上移到感知层
 
-传统直觉是"先做聚类找出谁是同一个人，再查角色"。trajex 反其道而行：**对每条轨迹独立做 1-NN 检索**——查询通用角色服饰库、公司 / 店铺工服库、店员 ReID 底库——把命中结果以角色类型和置信度字段直接写入特征表。结果是每条轨迹离开感知层时**就自带角色证据**。^[[[_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
+传统直觉是"先做聚类找出谁是同一个人，再查角色"。trajex 反其道而行：**对每条轨迹独立做 1-NN 检索**——查询通用角色服饰库、公司 / 店铺工服库、店员 ReID 底库——把命中结果以角色类型和置信度字段直接写入特征表。结果是每条轨迹离开感知层时**就自带角色证据**。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
 
 ## 为什么不留给下游聚类
 

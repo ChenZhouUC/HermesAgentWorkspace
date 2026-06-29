@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-06-03
+updated: 2026-06-29
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -27,7 +27,7 @@ confidence: high
 ## [2026-05-14] ingest | Expand Domain and New Docs
 
 - Action: Expanded SCHEMA.md domains to include Algorithm Engineering, Statistics, Full-Stack Ops.
-- Source: 2 Feishu Docs into \_living/AI-Infrastructure and \_living/AI-Applications-and-Ops
+- Source: 2 Feishu Docs into \_living/AI-Infrastructure and \_living/AI-Applications
 - Created: entities/edge-rk3576.md, entities/edge-sophon.md, concepts/hermes-mac-ops.md
 - Updated: SCHEMA.md, index.md
 
@@ -73,7 +73,7 @@ confidence: high
 ## [2026-05-17] update | 本体论架构重组：从概念到实体
 
 - 移除了本体论错误的流程化概念卡片：`concepts/hermes-mac-ops.md`
-- 基于 `_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md`，重新提取并建立了软件实体页：`entities/hermes-agent.md`
+- 基于 `_living/AI-Applications/Hermes-Agent-macOS-Ops.md`，重新提取并建立了软件实体页：`entities/hermes-agent.md`
 - 拆分建立了前代遗产软件实体页：`entities/openclaw.md`
 - 全面使用紧凑型内联语法重做了 Layer 2 溯源脚注
 - 更新了：`index.md`
@@ -137,7 +137,7 @@ confidence: high
 ## [2026-05-25] refactor | ReID & Customer Flow: 整体重组
 
 - 审计：上一轮 ingest 把 8 篇飞书文档原文堆在 `_living/Computer-Vision/ReID/` 目录，并把 `_living/` 路径直接登记到 `index.md` Queries 区，违反 SCHEMA（Layer 2 注册表不得登记 `_living/` 节点）；wiki_lint 报 9 个 stale_index_entries + 1 个 duplicate_index_entry
-- \_living 重组：删除整个 `_living/Computer-Vision/` 目录；将可复用知识合并为两篇位于 `_living/AI-Applications-and-Ops/` 下的文档：`ReID-Pipeline-Architecture.md`、`Customer-Flow-Post-Processing.md`
+- \_living 重组：删除整个 `_living/Computer-Vision/` 目录；将可复用知识合并为两篇现位于 `_living/Whale-SpaceSight/` 下的文档：`ReID-Pipeline-Architecture.md`、`Customer-Flow-Post-Processing.md`
 - 命名风格统一：Title-Case-With-Hyphens.md，与现有 `Hermes-Agent-macOS-Ops.md` / `RuView-Technical-Research-Deployment.md` 对齐
 - 内容裁剪（第一轮）：剔除具体表名/字段名/SQL/分区脚本/单店实验细节/项目排期甘特图等实现专属信息，保留架构、方法学、效果总结
 - 内容裁剪（第二轮，深度脱敏）：进一步剔除所有项目内私有命名（如 `hidalgo_*` 表名、`cloth_detection` / `entrance_embed` 等模型节点名、`seq_sn_threshold` / `clstentrance_pars` 等配置键）、所有具体数值阈值（聚类阈值、时间窗、像素距离、6 维评分规则参数）、具体维度（768 维 / 2048 维）、具体效果数字（AUC / 准确率范围 / 去重率）、具体产品/库版本（Milvus / pgvector / Airflow / KubernetesExecutor / Spark 等）；保留可复现的架构、范式、设计原则
@@ -162,8 +162,8 @@ confidence: high
   - **评估指标**：删除 `Rank-N / mAP / mCP`——这些**不在 hidalgo 实现**（可能在训练侧仓库）；本系统只评角色精/召 + 双向熵
 - 补全此前漏掉的设计模式：按店参数覆写表（JSON 列 + deep merge）、有偏下采样（保进店、采出店）、推理服务共享内存优化、多套环境配置中心、历史变体与实验代码并存
 - 文档操作：
-  - 重写 `_living/AI-Applications-and-Ops/ReID-Pipeline-Architecture.md`（含三模式对偶 / 角色两阶段 / 按店覆写 / 反作弊采样 等新章节）
-  - 重写 `_living/AI-Applications-and-Ops/Customer-Flow-Post-Processing.md`，顶部加上"代码边界说明"
+  - 重写 `_living/Whale-SpaceSight/ReID-Pipeline-Architecture.md`（含三模式对偶 / 角色两阶段 / 按店覆写 / 反作弊采样 等新章节）
+  - 重写 `_living/Whale-SpaceSight/Customer-Flow-Post-Processing.md`，顶部加上"代码边界说明"
   - 重写 `concepts/reid-pipeline.md`、`concepts/multi-stage-clustering.md`、`concepts/customer-flow-post-processing.md`，对齐新事实
   - `concepts/customer-flow-post-processing.md` 的 `confidence` 由 `high` 降为 `medium`
   - 更新 `index.md` 中 `reid-pipeline` 与 `multi-stage-clustering` 的一句话摘要
@@ -173,7 +173,7 @@ confidence: high
 
 - 触发：用户要求调研 ReID 特征向量模型现状（FastReid 已用过，关心 ViT 等新 SOTA），并落地到 \_living + Layer 2
 - 调研路径：WebSearch 拉取近年 ReID 特征模型现状（FastReid / TransReID / SOLIDER / CLIP-ReID / PersonViT / LUPerson / DINOv2 / ViT 边缘部署），覆盖学术 SOTA + 实战部署 + 跨域泛化三个维度
-- 新建 `_living/AI-Applications-and-Ops/ReID-Embedding-Models.md`：技术谱系（BoT/FastReid → TransReID → SOLIDER/CLIP-ReID → PersonViT）、选型决策框架（域泛化/算力/微调成本/遮挡）、部署约束（TensorRT 延迟、256×128 输入、跨域掉点幅度）、评估方法学局限（学术数据集 vs 零售门店的 domain gap）
+- 新建 `_living/Whale-SpaceSight/ReID-Embedding-Models.md`：技术谱系（BoT/FastReid → TransReID → SOLIDER/CLIP-ReID → PersonViT）、选型决策框架（域泛化/算力/微调成本/遮挡）、部署约束（TensorRT 延迟、256×128 输入、跨域掉点幅度）、评估方法学局限（学术数据集 vs 零售门店的 domain gap）
 - Layer 2 提炼：新增 `concepts/reid-embedding-models.md`——独立的"特征提取器"主题，与 [[reid-pipeline]]（管线架构）解耦；颗粒度对齐现有"技术谱系类" concepts（chain-of-thought / test-time-compute-scaling）；无 entity（无专有产品名）
 - 关联性：与 ReID 三角连成"四点闭合"——`reid-embedding-models ↔ reid-pipeline / multi-stage-clustering / customer-flow-post-processing`；body 内显式引用前两者
 - 索引同步：`index.md` Concepts 区按字母序插入；`Total pages` 24 → 25
@@ -226,7 +226,7 @@ confidence: high
 - Comparison 三件套合规修正：
   - `comparisons/reasoning-model-apis.md` 原本只有"对比表格"，**补齐 Trade-offs 段与 When to use 决策段**；frontmatter `updated` 同步刷新
 - 完备性补建（按新 SCHEMA comparison 触发条件）：
-  - `_living/AI-Applications-and-Ops/ReID-Embedding-Models.md` 通篇是 5 候选选型分析，明显满足 comparison 三大触发信号（选型分析 / 优劣对比 / A vs B）
+  - `_living/Whale-SpaceSight/ReID-Embedding-Models.md` 通篇是 5 候选选型分析，明显满足 comparison 三大触发信号（选型分析 / 优劣对比 / A vs B）
   - 新建 `comparisons/reid-embedding-model-families.md`——含五候选对比表、四组核心 Trade-offs、五条 When-to-use 决策；与 `concepts/reid-embedding-models.md` 形成 concept（技术谱系）+ comparison（横向决策）的互补
   - `concepts/reid-embedding-models.md` body 显式 reference 该 comparison，Related 区按字母序追加
 - 索引同步：`index.md` Comparisons 区新增条目；`Total pages` 25 → 26
@@ -244,7 +244,7 @@ confidence: high
   - 两层 Redis 集合去重（按天滚动 TTL，曾用 Bloom filter 后替换以避免假阳性）
   - 三种回放模式：scheduled rebuild / manual rerun / cache rebuild
   - Milvus → pgvector 按集合渐进迁移，dispatcher 层切换不动业务代码
-- \_living 新建：`_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md`（10 节，覆盖职责边界 / 数据流 / 模型推理 / 库查询 / 去重 / 回放 / 模型升级 / hybrid 存储 / 运维 / 设计哲学）；按 Reusability Filter 剥离所有项目内私有命名（具体表名、列名、Kafka topic 名、模型节点名、配置键、Redis key 命名等）
+- \_living 新建：`_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md`（10 节，覆盖职责边界 / 数据流 / 模型推理 / 库查询 / 去重 / 回放 / 模型升级 / hybrid 存储 / 运维 / 设计哲学）；按 Reusability Filter 剥离所有项目内私有命名（具体表名、列名、Kafka topic 名、模型节点名、配置键、Redis key 命名等）
 - L2 提炼（按 Conservative Linking 严格筛选，agent 提议 14 个新节点，砍剪到 6 个）：
   - `entities/trajex.md` — 具体服务实体
   - `concepts/reid-library-lookup.md` — 把 1-NN 角色判定上移到感知层的方法学
@@ -273,7 +273,7 @@ confidence: high
   - 将质量模型表述改为"可选 / 预留"，因为当前主处理链路保留质量字段与旧客户端能力，但并非每条图像都实际写入质量结果
   - 将底库分层改为"通用角色服饰库 / 公司或店铺工服库 / 店员 ReID 底库"，贴合源码中的角色服饰检索、员工工服检索与店员 ReID 检索三路
   - 将 query SOP 中的具体脚本名与具体生产列名抽象为 reembedding 任务与生产特征列，符合 Reusability Filter
-- 同步更新：`_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md`、`entities/trajex.md`、`concepts/model-shadow-deployment.md`、`comparisons/trajex-vs-hidalgo.md`、`queries/how-to-roll-out-a-new-reid-model.md`、`index.md`
+- 同步更新：`_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md`、`entities/trajex.md`、`concepts/model-shadow-deployment.md`、`comparisons/trajex-vs-hidalgo.md`、`queries/how-to-roll-out-a-new-reid-model.md`、`index.md`
 - 元数据修正：`index.md` 与 `log.md` frontmatter `updated` 刷新到 2026-05-26
 - 验证：从 git repo 根目录运行 `python3 scripts/wiki_lint.py`，返回 `wiki_lint: OK`
 
@@ -321,11 +321,11 @@ confidence: high
 
 - 追加更新了“第六章：忙时输入模式 (Busy Input Mode) 与连续对话机制”
 - 说明了 interrupt、queue 和 steer 三种模式的时序表现，以及极快发消息时因为空闲回退而产生的“并行/排队回复幻觉”。
-- 涉及文件：\_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md
+- 涉及文件：\_living/AI-Applications/Hermes-Agent-macOS-Ops.md
 
 ## [2026-05-27] create | agent-mid-turn-input-modes
 
-- 从 `_living/AI-Applications-and-Ops/Hermes-Agent-macOS-Ops.md` 第 6.6 节提炼新 concept：`concepts/agent-mid-turn-input-modes.md`
+- 从 `_living/AI-Applications/Hermes-Agent-macOS-Ops.md` 第 6.6 节提炼新 concept：`concepts/agent-mid-turn-input-modes.md`
 - 描述 Agent 在用户 mid-turn 追加输入时的 interrupt / queue / steer 三模式调度对偶（围绕"是否终止当前回合"和"是否保留 Prompt Cache"两个轴）
 - `entities/hermes-agent.md` 新增"连续对话调度"段落与底部双链；`updated` 同步刷新
 - `index.md` Concepts 区登记新节点；`Total pages` 33 → 34
@@ -447,3 +447,12 @@ confidence: high
 - Action 2: 新增格式选择矩阵、Markdown 子集规范、JSON/YAML/XML/CSV/HTML 适用边界、Prompt/Agent 上下文隔离、结构化输出契约、RAG 文档规范、多模态文本化原则和常见反模式
 - Action 3: 同步更新 `concepts/markdown-llm-protocol.md`，补充格式选择原则、Prompt/Agent 上下文协议和 RAG Markdown 规范
 - Verification: `wiki_lint: OK`
+
+## [2026-06-29] refactor | Living topic taxonomy for Whale SpaceSight
+
+- Action 1: 新建 `_living/Whale-SpaceSight/`，承载 Whale Tech 下 SpaceSight 产品相关知识
+- Action 2: 移入 SpaceSight 相关源文档：`Edge-Compute-Boxes-RK3576-Sophon.md`、`ReID-Pipeline-Architecture.md`、`ReID-Perception-Layer-trajex.md`、`ReID-Embedding-Models.md`、`Customer-Flow-Post-Processing.md`
+- Action 3: 将 `_living/AI-Applications-and-Ops/` 重命名为 `_living/AI-Applications/`，保留 `Hermes-Agent-macOS-Ops.md` 与 `RuView-Technical-Research-Deployment.md`
+- Action 4: 全库更新 Layer 2 `sources` 与紧凑型溯源脚注中的 `_living` 路径，并同步刷新受影响节点 `updated` 字段
+- Action 5: 在 `SCHEMA.md` 和 `scripts/wiki_lint.py` 中新增 `_living` 一级分类目录 2-3 词段 kebab-case 主题命名规则
+- Verification: `python3 scripts/wiki_lint.py`

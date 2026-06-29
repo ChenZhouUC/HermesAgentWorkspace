@@ -1,16 +1,16 @@
 ---
 title: trajex (ReID 感知层服务)
 created: 2026-05-26
-updated: 2026-05-26
+updated: 2026-06-29
 type: entity
 tags: [computer-vision, reid, pipeline, ops]
-sources: [_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md]
+sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md]
 confidence: high
 ---
 
 # trajex (ReID 感知层服务)
 
-trajex 是 [[hidalgo|Hidalgo ReID 项目]]中的**感知层服务**：消费边缘相机上传的轨迹（时间戳 + 图像坐标 + 人体截图序列），通过模型推理生成下游 [[hidalgo|Hidalgo 计算层]] 所需的特征数据。它是整套 ReID 系统中"采集与计算前置"段的承载者。^[[[_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
+trajex 是 [[hidalgo|Hidalgo ReID 项目]]中的**感知层服务**：消费边缘相机上传的轨迹（时间戳 + 图像坐标 + 人体截图序列），通过模型推理生成下游 [[hidalgo|Hidalgo 计算层]] 所需的特征数据。它是整套 ReID 系统中"采集与计算前置"段的承载者。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
 
 ## 职责边界
 

@@ -1,13 +1,13 @@
 ---
 title: 如何把一个新的 ReID 特征模型上线到生产
 created: 2026-05-26
-updated: 2026-05-26
+updated: 2026-06-29
 type: query
 tags: [computer-vision, reid, ops, pipeline]
 sources:
-  - _living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md
-  - _living/AI-Applications-and-Ops/ReID-Pipeline-Architecture.md
-  - _living/AI-Applications-and-Ops/ReID-Embedding-Models.md
+  - _living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md
+  - _living/Whale-SpaceSight/ReID-Pipeline-Architecture.md
+  - _living/Whale-SpaceSight/ReID-Embedding-Models.md
 confidence: high
 ---
 

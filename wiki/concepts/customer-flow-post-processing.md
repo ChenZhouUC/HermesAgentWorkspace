@@ -1,10 +1,10 @@
 ---
 title: Customer Flow Post-Processing (客流后处理加工)
 created: 2026-05-25
-updated: 2026-05-26
+updated: 2026-06-29
 type: concept
 tags: [computer-vision, reid, ops, algorithm]
-sources: [_living/AI-Applications-and-Ops/Customer-Flow-Post-Processing.md]
+sources: [_living/Whale-SpaceSight/Customer-Flow-Post-Processing.md]
 confidence: medium
 ---
 
@@ -22,7 +22,7 @@ confidence: medium
 - **接待数据**：每条顾客轨迹是否被店员接待、接待开始时间、接待时长；
 - **属性聚合**：年龄、性别、进车动作等业务标签。
 
-这种分层让 ReID 模型升级与业务策略迭代互不阻塞，业务侧也能按租户/门店独立灰度新策略而不影响其他门店。^[[[_living/AI-Applications-and-Ops/Customer-Flow-Post-Processing|Customer-Flow-Post-Processing]]]
+这种分层让 ReID 模型升级与业务策略迭代互不阻塞，业务侧也能按租户/门店独立灰度新策略而不影响其他门店。^[[[_living/Whale-SpaceSight/Customer-Flow-Post-Processing|Customer-Flow-Post-Processing]]]
 
 ## 接待识别：多维评分 + 状态机时间窗
 

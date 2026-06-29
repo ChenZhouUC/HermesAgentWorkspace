@@ -1,10 +1,10 @@
 ---
 title: Model Shadow Deployment (模型影子部署：配对特征轴并行)
 created: 2026-05-26
-updated: 2026-05-26
+updated: 2026-06-29
 type: concept
 tags: [architecture, ops, pipeline]
-sources: [_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex.md]
+sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md]
 confidence: high
 ---
 
@@ -27,7 +27,7 @@ new feature vector + new model version
 - 只读新特征轴（实验路径）；
 - 同时读两路，做对照分析。
 
-cutover 是"修改下游配置"，不是数据迁移；回滚也是修改配置，秒级生效。在 trajex 里，这个模式落成旧 ReID 特征轴与新统一特征轴并写，而不是强制使用字面 `v1/v2` 列名。^[[[_living/AI-Applications-and-Ops/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
+cutover 是"修改下游配置"，不是数据迁移；回滚也是修改配置，秒级生效。在 trajex 里，这个模式落成旧 ReID 特征轴与新统一特征轴并写，而不是强制使用字面 `v1/v2` 列名。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
 
 ## 与几种相邻模式的关系
 

@@ -1,10 +1,10 @@
 ---
 title: ReID Embedding Model Families 选型对比 (FastReid vs TransReID vs SOLIDER vs CLIP-ReID vs PersonViT)
 created: 2026-05-26
-updated: 2026-05-26
+updated: 2026-06-29
 type: comparison
 tags: [comparison, computer-vision, reid, paper]
-sources: [_living/AI-Applications-and-Ops/ReID-Embedding-Models.md]
+sources: [_living/Whale-SpaceSight/ReID-Embedding-Models.md]
 confidence: high
 ---
 

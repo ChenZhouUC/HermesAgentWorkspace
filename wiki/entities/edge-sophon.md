@@ -1,14 +1,14 @@
 ---
 title: Sophon (算能) Edge Devices
 created: 2026-05-14
-updated: 2026-05-24
+updated: 2026-06-29
 type: entity
 tags:
   - edge-inference
   - sophgo
   - tpu
 sources:
-  - _living/AI-Infrastructure/Edge-Compute-Boxes-RK3576-Sophon.md
+  - _living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md
 confidence: high
 ---
 
@@ -23,7 +23,7 @@ confidence: high
 | 7.2T（CV186AH / BM1688） | 7.2 TOPS (INT8)                                          | 4GB RAM + 32GB eMMC  | 高性价比，多路视频流并发 + 轻量推理 |
 | 32T（BM1684X）           | 32 TOPS (INT8) / 16 TFLOPS (FP16/BF16) / 2 TFLOPS (FP32) | 16GB RAM + 64GB eMMC | 浮点算力完整，适合 LLM 边缘部署     |
 
-CV186AH 基于 BM1688 架构衍生，设备树底层常仍标识为 `Sophon BM1688 ASIC`。TPU 利用率/温度/功耗经 `bm-smi`（类比 `nvidia-smi`）查看。相比瑞芯微 [[edge-rk3576]] 的 NPU 盒子，算能 32T 的完整浮点算力使其更适合承载边缘大模型。^[[[_living/AI-Infrastructure/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
+CV186AH 基于 BM1688 架构衍生，设备树底层常仍标识为 `Sophon BM1688 ASIC`。TPU 利用率/温度/功耗经 `bm-smi`（类比 `nvidia-smi`）查看。相比瑞芯微 [[edge-rk3576]] 的 NPU 盒子，算能 32T 的完整浮点算力使其更适合承载边缘大模型。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
 
 **Related:**
 

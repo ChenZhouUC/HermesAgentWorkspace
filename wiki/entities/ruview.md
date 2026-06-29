@@ -1,10 +1,10 @@
 ---
 title: RuView (WiFi Sensing Platform)
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-06-29
 type: entity
 tags: [agent, ops, edge-computing]
-sources: [_living/AI-Applications-and-Ops/RuView-Technical-Research-Deployment.md]
+sources: [_living/AI-Applications/RuView-Technical-Research-Deployment.md]
 confidence: high
 ---
 
@@ -20,7 +20,7 @@ RuView is a WiFi sensing platform that leverages Channel State Information (CSI)
 
 ## Technical Positioning
 
-Derived from CMU's "DensePose From WiFi" (2022). It operates purely on edge devices without requiring cloud services or cameras, utilizing inexpensive ESP32-S3 chips as CSI collectors.^[[[_living/AI-Applications-and-Ops/RuView-Technical-Research-Deployment|RuView-Technical-Research-Deployment]]]
+Derived from CMU's "DensePose From WiFi" (2022). It operates purely on edge devices without requiring cloud services or cameras, utilizing inexpensive ESP32-S3 chips as CSI collectors.^[[[_living/AI-Applications/RuView-Technical-Research-Deployment|RuView-Technical-Research-Deployment]]]
 
 **Related:**
 
