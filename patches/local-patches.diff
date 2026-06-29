@@ -893,7 +893,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 42bd40410..11b61c622 100644
+index 42bd40410..38f92f028 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -98,6 +98,7 @@ try:
@@ -2012,16 +2012,28 @@ index 42bd40410..11b61c622 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4439,7 +5314,7 @@ class FeishuAdapter(BasePlatformAdapter):
-         # table content as post causes the message to appear blank on the client.
-         # Force plain text for anything that looks like a markdown table.
+@@ -4435,12 +5310,15 @@ class FeishuAdapter(BasePlatformAdapter):
+     # =========================================================================
+ 
+     def _build_outbound_payload(self, content: str) -> tuple[str, str]:
+-        # Feishu post-type 'md' elements do not render markdown tables; sending
+-        # table content as post causes the message to appear blank on the client.
+-        # Force plain text for anything that looks like a markdown table.
++        # Feishu post-type 'md' renders inline marks (bold, lists, code) but
++        # silently drops GFM tables, producing a blank message.  When the
++        # content contains a table, convert it to bullet groups first so the
++        # post/md element has no raw | … | syntax, then route normally so that
++        # lists, bold, headings (via _promote_block_markdown) etc. all render
++        # natively instead of falling back to a stripped plain-text message.
          if _MARKDOWN_TABLE_RE.search(content):
 -            text_payload = {"text": content}
-+            text_payload = {"text": _strip_markdown_to_plain_text(content)}
-             return "text", json.dumps(text_payload, ensure_ascii=False)
+-            return "text", json.dumps(text_payload, ensure_ascii=False)
++            from gateway.platforms.helpers import convert_table_to_bullets
++            content = convert_table_to_bullets(content)
          if _MARKDOWN_HINT_RE.search(content):
              return "post", _build_markdown_post_payload(content)
-@@ -4520,9 +5395,13 @@ class FeishuAdapter(BasePlatformAdapter):
+         text_payload = {"text": content}
+@@ -4520,9 +5398,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -2037,7 +2049,7 @@ index 42bd40410..11b61c622 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4771,6 +5650,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4771,6 +5653,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -2171,7 +2183,7 @@ index 7e29d75cc..68ad1c75d 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..708191189 100644
+index bb97c7e72..25be0c4fe 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -159,6 +159,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -2666,7 +2678,7 @@ index bb97c7e72..708191189 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_build_post_payload_wraps_markdown_in_md_tag(self):
-@@ -2538,6 +2950,55 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2538,6 +2950,64 @@ class TestAdapterBehavior(unittest.TestCase):
              [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
          )
  
@@ -2697,8 +2709,13 @@ index bb97c7e72..708191189 100644
 +        )
 +
 +    @patch.dict(os.environ, {}, clear=True)
-+    def test_build_outbound_payload_table_strips_markdown(self):
-+        """Table content routes to text type with markdown stripped, table rows preserved."""
++    def test_build_outbound_payload_table_converts_to_bullets_and_posts(self):
++        """Table content is converted to bullet groups and routed as post/md.
++
++        GFM tables crash Feishu's post/md renderer (blank message).  The fix
++        converts tables to bold-heading + bullet groups so that lists, bold and
++        headings all render natively instead of falling back to plain text.
++        """
 +        from plugins.platforms.feishu.adapter import _MARKDOWN_TABLE_RE, FeishuAdapter
 +        from gateway.config import PlatformConfig
 +        import json
@@ -2714,15 +2731,19 @@ index bb97c7e72..708191189 100644
 +        adapter = FeishuAdapter(PlatformConfig())
 +        msg_type, payload = adapter._build_outbound_payload(content)
 +        data = json.loads(payload)
-+        self.assertEqual(msg_type, "text")
-+        self.assertNotIn("**", data["text"])
-+        self.assertNotIn("##", data["text"])
-+        self.assertIn("| 维度 |", data["text"])
++        # Table presence no longer forces text type — converted to post/md.
++        self.assertEqual(msg_type, "post")
++        # The raw | … | table syntax must be gone (converted to bullets).
++        rendered_text = str(data)
++        self.assertNotIn("| 维度 |", rendered_text)
++        # List item prefix and bold should survive in the post/md content.
++        self.assertIn("功能 A", rendered_text)
++        self.assertIn("消息量", rendered_text)
 +
      @patch.dict(os.environ, {}, clear=True)
      def test_send_uses_post_for_inline_markdown(self):
          from gateway.config import PlatformConfig
-@@ -4682,6 +5143,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -4682,6 +5152,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
