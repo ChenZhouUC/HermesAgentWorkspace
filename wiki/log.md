@@ -409,3 +409,41 @@ confidence: high
   - `index.md` 注册新节点，Total pages 34 → 35
 - Verification: `wiki_lint: OK`
 - Result: 建立了清晰的"概念 → 实现"映射，Harness 架构知识与现有实体（Hermes/OpenClaw）形成完整的知识网络
+
+## [2026-06-29] reinject | Evolution of Knowledge Graphs
+
+- Source: `_living/AI-Infrastructure/Evolution-of-Knowledge-Graphs.md`
+- Action 1: 对 living 源文档做格式化重组，补充 Graph RAG、Hybrid Search / RRF，并将 LLM Wiki v1 / v2 的来源分别校正为 Karpathy idea file 与 Rohit LLM Wiki v2 gist
+- Action 2: 更新既有节点：
+  - `concepts/traditional-knowledge-graph.md` 扩展推理路线为逻辑规则、表示学习、神经符号/LLM 三类
+  - `concepts/ontology.md` 补充拓扑、集合、逻辑行为、实体一致性四类约束，并说明 OWL / SHACL 分工
+- Action 3: 新增 Layer 2 concepts：
+  - `concepts/llm-wiki.md`
+  - `concepts/graph-rag.md`
+  - `concepts/hybrid-search-rrf.md`
+- Action 4: 同步 `index.md` Concepts 区登记新节点，`Total pages` 35 → 38
+- Verification: `wiki_lint: OK`
+
+## [2026-06-29] update | Obsidian Knowledge Base Mechanics
+
+- Source: `_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics.md`
+- Action 1: 扩充 living 源文档，新增 vault 文件模型、wikilinks 变体、backlinks/outgoing links、embeds、Properties/frontmatter、MetadataCache/API、搜索与插件生态、Graph View 与外部图分析边界、Obsidian 与 LLM Wiki 接口
+- Action 2: 修正过度实现绑定：不再把 Obsidian 的元数据层写死为 IndexedDB，也不把高级中心性指标写成核心 Graph View 的默认能力
+- Action 3: 同步更新 `entities/obsidian.md`、`concepts/wikilinks.md`、`concepts/graph-centrality.md` 的正文与 `updated` 字段
+- Verification: `wiki_lint: OK`
+
+## [2026-06-29] update | Graph algorithms for node status and relation strength
+
+- Source: `_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics.md`
+- Action 1: 深化第 5 章 Graph View / 图论渲染中的算法部分，按“节点地位”“关系强度”“KG 表示学习”“社区发现”拆分
+- Action 2: 补充算法：Weighted Degree/Strength、k-core、Common Neighbors、Adamic-Adar、Resource Allocation、Preferential Attachment、Katz、SimRank、TransE/TransH/TransR、DistMult/ComplEx、RotatE、GNN/R-GCN
+- Action 3: 同步扩展 `concepts/graph-centrality.md`，作为后续检索节点地位、关系强度、链接预测和知识补全算法的 Layer 2 入口
+- Verification: `wiki_lint: OK`
+
+## [2026-06-29] update | Text Format Protocol for LLMs
+
+- Source: `_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs.md`
+- Action 1: 扩充 living 源文档，从原有三受众场景扩展为完整文本格式协议指南
+- Action 2: 新增格式选择矩阵、Markdown 子集规范、JSON/YAML/XML/CSV/HTML 适用边界、Prompt/Agent 上下文隔离、结构化输出契约、RAG 文档规范、多模态文本化原则和常见反模式
+- Action 3: 同步更新 `concepts/markdown-llm-protocol.md`，补充格式选择原则、Prompt/Agent 上下文协议和 RAG Markdown 规范
+- Verification: `wiki_lint: OK`

@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last structural update: 2026-05-27 | Total pages: 35
+> Last structural update: 2026-06-29 | Total pages: 38
 > (Content updates tracked in individual page frontmatter)
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
@@ -48,8 +48,11 @@ Registry Rules
 - [[chain-of-thought]] - 思维链提示词族（CoT/Zero-shot/Self-Consistency/ToT/ReAct）
 - [[customer-flow-post-processing]] - ReID 下游的接待识别、客流过滤与配置化设计方法学
 - [[graph-centrality]] - 网络中心性算法及其在知识图谱分析中的应用
+- [[graph-rag]] - 以实体关系图、路径和社区摘要增强 RAG 的检索架构
+- [[hybrid-search-rrf]] - BM25、向量检索、图遍历等多路召回的排名融合方法
 - [[llm-benchmark-methodology]] - AI 大模型基准测试系统调研
 - [[llm-computational-complexity]] - 大语言模型在 TCS 领域的计算复杂性与严格下界
+- [[llm-wiki]] - 由 LLM 维护 Markdown 页面、索引和 schema 的轻量知识库架构
 - [[lmm-input-mechanics]] - LMM (多模态大模型) 从 Markdown 到 Token 的处理机制
 - [[markdown-llm-protocol]] - Markdown 在 LLM 交互场景下的格式协议架构
 - [[model-shadow-deployment]] - 模型升级时配对特征轴并行的影子部署模式

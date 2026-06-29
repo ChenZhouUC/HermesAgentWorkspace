@@ -1,7 +1,7 @@
 ---
 title: Wikilinks & Extension Syntax
 created: 2026-05-17
-updated: 2026-05-17
+updated: 2026-06-29
 type: concept
 tags: [markdown, wiki]
 sources: [_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics.md]
@@ -15,7 +15,16 @@ confidence: high
 ## 双向链接 (Wikilinks)
 
 核心格式为 `\[\[实体名称\]\]`。
-它采用**无路径寻址 (Pathless Addressing)** 机制，依赖全局实体表与哈希/B 树索引，而非传统文件系统的绝对或相对路径。这使得即使文件在目录间移动，知识网络连线依然保持韧性不断裂。遇到同名冲突时，才回退至最短唯一路径策略。^[[[_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics|Obsidian-Knowledge-Base-Mechanics]]]
+它采用**无路径寻址 (Pathless Addressing)** 机制，优先用目标标题解析到 vault 中的 Markdown 文件，而不是要求作者维护相对路径。标题全局唯一时，`[[Note title]]` 即可表达链接；同名文件需要路径或最短可区分路径消歧。^[[[_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics|Obsidian-Knowledge-Base-Mechanics]]]
+
+常见变体包括：
+
+- `\[\[Note title|Alias\]\]`：别名只改变显示文本，不改变目标。
+- `\[\[Note title#Heading\]\]`：链接到目标文档内的标题。
+- `\[\[Note title#^block-id\]\]`：链接到段落级块引用。
+- `!\[\[Note title\]\]` 或 `!\[\[image.png\]\]`：把目标页面、章节或附件嵌入当前页面。^[[[_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics|Obsidian-Knowledge-Base-Mechanics]]]
+
+在图论语义上，wikilink 是从当前文件指向目标文件的有向边；Backlinks 是对这组有向边的反向查询。Unlinked mentions 只是文本匹配候选，不等价于已经确认的图边。
 
 ## 内联脚注 (Inline Footnotes)
 
