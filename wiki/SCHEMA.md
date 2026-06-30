@@ -1,7 +1,7 @@
 ---
 title: Wiki Schema
 created: 2026-05-14
-updated: 2026-06-29
+updated: 2026-06-30
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -211,6 +211,17 @@ python3 scripts/wiki_lint.py
 11. 若 `index.md` 维护 `Total pages` 字段，则该值必须等于已登记的 Active Layer 2 节点数
 12. `_living/` 文档不得包含图谱 wikilinks 或语义型 frontmatter 字段（如 `type`, `tags`, `concepts`）
 13. `_living/` 一级分类目录必须符合 2–3 词段 kebab-case 主题命名规则
+
+### Lint Co-evolution Policy (校验工具随 Schema 演进)
+
+`SCHEMA.md` 是 wiki 结构与运维规则的单一权威来源；`scripts/wiki_lint.py` 是这些规则中**可机械校验部分**的执行器。因此，任何修改 `SCHEMA.md` 的变更都必须在同一轮维护中完成以下检查：
+
+1. 若变更涉及 layer 定义、路径约定、Active/Meta/Archive 范围、frontmatter 必填字段、Tag Taxonomy、wikilink / provenance 语法、index 注册表规则或 Validation Invariants，必须同步评估并更新 `scripts/wiki_lint.py`。
+2. 若新增规则可以机械校验，必须把对应 issue key 与默认文本检查项加入 `scripts/wiki_lint.py`；默认输出的检查清单应与本节 Validation Invariants 保持一一对应或明确的聚合关系。
+3. 若新增规则属于语义判断、颗粒度判断、保守链接原则、实现细节过滤等不可可靠机械校验内容，必须在 `SCHEMA.md` 中明确标注为原则性约束，不强行塞进 lint。
+4. 若新增或移动标签，必须同步 `Tag Taxonomy` 与 `scripts/wiki_lint.py` 的 fallback `ALLOWED_TAGS` 集合，避免 SCHEMA 解析失败时退回旧标签库。
+5. 完成 SCHEMA 或 lint 调整后，必须运行 `python3 scripts/wiki_lint.py`；涉及机器消费或报告格式变更时，也必须运行 `python3 scripts/wiki_lint.py --json`。
+6. 所有 SCHEMA / lint 共演进变更都必须追加到 `log.md`，说明改了哪些规则、哪些规则进入 lint、哪些规则刻意保持人工判断。
 
 ## Update Policy (更新策略)
 

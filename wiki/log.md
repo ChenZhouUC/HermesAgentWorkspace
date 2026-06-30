@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-06-29
+updated: 2026-06-30
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,6 +12,32 @@ confidence: high
 
 > 知识库操作追踪日志 (Append-only)
 > 格式：`## [YYYY-MM-DD] action | subject`
+
+## [2026-06-30] audit | Wiki schema and lint alignment
+
+- Scope: 对照 `SCHEMA.md` 审计当前 wiki 结构、Layer 2 节点、index 注册表、溯源语法、Living topic taxonomy 与 lint 覆盖面
+- Findings:
+  - 当前 SCHEMA 规则仍匹配 wiki 状态，未发现需要新增 layer、改 frontmatter 契约或调整分层语义的内容变更
+  - Active Layer 2 节点 38 个：entities 9、concepts 25、comparisons 3、queries 1；与 `index.md` 的 `Total pages: 38` 一致
+  - 无零字节 Markdown、无 root ghost page、无断链、无跨层普通 wikilink、无 `_living/` 图谱污染
+  - 最长 active 页面 109 行，未触发 SCHEMA 的 200 行拆分建议
+  - 发现工具漂移：`SCHEMA.md` Validation Invariants 为 13 项，但 `scripts/wiki_lint.py` 默认文本报告仍合并为 12 项；脚本内置 fallback `ALLOWED_TAGS` 也缺少部分已注册标签
+- Actions:
+  - 调整 `scripts/wiki_lint.py` 的 `CHECKS` 分组，使默认文本输出与 SCHEMA 的 13 项强校验一一对应
+  - 补齐 `ALLOWED_TAGS` fallback 集合中的 `orchestration`、`harness`、`react`、`context-management`、`sandbox`、`hitl`、`protocol`、`multi-agent`
+- Verification: `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json` 均通过
+- Conclusion: SCHEMA 本身无需调整；本轮修复的是 schema-to-tool 对齐问题
+
+## [2026-06-30] update | Lint co-evolution policy
+
+- Trigger: 明确 wiki 运维时 `scripts/wiki_lint.py` 是否必须随知识库和 SCHEMA 演进同步维护，避免后续 agent 只改规则、不改校验器
+- Existing constraints:
+  - `hermes-update.md` 已要求命中 `wiki/**` 前重读 `SCHEMA.md`，并说明 SCHEMA 会演进
+  - `SCHEMA.md` 已要求每次同步、重构或批量生成后运行 `python3 scripts/wiki_lint.py`
+  - 历史日志中多次记录过标签、目录、Validation Invariants 与 lint 的同步，但此前不是一条显式 schema 契约
+- Action: 在 `SCHEMA.md` 新增 `Lint Co-evolution Policy` 小节，规定任何修改 layer、路径、frontmatter、标签、wikilink/provenance、index 或 Validation Invariants 的变更，都必须同步评估 `scripts/wiki_lint.py`
+- Boundary: 明确语义判断、颗粒度判断、Conservative Linking、Reusability Filter 等不可可靠机械校验规则应留在 SCHEMA 人工约束中，不强行塞进 lint
+- Verification: `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json`
 
 ## [2026-05-14] create | Wiki initialized
 
