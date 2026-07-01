@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last structural update: 2026-07-01 | Total pages: 39
+> Last structural update: 2026-07-01 | Total pages: 41
 > (Content updates tracked in individual page frontmatter)
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
@@ -34,12 +34,12 @@ Registry Rules
 - [[edge-sophon]] - 算能 (Sophgo) 边缘 TPU 盒子系列
 - [[esp32-s3]] - WiFi CSI 信号采集核心微控制器
 - [[hermes-agent]] - 多模态 Agent 端到端框架，包含 macOS 核心网关与 Fallback 机制
-- [[hidalgo]] - ReID 顶层项目与计算层服务：特征数据 → 行人 ID + 角色 + 轨迹
+- [[hidalgo|HIDALGO]] - ReID 顶层项目与计算层服务：特征数据 → 行人 ID + 角色 + 轨迹
 - [[obsidian]] - 本地 Markdown 知识库与双链图谱工具
 - [[openclaw]] - 早期的智能体前代框架（现已被 Hermes 继承并自动迁移）
 - [[ruview]] - 基于 WiFi CSI 的穿墙无感知检测平台
-- [[spacesight-qa]] - SpaceSight 产品线历史提问与业务 Q&A 清单
-- [[trajex]] - ReID 感知层服务：边缘轨迹 + 图像 → 特征数据 + 角色标签
+- [[spacesight]] - 线下门店与展陈场景的视觉智能产品线
+- [[trajex|TRAJEX]] - ReID 感知层服务：边缘轨迹 + 图像 → 特征数据 + 角色标签
 
 ## Concepts (概念：机制/算法/理论)
 
@@ -73,8 +73,10 @@ Registry Rules
 
 - [[reasoning-model-apis]] - 各厂商推理模型「思考/努力」API 参数与档位横向对比
 - [[reid-embedding-model-families]] - ReID 五大模型家族（FastReid/TransReID/SOLIDER/CLIP-ReID/PersonViT）选型对比
-- [[trajex-vs-hidalgo]] - ReID 系统的感知层与计算层分工对比（何时该拆、何时该合）
+- [[trajex-vs-hidalgo|TRAJEX vs HIDALGO]] - ReID 系统的感知层与计算层分工对比（何时该拆、何时该合）
 
 ## Queries (深度问答/探索存档)
 
+- [[design-spacesight-nonstandard-traffic-plan]] - 如何设计 SpaceSight 非标店内客流方案
+- [[diagnose-spacesight-traffic-count-mismatch]] - 如何排查 SpaceSight 出入口客流人数偏差
 - [[how-to-roll-out-a-new-reid-model]] - 如何把一个新的 ReID 特征模型安全上线到生产（影子部署 + 灰度切换 + 回滚 SOP）

@@ -10,18 +10,69 @@ confidence: high
 
 # Wiki Log
 
-> 知识库操作追踪日志 (Append-only)
-> 格式：`## [YYYY-MM-DD] action | subject`
+> 知识库操作追踪日志 (Daily rollup)
+> 格式：`## [YYYY-MM-DD] daily | subject`
+> 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
 
-## [2026-07-01] create | SpaceSight Q&A index
+## [2026-07-01] daily | Wiki carrier and SpaceSight maintenance
+
+### Obsidian carrier maintenance SOP
+
+- Trigger: Obsidian 是当前 wiki 的主要载体，需要把插件版本、插件配置完整性与前端协作事项纳入 wiki 运维原则，避免后续只检查 Markdown 图谱而忽略 Obsidian 侧体验漂移。
+- Action: 在 `SCHEMA.md` 新增 `Obsidian Carrier Maintenance` 小节，要求 wiki 运维时核对 `community-plugins.json`、插件 `manifest.json`、插件版本、`data.json` 默认配置完整性，并在汇报中列出只能由用户在 Obsidian 前端处理的事项。
+- Boundary: 该流程涉及联网版本查询、插件代码默认值解析与前端状态确认，暂不纳入 `scripts/wiki_lint.py` 强校验；后续若沉淀稳定脚本，再补充到 SCHEMA。
+
+### Daily log policy
+
+- Trigger: 用户要求 `log.md` 的运维策略改为每天最多一条，避免同一天多次小修产生碎片化顶层日志。
+- Action: 在 `SCHEMA.md` 新增 `Daily Log Policy`，规定同一自然日默认只保留一个 `daily` 顶层条目；同日多项维护用 `###` 子段或 bullet 合并，并保留 Trigger / Actions / Boundary / Verification 等审计信息。
+- Action: 将 2026-07-01 已有的 Obsidian 载体 SOP 与 SpaceSight Q&A index 两条日志合并为当天 daily rollup。
+
+### SpaceSight Q&A index
 
 - Source: `_living/Whale-SpaceSight/SpaceSight-QA-List.md`
-- Action 1: 新增 `entities/spacesight-qa.md`，作为 SpaceSight 产品线历史业务问答清单的 Layer 2 图谱入口
-- Action 2: 将 living 源文档 frontmatter 降为最小必要元数据，避免 `_living/` 承担 active node 语义
-- Action 3: 对齐 `index.md` 中已登记的 `[[spacesight-qa]]` 条目与 active 页面
-- Verification: `python3 scripts/wiki_lint.py`
+- Action 1: 新增 `entities/spacesight-qa.md`，作为 SpaceSight 产品线历史业务问答清单的 Layer 2 图谱入口。
+- Action 2: 将 living 源文档 frontmatter 降为最小必要元数据，避免 `_living/` 承担 active node 语义。
+- Action 3: 对齐 `index.md` 中已登记的 `spacesight-qa` 条目与 active 页面。
 
-## [2026-06-30] audit | Wiki schema and lint alignment
+### SpaceSight Q&A reingest
+
+- Trigger: 用户要求全面运维 SpaceSight Q&A，去掉 `SpaceSight-QA-List.md` 中问题标题序号，方便后续手动调整顺序，并重新 ingest 相关知识点、清理弱价值内容。
+- Action 1: 将 `_living/Whale-SpaceSight/SpaceSight-QA-List.md` 的各问题标题从带中文序号改为无序号主题标题，保留正文 Q/A 顺序与内容。
+- Action 2: 删除弱语义的 `entities/spacesight-qa.md` 清单索引节点，改建 `entities/spacesight.md` 作为 SpaceSight 产品线实体。
+- Action 3: 从当前 QA 清单提炼两个可复用 query SOP：`queries/diagnose-spacesight-traffic-count-mismatch.md` 与 `queries/design-spacesight-nonstandard-traffic-plan.md`。
+- Action 4: 移除 `SpaceSight-QA-List.md` 中指向不存在 `SpaceSight-Historical-QA.md` 的 living source 字段，避免虚假溯源。
+- Action 5: 同步 `index.md`：移除 `spacesight-qa`，注册 `spacesight` 与两个 query，`Total pages` 39 → 41。
+
+### Full wiki and Obsidian carrier audit
+
+- Wiki result: `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json` 均通过；active 节点 41 个（entities 10、concepts 25、comparisons 3、queries 3），与 `index.md` 注册数一致。
+- Cleanup result: 未发现 `SpaceSight-QA-List.md` 残留中文序号标题、旧 `[[spacesight-qa]]` 双链或 `SpaceSight-Historical-QA.md` 虚假来源。
+- Obsidian result: `community-plugins.json` 与插件目录一致；`color-cycler`、`extended-graph`、`obsidian-linter`、`obsidian-minimal-settings` 均为当前上游 `manifest.json` 版本；四个插件 `data.json` 相对默认配置对象均无缺键。
+
+### Wiki lint coverage update
+
+- Trigger: 新增 `Daily Log Policy` 与 Obsidian 载体运维 SOP 后，需要重新评估 `scripts/wiki_lint.py` 是否应随 SCHEMA 演进。
+- Action 1: 补齐 `scripts/wiki_lint.py` fallback `ALLOWED_TAGS` 中的 `spacesight`、`product-management`、`compliance`，避免 SCHEMA 解析失败时退回旧标签库。
+- Action 2: 将 `log.md` 同日期唯一 `daily` 顶层条目规则纳入 lint 强校验。
+- Action 3: 将 Obsidian 本地 `community-plugins.json` 与插件目录 `manifest.json` 一致性纳入 lint 强校验；联网版本查询、默认配置递归比对和前端状态确认仍保留为人工 / 半自动 SOP。
+- Action 4: 新增 SCHEMA-to-tool drift 自检项，使 `wiki_lint.py` 能通过运行自身暴露 Tag Taxonomy / fallback 标签集不同步、Validation Invariants / 默认检查清单数量不同步这类“lint 需要更新”的问题。
+- Action 5: 新增 exact-case 校验，要求 active graph 的 wikilink 目标、index 登记 slug、`contradictions` slug 与本地 `sources` 路径必须和真实文件大小写完全一致，避免 macOS 大小写不敏感文件系统掩盖 `HIDALGO` / `hidalgo` 这类差异。
+
+### HIDALGO / TRAJEX naming normalization
+
+- Trigger: 用户要求 wiki 内 HIDALGO / TRAJEX 展示名称统一大写。
+- Action 1: 将相关 Layer 2 正文、标题、index 展示文本与 wikilink alias 统一为 `HIDALGO` / `TRAJEX`；active slug 仍保持 `hidalgo`、`trajex`、`trajex-vs-hidalgo` 小写，以符合 Active Layer 2 文件名规则。
+- Action 2: 将 living 源文件 `ReID-Perception-Layer-trajex.md` 重命名为 `ReID-Perception-Layer-TRAJEX.md`，并同步所有 frontmatter `sources` 与溯源脚注路径。
+- Action 3: 保留真实代码路径、active 文件路径和 slug 的原始大小写，避免历史日志或图谱路径变成不存在的大写文件。
+
+### Verification
+
+- Verification: `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json`
+
+## [2026-06-30] daily | Wiki maintenance
+
+### audit | Wiki schema and lint alignment
 
 - Scope: 对照 `SCHEMA.md` 审计当前 wiki 结构、Layer 2 节点、index 注册表、溯源语法、Living topic taxonomy 与 lint 覆盖面
 - Findings:
@@ -36,7 +87,7 @@ confidence: high
 - Verification: `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json` 均通过
 - Conclusion: SCHEMA 本身无需调整；本轮修复的是 schema-to-tool 对齐问题
 
-## [2026-06-30] update | Lint co-evolution policy
+### update | Lint co-evolution policy
 
 - Trigger: 明确 wiki 运维时 `scripts/wiki_lint.py` 是否必须随知识库和 SCHEMA 演进同步维护，避免后续 agent 只改规则、不改校验器
 - Existing constraints:
@@ -47,56 +98,62 @@ confidence: high
 - Boundary: 明确语义判断、颗粒度判断、Conservative Linking、Reusability Filter 等不可可靠机械校验规则应留在 SCHEMA 人工约束中，不强行塞进 lint
 - Verification: `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json`
 
-## [2026-05-14] create | Wiki initialized
+## [2026-05-14] daily | Wiki maintenance
+
+### create | Wiki initialized
 
 - Domain: AI Infrastructure, Edge Inference, TCS & Math
 - Action: Created base directory structure, SCHEMA.md, index.md, and log.md.
 
-## [2026-05-14] ingest | Batch import from Feishu Living Docs
+### ingest | Batch import from Feishu Living Docs
 
 - Source: 5 Feishu Docs into `_living/AI-Infrastructure` and `_living/TCS-and-Math`
 - Created: `concepts/markdown-llm-protocol.md`, `concepts/agent-frameworks.md`, `concepts/llm-benchmark-methodology.md`, `concepts/llm-computational-complexity.md`, `concepts/set-theory-reading.md`
 - Updated: `index.md`
 
-## [2026-05-14] ingest | Expand Domain and New Docs
+### ingest | Expand Domain and New Docs
 
 - Action: Expanded SCHEMA.md domains to include Algorithm Engineering, Statistics, Full-Stack Ops.
 - Source: 2 Feishu Docs into \_living/AI-Infrastructure and \_living/AI-Applications
 - Created: entities/edge-rk3576.md, entities/edge-sophon.md, concepts/hermes-mac-ops.md
 - Updated: SCHEMA.md, index.md
 
-## [2026-05-14] lint | Deep Sync Executed
+### lint | Deep Sync Executed
 
 - Action: Full graph traversal (Deep Sync) on \_living/.
 - Discovered new structural files: RuView-Technical-Research-Deployment.md
 - Rebuilt Layer 2 links for newly structured contents. Ghosts purged.
 - Added: entities/ruview.md, entities/esp32-s3.md
 
-## [2026-05-14] update | True Deep Sync: Content Revision
+### update | True Deep Sync: Content Revision
 
 - Action: Reread all 5 modified living docs. Overwrote Layer 2 concepts.
 - Stripped old Feishu metadata references from concepts.
 - Updated: `concepts/markdown-llm-protocol.md`, `concepts/agent-frameworks.md`, `concepts/llm-benchmark-methodology.md`, `concepts/llm-computational-complexity.md`.
 
-## [2026-05-15] ingest | LMM Input Mechanics
+## [2026-05-15] daily | Wiki maintenance
+
+### ingest | LMM Input Mechanics
 
 - Source: New living doc `_living/AI-Infrastructure/LMM-Input-Mechanics.md`
 - Created: `concepts/lmm-input-mechanics.md` with links mapping
 - Updated: `index.md`, `concepts/markdown-llm-protocol.md`, and added frontmatter to living doc.
 
-## [2026-05-15] update | Global Linkage Sync
+### update | Global Linkage Sync
 
 - Action: Full linkage sync across all living docs, concepts, and entities.
 - Detail: Injected missing `[[wikilinks]]` at the bottom of 17 legacy files to weave the Knowledge Graph.
 
-## [2026-05-17] ingest | Markdown 进阶语法与 Obsidian 解析机制
+## [2026-05-17] daily | Wiki maintenance
+
+### ingest | Markdown 进阶语法与 Obsidian 解析机制
 
 - 创建了源文档：`_living/AI-Infrastructure/Advanced-Markdown-Syntax.md`
 - 更新了 Layer 2 概念页：`concepts/advanced-markdown-syntax.md`
 - 关联了相关文档：`concepts/markdown-llm-protocol.md`
 - 更新了：`index.md`
 
-## [2026-05-17] ingest | 知识图谱的技术演进：从符号主义到大语言模型
+### ingest | 知识图谱的技术演进：从符号主义到大语言模型
 
 - 创建了源文档：\_living/AI-Infrastructure/Evolution-of-Knowledge-Graphs.md (遵循极简元数据原则)
 - 提炼了 Layer 2 概念页：concepts/traditional-knowledge-graph.md
@@ -104,7 +161,7 @@ confidence: high
 - 关联了相关文档：concepts/advanced-markdown-syntax.md, concepts/markdown-llm-protocol.md
 - 更新了：index.md
 
-## [2026-05-17] update | 本体论架构重组：从概念到实体
+### update | 本体论架构重组：从概念到实体
 
 - 移除了本体论错误的流程化概念卡片：`concepts/hermes-mac-ops.md`
 - 基于 `_living/AI-Applications/Hermes-Agent-macOS-Ops.md`，重新提取并建立了软件实体页：`entities/hermes-agent.md`
@@ -112,7 +169,7 @@ confidence: high
 - 全面使用紧凑型内联语法重做了 Layer 2 溯源脚注
 - 更新了：`index.md`
 
-## [2026-05-17] lint | Schema compliance and ghost-node repair
+### lint | Schema compliance and ghost-node repair
 
 - Removed zero-byte ghost pages: `hermes-mac-ops.md`, `set-theory-reading.md`
 - Repointed stale wikilinks to active Layer 2 nodes: `[[hermes-agent]]`, `[[openclaw]]`, `[[set-theory]]`
@@ -122,26 +179,30 @@ confidence: high
 - Pruned nonexistent entries from `.obsidian/workspace.json` last-open state
 - Linked `index.md`, `SCHEMA.md`, and `log.md` to reduce meta-page graph isolation
 
-## [2026-05-17] update | Strengthen Layer 2 schema and registry rules
+### update | Strengthen Layer 2 schema and registry rules
 
 - Scoped hard constraints explicitly to Active Layer 2 pages (`entities/`, `concepts/`, `comparisons/`, `queries/`)
 - Added strict invariants for unique slugs, non-empty `sources`/`tags`, resolved wikilinks, and directory-to-type matching
 - Added lifecycle rules for create / rename / replace / split / merge / archive / delete
 - Declared `index.md` the single registry for active Layer 2 nodes and formalized registration rules
 
-## [2026-05-18] lint | Registry sync after Obsidian mechanics ingest
+## [2026-05-18] daily | Wiki maintenance
+
+### lint | Registry sync after Obsidian mechanics ingest
 
 - Replaced stale `[[advanced-markdown-syntax]]` links with `[[wikilinks]]`
 - Added missing `sources` frontmatter to `concepts/wikilinks.md`, `concepts/graph-centrality.md`, and `entities/obsidian.md`
 - Registered `[[obsidian]]`, `[[graph-centrality]]`, and `[[wikilinks]]` in `index.md`
 - Removed deleted `[[advanced-markdown-syntax]]` from `index.md` and reconciled total page count
 
-## [2026-05-18] tooling | Add wiki Layer 2 consistency linter
+### tooling | Add wiki Layer 2 consistency linter
 
 - Added `scripts/wiki_lint.py` as the canonical post-maintenance validator for Layer 2 graph consistency
 - Updated `SCHEMA.md` to require `python3 scripts/wiki_lint.py` after wiki sync, rebuild, or batch generation
 
-## [2026-05-24] ingest | LLM Reasoning: Thinking 与 Effort 全景调研
+## [2026-05-24] daily | Wiki maintenance
+
+### ingest | LLM Reasoning: Thinking 与 Effort 全景调研
 
 - 创建了源文档：`_living/AI-Infrastructure/LLM-Reasoning-Thinking-and-Effort.md`（含发展历史、实现思路、最新研究、各厂商实践）
 - 提炼了 Layer 2 概念页：`concepts/chain-of-thought.md`、`concepts/test-time-compute-scaling.md`、`concepts/reasoning-effort-control.md`
@@ -150,7 +211,7 @@ confidence: high
 - 关联了相关文档：`concepts/agent-frameworks.md`、`concepts/llm-benchmark-methodology.md`、`concepts/llm-computational-complexity.md`
 - 更新了：`index.md`（Total pages 17 → 21）
 
-## [2026-05-24] update | Graph review: reciprocal links + re-ingest thin pages
+### update | Graph review: reciprocal links + re-ingest thin pages
 
 - 修复 reasoning 集群「单向桥」：在 `llm-computational-complexity`、`agent-frameworks`、`llm-benchmark-methodology` 补反向链接至 `chain-of-thought` / `test-time-compute-scaling`
 - 深度重提炼 `concepts/llm-computational-complexity.md`：补全四篇核心论文（Merrill&Sabharwal TC0/P、Li et al. 串行下界、Faith and Fate、Hahn 形式语言限制）及溯源脚注
@@ -158,7 +219,7 @@ confidence: high
 - 给 `concepts/agent-frameworks.md` 补 `llm` 标签
 - 未改动 `_living/` 任何源文档（严守单向引用原则）
 
-## [2026-05-24] update | 全库 Layer1↔Layer2 覆盖度审计 + 欠提炼修补
+### update | 全库 Layer1↔Layer2 覆盖度审计 + 欠提炼修补
 
 - 审计：逐一比对全部 11 个 `_living` 源文档与对应 Layer 2 页面的覆盖度
 - 重写 `concepts/agent-frameworks.md`：从仅认知澄清段，扩为五大阵营 14 框架全景 + 7 场景化选型
@@ -168,7 +229,9 @@ confidence: high
 - 修复 `entities/edge-sophon.md` 重复的 `updated` frontmatter 键
 - 未改动 `_living/` 任何源文档；`wiki_lint: OK`
 
-## [2026-05-25] refactor | ReID & Customer Flow: 整体重组
+## [2026-05-25] daily | Wiki maintenance
+
+### refactor | ReID & Customer Flow: 整体重组
 
 - 审计：上一轮 ingest 把 8 篇飞书文档原文堆在 `_living/Computer-Vision/ReID/` 目录，并把 `_living/` 路径直接登记到 `index.md` Queries 区，违反 SCHEMA（Layer 2 注册表不得登记 `_living/` 节点）；wiki_lint 报 9 个 stale_index_entries + 1 个 duplicate_index_entry
 - \_living 重组：删除整个 `_living/Computer-Vision/` 目录；将可复用知识合并为两篇现位于 `_living/Whale-SpaceSight/` 下的文档：`ReID-Pipeline-Architecture.md`、`Customer-Flow-Post-Processing.md`
@@ -181,19 +244,19 @@ confidence: high
 - 索引同步：移除 `index.md` Queries 区 9 条 `_living/` 误注册项；在 Concepts 区按字母序新增 3 条；`Total pages` 21 → 24
 - 未改动 `_living/` 中已有的非 ReID 文档；`wiki_lint: OK`
 
-## [2026-05-25] update | ReID 知识库基于真实代码事实核查 + 重写
+### update | ReID 知识库基于真实代码事实核查 + 重写
 
-- 触发：用户指出 ReID 实际实现位于 `~/Documents/GithubRepo/VisitorTRACE-REID/hidalgo/`，让我据此核对并修正前一轮基于二手飞书文档构建的知识库
-- 代码审计：通过 general-purpose agent 通读 `hidalgo/` 包的 17 个核心源文件并产出结构化报告，覆盖管线形态 / 聚类算法 / 角色过滤 / 接待识别 / 客流过滤 / 模型推理 / 存储 / 调度 / 评估指标 9 大维度
+- 触发：用户指出 ReID 实际实现位于 `~/Documents/GithubRepo/VisitorTRACE-REID/HIDALGO/`，让我据此核对并修正前一轮基于二手飞书文档构建的知识库
+- 代码审计：通过 general-purpose agent 通读 `HIDALGO/` 包的 17 个核心源文件并产出结构化报告，覆盖管线形态 / 聚类算法 / 角色过滤 / 接待识别 / 客流过滤 / 模型推理 / 存储 / 调度 / 评估指标 9 大维度
 - 关键修正：
   - **管线形态**：从二手文档假设的"Kafka 流式管线"修正为**离线批处理函数** `(店铺, 时间窗, 模式) → 结果`；上游感知（模型推理 / 底库相似度查询）与下游编排（DAG 调度）都在本系统职责外
   - **聚类结构**：从假设的"4 阶段（在线 / 离线 / 属性约束 / 兜底）"修正为底层是**相似度图连通分量** + 多层级 tier（Entrance 7 层 / Interior 5 档 / Coupling 4 阶段）；明确不是经典 HAC 的 single linkage
   - **三模式对偶**：补全此前完全缺失的 Entrance / Interior / Coupling 三模式架构（Coupling 是生产主模式）
   - **角色判定两阶段**：把单纯的"前置过滤"修正为**预判 + 后重判**（聚类后按簇取众数 + 徽章比例覆写 + 融合分兜底）
-  - **接待识别 / 假人 / 嵌套过滤**：在 hidalgo 代码中**完全不存在**——只有小门框过店过滤是真实的（loc_x/loc_y_filter + 单调方向检测）。在 customer-flow-post-processing 的 \_living 和 Layer 2 中加上"代码边界说明"，明确这部分来源是二手设计/测试报告（独立下游服务，不在 hidalgo 仓库），confidence 改为 medium
+  - **接待识别 / 假人 / 嵌套过滤**：在 HIDALGO 代码中**完全不存在**——只有小门框过店过滤是真实的（loc_x/loc_y_filter + 单调方向检测）。在 customer-flow-post-processing 的 \_living 和 Layer 2 中加上"代码边界说明"，明确这部分来源是二手设计/测试报告（独立下游服务，不在 HIDALGO 仓库），confidence 改为 medium
   - **存储**：确认 PG + pgvector，**Milvus 在该仓库未运行时调用**（处理器存在但不被调用），底库相似度查询发生在更上游
   - **调度**：确认 Airflow DAG **不在本仓库**，外部调度器 + 本地轻量任务进度表是分工边界
-  - **评估指标**：删除 `Rank-N / mAP / mCP`——这些**不在 hidalgo 实现**（可能在训练侧仓库）；本系统只评角色精/召 + 双向熵
+  - **评估指标**：删除 `Rank-N / mAP / mCP`——这些**不在 HIDALGO 实现**（可能在训练侧仓库）；本系统只评角色精/召 + 双向熵
 - 补全此前漏掉的设计模式：按店参数覆写表（JSON 列 + deep merge）、有偏下采样（保进店、采出店）、推理服务共享内存优化、多套环境配置中心、历史变体与实验代码并存
 - 文档操作：
   - 重写 `_living/Whale-SpaceSight/ReID-Pipeline-Architecture.md`（含三模式对偶 / 角色两阶段 / 按店覆写 / 反作弊采样 等新章节）
@@ -203,7 +266,9 @@ confidence: high
   - 更新 `index.md` 中 `reid-pipeline` 与 `multi-stage-clustering` 的一句话摘要
 - `wiki_lint: OK`
 
-## [2026-05-26] ingest | ReID Embedding Models 模型选型调研
+## [2026-05-26] daily | Wiki maintenance
+
+### ingest | ReID Embedding Models 模型选型调研
 
 - 触发：用户要求调研 ReID 特征向量模型现状（FastReid 已用过，关心 ViT 等新 SOTA），并落地到 \_living + Layer 2
 - 调研路径：WebSearch 拉取近年 ReID 特征模型现状（FastReid / TransReID / SOLIDER / CLIP-ReID / PersonViT / LUPerson / DINOv2 / ViT 边缘部署），覆盖学术 SOTA + 实战部署 + 跨域泛化三个维度
@@ -214,7 +279,7 @@ confidence: high
 - 内容控制：调研结果包含学术 mAP 数字（用以体现谱系差异）；本次不强行剔除——这些是"可复现的学术事实"而非"项目内部实现细节"，与之前 ReID Layer 1 脱敏的初衷不冲突
 - `wiki_lint: OK`
 
-## [2026-05-26] audit | 全量关联性 + Schema 合规审计
+### audit | 全量关联性 + Schema 合规审计
 
 - 触发：用户要求做整体审计——关联性保守、L2 提取准确完备、最终 lint 合规
 - 完备性：逐一比对 15 篇 `_living` 与 25 个 L2 节点，**全部 \_living 都有对应 L2 提炼**（其中 5 篇被拆为多个 L2）
@@ -233,7 +298,7 @@ confidence: high
 - 未修改任何 \_living 源文档；未新增/删除任何 L2 节点
 - `wiki_lint: OK`
 
-## [2026-05-26] update | SCHEMA 升级：写入用户六条运维原则
+### update | SCHEMA 升级：写入用户六条运维原则
 
 - 触发：用户提出 6 条 wiki 运维原则，要求按 LLM 可解析的命令式语言写入 `SCHEMA.md`，并明确这些是"原则上要求"（含主观判断成分，不同模型在不同参数下执行可能有差异）
 - 修改的章节：
@@ -246,7 +311,7 @@ confidence: high
 - 未修改任何 \_living 源文档或 L2 节点
 - `wiki_lint: OK`
 
-## [2026-05-26] audit | 按升级后的 SCHEMA 做全量复审
+### audit | 按升级后的 SCHEMA 做全量复审
 
 - 触发：SCHEMA 升级后（新增 Raw Reference Sources / Granularity Heuristics / Type Semantics / Conservative Linking / Reusability Filter），需要把新规则反向应用到现有 26 个 L2 节点
 - SCHEMA 自身的三处自检修正：
@@ -267,39 +332,39 @@ confidence: high
 - 不动 \_living 已有内容（Reusability Filter 面向未来 ingest，不回溯）
 - `wiki_lint: OK`
 
-## [2026-05-26] ingest | trajex ReID 感知层服务
+### ingest | TRAJEX ReID 感知层服务
 
 - 触发：用户提供 `~/Documents/WhaleRepo/whds/project_hidalgo_reid/trajex/` 的 ReID 推理服务代码，要求按最新 SCHEMA 设计融入
-- 代码审计：通过 general-purpose agent 通读 trajex 仓库（README、`src/trajex/{inference,queue,database,cluster,models,setting,config,commands}/`、KAFKA_DEDUPLICATION.md、5 个 rebuild/rerun 脚本、trajex-api/admin/alert 子服务），产出 1200 字结构化报告
+- 代码审计：通过 general-purpose agent 通读 TRAJEX 仓库（README、`src/trajex/{inference,queue,database,cluster,models,setting,config,commands}/`、KAFKA_DEDUPLICATION.md、5 个 rebuild/rerun 脚本、trajex-api/admin/alert 子服务），产出 1200 字结构化报告
 - 关键事实确认：
-  - trajex 与 hidalgo 之间**只通过数据库表握手，无 RPC 无共享内存**——schema 即契约
-  - trajex 只做"逐轨迹特征化 + 角色 1-NN 库查询"，**不做聚类、不分配行人 ID**
+  - TRAJEX 与 HIDALGO 之间**只通过数据库表握手，无 RPC 无共享内存**——schema 即契约
+  - TRAJEX 只做"逐轨迹特征化 + 角色 1-NN 库查询"，**不做聚类、不分配行人 ID**
   - 推理走 Triton + 本机共享内存直连；模型旧主特征轴 / 新统一特征轴可并行写入
   - 两层 Redis 集合去重（按天滚动 TTL，曾用 Bloom filter 后替换以避免假阳性）
   - 三种回放模式：scheduled rebuild / manual rerun / cache rebuild
   - Milvus → pgvector 按集合渐进迁移，dispatcher 层切换不动业务代码
-- \_living 新建：`_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md`（10 节，覆盖职责边界 / 数据流 / 模型推理 / 库查询 / 去重 / 回放 / 模型升级 / hybrid 存储 / 运维 / 设计哲学）；按 Reusability Filter 剥离所有项目内私有命名（具体表名、列名、Kafka topic 名、模型节点名、配置键、Redis key 命名等）
+- \_living 新建：`_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md`（10 节，覆盖职责边界 / 数据流 / 模型推理 / 库查询 / 去重 / 回放 / 模型升级 / hybrid 存储 / 运维 / 设计哲学）；按 Reusability Filter 剥离所有项目内私有命名（具体表名、列名、Kafka topic 名、模型节点名、配置键、Redis key 命名等）
 - L2 提炼（按 Conservative Linking 严格筛选，agent 提议 14 个新节点，砍剪到 6 个）：
   - `entities/trajex.md` — 具体服务实体
   - `concepts/reid-library-lookup.md` — 把 1-NN 角色判定上移到感知层的方法学
   - `concepts/model-shadow-deployment.md` — 配对特征轴并行的模型升级模式
   - `concepts/schema-as-handoff-contract.md` — DDL 作为生产者/消费者契约的通用范式
   - `comparisons/trajex-vs-hidalgo.md` — 感知层 vs 计算层分工对比（含三件套：对比表 + Trade-offs + When to use）
-  - `queries/how-to-roll-out-a-new-reid-model.md` — **wiki 中第一个 query 节点**，端到端 SOP 串联 reid-embedding-models / model-shadow-deployment / trajex / reid-pipeline / reid-library-lookup
+  - `queries/how-to-roll-out-a-new-reid-model.md` — **wiki 中第一个 query 节点**，端到端 SOP 串联 reid-embedding-models / model-shadow-deployment / TRAJEX / reid-pipeline / reid-library-lookup
 - 砍掉的候选（颗粒度过细 / 厂商绑定 / 重复）：
-  - `entities/hidalgo` — 已在 reid-pipeline concept 中作为方法学描述；hidalgo 是内部代号，作为 entity 颗粒度模糊
+  - `entities/hidalgo` — 已在 reid-pipeline concept 中作为方法学描述；HIDALGO 是内部代号，作为 entity 颗粒度模糊
   - `entities/triton-inference-server` — 过于通用，没有专属 \_living 详述
   - `concepts/kafka-dedup-pre-producer` — 厂商绑定（Kafka + Redis 具体组合），并入 \_living 实施细节
   - `concepts/triton-shared-memory-deployment` — 厂商绑定 Triton，并入 \_living
   - `concepts/replay-source-tagging` — 颗粒度过细，已并入 model-shadow-deployment body
-  - `comparisons/online-vs-offline-reid-compute-split` — 与 trajex-vs-hidalgo 高度重叠
+  - `comparisons/online-vs-offline-reid-compute-split` — 与 TRAJEX-vs-HIDALGO 高度重叠
   - `queries/where-do-reid-features-come-from` — 太薄，不构成 SOP
 - 反向链补充（按 Conservative Linking，仅在 body 有显式陈述时建立）：
-  - `concepts/reid-pipeline.md` body 中"上游感知层"段引入 [[trajex]] 与 [[reid-library-lookup]]；Related 区新增 [[trajex]]、[[trajex-vs-hidalgo]]
+  - `concepts/reid-pipeline.md` body 中"上游感知层"段引入 [[trajex|TRAJEX]] 与 [[reid-library-lookup]]；Related 区新增 [[trajex|TRAJEX]]、[[trajex-vs-hidalgo|TRAJEX vs HIDALGO]]
 - 索引同步：`index.md` Entities/Concepts/Comparisons/Queries 四个区都新增条目；`Total pages` 26 → 32
 - `wiki_lint: OK`
 
-## [2026-05-26] audit | trajex ingest 二次核事实
+### audit | TRAJEX ingest 二次核事实
 
 - 触发：上一轮 ClaudeCode 已完成主体 ingest；本轮按源码对照复核，重点看 `src/trajex/inference/processor.py`、`src/trajex/inference/worker.py`、`src/trajex/database/db_manager.py`、`src/trajex/database/redis.py`、`src/trajex/queue/kafka_shared_queue.py`、回放脚本与 pgvector/Milvus 检索路径
 - 修正事实表述：
@@ -307,64 +372,68 @@ confidence: high
   - 将质量模型表述改为"可选 / 预留"，因为当前主处理链路保留质量字段与旧客户端能力，但并非每条图像都实际写入质量结果
   - 将底库分层改为"通用角色服饰库 / 公司或店铺工服库 / 店员 ReID 底库"，贴合源码中的角色服饰检索、员工工服检索与店员 ReID 检索三路
   - 将 query SOP 中的具体脚本名与具体生产列名抽象为 reembedding 任务与生产特征列，符合 Reusability Filter
-- 同步更新：`_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md`、`entities/trajex.md`、`concepts/model-shadow-deployment.md`、`comparisons/trajex-vs-hidalgo.md`、`queries/how-to-roll-out-a-new-reid-model.md`、`index.md`
+- 同步更新：`_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md`、`entities/trajex.md`、`concepts/model-shadow-deployment.md`、`comparisons/trajex-vs-hidalgo.md`、`queries/how-to-roll-out-a-new-reid-model.md`、`index.md`
 - 元数据修正：`index.md` 与 `log.md` frontmatter `updated` 刷新到 2026-05-26
 - 验证：从 git repo 根目录运行 `python3 scripts/wiki_lint.py`，返回 `wiki_lint: OK`
 
-## [2026-05-26] audit | ReID 命名边界与 SCHEMA 再审计
+### audit | ReID 命名边界与 SCHEMA 再审计
 
-- 触发：用户补充 `hidalgo` 与 `trajex` 都是内部项目名，并指出 `project_hidalgo_reid/` 的目录结构可作为术语关系证据；要求连同 `_living` 文档一起审计 ReID 相关 wiki 是否有谬误
+- 触发：用户补充 `HIDALGO` 与 `TRAJEX` 都是内部项目名，并指出 `project_hidalgo_reid/` 的目录结构可作为术语关系证据；要求连同 `_living` 文档一起审计 ReID 相关 wiki 是否有谬误
 - 代码/目录事实核对：
-  - 顶层仓库 `/Users/chenzhou/Documents/WhaleRepo/whds/project_hidalgo_reid` 的 README 标题与顶层 `pyproject.toml` 均确认项目/包名为 `hidalgo`
+  - 顶层仓库 `/Users/chenzhou/Documents/WhaleRepo/whds/project_hidalgo_reid` 的 README 标题与顶层 `pyproject.toml` 均确认项目/包名为 `HIDALGO`
   - `trajex/` 是该仓库下独立子项目，拥有独立 `pyproject.toml` 与 `src/trajex/` 服务代码
   - `hidalgo/coreprime.py` 主流程确认当前计算层按 `(shop_id, time range, mode)` 批处理，读取特征表，执行角色重判、聚合 / 匹配与结果回写；主流程不直接做模型推理或消息消费
-- 结论修正：上一轮“`entities/hidalgo` 因为是内部代号不建”理由不成立；正确判据应是**是否具备边界清晰的软件项目/服务身份**。按最新 SCHEMA 的 entity 语义，hidalgo 与 trajex 都应是 entity：`hidalgo` 是顶层 ReID 项目与计算层服务，`trajex` 是其中特征推理 / 感知层服务
+- 结论修正：上一轮“`entities/hidalgo` 因为是内部代号不建”理由不成立；正确判据应是**是否具备边界清晰的软件项目/服务身份**。按最新 SCHEMA 的 entity 语义，HIDALGO 与 TRAJEX 都应是 entity：`HIDALGO` 是顶层 ReID 项目与计算层服务，`TRAJEX` 是其中特征推理 / 感知层服务
 - L2 修正：
   - 新建 `entities/hidalgo.md`
-  - 将 `entities/trajex.md`、`comparisons/trajex-vs-hidalgo.md`、`concepts/reid-pipeline.md`、`concepts/schema-as-handoff-contract.md`、`concepts/reid-library-lookup.md`、`concepts/model-shadow-deployment.md`、`queries/how-to-roll-out-a-new-reid-model.md` 中的“ReID 计算层 / hidalgo”指代收敛到 `[[hidalgo]]`
-  - 保留 `concepts/reid-pipeline.md` 作为系统分层方法学节点，不再让它兼任 hidalgo 实体身份
-  - `concepts/customer-flow-post-processing.md` 与 `concepts/multi-stage-clustering.md` 补充到 `[[hidalgo]]` 的明确语义链路
+  - 将 `entities/trajex.md`、`comparisons/trajex-vs-hidalgo.md`、`concepts/reid-pipeline.md`、`concepts/schema-as-handoff-contract.md`、`concepts/reid-library-lookup.md`、`concepts/model-shadow-deployment.md`、`queries/how-to-roll-out-a-new-reid-model.md` 中的“ReID 计算层 / HIDALGO”指代收敛到 `[[hidalgo|HIDALGO]]`
+  - 保留 `concepts/reid-pipeline.md` 作为系统分层方法学节点，不再让它兼任 HIDALGO 实体身份
+  - `concepts/customer-flow-post-processing.md` 与 `concepts/multi-stage-clustering.md` 补充到 `[[hidalgo|HIDALGO]]` 的明确语义链路
 - \_living 修正：
-  - `ReID-Pipeline-Architecture.md` 补“命名边界”段：Hidalgo 是顶层项目名 / 计算层服务，trajex 是特征推理子项目 / 服务
-  - `ReID-Perception-Layer-trajex.md` 补同样的命名边界，并将下游统一称为 hidalgo 计算层
-  - `Customer-Flow-Post-Processing.md` 将“ReID 核心引擎”泛称收敛为 hidalgo 计算层，避免服务边界混淆
+  - `ReID-Pipeline-Architecture.md` 补“命名边界”段：HIDALGO 是顶层项目名 / 计算层服务，TRAJEX 是特征推理子项目 / 服务
+  - `ReID-Perception-Layer-TRAJEX.md` 补同样的命名边界，并将下游统一称为 HIDALGO 计算层
+  - `Customer-Flow-Post-Processing.md` 将“ReID 核心引擎”泛称收敛为 HIDALGO 计算层，避免服务边界混淆
 - 工具修正：`scripts/wiki_lint.py` 不再把 `_living` 紧凑溯源脚注 `^[[[_living/...]]]` 当作普通 graph wikilink，也移除“少于 2 出链”的硬失败项，以对齐当前 SCHEMA 的 Conservative Linking 软约束
-- 索引同步：`index.md` Entities 区新增 `[[hidalgo]]`，`Total pages` 32 → 33
-- 审计结果：未发现需要推翻 ReID 管线职责、trajex 感知层职责、库查询/影子部署/DDL 契约等核心事实的谬误；主要问题是 hidalgo/trajex 的 entity 判定标准与术语指代不一致
+- 索引同步：`index.md` Entities 区新增 `[[hidalgo|HIDALGO]]`，`Total pages` 32 → 33
+- 审计结果：未发现需要推翻 ReID 管线职责、TRAJEX 感知层职责、库查询/影子部署/DDL 契约等核心事实的谬误；主要问题是 HIDALGO/TRAJEX 的 entity 判定标准与术语指代不一致
 - `wiki_lint: OK`
 
-## [2026-05-26] update | Clarify Layer 1 source-material scope
+### update | Clarify Layer 1 source-material scope
 
 - 将 Layer 1 从仅 `_living/**` 扩展为 `_living/**` + `raw/**` 的原始材料层
 - 在 `SCHEMA.md` 中区分 Living Sources 与 Raw Reference Sources，收窄 `_living/` 专属约束
 - 同步 `index.md` 注册规则，明确 `_living/` 与 `raw/` 都不登记为 active Layer 2 节点
 
-## [2026-05-26] tooling | Strengthen wiki_lint schema coverage and reporting
+### tooling | Strengthen wiki_lint schema coverage and reporting
 
 - 对照 `SCHEMA.md` Validation Invariants 扩展 `scripts/wiki_lint.py`：补 Meta frontmatter、全库 active slug 唯一性、index 分区一致性、非 active wikilink、source 文件、日期、confidence、contradictions 等检查
 - 将默认文本输出改为固定顺序 checklist，逐项显示 `[OK]` / `[FAIL]`；保留 `--json` 机器可读输出
 - 同步 `SCHEMA.md` 验证章节，明确 lint 输出格式与普通 wikilink 不得指向 Layer 1 / Meta / Archive 的约束
 
-## [2026-05-26] audit | Full schema compliance pass
+### audit | Full schema compliance pass
 
 - 执行全库严格审计：`wiki_lint.py`、目录/文件名盘点、Layer 1 元数据检查、溯源语法检查、comparison/query 结构检查、出链统计、index 计数与分区检查
 - 修正 `SCHEMA.md` 内部不一致：Active 文件名规则明确只作用于 Layer 2；Create 生命周期中的"至少 2 个出链"改回 Conservative Linking 下的软建议；Deep Sync 示例改为当前紧凑溯源语法
 - 扩展 `scripts/wiki_lint.py`：新增 Active 文件名 kebab-case 检查与 `_living/` 语义型 frontmatter 禁止项检查
 
-## [2026-05-27] update | Hermes Agent 运维手册
+## [2026-05-27] daily | Wiki maintenance
+
+### update | Hermes Agent 运维手册
 
 - 追加更新了“第六章：忙时输入模式 (Busy Input Mode) 与连续对话机制”
 - 说明了 interrupt、queue 和 steer 三种模式的时序表现，以及极快发消息时因为空闲回退而产生的“并行/排队回复幻觉”。
 - 涉及文件：\_living/AI-Applications/Hermes-Agent-macOS-Ops.md
 
-## [2026-05-27] create | agent-mid-turn-input-modes
+### create | agent-mid-turn-input-modes
 
 - 从 `_living/AI-Applications/Hermes-Agent-macOS-Ops.md` 第 6.6 节提炼新 concept：`concepts/agent-mid-turn-input-modes.md`
 - 描述 Agent 在用户 mid-turn 追加输入时的 interrupt / queue / steer 三模式调度对偶（围绕"是否终止当前回合"和"是否保留 Prompt Cache"两个轴）
 - `entities/hermes-agent.md` 新增"连续对话调度"段落与底部双链；`updated` 同步刷新
 - `index.md` Concepts 区登记新节点；`Total pages` 33 → 34
 
-## [2026-06-02] ingest | AI Agent Harness 工程架构研究报告
+## [2026-06-02] daily | Wiki maintenance
+
+### ingest | AI Agent Harness 工程架构研究报告
 
 - Source: 个人深度调研报告（13 个框架对比、五层架构分析、工程原则）
 - Action: 创建 `_living/AI-Infrastructure/AI-Agent-Harness-Engineering.md`
@@ -372,13 +441,15 @@ confidence: high
 - Layer 2: 未提炼独立节点（内容已在 `concepts/agent-frameworks.md` 覆盖核心概念）
 - Note: 本次 ingest 为 living document，按最小元数据原则不添加语义型 frontmatter
 
-## [2026-06-03] cleanup | 孤立节点清理
+## [2026-06-03] daily | Wiki maintenance
+
+### cleanup | 孤立节点清理
 
 - Action: 删除 `wiki/Checkpointing.md`、`wiki/MCP.md`（0 字节孤立文件）
 - Reason: 这两个文件是 2026-06-02 ingest 时误创建的占位符，违反 SCHEMA（Layer 2 节点不得漂浮在根目录）
 - Verification: `wiki_lint.py` 检查 `root_floating_nodes` 从 2 项 → 0 项
 
-## [2026-06-03] refactor | Living document 合规性修复
+### refactor | Living document 合规性修复
 
 - Target: `_living/AI-Infrastructure/AI-Agent-Harness-Engineering.md`
 - Action 1: 移除 frontmatter 中的语义字段（`type: living-document`, `tags: [...]`），保留最小必要元数据（title, created, updated, review-date, sources）
@@ -392,7 +463,7 @@ confidence: high
 - Reason: 符合 SCHEMA §12 Living Documents Policy（不得包含 graph wikilinks 或语义型 frontmatter）
 - Verification: `wiki_lint.py` 检查 `living_wikilinks` 与 `living_semantic_frontmatter` 从各 1 项 → 0 项
 
-## [2026-06-03] fix | 跨层引用修复
+### fix | 跨层引用修复
 
 - Target: `concepts/agent-frameworks.md`
 - Action 1: 删除指向 `_living/AI-Infrastructure/AI-Agent-Harness-Engineering.md` 的 wikilink
@@ -400,7 +471,7 @@ confidence: high
 - Reason: Active Layer 2 节点不得用普通 wikilink 指向 Layer 1（应使用溯源脚注语法）
 - Verification: `wiki_lint.py` 检查 `non_active_wikilinks` 从 1 项 → 0 项
 
-## [2026-06-03] update | SCHEMA 标签库扩充与日期同步
+### update | SCHEMA 标签库扩充与日期同步
 
 - Action 1: 在 Tag Taxonomy 中新增 **Agent 与编排 (Agent & Orchestration)** 类别
 - Tags added: `orchestration`, `harness`, `react`, `context-management`, `sandbox`, `hitl`, `protocol`, `multi-agent`
@@ -410,7 +481,7 @@ confidence: high
 - Reason: 覆盖 AI Agent Harness 领域的核心术语，支持未来相关节点创建
 - Verification: `wiki_lint.py` 全部 11 项检查通过
 
-## [2026-06-03] audit | Wiki 全面审计与优化
+### audit | Wiki 全面审计与优化
 
 - Scope: 知识库结构、lint 脚本、SCHEMA 规范、文档质量、\_living 文档合规性
 - Findings:
@@ -423,7 +494,7 @@ confidence: high
 - Actions: 清理孤立节点、修复 living document 违规、扩充标签库、更新日志与 SCHEMA 日期
 - Result: 知识库健康度从 ⭐⭐⭐ (3/5) 提升至 ⭐⭐⭐⭐ (4/5)
 
-## [2026-06-03] create | agent-harness 概念节点与知识关联建立
+### create | agent-harness 概念节点与知识关联建立
 
 - Trigger: 发现 AI-Agent-Harness-Engineering.md (\_living 层) 提及 Hermes Agent 和 Claude Code，但缺少正式的知识图谱链接
 - Analysis: "Agent Harness" 是重要的独立架构概念，应从 \_living 提炼为 Layer 2 concept 节点
@@ -444,7 +515,9 @@ confidence: high
 - Verification: `wiki_lint: OK`
 - Result: 建立了清晰的"概念 → 实现"映射，Harness 架构知识与现有实体（Hermes/OpenClaw）形成完整的知识网络
 
-## [2026-06-29] reinject | Evolution of Knowledge Graphs
+## [2026-06-29] daily | Wiki maintenance
+
+### reinject | Evolution of Knowledge Graphs
 
 - Source: `_living/AI-Infrastructure/Evolution-of-Knowledge-Graphs.md`
 - Action 1: 对 living 源文档做格式化重组，补充 Graph RAG、Hybrid Search / RRF，并将 LLM Wiki v1 / v2 的来源分别校正为 Karpathy idea file 与 Rohit LLM Wiki v2 gist
@@ -458,7 +531,7 @@ confidence: high
 - Action 4: 同步 `index.md` Concepts 区登记新节点，`Total pages` 35 → 38
 - Verification: `wiki_lint: OK`
 
-## [2026-06-29] update | Obsidian Knowledge Base Mechanics
+### update | Obsidian Knowledge Base Mechanics
 
 - Source: `_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics.md`
 - Action 1: 扩充 living 源文档，新增 vault 文件模型、wikilinks 变体、backlinks/outgoing links、embeds、Properties/frontmatter、MetadataCache/API、搜索与插件生态、Graph View 与外部图分析边界、Obsidian 与 LLM Wiki 接口
@@ -466,7 +539,7 @@ confidence: high
 - Action 3: 同步更新 `entities/obsidian.md`、`concepts/wikilinks.md`、`concepts/graph-centrality.md` 的正文与 `updated` 字段
 - Verification: `wiki_lint: OK`
 
-## [2026-06-29] update | Graph algorithms for node status and relation strength
+### update | Graph algorithms for node status and relation strength
 
 - Source: `_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics.md`
 - Action 1: 深化第 5 章 Graph View / 图论渲染中的算法部分，按“节点地位”“关系强度”“KG 表示学习”“社区发现”拆分
@@ -474,7 +547,7 @@ confidence: high
 - Action 3: 同步扩展 `concepts/graph-centrality.md`，作为后续检索节点地位、关系强度、链接预测和知识补全算法的 Layer 2 入口
 - Verification: `wiki_lint: OK`
 
-## [2026-06-29] update | Text Format Protocol for LLMs
+### update | Text Format Protocol for LLMs
 
 - Source: `_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs.md`
 - Action 1: 扩充 living 源文档，从原有三受众场景扩展为完整文本格式协议指南
@@ -482,10 +555,10 @@ confidence: high
 - Action 3: 同步更新 `concepts/markdown-llm-protocol.md`，补充格式选择原则、Prompt/Agent 上下文协议和 RAG Markdown 规范
 - Verification: `wiki_lint: OK`
 
-## [2026-06-29] refactor | Living topic taxonomy for Whale SpaceSight
+### refactor | Living topic taxonomy for Whale SpaceSight
 
 - Action 1: 新建 `_living/Whale-SpaceSight/`，承载 Whale Tech 下 SpaceSight 产品相关知识
-- Action 2: 移入 SpaceSight 相关源文档：`Edge-Compute-Boxes-RK3576-Sophon.md`、`ReID-Pipeline-Architecture.md`、`ReID-Perception-Layer-trajex.md`、`ReID-Embedding-Models.md`、`Customer-Flow-Post-Processing.md`
+- Action 2: 移入 SpaceSight 相关源文档：`Edge-Compute-Boxes-RK3576-Sophon.md`、`ReID-Pipeline-Architecture.md`、`ReID-Perception-Layer-TRAJEX.md`、`ReID-Embedding-Models.md`、`Customer-Flow-Post-Processing.md`
 - Action 3: 将 `_living/AI-Applications-and-Ops/` 重命名为 `_living/AI-Applications/`，保留 `Hermes-Agent-macOS-Ops.md` 与 `RuView-Technical-Research-Deployment.md`
 - Action 4: 全库更新 Layer 2 `sources` 与紧凑型溯源脚注中的 `_living` 路径，并同步刷新受影响节点 `updated` 字段
 - Action 5: 在 `SCHEMA.md` 和 `scripts/wiki_lint.py` 中新增 `_living` 一级分类目录 2-3 词段 kebab-case 主题命名规则

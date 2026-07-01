@@ -1,10 +1,10 @@
 ---
 title: ReID Library Lookup (库查询作为特征提取阶段)
 created: 2026-05-26
-updated: 2026-06-29
+updated: 2026-07-01
 type: concept
 tags: [computer-vision, reid, algorithm]
-sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md]
+sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md]
 confidence: high
 ---
 
@@ -14,7 +14,7 @@ confidence: high
 
 ## 设计选择：把角色判定上移到感知层
 
-传统直觉是"先做聚类找出谁是同一个人，再查角色"。trajex 反其道而行：**对每条轨迹独立做 1-NN 检索**——查询通用角色服饰库、公司 / 店铺工服库、店员 ReID 底库——把命中结果以角色类型和置信度字段直接写入特征表。结果是每条轨迹离开感知层时**就自带角色证据**。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-trajex|ReID-Perception-Layer-trajex]]]
+传统直觉是"先做聚类找出谁是同一个人，再查角色"。TRAJEX 反其道而行：**对每条轨迹独立做 1-NN 检索**——查询通用角色服饰库、公司 / 店铺工服库、店员 ReID 底库——把命中结果以角色类型和置信度字段直接写入特征表。结果是每条轨迹离开感知层时**就自带角色证据**。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX|ReID-Perception-Layer-TRAJEX]]]
 
 ## 为什么不留给下游聚类
 
@@ -26,7 +26,7 @@ confidence: high
 
 把角色判定**前移**到感知层后：
 
-- 每条轨迹的角色证据在它入库时就 frozen，下游聚类可以**用角色作为聚类前置过滤**（[[hidalgo]] 的角色过滤先于聚类策略正是利用这一点）；
+- 每条轨迹的角色证据在它入库时就 frozen，下游聚类可以**用角色作为聚类前置过滤**（[[hidalgo|HIDALGO]] 的角色过滤先于聚类策略正是利用这一点）；
 - 角色库版本与特征行版本绑定，重算角色 = 重跑感知层而不动聚类；
 - 1-NN 查询单次延迟在毫秒级，并行打包到模型推理的同步流程里几乎不增加端到端延迟。
 
@@ -62,7 +62,7 @@ confidence: high
 **相关概念**:
 
 - [[reid-pipeline]]
-- [[hidalgo]]
+- [[hidalgo|HIDALGO]]
 - [[multi-stage-clustering]]
 - [[reid-embedding-models]]
-- [[trajex]]
+- [[trajex|TRAJEX]]

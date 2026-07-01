@@ -26,6 +26,16 @@ AI 算法工程与统计学习 (Algorithm Engineering & Statistical Learning)
 - **Meta Pages:** `SCHEMA.md`、`index.md`、`log.md`。这些页面也必须有 frontmatter，但不参与 Layer 2 节点计数。
 - **Archive Pages:** `_archive/**/*.md`。归档页不属于 active graph，不得继续作为 Layer 2 的正常目标节点被引用。
 
+## Maintenance Entry Checklist (运维入口检查)
+
+任何 agent 会话只要用户请求涉及 `wiki/**` 的读取、审计、同步、重构、ingest、删除、Obsidian 载体配置或 `scripts/wiki_lint.py`，都必须在动手前执行本入口检查；不得只依赖记忆中的旧 schema。
+
+1. **先读当前 SCHEMA**：完整读取本文件，确认最新 Layer 边界、Frontmatter、Tag Taxonomy、Lifecycle、Validation、Daily Log 与 Obsidian Carrier 规则。
+2. **判定变更类别**：把本轮操作归类为只读审计、Layer 1 原材料更新、Layer 2 节点维护、Meta 页面维护、Obsidian 载体维护或 lint/tooling 维护；不同类别按对应章节执行。
+3. **触发 lint 共演进 gate**：若本轮改动 `SCHEMA.md`，或新增/移动标签，或改变 layer/path/frontmatter/wikilink/provenance/index/log/Obsidian 本地配置规则，必须执行 `Lint Co-evolution Policy`，明确哪些新增规则进入 `scripts/wiki_lint.py`，哪些保持人工判断。
+4. **触发 Obsidian carrier gate**：若本轮触及 `wiki/.obsidian/**`、Obsidian 插件体验、插件配置或 wiki 运维 SOP，必须执行 `Obsidian Carrier Maintenance`；本地 manifest/list 一致性由 lint 校验，版本、默认配置与前端事项需在汇报中说明。
+5. **收尾验证与日志**：任何写操作后至少运行 `python3 scripts/wiki_lint.py`；若改动 `SCHEMA.md`、`scripts/wiki_lint.py` 或机器读取格式，也必须运行 `python3 scripts/wiki_lint.py --json`。所有结构性维护按 `Daily Log Policy` 记录到 `log.md`。
+
 ## Conventions
 
 - Active Layer 2 file names: 小写字母，连字符分隔，无空格 (e.g., `model-quantization-ptq.md`)；Layer 1 原材料可保留来源标题的大小写以减少导入损耗
@@ -37,7 +47,7 @@ AI 算法工程与统计学习 (Algorithm Engineering & Statistical Learning)
 - Active Layer 2 页面中，所有非代码块/非行内代码中的 `\[\[wikilinks\]\]` 都必须能解析到现存页面；**禁止 unresolved links**
 - Active Layer 2 页面更新正文、frontmatter、slug 或出链时，必须同步更新 `updated` 字段
 - 所有 Active Layer 2 页面必须注册到 `index.md` 的对应区块下，且**恰好出现一次**
-- create / rename / replace / split / merge / archive / delete 这类核心操作需追加至 `log.md`
+- create / rename / replace / split / merge / archive / delete 这类核心操作需记录到 `log.md`；同一天的多项维护按 `Daily Log Policy` 合并到当天唯一条目
 - **Provenance markers (溯源标记):** 两种语法按目标层级选择：
   - 指向 `_living/` 私有文档：使用紧凑内联脚注 `^[[[_living/path/to/file|显示别名]]]`（详见 `Living Documents Policy` 第 4 条的红线约束）。
   - 指向 `raw/` 公开版本资源：使用简洁脚注 `^[raw/papers/source-file.md]`，多源混合页面（综合 3 个以上来源）在段落末尾追加以实现精确溯源。
@@ -158,7 +168,7 @@ _新增标签前必须在此处注册_
 2. 写入必需 frontmatter（含非空 `sources`）
 3. 添加已解析的 Layer 2 出链；鼓励至少 2 个，但若严格遵守"关联谨慎保守原则"后只能给出 0 或 1 条强关联，则保留少链优于强加弱链
 4. 注册到 `index.md`
-5. 追加 `log.md`
+5. 按 `Daily Log Policy` 记录到 `log.md`
 
 ### Rename
 
@@ -212,6 +222,10 @@ python3 scripts/wiki_lint.py
 11. 若 `index.md` 维护 `Total pages` 字段，则该值必须等于已登记的 Active Layer 2 节点数
 12. `_living/` 文档不得包含图谱 wikilinks 或语义型 frontmatter 字段（如 `type`, `tags`, `concepts`）
 13. `_living/` 一级分类目录必须符合 2–3 词段 kebab-case 主题命名规则
+14. `log.md` 顶层维护日志必须按 `Daily Log Policy` 使用同一日期唯一的 `## [YYYY-MM-DD] daily | ...` 条目
+15. Obsidian 本地启用插件清单必须与 `wiki/.obsidian/plugins/*/manifest.json` 保持一致
+16. `SCHEMA.md` 的 Tag Taxonomy 与 Validation Invariants 必须和 `scripts/wiki_lint.py` 的 fallback 标签集与默认检查清单保持一致
+17. Active graph 的 wikilink 目标、index 登记 slug、`contradictions` slug 与本地 `sources` 路径必须使用与真实文件完全一致的大小写；不得依赖大小写不敏感文件系统自动兜底
 
 ### Lint Co-evolution Policy (校验工具随 Schema 演进)
 
@@ -222,7 +236,29 @@ python3 scripts/wiki_lint.py
 3. 若新增规则属于语义判断、颗粒度判断、保守链接原则、实现细节过滤等不可可靠机械校验内容，必须在 `SCHEMA.md` 中明确标注为原则性约束，不强行塞进 lint。
 4. 若新增或移动标签，必须同步 `Tag Taxonomy` 与 `scripts/wiki_lint.py` 的 fallback `ALLOWED_TAGS` 集合，避免 SCHEMA 解析失败时退回旧标签库。
 5. 完成 SCHEMA 或 lint 调整后，必须运行 `python3 scripts/wiki_lint.py`；涉及机器消费或报告格式变更时，也必须运行 `python3 scripts/wiki_lint.py --json`。
-6. 所有 SCHEMA / lint 共演进变更都必须追加到 `log.md`，说明改了哪些规则、哪些规则进入 lint、哪些规则刻意保持人工判断。
+6. `scripts/wiki_lint.py` 必须自检 SCHEMA-to-tool drift：至少检查 Tag Taxonomy 与 fallback `ALLOWED_TAGS` 是否一致，以及本节强校验编号项数量与默认 `CHECKS` 数量是否一致。
+7. 所有 SCHEMA / lint 共演进变更都必须按 `Daily Log Policy` 记录到 `log.md`，说明改了哪些规则、哪些规则进入 lint、哪些规则刻意保持人工判断。
+
+### Daily Log Policy (`log.md` 日志合并策略)
+
+`log.md` 是 wiki 维护审计线索，不是逐操作流水账。默认每天最多保留一条顶层日志，避免同一天的多次小修把运维历史切碎。
+
+1. **每日唯一顶层条目**：同一自然日（按本地时区）内，优先使用一个 `## [YYYY-MM-DD] daily | ...` 顶层条目承载当天所有 wiki 维护事项；当天已有日志时，不新建第二个同日期顶层条目，而是在现有日期条目内追加 `###` 子段或合并 bullet。
+2. **允许历史例外**：本策略生效前已有的多条同日历史日志不要求大规模重排；若当天仍在继续维护，可顺手合并当天新近条目。
+3. **保留可审计信息**：合并后仍需保留 Trigger / Actions / Boundary / Verification 等关键信息；不得为了压缩条目而丢失核心操作、删除/归档/重命名记录或校验结果。
+4. **跨日不回填**：跨自然日的维护必须新开对应日期条目，不把今天的操作写回昨天，也不把昨天的未提交事项并入今天除非今天实际完成了复核或修复。
+5. **报告口径**：最终汇报可按当天 daily 条目的子段概括，不需要逐条复述所有小修。
+
+### Obsidian Carrier Maintenance (载体插件运维)
+
+Obsidian 是本 wiki 的主要交互载体；维护 wiki 时，Agent 不只检查 Markdown 图谱，也必须检查 `wiki/.obsidian/` 下插件与配置是否仍能支撑当前运维体验。
+
+1. **插件清单核对**：检查 `wiki/.obsidian/community-plugins.json` 与 `wiki/.obsidian/plugins/*/manifest.json` 是否一致；已启用插件必须有对应插件目录，插件目录中的 `id` 必须与启用清单一致。
+2. **版本核对**：对已安装社区插件，优先通过 Obsidian 官方社区插件目录或插件仓库的 `manifest.json` 核对当前版本；若本地版本落后，且插件文件已在仓库中跟踪，可更新插件文件并说明版本变化。
+3. **配置完整性核对**：对每个已安装插件，将当前 `data.json` 与该插件当前版本代码中的默认配置对象递归比对；缺失但有默认值的配置项应补入 `data.json`，值保持默认，避免未来 Agent 或不同 Obsidian 实例看到不完整配置。
+4. **前端协作边界**：若插件更新、授权、迁移弹窗、外观确认、插件市场操作或 Obsidian 内部命令只能在前端完成，Agent 不应臆造结果；必须在汇报中明确列出需要用户在 Obsidian 前端处理的动作、原因与完成后的复核项。
+5. **报告要求**：每次 wiki 运维汇报中若触及 Obsidian 配置，必须单列 Obsidian 载体检查结果，至少说明插件版本是否最新、配置是否完整、是否有仅能前端处理的遗留动作。
+6. **校验边界**：本地可稳定检查的启用清单与插件 `manifest.json` 一致性已纳入 `scripts/wiki_lint.py`；联网版本查询、插件代码默认值解析与前端状态确认仍属于人工 / 半自动 SOP，不纳入强校验清单。若后续沉淀出稳定脚本，可在本节补充脚本路径与执行命令。
 
 ## Update Policy (更新策略)
 

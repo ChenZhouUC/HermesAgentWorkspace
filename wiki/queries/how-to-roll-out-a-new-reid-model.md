@@ -1,11 +1,11 @@
 ---
 title: 如何把一个新的 ReID 特征模型上线到生产
 created: 2026-05-26
-updated: 2026-06-29
+updated: 2026-07-01
 type: query
 tags: [computer-vision, reid, ops, pipeline]
 sources:
-  - _living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md
+  - _living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md
   - _living/Whale-SpaceSight/ReID-Pipeline-Architecture.md
   - _living/Whale-SpaceSight/ReID-Embedding-Models.md
 confidence: high
@@ -15,7 +15,7 @@ confidence: high
 
 > **问题场景**：你完成了一版新的 ReID 特征模型训练（如从 ResNet 主干升级到 SOLIDER 预训练 Swin），离线评测显示明显优于线上版本。如何安全推到生产，且**不影响**正在运行的下游聚类、且能在出问题时秒级回滚？
 
-本 SOP 串联起 [[reid-embedding-models]]（选型）、[[model-shadow-deployment]]（部署模式）、[[trajex]]（感知层）、[[hidalgo]]（计算层服务）与 [[reid-pipeline]]（系统分层方法）五个节点，给出可执行的端到端流程。
+本 SOP 串联起 [[reid-embedding-models]]（选型）、[[model-shadow-deployment]]（部署模式）、[[trajex|TRAJEX]]（感知层）、[[hidalgo|HIDALGO]]（计算层服务）与 [[reid-pipeline]]（系统分层方法）五个节点，给出可执行的端到端流程。
 
 ## 前置判断：是不是真的该升级
 
@@ -31,7 +31,7 @@ confidence: high
 
 按 [[model-shadow-deployment|配对特征轴影子部署]] 模式：
 
-- 在感知层（trajex）的特征表 DDL 上**加一组**影子特征列：新向量列 + 新模型版本列；**不动**已有生产特征列；
+- 在感知层（TRAJEX）的特征表 DDL 上**加一组**影子特征列：新向量列 + 新模型版本列；**不动**已有生产特征列；
 - 感知层推理流水线里**并发**调用新旧两个模型；两路输出分别写到对应列；
 - 老模型继续承担**对外语义**（下游聚类继续读旧生产列）；新模型只填影子列，**不影响**生产语义。
 
@@ -46,7 +46,7 @@ confidence: high
 让新旧模型在生产数据上**并行运行至少一个完整业务周期**（如一周覆盖工作日 + 周末），积累足够样本后做：
 
 - **特征空间对比**：旧 / 新向量的余弦相似度分布——同一轨迹两个特征是否定性一致；
-- **下游聚类对照**：用新特征列**离线**重跑一遍 [[hidalgo]] 计算层聚类，对比旧 / 新特征产出的行人 ID 差异；
+- **下游聚类对照**：用新特征列**离线**重跑一遍 [[hidalgo|HIDALGO]] 计算层聚类，对比旧 / 新特征产出的行人 ID 差异；
 - **角色判定对照**：[[reid-library-lookup|库查询]]的结果是否在两个特征空间稳定（同一轨迹被旧模型判为顾客、新模型判为店员的样本量有多少？）；
 - **跨域代表性店铺采样**：抽样新开店 / 高遮挡店 / 高店员密度店等 hard cases，目视 review 部分 bad case。
 
@@ -56,7 +56,7 @@ confidence: high
 
 **关键设计**：cutover 不是改感知层、不是迁移数据、不是停服——只是改下游的"读哪一列"配置。
 
-- 在 [[hidalgo]] 计算层把"读旧特征轴还是新特征轴"作为按店参数（沿用既有的按店覆写机制，详见 [[reid-pipeline]] 的"按店参数覆写"节）；
+- 在 [[hidalgo|HIDALGO]] 计算层把"读旧特征轴还是新特征轴"作为按店参数（沿用既有的按店覆写机制，详见 [[reid-pipeline]] 的"按店参数覆写"节）；
 - 灰度推进顺序：内部测试店（1-3 家，观察 ≥3 天）→ 小批量代表性店（20 家，观察 ≥1 周）→ 同公司全量 → 全量；
 - 每一步都对照旧 / 新特征的关键业务指标（接待率、客流批次数、bad case 数量）；
 - **任何指标退化超过预警阈值立即回滚**——把店级配置改回旧特征轴，秒级生效，无需重算特征（旧生产列一直在双写）。
@@ -102,7 +102,7 @@ confidence: high
 
 - [[model-shadow-deployment]]
 - [[reid-embedding-models]]
-- [[trajex]]
-- [[hidalgo]]
+- [[trajex|TRAJEX]]
+- [[hidalgo|HIDALGO]]
 - [[reid-pipeline]]
 - [[reid-library-lookup]]

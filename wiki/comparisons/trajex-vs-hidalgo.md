@@ -1,24 +1,24 @@
 ---
-title: trajex vs hidalgo (ReID 系统的感知层与计算层分工对比)
+title: TRAJEX vs HIDALGO (ReID 系统的感知层与计算层分工对比)
 created: 2026-05-26
-updated: 2026-06-29
+updated: 2026-07-01
 type: comparison
 tags: [comparison, computer-vision, reid, architecture]
 sources:
-  - _living/Whale-SpaceSight/ReID-Perception-Layer-trajex.md
+  - _living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md
   - _living/Whale-SpaceSight/ReID-Pipeline-Architecture.md
 confidence: high
 ---
 
-# trajex vs hidalgo (ReID 感知层 vs 计算层的分工对比)
+# TRAJEX vs HIDALGO (ReID 感知层 vs 计算层的分工对比)
 
-线下零售门店 ReID 系统被切分为两段独立服务：[[trajex]]（感知层，图像 → 特征 + 角色）和 [[hidalgo]]（计算层，特征 → 行人 ID）。本页对比这两段的职责边界、技术取舍与适用场景，提炼出"何时该把 ReID 拆成两段、何时应该合并"的决策依据。
+线下零售门店 ReID 系统被切分为两段独立服务：[[trajex|TRAJEX]]（感知层，图像 → 特征 + 角色）和 [[hidalgo|HIDALGO]]（计算层，特征 → 行人 ID）。本页对比这两段的职责边界、技术取舍与适用场景，提炼出"何时该把 ReID 拆成两段、何时应该合并"的决策依据。
 
 ## 分工对比表
 
-| 维度         | trajex（感知层）                       | Hidalgo（计算层）                               |
+| 维度         | TRAJEX（感知层）                       | HIDALGO（计算层）                               |
 | ------------ | -------------------------------------- | ----------------------------------------------- |
-| 输入         | 边缘相机上传的轨迹消息 + 图像地址      | trajex 写入的特征表行                           |
+| 输入         | 边缘相机上传的轨迹消息 + 图像地址      | TRAJEX 写入的特征表行                           |
 | 输出         | 特征表（图像级 + 轨迹级）              | ReID 结果表 + 业务宽表                          |
 | 工作负载     | GPU 推理（检测、特征模型）             | CPU 计算（连通分量、规则与阈值聚合）            |
 | 处理粒度     | 单条轨迹                               | 全店级、跨摄像头、跨时间窗                      |
@@ -43,7 +43,7 @@ confidence: high
 
 ## When to use which split
 
-**应该拆成 trajex + Hidalgo 计算层两段**：
+**应该拆成 TRAJEX + HIDALGO 计算层两段**：
 
 - **GPU 资源稀缺、需要池化**：特征提取是 GPU bound，聚类是 CPU bound，混在一起会让 GPU 等聚类；
 - **模型迭代节奏远快于聚合策略迭代**：把"模型升级"和"业务逻辑升级"沿管线切开，让两边独立演进；
@@ -72,8 +72,8 @@ confidence: high
 
 **相关概念**:
 
-- [[trajex]]
-- [[hidalgo]]
+- [[trajex|TRAJEX]]
+- [[hidalgo|HIDALGO]]
 - [[reid-pipeline]]
 - [[reid-library-lookup]]
 - [[multi-stage-clustering]]

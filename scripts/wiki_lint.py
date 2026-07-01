@@ -67,6 +67,9 @@ ALLOWED_TAGS = {
     "ops",
     "gateway",
     "pipeline",
+    "spacesight",
+    "product-management",
+    "compliance",
     "computer-vision",
     "reid",
     "clustering",
@@ -150,7 +153,7 @@ CHECKS = (
     ),
     (
         "index.md contains no stale or non-active node entries",
-        ("stale_index_entries",),
+        ("stale_index_entries", "index_case_mismatch"),
     ),
     (
         "index.md Total pages matches the registered active node count",
@@ -164,12 +167,49 @@ CHECKS = (
         "_living top-level topic directories use 2-3 word kebab-case names",
         ("invalid_living_topic_dirs",),
     ),
+    (
+        "log.md uses one daily top-level maintenance entry per date",
+        ("invalid_log_headings", "duplicate_log_dates"),
+    ),
+    (
+        "Obsidian enabled plugin list matches local plugin manifests",
+        (
+            "obsidian_missing_community_plugins",
+            "obsidian_invalid_community_plugins",
+            "obsidian_enabled_missing_plugin_dirs",
+            "obsidian_missing_plugin_manifests",
+            "obsidian_invalid_plugin_manifests",
+            "obsidian_manifest_id_mismatch",
+            "obsidian_unenabled_plugin_dirs",
+        ),
+    ),
+    (
+        "SCHEMA taxonomy and validation checklist stay aligned with wiki_lint",
+        (
+            "schema_tags_missing_from_lint",
+            "schema_tags_extra_in_lint",
+            "schema_validation_check_count_mismatch",
+        ),
+    ),
+    (
+        "Graph references and local source paths use exact filesystem case",
+        (
+            "link_case_mismatch",
+            "index_case_mismatch",
+            "source_case_mismatch",
+            "contradiction_case_mismatch",
+        ),
+    ),
 )
 
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 LIVING_PROVENANCE_RE = re.compile(r"\^\[\[\[_living/[^\]]+\]\]\]")
 TOTAL_PAGES_RE = re.compile(r"Total pages:\s*(\d+)")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+LOG_DAILY_HEADING_RE = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\] daily \| .+$")
+LOG_HEADING_DATE_RE = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\] ")
+SCHEMA_TAG_TAXONOMY_RE = re.compile(r"## Tag Taxonomy .*?(?=\n## |\Z)", re.S)
+SCHEMA_VALIDATION_RE = re.compile(r"## Validation Invariants .*?(?=\n### |\n## |\Z)", re.S)
 
 
 def strip_code(text: str) -> str:
@@ -266,8 +306,51 @@ def build_slug_index(root: Path) -> dict[str, list[str]]:
     return slugs
 
 
+def build_casefold_slug_index(root: Path) -> dict[str, list[str]]:
+    slugs: dict[str, list[str]] = {}
+    for slug, paths in build_slug_index(root).items():
+        slugs.setdefault(slug.casefold(), []).extend(paths)
+    return slugs
+
+
 def extract_links(text: str) -> list[str]:
     return LINK_RE.findall(strip_non_graph_markup(text))
+
+
+def exact_existing_path(path: Path) -> Path | None:
+    current = path.anchor and Path(path.anchor) or Path(".")
+    parts = path.parts[1:] if path.anchor else path.parts
+    for part in parts:
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            current = current / part
+            continue
+        if not current.is_dir():
+            return None
+        entries = {entry.name: entry for entry in current.iterdir()}
+        if part not in entries:
+            return None
+        current = entries[part]
+    return current
+
+
+def resolve_casefold_path(path: Path) -> Path | None:
+    current = path.anchor and Path(path.anchor) or Path(".")
+    parts = path.parts[1:] if path.anchor else path.parts
+    for part in parts:
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            current = current / part
+            continue
+        if not current.is_dir():
+            return None
+        matches = [entry for entry in current.iterdir() if entry.name.casefold() == part.casefold()]
+        if len(matches) != 1:
+            return None
+        current = matches[0]
+    return current
 
 
 def parse_schema_tags(root: Path) -> set[str]:
@@ -276,11 +359,22 @@ def parse_schema_tags(root: Path) -> set[str]:
         return set(ALLOWED_TAGS)
 
     text = schema_path.read_text()
-    match = re.search(r"## Tag Taxonomy .*?(?=\n## |\Z)", text, flags=re.S)
-    if not match:
-        return set(ALLOWED_TAGS)
-    tags = set(re.findall(r"`([^`]+)`", match.group(0)))
+    tags = extract_schema_tags(text)
     return tags or set(ALLOWED_TAGS)
+
+
+def extract_schema_tags(schema_text: str) -> set[str]:
+    match = SCHEMA_TAG_TAXONOMY_RE.search(schema_text)
+    if not match:
+        return set()
+    return set(re.findall(r"`([^`]+)`", match.group(0)))
+
+
+def count_schema_validation_items(schema_text: str) -> int:
+    match = SCHEMA_VALIDATION_RE.search(schema_text)
+    if not match:
+        return 0
+    return len(re.findall(r"^\d+\.\s+", match.group(0), flags=re.M))
 
 
 def parse_index_entries(index_text: str) -> list[tuple[str, str | None]]:
@@ -303,6 +397,116 @@ def parse_index_entries(index_text: str) -> list[tuple[str, str | None]]:
     return entries
 
 
+def load_json(path: Path) -> Any:
+    with path.open() as f:
+        return json.load(f)
+
+
+def validate_log_policy(root: Path, issues: dict[str, list[Any]]) -> None:
+    log_path = root / "log.md"
+    if not log_path.exists():
+        return
+
+    dates: list[str] = []
+    for line_number, line in enumerate(log_path.read_text().splitlines(), start=1):
+        if not line.startswith("## "):
+            continue
+        daily_match = LOG_DAILY_HEADING_RE.match(line)
+        if not daily_match:
+            issues["invalid_log_headings"].append([line_number, line])
+            date_match = LOG_HEADING_DATE_RE.match(line)
+            if date_match:
+                dates.append(date_match.group(1))
+            continue
+        dates.append(daily_match.group(1))
+
+    for date, count in sorted(Counter(dates).items()):
+        if count > 1:
+            issues["duplicate_log_dates"].append([date, count])
+
+
+def validate_obsidian_plugins(root: Path, issues: dict[str, list[Any]]) -> None:
+    obsidian_root = root / ".obsidian"
+    if not obsidian_root.exists():
+        return
+
+    community_plugins_path = obsidian_root / "community-plugins.json"
+    plugins_root = obsidian_root / "plugins"
+    if not community_plugins_path.exists():
+        issues["obsidian_missing_community_plugins"].append(relative(community_plugins_path, root))
+        return
+
+    try:
+        enabled_plugins = load_json(community_plugins_path)
+    except json.JSONDecodeError as exc:
+        issues["obsidian_invalid_community_plugins"].append(
+            [relative(community_plugins_path, root), f"line {exc.lineno}: {exc.msg}"]
+        )
+        return
+
+    if not isinstance(enabled_plugins, list) or not all(isinstance(plugin, str) for plugin in enabled_plugins):
+        issues["obsidian_invalid_community_plugins"].append(
+            [relative(community_plugins_path, root), "expected a JSON array of plugin id strings"]
+        )
+        return
+
+    enabled_set = set(enabled_plugins)
+    for plugin_id in sorted(enabled_set):
+        plugin_dir = plugins_root / plugin_id
+        manifest_path = plugin_dir / "manifest.json"
+        if not plugin_dir.is_dir():
+            issues["obsidian_enabled_missing_plugin_dirs"].append(plugin_id)
+            continue
+        if not manifest_path.exists():
+            issues["obsidian_missing_plugin_manifests"].append(relative(manifest_path, root))
+
+    if not plugins_root.exists():
+        return
+
+    for plugin_dir in sorted(path for path in plugins_root.iterdir() if path.is_dir()):
+        manifest_path = plugin_dir / "manifest.json"
+        if not manifest_path.exists():
+            if plugin_dir.name not in enabled_set:
+                issues["obsidian_unenabled_plugin_dirs"].append(relative(plugin_dir, root))
+            continue
+
+        try:
+            manifest = load_json(manifest_path)
+        except json.JSONDecodeError as exc:
+            issues["obsidian_invalid_plugin_manifests"].append(
+                [relative(manifest_path, root), f"line {exc.lineno}: {exc.msg}"]
+            )
+            continue
+
+        manifest_id = manifest.get("id") if isinstance(manifest, dict) else None
+        if manifest_id != plugin_dir.name:
+            issues["obsidian_manifest_id_mismatch"].append(
+                [relative(manifest_path, root), manifest_id, plugin_dir.name]
+            )
+        if plugin_dir.name not in enabled_set:
+            issues["obsidian_unenabled_plugin_dirs"].append(relative(plugin_dir, root))
+
+
+def validate_schema_lint_alignment(root: Path, issues: dict[str, list[Any]]) -> None:
+    schema_path = root / "SCHEMA.md"
+    if not schema_path.exists():
+        return
+
+    schema_text = schema_path.read_text()
+    schema_tags = extract_schema_tags(schema_text)
+    if schema_tags:
+        missing_from_lint = sorted(schema_tags - ALLOWED_TAGS)
+        extra_in_lint = sorted(ALLOWED_TAGS - schema_tags)
+        if missing_from_lint:
+            issues["schema_tags_missing_from_lint"].append(missing_from_lint)
+        if extra_in_lint:
+            issues["schema_tags_extra_in_lint"].append(extra_in_lint)
+
+    validation_count = count_schema_validation_items(schema_text)
+    if validation_count and validation_count != len(CHECKS):
+        issues["schema_validation_check_count_mismatch"].append({"schema": validation_count, "wiki_lint": len(CHECKS)})
+
+
 def validate(root: Path) -> dict[str, list[Any]]:
     issues: dict[str, list[Any]] = {
         "zero_byte_active": [],
@@ -320,22 +524,39 @@ def validate(root: Path) -> dict[str, list[Any]]:
         "empty_sources": [],
         "invalid_confidence": [],
         "invalid_contradictions": [],
+        "contradiction_case_mismatch": [],
         "missing_source_files": [],
+        "source_case_mismatch": [],
         "broken_links_active": [],
+        "link_case_mismatch": [],
         "non_active_wikilinks": [],
         "unindexed_active": [],
         "stale_index_entries": [],
+        "index_case_mismatch": [],
         "duplicate_index_entries": [],
         "wrong_index_section": [],
         "index_count_mismatch": [],
         "living_wikilinks": [],
         "living_semantic_frontmatter": [],
         "invalid_living_topic_dirs": [],
+        "invalid_log_headings": [],
+        "duplicate_log_dates": [],
+        "obsidian_missing_community_plugins": [],
+        "obsidian_invalid_community_plugins": [],
+        "obsidian_enabled_missing_plugin_dirs": [],
+        "obsidian_missing_plugin_manifests": [],
+        "obsidian_invalid_plugin_manifests": [],
+        "obsidian_manifest_id_mismatch": [],
+        "obsidian_unenabled_plugin_dirs": [],
+        "schema_tags_missing_from_lint": [],
+        "schema_tags_extra_in_lint": [],
+        "schema_validation_check_count_mismatch": [],
     }
 
     pages = active_pages(root)
     active_slugs = {path.stem for path in pages}
     slug_index = build_slug_index(root)
+    casefold_slug_index = build_casefold_slug_index(root)
     allowed_tags = parse_schema_tags(root)
 
     for path in pages:
@@ -398,7 +619,13 @@ def validate(root: Path) -> dict[str, list[Any]]:
             for source in sources:
                 if re.match(r"https?://", source):
                     continue
-                if not (root / source).exists():
+                source_path = root / source
+                exact_source_path = exact_existing_path(source_path)
+                if exact_source_path is None:
+                    casefold_source_path = resolve_casefold_path(source_path)
+                    if casefold_source_path and casefold_source_path.exists():
+                        issues["source_case_mismatch"].append([rel, source, relative(casefold_source_path, root)])
+                        continue
                     missing_sources.append(source)
             if missing_sources:
                 issues["missing_source_files"].append([rel, missing_sources])
@@ -411,13 +638,29 @@ def validate(root: Path) -> dict[str, list[Any]]:
         if isinstance(contradictions, str):
             contradictions = [contradictions]
         if contradictions:
-            invalid_contradictions = [slug for slug in contradictions if slug not in active_slugs]
+            invalid_contradictions: list[str] = []
+            for slug in contradictions:
+                if slug in active_slugs:
+                    continue
+                case_matches = [
+                    Path(path).stem
+                    for path in casefold_slug_index.get(slug.casefold(), [])
+                    if path.split("/")[0] in ACTIVE_DIRS
+                ]
+                if case_matches:
+                    issues["contradiction_case_mismatch"].append([rel, slug, sorted(set(case_matches))])
+                    continue
+                invalid_contradictions.append(slug)
             if invalid_contradictions:
                 issues["invalid_contradictions"].append([rel, invalid_contradictions])
 
         for target in extract_links(text):
             slug = Path(target).name
             if slug not in slug_index:
+                case_matches = casefold_slug_index.get(slug.casefold(), [])
+                if case_matches:
+                    issues["link_case_mismatch"].append([rel, target, case_matches])
+                    continue
                 issues["broken_links_active"].append([rel, target])
                 continue
             if slug not in active_slugs:
@@ -440,7 +683,15 @@ def validate(root: Path) -> dict[str, list[Any]]:
 
         for slug in index_links:
             if slug not in active_slugs:
-                issues["stale_index_entries"].append(slug)
+                case_matches = [
+                    Path(path).stem
+                    for path in casefold_slug_index.get(slug.casefold(), [])
+                    if path.split("/")[0] in ACTIVE_DIRS
+                ]
+                if case_matches:
+                    issues["index_case_mismatch"].append([slug, sorted(set(case_matches))])
+                else:
+                    issues["stale_index_entries"].append(slug)
 
         active_dirs_by_slug = {path.stem: path.relative_to(root).parts[0] for path in pages}
         for slug, section_dir in index_entries:
@@ -468,6 +719,10 @@ def validate(root: Path) -> dict[str, list[Any]]:
         for path in sorted(living_root.iterdir()):
             if path.is_dir() and not LIVING_TOPIC_DIR_RE.match(path.name):
                 issues["invalid_living_topic_dirs"].append(relative(path, root))
+
+    validate_log_policy(root, issues)
+    validate_obsidian_plugins(root, issues)
+    validate_schema_lint_alignment(root, issues)
 
     return issues
 

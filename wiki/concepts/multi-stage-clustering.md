@@ -1,7 +1,7 @@
 ---
 title: Multi-Stage Clustering (轨迹相似度图的多层级连通分量聚合)
 created: 2026-05-25
-updated: 2026-06-29
+updated: 2026-07-01
 type: concept
 tags: [computer-vision, reid, clustering, algorithm]
 sources: [_living/Whale-SpaceSight/ReID-Pipeline-Architecture.md]
@@ -10,7 +10,7 @@ confidence: high
 
 # Multi-Stage Clustering (轨迹相似度图的多层级连通分量聚合)
 
-线下门店行人重识别 (ReID) 场景下，单阶段 Embedding 聚类的全量门店上限受限、门店间方差极大。**多层级降维分治** 是把聚合任务切成多个独立 tier，每 tier 控制 _mask 范围_ + _相似度阈值_ + _合并模式_，把"匹配标准"几何化为图论问题。它是 [[hidalgo]] 计算层在 [[reid-pipeline]] 中承担的核心聚类策略。
+线下门店行人重识别 (ReID) 场景下，单阶段 Embedding 聚类的全量门店上限受限、门店间方差极大。**多层级降维分治** 是把聚合任务切成多个独立 tier，每 tier 控制 _mask 范围_ + _相似度阈值_ + _合并模式_，把"匹配标准"几何化为图论问题。它是 [[hidalgo|HIDALGO]] 计算层在 [[reid-pipeline]] 中承担的核心聚类策略。
 
 ## 底层数学：相似度图上的连通分量
 
@@ -77,5 +77,5 @@ confidence: high
 **相关概念**:
 
 - [[reid-pipeline]]
-- [[hidalgo]]
+- [[hidalgo|HIDALGO]]
 - [[customer-flow-post-processing]]

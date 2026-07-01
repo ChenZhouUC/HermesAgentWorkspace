@@ -125,15 +125,15 @@
       "style": "space"
     },
     "convert-bullet-list-markers": {
-      "enabled": false
+      "enabled": true
     },
     "default-language-for-code-fences": {
       "enabled": false,
       "default-language": ""
     },
     "emphasis-style": {
-      "enabled": false,
-      "style": "consistent"
+      "enabled": true,
+      "style": "underscore"
     },
     "no-bare-urls": {
       "enabled": false,
