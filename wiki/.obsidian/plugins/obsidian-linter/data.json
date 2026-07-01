@@ -142,7 +142,8 @@
     "ordered-list-style": {
       "enabled": true,
       "number-style": "ascending",
-      "list-end-style": "."
+      "list-end-style": ".",
+      "preserve-start": false
     },
     "proper-ellipsis": {
       "enabled": false
