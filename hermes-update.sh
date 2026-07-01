@@ -760,16 +760,19 @@ else
 fi
 
 SESSION_PY="${HERMES_AGENT}/gateway/session.py"
+GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
 SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
 FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
 if [[ -f "${SESSION_PY}" && -f "${FEISHU_PY}" && -f "${SESSION_TEST_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" ]]; then
     if grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'Current-author rule' "${SESSION_PY}" 2>/dev/null &&
-        grep -q 'do not treat it as the speaker' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'main subject of your response' "${SESSION_PY}" 2>/dev/null &&
+        grep -q '_with_current_author_prefix' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'test_bot_mention_takes_priority_over_assistant_user_mention' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_text_batch_does_not_merge_different_senders' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_group_turn_body_keeps_current_author_next_to_question' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'Current message author' "${SESSION_TEST_PY}" 2>/dev/null; then
-        ok "Group author identity patch: active (explicit current author, bot mention priority, per-sender batching)"
+        ok "Group author identity patch: active (explicit current author, body author prefix, bot mention priority, per-sender batching)"
         _GROUP_AUTHOR_IDENTITY_PATCH_OK=true
     else
         warn "Group author identity patch inactive or partial"

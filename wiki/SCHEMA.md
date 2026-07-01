@@ -1,7 +1,7 @@
 ---
 title: Wiki Schema
 created: 2026-05-14
-updated: 2026-06-30
+updated: 2026-07-01
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -79,6 +79,7 @@ _新增标签前必须在此处注册_
 - **计算机视觉 (Computer Vision):** `computer-vision`, `reid`, `clustering`
 - **Agent 与编排 (Agent & Orchestration):** `agent`, `orchestration`, `harness`, `react`, `context-management`, `sandbox`, `hitl`, `protocol`, `multi-agent`
 - **全栈与运维 (Applications & Ops):** `macos`, `ops`, `gateway`, `pipeline`
+- **业务与项目 (Business & Projects):** `spacesight`, `product-management`, `compliance`
 - **算法与数学 (Algorithms & Math):** `tcs`, `statistics`, `proof`, `complexity`, `algorithm`, `math`, `logic`
 - **知识管理与工具 (Knowledge Management & Tools):** `wiki`, `markdown`, `obsidian`, `tool`
 - **元数据 (Meta):** `comparison`, `benchmark`, `paper`
@@ -241,7 +242,7 @@ python3 scripts/wiki_lint.py
 4. **通过 Layer 2 溯源建立图谱关系**：所有的知识网状连线，必须由 Layer 2 (Concepts/Entities) 页面通过**紧凑的内联脚注语法**（例如：`^[[[_living/xxx/xxx|显示别名]]]`）**单向、主动地指向** `_living/` 子层。
    - **核心红线**：在 `^[` 和 `[[` 之间，以及 `]]` 和 `]` 之间，**绝对不允许有任何空格**。空格会触发 Obsidian 渲染器的 Bug 导致显示残留的 `] ]`。
    - 采用此紧凑语法后，正文中会被无缝渲染成干净的 `[1]` 上标，并在阅读视图末尾由 Obsidian 引擎**自动生成**包含双链的回溯列表，从而免去手动维护文末 `[^1]: ...` 的冗余文本。
-5. **常规同步 (Incremental)**：默认模式。读取新内容，提取最新主张 (Claims)，去 Layer 2 对碰。修改冲突、补充新增，但*不自动清理静默删除的幽灵知识*。
+5. **常规同步 (Incremental)**：默认模式。读取新内容，提取最新主张 (Claims)，去 Layer 2 对碰。修改冲突、补充新增，但**不自动清理静默删除的幽灵知识**。
 6. **深度同步/重构 (Deep Sync)**：必须由用户显式声明触发（如“已做大规模删减，请做深度同步”）。Agent 会顺着 Layer 2 中指向该文档的溯源标记（如 `^[[[_living/xxx/xxx|显示别名]]]`）反向遍历 Layer 2，清理掉所有在新草稿中已丢失的旧陈述。
 7. **单点重置 (Override)**：当该篇活体文档是某领域的绝对唯一真理时，允许直接重置/覆写对应的 Layer 2 页面。
 8. **可复用知识 vs 实现细节 (Reusability Filter)**：`_living/` 文档中**只承载具备复用性的知识与实用性技术**——架构思想、方法学、设计原则、跨场景共通的工程经验。**实现细节应被剥离**——包括但不限于：

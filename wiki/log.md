@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-06-30
+updated: 2026-07-01
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,6 +12,14 @@ confidence: high
 
 > 知识库操作追踪日志 (Append-only)
 > 格式：`## [YYYY-MM-DD] action | subject`
+
+## [2026-07-01] create | SpaceSight Q&A index
+
+- Source: `_living/Whale-SpaceSight/SpaceSight-QA-List.md`
+- Action 1: 新增 `entities/spacesight-qa.md`，作为 SpaceSight 产品线历史业务问答清单的 Layer 2 图谱入口
+- Action 2: 将 living 源文档 frontmatter 降为最小必要元数据，避免 `_living/` 承担 active node 语义
+- Action 3: 对齐 `index.md` 中已登记的 `[[spacesight-qa]]` 条目与 active 页面
+- Verification: `python3 scripts/wiki_lint.py`
 
 ## [2026-06-30] audit | Wiki schema and lint alignment
 

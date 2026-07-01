@@ -344,9 +344,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：群聊里模型会把 `memories/USER.md` / profile 中的 owner 信息误当成当前说话人，尤其是全局记忆写着“周琛 / 琛哥”时；同时 Feishu 群消息触发逻辑先判断 `assistant_users` 再判断 `@bot`，一条消息同时提到 bot 和配置本人账号时会走错触发分支。另一个实际身份风险是 Feishu 文本/媒体 debounce 批处理只按会话和 reply/thread 上下文聚合，未显式要求发送者一致；在共享 session 或同线程场景里，短时间内不同人的消息可能被拼到第一条事件上，沿用第一条的 sender source。
 
-**修复**：非 DM session prompt 把当前说话人从 `User` 改为 `Current message author`，并加入 `Current-author rule`：当前回答必须以本条消息作者为准，持久 profile/USER.md 只能描述 bot owner/default user，不能自动当成 speaker。Feishu 触发顺序改为直接 `@bot` 优先于 `assistant_users`。文本和媒体批处理新增 sender identity 匹配，要求 `user_id`、`user_id_alt`、`user_name` 一致才允许合并。
+**修复**：非 DM session prompt 把当前说话人从 `User` 改为 `Current message author`，并加入 `Current-author rule`：当前回答必须以本条消息作者为准，且这个当前作者就是本轮回复对象和回复主角；持久 profile/USER.md 只能描述 bot owner/default user，不能自动当成 speaker；recent channel history 只能作为上下文，不能覆盖当前作者。Gateway 在非 DM 入站 user turn 正文层也幂等补上 `[当前作者] 当前问题`，即使 `group_sessions_per_user=true` 导致群成员各自独立 session，也能让当前作者紧贴 `[New message]` 下方的真实问题，避免 recent channel history 里最后一位发言人压过本轮发问者。Feishu 触发顺序改为直接 `@bot` 优先于 `assistant_users`。文本和媒体批处理新增 sender identity 匹配，要求 `user_id`、`user_id_alt`、`user_name` 一致才允许合并。
 
-**验证**：Step 8b grep `gateway/session.py` 中存在 `Current message author`、`Current-author rule`、`do not treat it as the speaker`，并 grep 回归测试 `test_bot_mention_takes_priority_over_assistant_user_mention`、`test_text_batch_does_not_merge_different_senders` 与 session prompt 断言。定向测试覆盖群聊 prompt 不把 owner profile 当 speaker、直接 @bot 优先于 assistant-user trigger、不同发送者的 Feishu 文本批处理不会合并。
+**验证**：Step 8b grep `gateway/session.py` 中存在 `Current message author`、`Current-author rule`、`main subject of your response`，grep `gateway/run.py` 中存在 `_with_current_author_prefix`，并 grep 回归测试 `test_bot_mention_takes_priority_over_assistant_user_mention`、`test_text_batch_does_not_merge_different_senders`、`test_group_turn_body_keeps_current_author_next_to_question` 与 session prompt 断言。定向测试覆盖群聊 prompt 不把 owner profile 当 speaker、直接 @bot 优先于 assistant-user trigger、不同发送者的 Feishu 文本批处理不会合并，以及 channel history 最后一条来自 Ethan 但当前问题来自 Songfen 时，最终 user turn 仍呈现 `[New message]\n[Songfen] ...`。
 
 **上游吸收判断**：如果上游后续在多用户 session prompt 中原生区分 current author 与 persistent owner/profile，并保证 Feishu trigger priority 与 batching 都按 sender identity 隔离，可归档本补丁。
 

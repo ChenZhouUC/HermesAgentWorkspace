@@ -1,7 +1,7 @@
 ---
 title: Wiki Index
 created: 2026-05-14
-updated: 2026-06-29
+updated: 2026-07-01
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last structural update: 2026-06-29 | Total pages: 38
+> Last structural update: 2026-07-01 | Total pages: 39
 > (Content updates tracked in individual page frontmatter)
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
@@ -38,6 +38,7 @@ Registry Rules
 - [[obsidian]] - 本地 Markdown 知识库与双链图谱工具
 - [[openclaw]] - 早期的智能体前代框架（现已被 Hermes 继承并自动迁移）
 - [[ruview]] - 基于 WiFi CSI 的穿墙无感知检测平台
+- [[spacesight-qa]] - SpaceSight 产品线历史提问与业务 Q&A 清单
 - [[trajex]] - ReID 感知层服务：边缘轨迹 + 图像 → 特征数据 + 角色标签
 
 ## Concepts (概念：机制/算法/理论)

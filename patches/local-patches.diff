@@ -254,6 +254,48 @@ index d449bdcf9..24236d12f 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
+@@ -9268,8 +9285,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         """
+         history = history or []
+         message_text = event.text or ""
+-        _group_sessions_per_user = getattr(self.config, "group_sessions_per_user", True)
+-        _thread_sessions_per_user = getattr(self.config, "thread_sessions_per_user", False)
+         # Use the same helper every other call site uses so the write key here
+         # matches the consume key at the run_conversation site — even if the
+         # session store overrides build_session_key's default behavior.
+@@ -9278,13 +9293,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         # concurrently preparing multimodal turns on the same runner.
+         self._consume_pending_native_image_paths(session_key)
+ 
+-        _is_shared_multi_user = is_shared_multi_user_session(
+-            source,
+-            group_sessions_per_user=_group_sessions_per_user,
+-            thread_sessions_per_user=_thread_sessions_per_user,
+-        )
+-        if _is_shared_multi_user and source.user_name:
+-            message_text = f"[{source.user_name}] {message_text}"
++        if source.chat_type != "dm" and source.user_name:
++            message_text = self._with_current_author_prefix(message_text, source.user_name)
+ 
+         # Prepend channel context from history backfill (if any).  This
+         # happens after sender-prefix so the prefix only applies to the
+@@ -9552,6 +9562,16 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+ 
+         return message_text
+ 
++    @staticmethod
++    def _with_current_author_prefix(message_text: str, user_name: str) -> str:
++        """Prefix non-DM turns with the current author, idempotently."""
++        if not user_name:
++            return message_text
++        prefix = f"[{user_name}] "
++        if message_text.startswith(prefix):
++            return message_text
++        return f"{prefix}{message_text}"
++
+     def _consume_pending_native_image_paths(self, session_key: str) -> List[str]:
+         pending_native = getattr(self, "_pending_native_image_paths_by_session", None)
+         if not pending_native:
 @@ -10464,7 +10481,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
@@ -669,17 +711,19 @@ index ca91069da..45ee634e6 100644
      elif context.source.user_name:
          lines.append(f"**User:** {context.source.user_name}")
      elif context.source.user_id:
-@@ -374,6 +699,52 @@ def build_session_context_prompt(
+@@ -374,6 +699,54 @@ def build_session_context_prompt(
              uid = _hash_sender_id(uid)
          lines.append(f"**User ID:** {uid}")
  
 +    if current_author and context.source.chat_type != "dm":
 +        lines.append(
 +            "**Current-author rule:** The current message author is the "
-+            "person who sent the message being answered now. Persistent "
-+            "USER.md/profile information may describe the bot owner or "
-+            "default user; do not treat it as the speaker unless it matches "
-+            "this current author."
++            "person who sent the message being answered now; make this current "
++            "author the reply target and main subject of your response. "
++            "Persistent USER.md/profile information may describe the bot owner "
++            "or default user; do not treat it as the speaker unless it matches "
++            "this current author. Recent channel history is context only and "
++            "must not override the current author."
 +        )
 +
 +    # PATCH-14: per-person profile injection  [people-profile]
@@ -2558,7 +2602,7 @@ index bb97c7e72..25be0c4fe 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1655,6 +2013,57 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1655,6 +2013,101 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.text, "A\nB")
          self.assertEqual(event.message_type, MessageType.TEXT)
  
@@ -2612,6 +2656,50 @@ index bb97c7e72..25be0c4fe 100644
 +        self.assertEqual(first_event.source.user_name, "Alice")
 +        self.assertEqual(second_event.text, "B")
 +        self.assertEqual(second_event.source.user_name, "Bob")
++
++    @patch.dict(os.environ, {}, clear=True)
++    def test_group_turn_body_keeps_current_author_next_to_question(self):
++        from gateway.config import GatewayConfig, PlatformConfig, Platform
++        from gateway.platforms.base import MessageEvent, MessageType
++        from gateway.run import GatewayRunner
++        from gateway.session import SessionSource
++
++        runner = GatewayRunner.__new__(GatewayRunner)
++        runner.config = GatewayConfig(
++            group_sessions_per_user=True,
++            platforms={Platform.FEISHU: PlatformConfig(enabled=True)},
++        )
++        runner.adapters = {}
++        runner._model = "test-model"
++        runner._base_url = ""
++        runner._consume_pending_native_image_paths = lambda _session_key: []
++        runner._session_key_for_source = lambda _source: "agent:main:feishu:group:oc_chat:ou_songfen"
++
++        source = SessionSource(
++            platform=Platform.FEISHU,
++            chat_id="oc_chat",
++            chat_name="SpaceSight 技术分享专项群",
++            chat_type="group",
++            user_id="ou_songfen",
++            user_name="Songfen",
++        )
++        event = MessageEvent(
++            text="这个问题怎么理解？",
++            message_type=MessageType.TEXT,
++            source=source,
++            channel_context="[Recent channel messages]\n[Ethan] 前面的问题",
++        )
++
++        result = asyncio.run(
++            runner._prepare_inbound_message_text(
++                event=event,
++                source=source,
++                history=[],
++            )
++        )
++
++        self.assertIn("[Ethan] 前面的问题", result)
++        self.assertIn("[New message]\n[Songfen] 这个问题怎么理解？", result)
 +
      @patch.dict(
          os.environ,
