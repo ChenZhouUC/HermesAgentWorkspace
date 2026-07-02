@@ -29,6 +29,7 @@ confidence: high
   - 深入 `cv/algo` 库源码，提取了具体的功能策略：调用 `BlurImpl` 算子做合规人脸打码；通过判断平行方向的 `passby_walk_ratio` 等剔除"路过"噪音；将空间事件拆解为"驻留 (Approach)/关注 (Front)"（其中 Front 指代发生了正脸交互的关注事件），更新至原文件 4. 业务功能侧实现细节。
   - **全局图谱审计与对齐**：全面审视了 SpaceSight 相关知识节点，将 Edge ALGO 作为极前置流整合进 `entities/spacesight.md`, `concepts/reid-pipeline.md`, `entities/trajex.md`, `comparisons/trajex-vs-hidalgo.md` 等。
   - **后处理与指标加工链路纵深重构**：根据 `airflow/analytics` 的最新源码结构，将 `_living/Whale-SpaceSight/Customer-Flow-Post-Processing.md` 彻底按照数据加工流的生命周期顺序重构为三个阶段：感知侧基础过滤 (Edge & HIDALGO) ➔ 中台二次清洗 (Airflow 营业时间/时区/停留时长/高频次数过滤) ➔ 核心业务指标衍生 (Airflow 批次聚合/接待归因与及时接待/在店时长/区域停留/路过客流)。同步更新了对应的 Layer 2 Concept 节点。
+  - **硬件节点图谱回溯补全**：在梳理全量 `spacesight` 相关节点连通性时，发现底层硬件节点 `edge-rk3576` 与 `edge-sophon` 缺乏向上游业务的感知，为此在它们的 Related 区域补充了 `[[spacesight|SpaceSight]]` 与 `[[edge-algo|Edge ALGO]]` 的回溯边，使得软硬件关系的双向图连通度达到 100%。
 - Boundary: 明确 Edge ALGO 负责端侧的轻量计算与事件封装，TRAJEX 作为云端的特征推断与查询节点。
 
 ## [2026-07-01] daily | Wiki carrier and SpaceSight maintenance

@@ -26,4 +26,7 @@ confidence: high
 
 **Related:**
 
+- [[spacesight|SpaceSight]]
+- [[edge-algo|Edge ALGO]]
+
 - [[edge-sophon]]
