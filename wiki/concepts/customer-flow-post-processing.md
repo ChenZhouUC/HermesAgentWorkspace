@@ -41,7 +41,7 @@ confidence: high
   - 及时接待率（进店时间与接待开始时间的响应差）；
   - 无人接待与深度接待批次。
 - **在店与区域驻留 (Shop Stay & ROI)**：合并同批次内多次捕捉，计算顾客生命周期的在店总时长，并映射至具体展区（AreaMap）生成漏斗。
-- **路过与进店率 (Outside Traffic)**：提取店外视野客群，计算最终的门店进店率。
+- **路过与进店率 (Outside Traffic)**：提取店外视野客群，计算最终的门店进店率。^[[[_living/Whale-SpaceSight/Customer-Flow-Post-Processing|Customer-Flow-Post-Processing]]]
 
 ---
 

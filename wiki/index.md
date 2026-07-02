@@ -48,7 +48,7 @@ Registry Rules
 - [[agent-harness]] - Agent Harness 底座架构：五层系统（编排/上下文/沙盒/HITL/协议）
 - [[agent-mid-turn-input-modes]] - Agent 在用户 mid-turn 追加输入时的 interrupt/queue/steer 三模式调度对偶
 - [[chain-of-thought]] - 思维链提示词族（CoT/Zero-shot/Self-Consistency/ToT/ReAct）
-- [[customer-flow-post-processing]] - ReID 下游的接待识别、客流过滤与配置化设计方法学
+- [[customer-flow-post-processing]] - 客流加工的三阶段顺序漏斗：感知侧基础过滤、中台清洗与核心业务指标衍生
 - [[graph-centrality]] - 网络中心性算法及其在知识图谱分析中的应用
 - [[graph-rag]] - 以实体关系图、路径和社区摘要增强 RAG 的检索架构
 - [[hybrid-search-rrf]] - BM25、向量检索、图遍历等多路召回的排名融合方法
