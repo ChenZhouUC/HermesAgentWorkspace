@@ -43,7 +43,7 @@ confidence: high
 常见归因：
 
 - **员工未过滤**：角色判定或店员库覆盖问题，回到 [[reid-pipeline]] 的角色判定链路；
-- **过店误识进店**：出入口区域过小或门框几何导致，回到 [[customer-flow-post-processing]] 的客流过滤策略；
+- **过店误识进店**：回到 [[edge-algo|Edge ALGO]] 调整端侧的路过 (Passby) 过滤机制（平行投影比例等），或叠加 [[customer-flow-post-processing]] 的后处理补强；
 - **静态物体扰动**：假人、样品、海报等被检测框抖动生成伪轨迹，需要后处理多信号过滤；
 - **重复进店未按口径去重**：属于人次 / 自然人 / 批次口径配置问题；
 - **人工漏数**：高峰拥挤时人工数常低估，应以视频回放对齐而不是只采信人工总数。
@@ -66,6 +66,7 @@ confidence: high
 **相关概念**:
 
 - [[spacesight]]
+- [[edge-algo|Edge ALGO]]
 - [[reid-pipeline]]
 - [[customer-flow-post-processing]]
 - [[hidalgo|HIDALGO]]

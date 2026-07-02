@@ -1,7 +1,7 @@
 ---
 title: Wiki Index
 created: 2026-05-14
-updated: 2026-07-01
+updated: 2026-07-02
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个双链 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last structural update: 2026-07-01 | Total pages: 41
+> Last structural update: 2026-07-02 | Total pages: 42
 > (Content updates tracked in individual page frontmatter)
 > 结构规范参见 [[SCHEMA]]；操作追踪参见 [[log]]。
 
@@ -30,6 +30,7 @@ Registry Rules
 
 <!-- Alphabetical within section -->
 
+- [[edge-algo|Edge ALGO]] - 边缘端算法服务：轨迹与事件抽取、弱网缓存机制
 - [[edge-rk3576]] - RK3576 边缘 NPU 设备参数与定位
 - [[edge-sophon]] - 算能 (Sophgo) 边缘 TPU 盒子系列
 - [[esp32-s3]] - WiFi CSI 信号采集核心微控制器

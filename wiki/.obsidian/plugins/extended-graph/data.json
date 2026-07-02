@@ -301,7 +301,6 @@
   "outlineLinks": false,
   "displayLinkTypeLabel": true,
   "colorLinkTypeLabel": true,
-  "useBitmapsForLinkLabels": false,
   "noLineHighlight": false,
   "folderShowFullPath": true,
   "invertArrows": false,

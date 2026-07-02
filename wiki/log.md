@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-07-01
+updated: 2026-07-02
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,23 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-07-02] daily | SpaceSight Edge ALGO Integration
+
+### Add Edge ALGO to SpaceSight Pipeline
+
+- Trigger: 用户要求在 ReID-Perception-Layer-TRAJEX 之前增补一层：从边缘端盒子 (Edge-Compute-Boxes-RK3576-Sophon) 上运行 ALGO，提取并上传事件、轨迹、坐标与属性等数据，支持弱网缓存。
+- Action:
+  - 增加 Layer 1 原材料：`_living/Whale-SpaceSight/Edge-Data-Collection-ALGO.md`。
+  - 更新现有的 `_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md` 与 `_living/Whale-SpaceSight/ReID-Pipeline-Architecture.md` 架构流。
+  - 创建 Layer 2 实体节点 `entities/edge-algo.md` 并注册到 `index.md`。
+  - 创建 Layer 2 实体节点 `entities/edge-algo.md` 并注册到 `index.md`。
+  - 创建 Layer 2 实体节点 `entities/edge-algo.md` 并注册到 `index.md`。
+  - 创建 Layer 2 实体节点 `entities/edge-algo.md` 并注册到 `index.md`。
+  - 深入 `cv/algo` 库源码，提取了具体的功能策略：调用 `BlurImpl` 算子做合规人脸打码；通过判断平行方向的 `passby_walk_ratio` 等剔除"路过"噪音；将空间事件拆解为"驻留 (Approach)/关注 (Front)"（其中 Front 指代发生了正脸交互的关注事件），更新至原文件 4. 业务功能侧实现细节。
+  - **全局图谱审计与对齐**：全面审视了 SpaceSight 相关知识节点，将 Edge ALGO 作为极前置流整合进 `entities/spacesight.md`, `concepts/reid-pipeline.md`, `entities/trajex.md`, `comparisons/trajex-vs-hidalgo.md` 等。
+  - **后处理与指标加工链路纵深重构**：根据 `airflow/analytics` 的最新源码结构，将 `_living/Whale-SpaceSight/Customer-Flow-Post-Processing.md` 彻底按照数据加工流的生命周期顺序重构为三个阶段：感知侧基础过滤 (Edge & HIDALGO) ➔ 中台二次清洗 (Airflow 营业时间/时区/停留时长/高频次数过滤) ➔ 核心业务指标衍生 (Airflow 批次聚合/接待归因与及时接待/在店时长/区域停留/路过客流)。同步更新了对应的 Layer 2 Concept 节点。
+- Boundary: 明确 Edge ALGO 负责端侧的轻量计算与事件封装，TRAJEX 作为云端的特征推断与查询节点。
 
 ## [2026-07-01] daily | Wiki carrier and SpaceSight maintenance
 
@@ -477,7 +494,7 @@ confidence: high
 - Tags added: `orchestration`, `harness`, `react`, `context-management`, `sandbox`, `hitl`, `protocol`, `multi-agent`
 - Action 2: 将原 `agent` 标签从"全栈与运维"移至新类别
 - Action 3: 同步 `scripts/wiki_lint.py` 中的 `ALLOWED_TAGS` 集合
-- Action 4: 更新 `SCHEMA.md` frontmatter `updated: 2026-06-03`
+- Action 4: 更新 `SCHEMA.md` frontmatter `updated: 2026-07-02`
 - Reason: 覆盖 AI Agent Harness 领域的核心术语，支持未来相关节点创建
 - Verification: `wiki_lint.py` 全部 11 项检查通过
 

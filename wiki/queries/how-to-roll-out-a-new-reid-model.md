@@ -102,6 +102,7 @@ confidence: high
 
 - [[model-shadow-deployment]]
 - [[reid-embedding-models]]
+- [[edge-algo|Edge ALGO]]
 - [[trajex|TRAJEX]]
 - [[hidalgo|HIDALGO]]
 - [[reid-pipeline]]

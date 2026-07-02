@@ -55,7 +55,7 @@ confidence: high
 
 1. 现场勘测：确认死角、遮挡、灯光、相机高度与视角；
 2. 划定 ROI：区分出入口、店内深度区域、无效区域；
-3. 配置轨迹进入规则：避免店外徘徊、短停、穿行被算作进店；
+3. 配置轨迹进入规则：利用 [[edge-algo|Edge ALGO]] 调整驻留 (Approach) 与关注 (Front) 的时间/朝向阈值，剔除店外徘徊、短停、穿行；
 4. 引入时间过滤：短时间出现的轨迹默认不直接算有效客流；
 5. 接入 [[reid-pipeline]] 去重：避免同一人多摄像头或多次短轨迹重复计数；
 6. 用 [[customer-flow-post-processing]] 做业务口径过滤：把趋势、批次、人次、自然人分开输出；
@@ -68,6 +68,7 @@ confidence: high
 **相关概念**:
 
 - [[spacesight]]
+- [[edge-algo|Edge ALGO]]
 - [[reid-pipeline]]
 - [[customer-flow-post-processing]]
 - [[edge-rk3576]]

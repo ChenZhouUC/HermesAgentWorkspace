@@ -15,7 +15,7 @@ confidence: high
 
 SpaceSight 是面向线下门店与展陈场景的视觉智能产品线，围绕摄像头、边缘计算、ReID 与客流后处理，把出入口轨迹、店内轨迹和视觉检测结果转化为业务指标与现场排障动作。^[[[_living/Whale-SpaceSight/SpaceSight-QA-List|SpaceSight-QA-List]]]
 
-在当前 wiki 中，SpaceSight 不是一个单独算法，而是承载多个可复用工程主题的产品实体：底层依赖边缘盒子与视频推流，上游通过 [[trajex|TRAJEX]] 产生 ReID 特征，下游由 [[hidalgo|HIDALGO]] 与 [[customer-flow-post-processing]] 生成客流、接待和异常排查所需的业务事实。^[[[_living/Whale-SpaceSight/ReID-Pipeline-Architecture|ReID-Pipeline-Architecture]]]
+在当前 wiki 中，SpaceSight 不是一个单独算法，而是承载多个可复用工程主题的产品实体：底层依赖边缘盒子（搭载 [[edge-algo|Edge ALGO]]）完成视频拉流与极前置事件抽取，上游通过 [[trajex|TRAJEX]] 产生 ReID 特征，下游由 [[hidalgo|HIDALGO]] 与 [[customer-flow-post-processing]] 生成客流、接待和异常排查所需的业务事实。^[[[_living/Whale-SpaceSight/ReID-Pipeline-Architecture|ReID-Pipeline-Architecture]]]
 
 ## 运维与方案边界
 
@@ -34,6 +34,7 @@ SpaceSight 相关问题通常分三类：
 
 **相关概念**:
 
+- [[edge-algo|Edge ALGO]]
 - [[reid-pipeline]]
 - [[customer-flow-post-processing]]
 - [[edge-sophon]]

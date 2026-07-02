@@ -10,7 +10,7 @@ confidence: high
 
 # TRAJEX (ReID 感知层服务)
 
-TRAJEX 是 [[hidalgo|HIDALGO ReID 项目]]中的**感知层服务**：消费边缘相机上传的轨迹（时间戳 + 图像坐标 + 人体截图序列），通过模型推理生成下游 [[hidalgo|HIDALGO 计算层]] 所需的特征数据。它是整套 ReID 系统中"采集与计算前置"段的承载者。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX|ReID-Perception-Layer-TRAJEX]]]
+TRAJEX 是 [[hidalgo|HIDALGO ReID 项目]]中的**感知层服务**：消费由极前置 [[edge-algo|Edge ALGO]] 抽取并上传的轨迹包（脱敏图像 + 时间坐标序列 + 属性），通过模型推理生成下游 [[hidalgo|HIDALGO 计算层]] 所需的特征数据。它是整套 ReID 系统中"采集与计算前置"段的承载者。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX|ReID-Perception-Layer-TRAJEX]]]
 
 ## 职责边界
 
@@ -45,6 +45,7 @@ TRAJEX 包含三个独立运维面：
 
 **相关概念**:
 
+- [[edge-algo|Edge ALGO]]
 - [[reid-pipeline]]
 - [[hidalgo|HIDALGO]]
 - [[trajex-vs-hidalgo|TRAJEX vs HIDALGO]]

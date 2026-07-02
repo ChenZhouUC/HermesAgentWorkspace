@@ -5,10 +5,10 @@
   "commitDateFormat": "YYYY-MM-DD HH:mm:ss",
   "autoSaveInterval": 0,
   "autoPushInterval": 0,
-  "autoPullInterval": 0,
-  "autoPullOnBoot": false,
+  "autoPullInterval": 5,
+  "autoPullOnBoot": true,
   "autoCommitOnlyStaged": false,
-  "disablePush": false,
+  "disablePush": true,
   "pullBeforePush": true,
   "disablePopups": false,
   "showErrorNotices": true,
@@ -16,8 +16,8 @@
   "listChangedFilesInMessageBody": false,
   "showStatusBar": true,
   "updateSubmodules": false,
-  "syncMethod": "merge",
-  "mergeStrategy": "none",
+  "syncMethod": "rebase",
+  "mergeStrategy": "ours",
   "customMessageOnAutoBackup": false,
   "autoBackupAfterFileChange": false,
   "treeStructure": false,
@@ -60,6 +60,8 @@
       "b": 255
     },
     "textColorCss": "var(--text-muted)",
-    "ignoreWhitespace": false
+    "ignoreWhitespace": false,
+    "lastShownAuthorDisplay": "initials",
+    "lastShownDateTimeFormatOptions": "date"
   }
 }
