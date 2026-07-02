@@ -11,6 +11,7 @@ toolsets:
 platform_toolsets:
   feishu_group:
     - web
+    - vision_tools
     - clarify
     - feishu_doc
     - skills_readonly

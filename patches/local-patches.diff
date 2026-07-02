@@ -207,7 +207,7 @@ index cdf895c4e..0eaebd780 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/run.py b/gateway/run.py
-index d449bdcf9..24236d12f 100644
+index d449bdcf9..a260d821c 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -2124,6 +2124,17 @@ def _platform_config_key(platform: "Platform") -> str:
@@ -254,7 +254,7 @@ index d449bdcf9..24236d12f 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -9268,8 +9285,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9264,8 +9281,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          """
          history = history or []
          message_text = event.text or ""
@@ -263,7 +263,7 @@ index d449bdcf9..24236d12f 100644
          # Use the same helper every other call site uses so the write key here
          # matches the consume key at the run_conversation site — even if the
          # session store overrides build_session_key's default behavior.
-@@ -9278,13 +9293,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9274,13 +9289,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # concurrently preparing multimodal turns on the same runner.
          self._consume_pending_native_image_paths(session_key)
  
@@ -279,7 +279,7 @@ index d449bdcf9..24236d12f 100644
  
          # Prepend channel context from history backfill (if any).  This
          # happens after sender-prefix so the prefix only applies to the
-@@ -9552,6 +9562,16 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9540,6 +9550,16 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
  
          return message_text
  
@@ -296,7 +296,7 @@ index d449bdcf9..24236d12f 100644
      def _consume_pending_native_image_paths(self, session_key: str) -> List[str]:
          pending_native = getattr(self, "_pending_native_image_paths_by_session", None)
          if not pending_native:
-@@ -10464,7 +10481,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10464,7 +10484,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -305,7 +305,7 @@ index d449bdcf9..24236d12f 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -10521,7 +10538,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10521,7 +10541,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -314,7 +314,7 @@ index d449bdcf9..24236d12f 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -11992,7 +12009,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11992,7 +12012,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -323,7 +323,7 @@ index d449bdcf9..24236d12f 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -13532,6 +13549,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13532,6 +13552,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -331,7 +331,7 @@ index d449bdcf9..24236d12f 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -15004,7 +15022,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15004,7 +15025,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -340,7 +340,7 @@ index d449bdcf9..24236d12f 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -15316,7 +15334,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15316,7 +15337,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -349,7 +349,7 @@ index d449bdcf9..24236d12f 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -16135,9 +16153,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16135,9 +16156,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # --session-key argv, a separate process) — so removing this in-process
              # gateway write does not affect any of them.
  
@@ -363,7 +363,7 @@ index d449bdcf9..24236d12f 100644
              # Combine platform context, per-channel context, and the user-configured
              # ephemeral system prompt.
 diff --git a/gateway/session.py b/gateway/session.py
-index ca91069da..45ee634e6 100644
+index ca91069da..ae9406655 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
 @@ -272,6 +272,321 @@ def _discord_tools_loaded() -> bool:
@@ -937,7 +937,7 @@ index d9d53a97a..21e884798 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 42bd40410..38f92f028 100644
+index 42bd40410..60291586e 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -98,6 +98,7 @@ try:
@@ -1554,8 +1554,6 @@ index 42bd40410..38f92f028 100644
 +        for item in items:
 +            if str(getattr(item, "message_id", "") or "") != reply_to_message_id:
 +                continue
-+            if str(getattr(item, "msg_type", "") or "") not in _FEISHU_BACKFILL_MSG_TYPES:
-+                continue
 +            body = getattr(item, "body", None)
 +            normalized = normalize_feishu_message(
 +                message_type=str(getattr(item, "msg_type", "") or ""),
@@ -1563,6 +1561,8 @@ index 42bd40410..38f92f028 100644
 +                mentions=getattr(item, "mentions", None),
 +                bot=self._bot_identity(),
 +            )
++            if not (normalized.image_keys or normalized.media_refs):
++                continue
 +            urls, types = await self._download_feishu_message_resources(
 +                message_id=reply_to_message_id,
 +                normalized=normalized,
@@ -2227,7 +2227,7 @@ index 7e29d75cc..68ad1c75d 100644
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index bb97c7e72..25be0c4fe 100644
+index bb97c7e72..9e800aa4f 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -159,6 +159,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -2331,7 +2331,7 @@ index bb97c7e72..25be0c4fe 100644
  
  class TestFeishuAdapterMessaging(unittest.TestCase):
      @patch.dict(os.environ, {
-@@ -331,6 +425,270 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+@@ -331,6 +425,330 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
          self.assertEqual(sleeps, [1])
          self.assertEqual(fake_loop.calls, 2)
  
@@ -2599,10 +2599,70 @@ index bb97c7e72..25be0c4fe 100644
 +
 +        self.assertIsNone(result)
 +
++    @patch.dict(os.environ, {}, clear=True)
++    def test_backfill_reply_attachments_downloads_post_images(self):
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig(extra={"history_backfill": True}))
++
++        class _MessageAPI:
++            def get(self, request):
++                return SimpleNamespace(
++                    success=lambda: True,
++                    data=SimpleNamespace(
++                        items=[
++                            SimpleNamespace(
++                                message_id=request.message_id,
++                                msg_type="post",
++                                body=SimpleNamespace(
++                                    content=json.dumps(
++                                        {
++                                            "zh_cn": {
++                                                "content": [
++                                                    [
++                                                        {"tag": "text", "text": "现在是这个 "},
++                                                        {"tag": "img", "image_key": "img_key"},
++                                                    ]
++                                                ]
++                                            }
++                                        },
++                                        ensure_ascii=False,
++                                    )
++                                ),
++                                mentions=[],
++                            )
++                        ]
++                    ),
++                )
++
++        adapter._client = SimpleNamespace(
++            im=SimpleNamespace(v1=SimpleNamespace(message=_MessageAPI()))
++        )
++
++        async def _direct(func, *args, **kwargs):
++            return func(*args, **kwargs)
++
++        with (
++            patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct),
++            patch.object(
++                adapter,
++                "_download_feishu_message_resources",
++                AsyncMock(return_value=(["/tmp/quoted.jpg"], ["image/jpeg"])),
++            ) as download,
++        ):
++            result = asyncio.run(adapter._backfill_reply_attachments("om_parent"))
++
++        self.assertEqual(result, (["/tmp/quoted.jpg"], ["image/jpeg"]))
++        download.assert_awaited_once()
++        normalized = download.await_args.kwargs["normalized"]
++        self.assertEqual(normalized.raw_type, "post")
++        self.assertEqual(normalized.image_keys, ["img_key"])
++
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1655,6 +2013,101 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1655,6 +2073,101 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.text, "A\nB")
          self.assertEqual(event.message_type, MessageType.TEXT)
  
@@ -2704,7 +2764,7 @@ index bb97c7e72..25be0c4fe 100644
      @patch.dict(
          os.environ,
          {
-@@ -1953,7 +2362,8 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1953,7 +2466,8 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -2714,7 +2774,7 @@ index bb97c7e72..25be0c4fe 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -1991,10 +2401,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1991,10 +2505,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -2727,7 +2787,7 @@ index bb97c7e72..25be0c4fe 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2030,7 +2440,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2030,7 +2544,7 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -2736,7 +2796,7 @@ index bb97c7e72..25be0c4fe 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2121,7 +2531,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2121,7 +2635,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -2745,7 +2805,7 @@ index bb97c7e72..25be0c4fe 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2173,7 +2583,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2173,7 +2687,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -2754,7 +2814,7 @@ index bb97c7e72..25be0c4fe 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -2499,8 +2909,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2499,8 +3013,10 @@ class TestAdapterBehavior(unittest.TestCase):
          adapter = FeishuAdapter(PlatformConfig())
          payload = json.loads(adapter._build_post_payload("# 标题\n访问 [文档](https://example.com)"))
  
@@ -2766,7 +2826,7 @@ index bb97c7e72..25be0c4fe 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_build_post_payload_wraps_markdown_in_md_tag(self):
-@@ -2538,6 +2950,64 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2538,6 +3054,64 @@ class TestAdapterBehavior(unittest.TestCase):
              [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
          )
  
@@ -2831,7 +2891,7 @@ index bb97c7e72..25be0c4fe 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_send_uses_post_for_inline_markdown(self):
          from gateway.config import PlatformConfig
-@@ -4682,6 +5152,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -4682,6 +5256,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  

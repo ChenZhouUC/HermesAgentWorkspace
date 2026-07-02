@@ -815,8 +815,10 @@ if [[ -f "${FEISHU_PY}" ]]; then
         grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_BACKFILL_WINDOW_SECONDS' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q '_backfilled_attachment_ids' "${FEISHU_PY}" 2>/dev/null; then
-        ok "Feishu attachment backfill patch: active (bare @mention stitches sender's recent image/file)"
+        grep -q '_backfilled_attachment_ids' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'normalized.image_keys or normalized.media_refs' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "Feishu attachment backfill patch: active (bare @mention and quoted post images stitched)"
         _FEISHU_BACKFILL_PATCH_OK=true
     else
         warn "Feishu attachment backfill patch inactive or partial"
