@@ -20,12 +20,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表                            | 管理方式                                                                                                                                                                      |
-| -------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/2/7/9/10/11/12/13/14/15 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                          |
-| **工程外补丁** | PATCH-3                         | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                           |
-| **运行时补丁** | PATCH-6                         | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                               |
-| **已上游合并** | PATCH-3/4/5/8                   | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；本地冗余代码已移除 |
+| 类型           | 代表                                   | 管理方式                                                                                                                                                                                                                           |
+| -------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
+| **工程外补丁** | PATCH-3                                | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
+| **运行时补丁** | PATCH-6                                | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
+| **已上游合并** | PATCH-2/3/4/5/8                        | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -57,7 +57,7 @@ Step 8: Re-apply & Verify（核心）
   │
   ├─ 8b. Behavioral verification
   │   ├─ PATCH-1: Python import + 调用 _resolve_skill_dir()，检查返回路径
-  │   ├─ PATCH-2: grep _get_platform_tools in doctor.py
+  │   ├─ PATCH-2: grep _get_platform_tools in doctor.py（✅ 已上游合并 v0.18.0）
   │   ├─ PATCH-3: Step 7 中对 `){-h,--help}` / `){-V,--version}` / `){-p,--profile}` 做回归检测（✅ 已上游合并 v0.13.0）
   │   ├─ PATCH-4: grep _web_ui_build_needed in main.py（✅ 已上游合并，仅验证）
   │   ├─ PATCH-5: grep override_acp_command + copilot-acp（✅ 已上游合并，仅验证）
@@ -68,7 +68,9 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-12: grep reply_in_thread = False
   │   ├─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
   │   ├─ PATCH-14: grep people-profile/_load_people_profiles/_lookup_person + group-profile/_load_group_profiles/_lookup_group/_GROUP_TOOL_LIMITATION_RULE + TestPeopleProfileInjection/TestGroupProfileInjection
-  │   └─ PATCH-15: grep _backfill_sender_attachments/_backfill_reply_attachments/_mark_attachment_backfilled + _FEISHU_BACKFILL_WINDOW_SECONDS/_backfilled_attachment_ids in adapter.py
+  │   ├─ PATCH-15: grep _backfill_sender_attachments/_backfill_reply_attachments/_mark_attachment_backfilled + _FEISHU_BACKFILL_WINDOW_SECONDS/_backfilled_attachment_ids in adapter.py
+  │   ├─ PATCH-17: grep Vertex include_thoughts=false + hidden-thoughts regression test
+  │   └─ PATCH-18: grep doctor Vertex provider/profile/env hints + google model slug regression test
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -137,7 +139,7 @@ Step 8c 中，如果所有 `PATCHED_FILES` 与上游 HEAD 无差异（`_REFRESHE
 | 局限                            | 说明                                                                                                                                                                                                                                                                                |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **单体 diff，不支持逐文件降级** | 所有 patch 在一个 diff 中。如果 5 个文件中只有 1 个冲突，整体 apply 失败，其余 4 个也不会被应用。`git apply --3way` 覆盖了大部分上下文偏移的情况；真冲突时需要手动 `git apply --reject` 逐文件处理。未来如果冲突频繁，考虑拆成 per-file diff 或改用 Python 脚本做更细粒度的 apply。 |
-| **行为化验证依赖特征字符串**    | PATCH-2/5 的验证是 grep 固定字符串。如果上游重构了函数但保留了行为，grep 会误报 "inactive"。PATCH-1 用了真实 Python import + 调用，是最稳的方式；其他 patch 条件允许时应向这个模式靠拢。                                                                                            |
+| **行为化验证依赖特征字符串**    | PATCH-5 与已归档 PATCH 的 sentinel 验证是 grep 固定字符串。如果上游重构了函数但保留了行为，grep 会误报 "inactive"。PATCH-1 用了真实 Python import + 调用，是最稳的方式；其他 patch 条件允许时应向这个模式靠拢。                                                                     |
 | **工程外补丁无版本对齐**        | PATCH-3 的 inline Python 替换依赖 `hermes completion zsh` 输出的固定格式。如果上游改了补全生成逻辑但仍有 bug，替换可能失效。目前有 "skip if already correct" 逻辑兜底。                                                                                                             |
 
 ### 受 `PATCHED_FILES` 管理的文件
@@ -146,7 +148,6 @@ Step 8c 中，如果所有 `PATCHED_FILES` 与上游 HEAD 无差异（`_REFRESHE
 PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
-    "hermes_cli/doctor.py"
     "pyproject.toml"
     "tools/lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
@@ -157,6 +158,7 @@ PATCHED_FILES=(
     "gateway/run.py"
     "gateway/session.py"
     "gateway/session_context.py"
+    "hermes_cli/doctor.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
@@ -174,11 +176,14 @@ PATCHED_FILES=(
     "tests/gateway/test_feishu_bot_auth_bypass.py"
     "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
+    "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
     "website/docs/reference/environment-variables.md"
     "website/docs/user-guide/configuration.md"
     "website/docs/user-guide/messaging/feishu.md"
+    "plugins/model-providers/vertex/__init__.py"
+    "tests/hermes_cli/test_vertex_provider.py"
 )
 ```
 
@@ -197,17 +202,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.17.0 (upstream `main` `7cfa2fa1`，2026-06-29)
+## 当前版本：v0.18.0 (upstream `main` `30e947e0`，2026-07-02)
 
-**活跃补丁**：PATCH-1 / PATCH-2 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16（共 12 条）。
+**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18（共 13 条）。
 
-**最近一次升级（v0.17.0 同 release 内迭代，+204 commit，basis `6f1a176b` → `7cfa2fa1`）要点**：
+**最近一次升级（v0.17.0 → v0.18.0，+796 commit，basis `7cfa2fa1` → `30e947e0`）要点**：
 
-- 上游主线：Docker/cgroup 改进、Telegram bot auth policy、Session recovery、Feishu `history_backfill` / `FEISHU_GROUP_ALLOWED_CHATS` 新配置等；上游在 4 个测试文件的补丁插入点附近新增测试，产生 3-way 冲突（均以"双方新增内容全保留"策略解决）。
-- 本地变更：PATCH-16 新增飞书出站消息 markdown 完整渲染支持（标题 / 引用 / 表格 → bullet，详见 PATCH-16 节）；`memories/USER.md` 移除过时的 `NO bold formatting` 指令。
-- patch apply：31/35 干净，4 文件手动 3-way 解决；`local-patches.diff` 已刷新，`.local-patches.base` → `7cfa2fa1`。
-- 依赖：本轮无依赖变更。
-- 测试：`test_feishu.py` 216 passed；合并后 298 passed。
+- 上游主线：安全/Doctor 合并 PATCH-2 等价修复（`6b21a935a`）；Gateway 新增 per-session `/model` 持久化（`30e947e0`）、per-channel overrides、typing indicator、resume/compression 多项修复；Skills 收紧路径与 review fork 写前读（`313a8c68` / `20871c1d`）；Desktop/Web 大量终端、memory graph、pet roam、dashboard sidebar 与更新确认改进；xAI Imagine public URL / chaining / video edit 支持（`9ce79cd6`）。
+- patch apply：脚本首次整体回贴失败；手工 `git apply --3way` 后 31/35 clean，4 文件冲突（`gateway/session.py`、`hermes_cli/doctor.py`、`hermes_cli/tools_config.py`、`tests/gateway/test_session.py`）。PATCH-2 于本轮被上游合并，已归档到 `v0.18.0 archive`；其余冲突按“保留上游新保护 + 恢复本地 patch 意图”解决，`local-patches.diff` 刷新到 `30e947e0`。
+- 依赖：venv `aiohttp 3.13.4 → 3.14.1`、`hermes-agent 0.17.0 → 0.18.0`；`npm audit` no vulnerabilities；Skills mirror `+0/~0/-4`；lazy backend `platform.matrix` 刷新失败，保留旧版本。
+- 已知摩擦：脚本 Step 8 未能自动回贴补丁，需要本轮手工 3-way；final gateway recovery 报“not running”，后续状态复查以 `hermes gateway status` 为准；`uv.lock` 仍是内层额外 tracked 改动，不纳入 `local-patches.diff`。
+- 配置漂移：已运行 `hermes doctor --fix`，`config.yaml` 迁移到 `_config_version: 33`；新增 PATCH-18 后 `hermes doctor` 在当前官方 Vertex 配置下通过，Auth / optional tool 未配置项仍按可选项提示。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -223,21 +228,6 @@ cat ~/.hermes/patches/.local-patches.base
 **修复**：让 `_resolve_skill_dir()` 读 `config.yaml` 的 `skills.external_dirs`，第一个非官方目录作为新 skill 的基准路径；`_create_skill()` / `_delete_skill()` 同步适配，并加 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除。
 
 **验证**：Step 8b 用真实 Python import + 调用 `_resolve_skill_dir("dummy_unit_test_skill")`，断言返回路径 startswith `~/.hermes/my-skills/`。
-
----
-
-### [PATCH-2] hermes_cli/doctor.py — issue count 过报
-
-| 字段     | 内容                   |
-| -------- | ---------------------- |
-| **文件** | `hermes_cli/doctor.py` |
-| **状态** | 🟡 未上游合并          |
-
-**问题**：`hermes doctor` 把所有注册但缺 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，虚报 `Found 1 issue(s) to address`。
-
-**修复**：在 "Count disabled tools with API key requirements" 块中用 `_get_platform_tools` 过滤出用户实际启用的 toolset，只对它们报 issue。
-
-**验证**：Step 8b grep `from hermes_cli.tools_config import _get_platform_tools, PLATFORMS` 在 doctor.py 中存在。
 
 ---
 
@@ -406,6 +396,58 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `adapter.py` 中存在 `def _promote_block_markdown`、`convert_table_to_bullets`；grep `test_feishu.py` 中存在 `test_build_outbound_payload_table_converts_to_bullets_and_posts`；`tests/gateway/test_feishu.py` 全量 216 passed。
 
 **上游吸收判断**：若上游为飞书 post/md 原生补齐标题 / 引用渲染，或将回复改走 interactive card markdown 元素，可归档本补丁。
+
+---
+
+### [PATCH-17] Vertex thinking 保持开启但不把 thought 文本混入可见回复
+
+| 字段     | 内容                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------- |
+| **文件** | `plugins/model-providers/vertex/__init__.py`, `tests/hermes_cli/test_vertex_provider.py` |
+| **状态** | 🟡 未上游合并                                                                            |
+
+**问题**：官方 `provider: vertex` 通过 Vertex OpenAI-compatible endpoint 调 Gemini 3.x 时，`reasoning_effort: high` 会映射到 `extra_body.google.thinking_config.include_thoughts=true`。实测 Vertex 这条 OpenAI-compatible 路径不会把 thought 拆成 Hermes 可隐藏的 `reasoning_content` 字段，而是把 thought text 直接拼进 `message.content`，飞书端会看到类似 `**Identifying Current Model**` 的思考段，即使 `display.show_reasoning=false`。
+
+**修复**：Vertex provider profile 仍复用 Gemini thinking level / budget 映射，但在 OpenAI-compatible 请求体里把 `include_thoughts=true` 强制改为 `include_thoughts=false`。这样保留 `thinking_level=high` 等模型侧思考强度，让模型继续内部思考；同时禁止 Vertex 把 thought text 返回到普通正文，飞书 / dashboard 只收到最终答案。
+
+**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 中存在 `include_thoughts=true` 问题说明与 `thinking_config["include_thoughts"] = False`；grep `tests/hermes_cli/test_vertex_provider.py` 中存在 `test_vertex_extra_body_preserves_disabled_reasoning`。单测 `venv/bin/pytest tests/hermes_cli/test_vertex_provider.py -q` 15 passed；真链路直连 Vertex `extra_body={'google': {'thinking_config': {'include_thoughts': False, 'thinking_level': 'high'}}}` 返回 `hidden-thinking-ok`，正文无 thought 段。
+
+**上游吸收判断**：若上游能把 Vertex OpenAI-compatible 返回的 Gemini thoughts 解析并存入隐藏 reasoning 字段，或官方 Vertex profile 默认隐藏 thoughts 且保留 thinking level，可归档本补丁。
+
+---
+
+### [PATCH-18] Doctor 识别官方 Vertex provider 与 google/* 模型名
+
+| 字段     | 内容                                                      |
+| -------- | --------------------------------------------------------- |
+| **文件** | `hermes_cli/doctor.py`, `tests/hermes_cli/test_doctor.py` |
+| **状态** | 🟡 未上游合并                                             |
+
+**问题**：切到官方 `model.provider: vertex` 后，实际 runtime provider 已能通过 `providers.get_provider_profile("vertex")` 和 `agent.vertex_adapter` 正常拿 OAuth token 调 Vertex OpenAI-compatible endpoint，但 `hermes doctor` 仍只看 auth/catalog provider 列表，不读 model-provider plugin registry，于是误报 `model.provider 'vertex' is not a recognised provider`。同时 `google/gemini-3.1-pro-preview` 这类 Vertex 官方 OpenAI-compatible 模型名被当作 OpenRouter 风格 vendor slug，额外误报应该切 openrouter 或去掉前缀。
+
+**修复**：doctor 在校验 provider 时补充读取 `providers.get_provider_profile()`，将 plugin profile 的 canonical name 加入可接受 provider id 集合，并让 vendor-slug 策略同时考虑原始 provider、auth runtime provider、catalog provider 与 plugin canonical provider。`vertex` 被加入允许 `vendor/model` 形态的 provider 集合；`.env` 健康检查同时识别 `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_PROJECT_ID` / `VERTEX_LOCATION`，避免只配置官方 Vertex 凭据时被误判为没有 provider auth。
+
+**验证**：Step 8b grep `hermes_cli/doctor.py` 中存在 `_get_provider_profile`、`GOOGLE_APPLICATION_CREDENTIALS` 与 `"vertex"`，并 grep `tests/hermes_cli/test_doctor.py` 中存在 `test_run_doctor_accepts_vertex_provider_and_google_model_slugs`。单测 `venv/bin/pytest tests/hermes_cli/test_doctor.py tests/hermes_cli/test_vertex_provider.py tests/gateway/test_session.py -q` 193 passed；实际 `hermes doctor` 在当前 `provider: vertex` 配置下显示 `Config version up to date (v33)` 且 `All checks passed`。
+
+**上游吸收判断**：若上游 doctor 原生读取 model-provider plugin registry，或官方 registry/catalog 把 `vertex` 与其 `google/*` OpenAI-compatible 模型名纳入健康检查策略，可归档本补丁。
+
+---
+
+## v0.18.0 archive — PATCH-2 上游合并
+
+### [PATCH-2] hermes_cli/doctor.py — issue count 过报
+
+| 字段         | 内容                                               |
+| ------------ | -------------------------------------------------- |
+| **文件**     | `hermes_cli/doctor.py`                             |
+| **状态**     | ✅ 已上游合并（v0.18.0，commit `6b21a935a`）       |
+| **适用版本** | v0.9.0–v0.17.0 需要本地 patch；v0.18.0+ 已上游修复 |
+
+**问题（历史）**：`hermes doctor` 把所有注册但缺 API key 的 toolset（含用户从未启用的 `moa`、`rl`）计入 issue，虚报 `Found 1 issue(s) to address`。
+
+**修复**：在 "Count disabled tools with API key requirements" 块中用 `_get_platform_tools` 过滤出用户实际启用的 toolset，只对它们报 issue。
+
+**上游追踪**：上游 commit `6b21a935a`（`fix(doctor): ignore disabled toolsets in missing-API-key summary`）合入等价逻辑，本地 `hermes_cli/doctor.py` 已从 `PATCHED_FILES` 移除。`hermes-update.sh` Step 8b 仍保留 grep `_get_platform_tools` 的存在性检查，用于在上游回滚时及时告警。
 
 ---
 

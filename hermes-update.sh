@@ -48,17 +48,16 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.17.0 / main 7cfa2fa1, `hermes completion zsh` already emits the
+# As of v0.18.0 / main 30e947e0, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
-# PATCH-5 (delegate_tool), PATCH-8 (Gemini thought_signature) and PATCH-4
-# (hermes_cli/main.py dashboard web-build skip) were merged upstream and
-# removed from this list.
+# PATCH-2 (doctor issue-count), PATCH-5 (delegate_tool), PATCH-8 (Gemini
+# thought_signature) and PATCH-4 (hermes_cli/main.py dashboard web-build skip)
+# were merged upstream and removed from this list.
 PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
-    "hermes_cli/doctor.py"
     "pyproject.toml"
     "tools/lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
@@ -69,6 +68,7 @@ PATCHED_FILES=(
     "gateway/run.py"
     "gateway/session.py"
     "gateway/session_context.py"
+    "hermes_cli/doctor.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
@@ -86,11 +86,14 @@ PATCHED_FILES=(
     "tests/gateway/test_feishu_bot_auth_bypass.py"
     "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
+    "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
     "website/docs/reference/environment-variables.md"
     "website/docs/user-guide/configuration.md"
     "website/docs/user-guide/messaging/feishu.md"
+    "plugins/model-providers/vertex/__init__.py"
+    "tests/hermes_cli/test_vertex_provider.py"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -581,11 +584,11 @@ else
 fi
 
 # -- 8b. Behavioral verification -----------------------------------------------
+# PATCH-2 (doctor issue-count) was merged upstream in v0.18.0.
 # PATCH-5 (delegate ACP routing) was merged upstream in v0.10.0.
 # PATCH-4 (dashboard web-build skip) was merged upstream in v0.11.x via
 # upstream commit 5b5a53a1 introducing _web_ui_build_needed().
 _SKILL_PATCH_OK=false
-_DOCTOR_PATCH_OK=false
 _DELEGATE_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
 _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
@@ -595,6 +598,8 @@ _FEISHU_NO_THREAD_PATCH_OK=false
 _GROUP_AUTHOR_IDENTITY_PATCH_OK=false
 _PEOPLE_PROFILE_PATCH_OK=false
 _FEISHU_BACKFILL_PATCH_OK=false
+_VERTEX_THOUGHTS_PATCH_OK=false
+_VERTEX_DOCTOR_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -620,11 +625,10 @@ fi
 
 if [[ -f "${DOCTOR_PY}" ]]; then
     if grep -q "_get_platform_tools" "${DOCTOR_PY}" 2>/dev/null; then
-        ok "Doctor issue-count patch: active (unused tools excluded from issue count)"
-        _DOCTOR_PATCH_OK=true
+        ok "Doctor issue-count filter: active (upstream merged, PATCH-2 retired)"
     else
-        warn "Doctor issue-count patch inactive — hermes doctor may report false issue for moa/rl"
-        add_act "Re-apply: see PATCHES.md § [PATCH-2] doctor.py issue count"
+        warn "Doctor issue-count filter missing — hermes doctor may report false issue for disabled toolsets"
+        add_act "Check upstream: hermes_cli/doctor.py should filter missing API-key issues through enabled toolsets"
     fi
 else
     warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
@@ -828,11 +832,49 @@ else
     warn "Could not locate Feishu adapter — skipping PATCH-15 check"
 fi
 
+# PATCH-17: Vertex OpenAI-compatible returns include_thoughts output as normal
+# assistant content. Keep model-side Gemini thinking level/budget, but force
+# include_thoughts=false so Feishu/dashboard only receive the final answer.
+VERTEX_PROVIDER_PY="${HERMES_AGENT}/plugins/model-providers/vertex/__init__.py"
+VERTEX_PROVIDER_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_vertex_provider.py"
+if [[ -f "${VERTEX_PROVIDER_PY}" && -f "${VERTEX_PROVIDER_TEST_PY}" ]]; then
+    if grep -q 'include_thoughts=true' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
+        grep -q 'thinking_config\["include_thoughts"\] = False' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
+        grep -q 'test_vertex_extra_body_preserves_disabled_reasoning' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null; then
+        ok "Vertex hidden-thoughts patch: active (thinking level kept, thought text hidden from content)"
+        _VERTEX_THOUGHTS_PATCH_OK=true
+    else
+        warn "Vertex hidden-thoughts patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-17] Vertex thinking hidden from visible content"
+    fi
+else
+    warn "Could not locate Vertex provider files — skipping PATCH-17 check"
+fi
+
+# PATCH-18: doctor must understand the official Vertex provider profile and
+# Google-style model slugs so `hermes doctor` stays green after switching the
+# main model path from the legacy custom endpoint to provider: vertex.
+DOCTOR_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_doctor.py"
+if [[ -f "${DOCTOR_PY}" && -f "${DOCTOR_TEST_PY}" ]]; then
+    if grep -q '_get_provider_profile' "${DOCTOR_PY}" 2>/dev/null &&
+        grep -q 'GOOGLE_APPLICATION_CREDENTIALS' "${DOCTOR_PY}" 2>/dev/null &&
+        grep -q '"vertex"' "${DOCTOR_PY}" 2>/dev/null &&
+        grep -q 'test_run_doctor_accepts_vertex_provider_and_google_model_slugs' "${DOCTOR_TEST_PY}" 2>/dev/null; then
+        ok "Vertex doctor patch: active (provider profile + google/* model slug accepted)"
+        _VERTEX_DOCTOR_PATCH_OK=true
+    else
+        warn "Vertex doctor patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-18] Doctor recognizes official Vertex provider"
+    fi
+else
+    warn "Could not locate doctor files — skipping PATCH-18 check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DOCTOR_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

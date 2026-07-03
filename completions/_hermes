@@ -49,6 +49,7 @@ _hermes() {
                 'hooks:Inspect and manage shell-script hooks'
                 'import:Restore a Hermes backup from a zip file'
                 'insights:Show usage insights and analytics'
+                'journey:Timeline of learned skills + memories over time'
                 'kanban:Multi-profile collaboration board (tasks, links, comments)'
                 'logout:Clear authentication for an inference provider'
                 'logs:View and filter Hermes log files'
@@ -70,6 +71,7 @@ _hermes() {
                 'secrets:Manage external secret sources (Bitwarden Secrets Manager)'
                 'security:Supply-chain audit (OSV.dev) for venv, plugins, and MCP serv'
                 'send:Send a message to a configured platform (scripts, cron jobs,'
+                'serve:Start the Hermes backend server (headless; powers the deskto'
                 'sessions:Manage session history (list, rename, export, prune, delete)'
                 'setup:Interactive setup wizard'
                 'skills:Search, install, configure, and manage skills'
@@ -237,6 +239,15 @@ _hermes() {
                     'test:Fire every hook matching <event> against a synthetic payload'
                     )
                     _describe 'hooks command' hooks_cmds
+                    ;;
+                journey)
+                    local -a journey_cmds
+                    journey_cmds=(
+                    'delete:Delete a learned skill (archived) or memory by node id.'
+                    'edit:Edit a learned skill or memory by node id in $EDITOR.'
+                    'list:List node ids (for delete/edit).'
+                    )
+                    _describe 'journey command' journey_cmds
                     ;;
                 kanban)
                     local -a kanban_cmds

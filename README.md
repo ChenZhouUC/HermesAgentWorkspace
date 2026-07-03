@@ -328,10 +328,11 @@ ln -sf ~/.hermes/hermes-agent/venv/bin/hermes ~/.local/bin/hermes
 
 `PYTHON_VERSION` 不写死，按当前 `pyproject.toml` 的约束和本机已安装版本选择即可。2026-05-20 这次新机恢复使用的是本机 `pyenv` 的 `3.12.7`，满足当时上游 `requires-python = ">=3.11"`。
 
-如果使用 Vertex Provider，先刷新一次 token：
+如果使用官方 Vertex Provider，先确认 `.env` 里有服务账号 JSON 路径，且 `config.yaml` 使用 `provider: vertex`：
 
 ```bash
-~/.hermes/scripts/refresh_vertex_and_restart_gateway
+rg '^(GOOGLE_APPLICATION_CREDENTIALS|VERTEX_CREDENTIALS_PATH)=' ~/.hermes/.env
+sed -n '1,20p' ~/.hermes/config.yaml
 ```
 
 最后安装并启动新机的后台服务：
@@ -341,12 +342,11 @@ hermes doctor
 hermes gateway install --force
 hermes gateway start
 
-# 如果需要 Vertex token 自动刷新 / wake 后补刷
-~/.hermes/scripts/install_vertex_refresh_launchd
-
 hermes gateway status
 launchctl list | grep -Ei 'hermes|vertex'
 ```
+
+官方 `provider: vertex` 会在 Hermes 进程内自动 mint/refresh OAuth token，不需要安装 Vertex token 自动刷新 / wake 后补刷 LaunchAgent。只有回滚到旧 `custom + VERTEX_ACCESS_TOKEN` 方案时，才运行 `~/.hermes/scripts/install_vertex_refresh_launchd`。
 
 迁移完成后，旧机应保持 gateway 与 Vertex LaunchAgent 卸载状态；如果只是临时切换机器，回切前也按同样流程先停掉当前机器，再启动另一台。
 
@@ -367,25 +367,25 @@ open -a TextEdit ~/.hermes/.env
 
 当前使用的 provider 及其环境变量：
 
-| Provider                | 环境变量                                                 | 说明                                                |
-| ----------------------- | -------------------------------------------------------- | --------------------------------------------------- |
-| Vertex Gemini（主模型） | `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_ACCESS_TOKEN` | `VERTEX_ACCESS_TOKEN` 为短期 token，由脚本定期刷新  |
-| Gemini（可选直连）      | `GEMINI_API_KEY` / `GOOGLE_API_KEY`                      | 仅在切回内置 `gemini` provider 时使用               |
-| Qwen（备用模型）        | `DASHSCOPE_API_KEY`                                      | 内置 `alibaba` provider 直接读取                    |
-| DashScope 国内端点      | `DASHSCOPE_BASE_URL`                                     | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| 飞书                    | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`                    | 飞书开放平台获取                                    |
-| 飞书推送频道            | `FEISHU_HOME_CHANNEL`                                    | cron / 通知默认投递的群或会话 ID                    |
-| Gateway 访问控制        | `FEISHU_ALLOWED_USERS` / `GATEWAY_ALLOW_ALL_USERS=false` | 默认使用飞书白名单；仅明确开放时才设为 `true`       |
+| Provider                | 环境变量                                                     | 说明                                                                          |
+| ----------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Vertex Gemini（主模型） | `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_CREDENTIALS_PATH` | 官方 `vertex` provider 用 service account/ADC 自动 mint + refresh OAuth token |
+| Gemini（可选直连）      | `GEMINI_API_KEY` / `GOOGLE_API_KEY`                          | 仅在切回内置 `gemini` provider 时使用                                         |
+| Qwen（备用模型）        | `DASHSCOPE_API_KEY`                                          | 内置 `alibaba` provider 直接读取                                              |
+| DashScope 国内端点      | `DASHSCOPE_BASE_URL`                                         | `https://dashscope.aliyuncs.com/compatible-mode/v1`                           |
+| 飞书                    | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`                        | 飞书开放平台获取                                                              |
+| 飞书推送频道            | `FEISHU_HOME_CHANNEL`                                        | cron / 通知默认投递的群或会话 ID                                              |
+| Gateway 访问控制        | `FEISHU_ALLOWED_USERS` / `GATEWAY_ALLOW_ALL_USERS=false`     | 默认使用飞书白名单；仅明确开放时才设为 `true`                                 |
 
 **当前主模型的加载机制：**
 
-当前配置不再直接使用 Hermes 内置 `gemini` provider，而是通过 `config.yaml` 中一等支持的 `custom` provider 指向 Vertex 的 OpenAI 兼容端点：
+当前配置使用 Hermes 官方 `vertex` provider 指向 Vertex AI 的 OpenAI 兼容端点：
 
-1. `base_url` 直接指向 Vertex 的 OpenAI 兼容入口（硬编码 URL，避免新版 Hermes 变量展开时序问题）。
-2. `api_key: ${VERTEX_ACCESS_TOKEN}` 让 Hermes 在启动时从环境变量注入 Bearer token。
-3. `scripts/refresh_vertex_access_token` 负责把 service-account JSON 换成短期 token，并回写到 `~/.hermes/.env`。
+1. `.env` 中的 `GOOGLE_APPLICATION_CREDENTIALS`（或 `VERTEX_CREDENTIALS_PATH`）指向 service-account JSON。
+2. `config.yaml` 中的 `model.provider: vertex` 选择官方 provider；`vertex.project_id` / `vertex.region` 保存非机密路由配置。
+3. Hermes 运行时用 `google-auth` mint 短期 OAuth token，并在接近过期或遇到 mid-session 401 时自动 refresh。
 
-因此，Vertex 这条链路里真正被 Hermes 请求时读取的是 `VERTEX_ACCESS_TOKEN`，而不是 `GEMINI_API_KEY`。后者只在你切回 Hermes 内置 `gemini` provider 时才会生效。
+因此，当前主链路不再读取 `.env` 里的 `VERTEX_ACCESS_TOKEN`。该字段和本仓库的 refresh 脚本保留为旧 `custom` provider 方案的回滚备用；`GEMINI_API_KEY` 只在切回 Hermes 内置 `gemini` provider 时才会生效。
 
 ### config.yaml 主配置
 
@@ -394,12 +394,14 @@ open -a TextEdit ~/.hermes/.env
 关键配置节说明：
 
 ```yaml
-# 主模型（走 Vertex OpenAI 兼容端点 + access token）
+# 主模型（官方 Vertex provider；OAuth token 由 Hermes 自动 mint/refresh）
 model:
-  provider: custom
+  provider: vertex
   default: google/gemini-3.1-pro-preview
-  base_url: https://aiplatform.googleapis.com/v1/projects/wh-gemini-1/locations/global/endpoints/openapi
-  api_key: ${VERTEX_ACCESS_TOKEN}
+
+vertex:
+  project_id: wh-gemini-1
+  region: global
 
 # 备用模型（主模型失败时自动切换）
 fallback_model:
@@ -454,9 +456,9 @@ compression:
 
 **已知限制**：
 
-- 主模型走 `model.provider: custom` + Vertex OpenAI 兼容端点 (`aiplatform.googleapis.com/.../openapi`)。Hermes 上游 `agent/transports/chat_completions.py` 中 `_is_gemini_openai_compat_base_url()` 仅识别 `generativelanguage.googleapis.com/.../openai`，且 `_build_kwargs_*` 仅在 `provider_name == "gemini"` 时注入 `extra_body.google.thinking_config`。因此当前主模型的 thinking trace 不会在 TUI 流式里展开，飞书前端也只能看到 tool 调用 + 文本。
+- 主模型走官方 `model.provider: vertex` + Vertex OpenAI 兼容端点 (`aiplatform.googleapis.com/.../openapi`)。Hermes 会把 Vertex 视作 Gemini-family provider，模型 ID 保留 `google/gemini-*` 的点号，并通过 provider-specific 路径处理 OAuth token refresh 与 Gemini thinking 参数。
 - Fallback 触发后切到 qwen3.6-plus 的对话本身仍可能返回 reasoning；但当前 `display.show_reasoning: false`，前端不展示 thinking 段落。若临时改回 `true`，会重新显示前缀 `💭 **Reasoning:**` 的内容。
-- 要让主模型 thinking 也能展示，需要写本地 patch 让 chat_completions transport 识别 vertex openai-compat 端点，并把 `provider == "custom"` + 该 base_url 视作 Gemini —— 暂未实现，记入 backlog。
+- 若后续发现 Vertex thinking trace 在特定前端仍不可见，优先按官方 `vertex` provider 路径排查，不再回到旧 `custom + VERTEX_ACCESS_TOKEN` 识别补丁思路。
 
 ### 流式输出
 
@@ -478,32 +480,45 @@ Hermes 有**两套独立的流式机制**，配置项分别落在不同的 names
 
 ### Vertex Provider
 
-当前主模型走的是 Vertex AI 的 OpenAI 兼容端点，凭据链路分成三层：
+当前主模型走 Hermes 官方 `vertex` provider。凭据链路分成三层：
 
-1. `GOOGLE_APPLICATION_CREDENTIALS` 指向 service-account JSON。
-2. `scripts/refresh_vertex_access_token` 用 service account 换出 1 小时左右有效的 `VERTEX_ACCESS_TOKEN`（同时写入 `VERTEX_PROJECT_ID`、`VERTEX_LOCATION`、`VERTEX_OPENAI_BASE_URL`，但这三个现已冗余——`config.yaml` 已硬编码 URL）。
-3. Hermes 在启动请求时读取 `VERTEX_ACCESS_TOKEN`，并通过 `model.provider: custom` + `model.base_url` 发到 Vertex 端点。
+1. `.env` 中的 `GOOGLE_APPLICATION_CREDENTIALS`（或 `VERTEX_CREDENTIALS_PATH`）指向 service-account JSON；也可使用 ADC。
+2. `config.yaml` 中 `model.provider: vertex`，并在 `vertex:` 下保存 `project_id` 与 `region`。
+3. Hermes 通过 `agent.vertex_adapter` 使用 `google-auth` mint OAuth token，指向 `https://aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{region}/endpoints/openapi`，并自动 refresh。
 
-#### 单次刷新
+#### 官方 provider 配置
 
-首次配置、切换 service account、或怀疑 token 已过期时，手动跑一次刷新：
+当前配置形态：
 
-```bash
-# 推荐：使用 wrapper 脚本（自动从 .env 读取凭据，刷新后计划内重启 gateway）
-~/.hermes/scripts/refresh_vertex_and_restart_gateway
+```yaml
+model:
+  provider: vertex
+  default: google/gemini-3.1-pro-preview
 
-# 仅刷新 token 不重启 gateway（需要 shell 中有 GOOGLE_APPLICATION_CREDENTIALS）
-~/.hermes/scripts/refresh_vertex_access_token \
-  --credentials ~/.hermes/credentials/wh-gemini-1-service-account.json
+vertex:
+  project_id: wh-gemini-1
+  region: global
 ```
 
-> **注意**：`refresh_vertex_access_token`（Python 脚本）不会自动读取 `.env`，需要显式传 `--credentials` 或在 shell 中 `export GOOGLE_APPLICATION_CREDENTIALS=...`。日常使用推荐直接调 wrapper 脚本 `refresh_vertex_and_restart_gateway`，它会从 `.env` 提取凭据路径。
+> `region: global` 是 Gemini 3.x preview 推荐/必要路径；regional endpoint 可能 404。
 
-脚本会把新的 `VERTEX_ACCESS_TOKEN` 和过期时间回写到 `~/.hermes/.env`。如果当前有交互式 Hermes CLI 会话，执行 `/reload` 即可让当前进程重新读取环境变量；如果是 gateway / cron / 飞书 bot 这类后台进程，则需要重启对应进程。
+#### 旧 custom-provider refresh 方案（保留为回滚备用）
 
-#### 自动刷新（launchd）
+本仓库仍保留 `scripts/refresh_vertex_access_token`、`scripts/refresh_vertex_and_restart_gateway`、`scripts/install_vertex_refresh_launchd` 和 wake watcher。它们服务于旧配置：
 
-macOS 下可安装一组独立的 LaunchAgent：
+```yaml
+model:
+  provider: custom
+  default: google/gemini-3.1-pro-preview
+  base_url: https://aiplatform.googleapis.com/v1/projects/wh-gemini-1/locations/global/endpoints/openapi
+  api_key: ${VERTEX_ACCESS_TOKEN}
+```
+
+只有回滚到上述 `custom` provider 方案时，才需要定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN` 并重启 gateway。官方 `vertex` provider 不需要这组 LaunchAgent。
+
+#### 自动刷新（legacy / custom provider）
+
+macOS 下可安装一组独立的 LaunchAgent（仅旧 `custom` provider 方案需要）：
 
 - 定时执行“刷新 Vertex token -> 等待 gateway 空闲 -> 计划内重启 gateway”
 - 监听系统从休眠恢复，并在 wake 后立即补跑一次刷新
@@ -624,6 +639,8 @@ tail -f ~/.hermes/logs/vertex-wake.log
 
 #### 运维常用命令
 
+以下命令只适用于旧 `custom + VERTEX_ACCESS_TOKEN` 回滚方案；当前官方 `provider: vertex` 主链路不需要手动刷新 token，也不需要安装 Vertex 自动刷新 LaunchAgent。
+
 ```bash
 # 立即手动刷新一次 token，并计划内重启 gateway
 ~/.hermes/scripts/refresh_vertex_and_restart_gateway
@@ -645,10 +662,11 @@ rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist \
 
 #### 与 Hermes 后台自启动的关系
 
-`hermes gateway install` 和上面的 Vertex 自动刷新是两个独立的 LaunchAgent，职责不同：
+`hermes gateway install` 和上面的 legacy Vertex 自动刷新是两个独立的 LaunchAgent，职责不同：
 
-- `hermes gateway install` 负责 Hermes gateway 常驻、自启动、维持飞书 WebSocket 和 cron；它不会自己去刷新 Vertex token
-- `install_vertex_refresh_launchd` 负责定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN`，并在系统 wake 后补跑一次刷新，再计划内重启 gateway 让新 token 生效
+- `hermes gateway install` 负责 Hermes gateway 常驻、自启动、维持飞书 WebSocket 和 cron
+- 官方 `provider: vertex` 会在 Hermes 进程内自动 mint/refresh Vertex OAuth token，不需要 `install_vertex_refresh_launchd`
+- `install_vertex_refresh_launchd` 只服务旧 `custom + VERTEX_ACCESS_TOKEN` 回滚方案：定时刷新 `.env` 里的 `VERTEX_ACCESS_TOKEN`，并在系统 wake 后补跑一次刷新，再计划内重启 gateway 让新 token 生效
 - 只做“单次刷新”时，新的 token 只会被之后新启动的 Hermes 进程读取；已经在跑的 gateway 不会自动热更新
 
 这些进程在 launchd 层面是**相互独立的兄弟服务**，不是长期父子关系：
@@ -662,13 +680,13 @@ launchd
 
 只有在 **wake 事件发生的瞬间**，`ai.hermes.vertex-wake` 会临时拉起 `refresh_vertex_and_restart_gateway`，形成一次短暂的父子链；但 `gateway` 本身仍由 launchd 独立管理，重启后也不会挂在 watcher 下面长期存活。
 
-因此，推荐组合是：
+当前官方 provider 推荐组合是：
 
-1. 先执行一次 `~/.hermes/scripts/refresh_vertex_and_restart_gateway`
-2. 再执行 `hermes gateway install`，确保后台服务可自启动
-3. 最后执行 `~/.hermes/scripts/install_vertex_refresh_launchd`，把 token 续期和 gateway 重启自动化
+1. `.env` 写入 `GOOGLE_APPLICATION_CREDENTIALS` 或 `VERTEX_CREDENTIALS_PATH`
+2. `config.yaml` 使用 `model.provider: vertex` + `vertex.project_id/region`
+3. 执行 `hermes gateway install`，确保后台服务可自启动
 
-如果你只在前台临时跑 `hermes chat`，不依赖飞书 / cron / gateway 常驻，也可以只做“单次刷新”，不安装自动刷新 LaunchAgent。
+旧 `custom` provider 回滚方案才需要额外安装自动刷新 LaunchAgent。
 
 ### 飞书集成
 
@@ -690,7 +708,7 @@ launchd
 
 Gateway 是常驻后台服务，负责维持飞书 WebSocket 长连接和 Cron 调度。
 
-> **如果主模型使用 Vertex Provider**：`hermes gateway install` 只负责 gateway 常驻，不负责刷新 `VERTEX_ACCESS_TOKEN`。请同时参考上节的自动刷新 LaunchAgent。
+> **如果主模型使用官方 `provider: vertex`**：`hermes gateway install` 只负责 gateway 常驻；Vertex OAuth token 由 Hermes 进程内自动 mint/refresh，不需要额外的 Vertex refresh LaunchAgent。
 
 ```bash
 # 安装为 launchd 服务（macOS）
@@ -1027,19 +1045,19 @@ bash ~/.hermes/hermes-update.sh
 
 脚本依次执行以下步骤，完成后显示状态摘要和待操作提示：
 
-| 步骤 | 操作                                      | 说明                                                                                                                                                                                         |
-| ---- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                                                                     |
-| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD；PATCHED_FILES 之外的额外改动在 update 前用 `git stash push -u` 保护，避免 untracked 文件被清理                 |
-| 3    | `hermes update`                           | git pull · 关键文件语法校验/失败自动回滚 · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                                |
-| 4    | `npm audit fix`                           | 修复 hermes update 安装 npm 依赖后遗留的已知安全漏洞（PATCH-6）                                                                                                                              |
-| 4b   | Skills 镜像同步                           | `rsync --delete` 使 `skills/` 完全镜像上游 `hermes-agent/skills/`：新增 skill 自动添加、上游删除的 skill 自动清理；用户自定义 skill 存于 `my-skills/`，不受影响                              |
-| 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                                         |
-| 6    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                                                                                |
-| 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本；若上游回滚到坏的 `_arguments` 语法则自动重新应用 PATCH-3（v0.13.0 起上游已修复 commit `fe61d95b4`，detection 块作为回归 sentinel 保留），随后清除 zcompdump 缓存      |
-| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用（PATCH-1/2/7/9/10/11）；验证 PATCH-3/4/5 上游行为存活 + 本地补丁生效后才刷新 diff 文件；刷新时记录上游 base commit 到 `patches/.local-patches.base` |
-| 8e   | **Verify user plugins**                   | 对 `plugins/*/verify.sh` 逐一执行：检查依赖的 `VALID_HOOKS` 钩子名仍在上游、fire site 仍存在、`agent.log` 里能找到 `<plugin>: registered (active=True, …)`。任一硬失败计入 ACTS              |
-| 9    | `hermes doctor` + `hermes gateway status` | 验证更新结果；若 gateway 因 update / post-patch restart 处于未加载状态，脚本会自动补一次最终恢复（`install --force` / `start`）后再判定                                                      |
+| 步骤 | 操作                                      | 说明                                                                                                                                                                                                              |
+| ---- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Preflight checks                          | 确认 hermes 可用、git 仓库存在、网络正常                                                                                                                                                                          |
+| 2    | **Save & clean patches**                  | 将 hermes-agent 本地补丁另存至 `patches/local-patches.diff`，还原文件至 HEAD；PATCHED_FILES 之外的额外改动在 update 前用 `git stash push -u` 保护，避免 untracked 文件被清理                                      |
+| 3    | `hermes update`                           | git pull · 关键文件语法校验/失败自动回滚 · uv pip install · Skills Hub 同步 · 配置迁移确认 · gateway 进程重启                                                                                                     |
+| 4    | `npm audit fix`                           | 修复 hermes update 安装 npm 依赖后遗留的已知安全漏洞（PATCH-6）                                                                                                                                                   |
+| 4b   | Skills 镜像同步                           | `rsync --delete` 使 `skills/` 完全镜像上游 `hermes-agent/skills/`：新增 skill 自动添加、上游删除的 skill 自动清理；用户自定义 skill 存于 `my-skills/`，不受影响                                                   |
+| 5    | `hermes gateway install --force`（按需）  | 仅在 plist 未 bootstrap 时执行；已加载的 OnDemand 服务直接跳到步骤 6                                                                                                                                              |
+| 6    | 确认 gateway 运行                         | 若 gateway 未运行则自动 start                                                                                                                                                                                     |
+| 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本；若上游回滚到坏的 `_arguments` 语法则自动重新应用 PATCH-3（v0.13.0 起上游已修复 commit `fe61d95b4`，detection 块作为回归 sentinel 保留），随后清除 zcompdump 缓存                           |
+| 8    | **Re-apply & verify patches**             | 将 `patches/local-patches.diff` 重新应用（PATCH-1/7/9/10/11/12/13/14/15/16/17/18）；验证 PATCH-2/3/4/5 上游行为存活 + 本地补丁生效后才刷新 diff 文件；刷新时记录上游 base commit 到 `patches/.local-patches.base` |
+| 8e   | **Verify user plugins**                   | 对 `plugins/*/verify.sh` 逐一执行：检查依赖的 `VALID_HOOKS` 钩子名仍在上游、fire site 仍存在、`agent.log` 里能找到 `<plugin>: registered (active=True, …)`。任一硬失败计入 ACTS                                   |
+| 9    | `hermes doctor` + `hermes gateway status` | 验证更新结果；若 gateway 因 update / post-patch restart 处于未加载状态，脚本会自动补一次最终恢复（`install --force` / `start`）后再判定                                                                           |
 
 > ⚠ **脚本维护提示**：若 hermes 上游大版本升级后更新流程发生变化（新增步骤、flags 变动、路径变更），需同步更新 `~/.hermes/hermes-update.sh`。脚本顶部有详细的"需关注场景"注释。
 
@@ -1068,9 +1086,9 @@ hermes gateway status
 
 ## 本地补丁记录
 
-本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `6f1a176b`（截至 2026-06-28 的 `main`，较 `e3db1ef9` 前进 180 commits，release tag 维持 `v0.17.0 (2026.6.19)`）；**本轮新增 PATCH-16**（Feishu post/md 块级语法补渲染：ATX 标题 `#`→加粗、引用 `>`→`▎` 前缀、围栏内代码原样保留，改 `plugins/platforms/feishu/adapter.py` + `tests/gateway/test_feishu.py`），共 12 条活跃补丁；本轮上游跨度大触碰补丁区域，33/35 文件 clean、`gateway/run.py` 与 `tests/hermes_cli/test_tools_config.py` 2 处冲突手动 3-way 解决，`local-patches.diff` 字节 `200097 → 204956`（PATCH-16 净增）；配套 config-repo 改 `scripts/nightly_greeting.py`（`chinesecalendar` 离线判工作日，周末/法定节假日跳过日报与 greeting），不进 `local-patches.diff`。
+本项目维护若干针对上游 `hermes-agent` 的本地补丁，以修复已知 Bug 或定制行为。完整记录（问题描述 / 根因 / 修复方案）见 [`patches/PATCHES.md`](patches/PATCHES.md)。当前补丁基线已刷新到上游 `30e947e0`（截至 2026-07-02 的 `main`，较 `7cfa2fa1` 前进 796 commits，release tag 升至 `v0.18.0 (2026.7.1)`）；PATCH-2（doctor issue-count 过报）已由上游 commit `6b21a935a` 合并并归档，当前共 13 条活跃补丁。本轮新增 PATCH-17：官方 Vertex OpenAI-compatible provider 保留 `thinking_level`，但强制 `include_thoughts=false`，避免 Gemini thought 文本混入飞书可见正文；新增 PATCH-18：让 `hermes doctor` 识别官方 `provider: vertex`、Vertex 官方凭据变量和 `google/*` 模型名。脚本首次回贴因上游触碰补丁区域整体失败，手工 `git apply --3way` 后 31/35 文件 clean、4 文件冲突手动解决（`gateway/session.py` / `hermes_cli/doctor.py` / `hermes_cli/tools_config.py` / `tests/gateway/test_session.py`），`local-patches.diff` 刷新到新基线。
 
-补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新生成补全脚本并对旧坏格式做回归 sentinel 检测（PATCH-3 已于 v0.13.0 上游合并 commit `fe61d95b4`，正常情况下检测不命中、直接跳过；**v0.15.1 升级修复**：`rm -f ~/.zcompdump*` 撞到空目录残留时 `set -e` 中断脚本，已改用 `find` 只删文件）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-2 doctor issue count、PATCH-7 feishu python-socks 依赖、PATCH-9 OpenClaw 迁移不再写入废弃 gateway token、PATCH-10 Feishu 群聊提及/上下文/隔离、PATCH-11 平台级 skill allowlist 与只读 skill 工具集、PATCH-12 Feishu 回复不再创建话题（始终普通引用回复）；PATCH-4 / PATCH-5 已上游合并并退役，仅保留存在性 grep 验证；PATCH-8 于 v0.11.0 上游合并，仅保留文档记录），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
+补丁由 `hermes-update.sh` 全自动管理：Step 2 存档并还原、Step 4 修复 npm 漏洞（PATCH-6）、Step 7 重新生成补全脚本并对旧坏格式做回归 sentinel 检测（PATCH-3 已于 v0.13.0 上游合并 commit `fe61d95b4`，正常情况下检测不命中、直接跳过；**v0.15.1 升级修复**：`rm -f ~/.zcompdump*` 撞到空目录残留时 `set -e` 中断脚本，已改用 `find` 只删文件）、Step 8 重新应用 `hermes-agent/` 内补丁并行为化验证（PATCH-1 skill 路由、PATCH-7 feishu python-socks 依赖、PATCH-9 OpenClaw 迁移不再写入废弃 gateway token、PATCH-10 Feishu 群聊提及/上下文/隔离、PATCH-11 平台级 skill allowlist 与只读 skill 工具集、PATCH-12 Feishu 回复不再创建话题（始终普通引用回复）、PATCH-13 群聊当前发言人身份锚定、PATCH-14 人物/群聊画像注入、PATCH-15 Feishu 附件回看、PATCH-16 Feishu 出站 markdown 渲染、PATCH-17 Vertex hidden thoughts、PATCH-18 Vertex doctor 识别；PATCH-2 / PATCH-4 / PATCH-5 已上游合并并退役，仅保留存在性 grep 验证；PATCH-8 于 v0.11.0 上游合并，仅保留文档记录），Step 8d 重启 gateway 使补丁代码生效。若 `local-patches.diff` 自身已带 conflict marker，或 apply 后文件含冲突标记，脚本会直接回滚 patched files 到上游 HEAD 并拒绝刷新 patch 文件。刷新成功时会同步写入 `patches/.local-patches.base`（上游 commit SHA + 时间戳），便于追溯 patch 基线。
 
 手动恢复 `hermes-agent/` 内补丁：
 
@@ -1804,6 +1822,7 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 | 版本               | 日期       | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v0.18.0            | 2026-07-02 | 基线滚动到上游 `30e947e0`（较 `7cfa2fa1` 前进 **796 commits**，release tag 升至 `v0.18.0 (2026.7.1)`）。上游主线：**安全/Doctor** 合并 PATCH-2 等价修复 `6b21a935a`（disabled toolsets 不再进入 missing API-key issue summary）；**Gateway** 新增 per-session `/model` 持久化、per-channel model/system-prompt overrides、typing indicator、context breakdown、resume/compression/restart 多项修复；**Skills** 发布 fetchable metadata、review fork 写前读、严格路径 containment；**Desktop/Web** 大量终端、memory graph、pet roam、dashboard sidebar 与危险操作确认改进；**xAI** Imagine public URL、chaining、video edit/extend。patch apply：脚本 Step 8 首次整体回贴失败；手工 `git apply --3way` 后 **31/35 clean，4 文件冲突手动解决**（`gateway/session.py`、`hermes_cli/doctor.py`、`hermes_cli/tools_config.py`、`tests/gateway/test_session.py`），处理原则为保留上游 untrusted metadata / recover_platform_tools 新保护并恢复本地 people/group profile、skill/toolset 恢复与 quoted current-author 语义；PATCH-2 已归档至 `v0.18.0 archive` 并从 `PATCHED_FILES` 移除；`local-patches.diff` 与 `.local-patches.base` 刷新到 `30e947e0`。验证：`python -m py_compile` 覆盖冲突文件；`pytest tests/gateway/test_session.py tests/tools/test_skill_manager_tool.py tests/tools/test_skills_tool.py tests/hermes_cli/test_tools_config.py tests/hermes_cli/test_skills_config.py -q` **452 passed**；`git diff --check` clean；sandbox plugin verify OK。依赖：venv `aiohttp 3.13.4 → 3.14.1`、`hermes-agent 0.17.0 → 0.18.0`；`npm audit` no vulnerabilities；Skills mirror **+0 / ~0 / -4**；lazy backend `platform.matrix` 刷新失败，保留旧版本。已知摩擦：脚本 final gateway recovery 报未运行，需以升级后复查状态为准；内层 `uv.lock` 仍为升级脚本恢复的额外 tracked 改动，不纳入 `local-patches.diff`。配置漂移：后续已运行 `hermes doctor --fix`，`config.yaml` 迁移到 `_config_version: 33`；并新增 PATCH-18 让 doctor 识别官方 `provider: vertex` 与 `google/*` Vertex 模型名，当前 `hermes doctor` 在 Vertex 配置下通过（仅保留 auth/optional tool 未配置提示）。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | v0.17.0            | 2026-06-28 | 基线滚动到上游 `6f1a176b`（较 `e3db1ef9` 前进 **180 commits**，release tag 维持 `v0.17.0 (2026.6.19)`，同 release 内迭代；本轮跨度大、未逐 commit 审计）。**本轮新增 PATCH-16**：Feishu post/md 块级语法补渲染——出站 `_build_outbound_payload` 已把 markdown 转 post 富文本，但 post/md 不渲染 ATX 标题 `#` 与引用 `>`（显示成裸符号）；新增纯函数 `_promote_block_markdown`（标题 `#`→`**加粗**`、引用 `>`→`▎` 前缀，复用围栏正则使代码块内 `#`/`>` 原样保留），接入 `_build_markdown_post_payload`，改 `plugins/platforms/feishu/adapter.py` + `tests/gateway/test_feishu.py`（+3 单测），表格仍走纯文本降级。配套 config-repo（非 hermes-agent）：`scripts/nightly_greeting.py` 新增 `is_chinese_workday`（`chinesecalendar` 离线判工作日，周末/法定节假日直接退出、不发日报不发 greeting）+ `--ignore-holiday` 开关，venv 装 `chinesecalendar==1.11.0`，不进 `local-patches.diff`。上游主线（180 commit，高层概述）：HEAD `fix(gateway/discord): REST liveness probe (#26656)`，含 discord 僵尸连接探活、session_key 改 contextvars 不写 `os.environ` 防并发互覆盖（#24100）、`platform_toolsets` 平台配置键 split 重构、MCP OAuth 元数据落盘、Desktop/Projects 等；本轮上游**触碰了本地补丁区域**。patch apply：**33/35 clean，2 处冲突手动 3-way 解决**——`git apply` 整体原子失败，逐文件定位仅 `gateway/run.py`（PATCH-10/11 与 #24100 session_key 重写重叠）、`tests/hermes_cli/test_tools_config.py`（与上游新增 vision picker 测试重叠）冲突，含 PATCH-16 在内其余 33 文件 clean；冲突按「采上游 #24100 去 os.environ + 留本地 `_platform_config_key_for_source` / 留上游 vision 测试 + 弃本地尾部空行删除」解决，重生成 `local-patches.diff` **200097→204956**（PATCH-16 净增 ~4.9KB），`.local-patches.base` 刷新到 `6f1a176b`。验证：还原到 `6f1a176b` 干净态后 `git apply --check local-patches.diff` **全 35 文件零冲突 CLEAN**、重应用无标记——幂等成立；`test_tools_config.py` + `test_feishu.py` 共 **321 passed**。依赖：venv 新增 `chinesecalendar==1.11.0`；`uv` clean；`npm audit` no vulnerabilities；Skills mirror **+0/~0/-2**。已知摩擦：脚本 Step8 patch 回贴整体失败（2 文件冲突拖垮全部 35）+ 结尾 gateway 未起，均为上游触碰补丁区的连带后果，手动解冲突 + `hermes gateway restart` 后恢复（PID 33026、launchd 监管、run.py import 自检 OK）。配置漂移：doctor 报 **Config version outdated (v30→v31)**（有新设置，非阻塞，本轮未自动 `--fix`）；Gateway running。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | v0.17.0            | 2026-06-26 | 基线滚动到上游 `e3db1ef9`（较 `0f81b0d4` 前进 28 commits，release tag 维持 `v0.17.0 (2026.6.19)`，同 release 内迭代）。**本轮新增 PATCH-15**：Feishu 群聊裸 @ 触发时回看同发送者最近 ~120s 的图片/文件消息并附到当轮（解决「图片/文件与 @ 分属两条、图片在 `_admit` 被丢、模型看不到」），改 `plugins/platforms/feishu/adapter.py`（已在 `PATCHED_FILES`）+ 新增 `_backfill_sender_attachments`/`_backfill_reply_attachments`/`_mark_attachment_backfilled`/`_backfilled_attachment_ids` LRU；同步 `hermes-update.sh` 加 PATCH-15 sentinel 验证并入 refresh gate。配套 config-repo 扩 `feishu-docs` skill：新增 `read_sheet.py`/`read_bitable.py`/`download_feishu_file.py`/`read_feishu_url.py`(分发器)/`feishu_render.py` + 更新 `SKILL.md`（统一入口、群沙箱须用 venv python、URL 加引号）。上游主线（28 commit）：**安全**——tirith 崩溃加 circuit breaker（#41400）、cron 不可见 unicode 对齐扫描器、停拦命名 `Praxis` 的 `SOUL.md`（#52925）；**配置**——非法 `platform_toolsets` 改显式报错（#38798，群聊工具集所在区、本仓 config 合法无影响）；**Gateway/Relay**——external drain + accept-gating、multi-platform-per-agent Phase1.5（#52830）、whatsapp reply-to 上下文（#52957）；**Auxiliary/MCP**——非法 provider 响应 fallback、Anthropic base_url host gate（#52608）、stale OAuth `invalid_client` 自恢复；**Dashboard**——socket drop 后 PTY 重连、dashboard-auth bearer/API-token；**Desktop/macOS**（与本地补丁无关）——clarify 重做（#52993）、gateway status 区分 launchd 监管 vs detached。patch apply：**全部 clean apply**——35 patched files 干净落到 `e3db1ef9`，PATCH-15 干净落新基线、无 3-way，`local-patches.diff` **187661→200097**（PATCH-15 净增），`.local-patches.base` 刷新到 `e3db1ef9`；PATCH-1/2/6/7/9/10/11/12/13/14 + 新增 PATCH-15 行为化验证全 OK。验证：refresh 后 `git diff HEAD` 与 `local-patches.diff` **逐字节一致**（200097 == 200097）——幂等成立；`test_session.py` + `test_feishu.py` + `test_feishu_bot_admission.py` 共 **382 passed**。依赖：`uv` clean 无 fallback；`npm audit` no vulnerabilities；Skills mirror **+0/~0/-3**。已知摩擦：脚本结尾 `✗ Gateway is not running` 系上游 `fix(macos)` 改 gateway status 判定后的 OnDemand 时序竞态，网关实际由 launchd 监管已起（PID 91165、feishu websocket connected），非真故障。配置漂移：无 schema migration，doctor `Config version up to date (v30)`、All checks passed；Gateway running、feishu connected。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | v0.17.0            | 2026-06-26 | 基线滚动到上游 `0f81b0d4`（较 `233ef98a` 前进 31 commits，release tag 维持 `v0.17.0 (2026.6.19)`，同 release 内迭代）。上游主线：**安全**——`fix(email)` 拒绝伪造 `From:` 头做授权（GHSA-rxqh-5572-8m77）、`fix(browser)` 强制 secret 脱敏；**Gateway/状态**——scale-to-zero arm-gate 修复、`_make_agent` init-time provider fallback、`fix(state)` 修复 FTS 写损坏丢历史；**Curator**——external-skill 写保护在后台 curation 时真正生效（护住 `my-skills/`）；**Desktop/TUI**（重头但与本地补丁无关）——宠物随光标缩放、WSL2 剪贴板/标题栏/GPU、stop 中断排队 turn；另有 telegram 重连保留 update 队列、interrupt 保留已流式产出、fuzzy-match 边界空格、agent stale-timeout 下限、kanban 解死锁。**本轮无 patch 变更**：10 条活跃补丁与 `PATCHED_FILES`/sentinel 全不变，本地改动均在 config-repo（群信息单一入口 `groups.yaml`、`nightly_greeting.py` 改读 `groups.yaml`、`feishu-groups` skill 去表、群聊 skill 白名单换装 `feishu-people-search`、`people.yaml` 补 aliases、新增 `feishu-people-search` skill），不进 `local-patches.diff`。patch apply：**全部 clean apply**——35 个 patched files 干净落到 `0f81b0d4`，无 3-way、无冲突（31 commit 未碰本地补丁区域，`local-patches.diff` 仅 `index`/`@@` 元数据 rebase、字节数仍 187661、**零语义漂移**）；PATCH-1/2/6/7/9/10/11/12/13/14 行为化验证全 OK；`local-patches.diff` 与 `.local-patches.base` 刷新到 `0f81b0d4`。验证：脚本 refresh 后 `git diff HEAD` 与已存 `local-patches.diff` **逐字节一致**——幂等成立；`test_session.py` + `test_feishu.py` + `test_feishu_bot_admission.py` 共 382 passed。依赖：`uv` clean 安装无 fallback；`npm audit` 报 no vulnerabilities；Skills mirror **+0 / ~0 / -3**。本轮无 lockfile stash 摩擦、无 Recommended actions。配置漂移：无 schema migration，doctor `Configuration is up to date`、All checks passed；Gateway 经 stop→start 重启加载补丁，service loaded、running、`LastExitStatus=0`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
