@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.18.0 / main 30e947e0, `hermes completion zsh` already emits the
+# As of v0.18.0 / main 88b720eb, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -68,6 +68,7 @@ PATCHED_FILES=(
     "gateway/run.py"
     "gateway/session.py"
     "gateway/session_context.py"
+    "gateway/stream_consumer.py"
     "hermes_cli/doctor.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
@@ -86,6 +87,7 @@ PATCHED_FILES=(
     "tests/gateway/test_feishu_bot_auth_bypass.py"
     "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
+    "tests/gateway/test_stream_consumer_silence.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
@@ -787,20 +789,31 @@ else
 fi
 
 # PATCH-14: per-person + per-group profile injection (people.yaml / groups.yaml
-# → system prompt) plus the group tool-limitation disclosure rule. Source-side
-# hooks live in gateway/session.py; the data files ~/.hermes/people.yaml and
-# ~/.hermes/groups.yaml are in the config repo and intentionally NOT PATCHED_FILES.
-if [[ -f "${SESSION_PY}" && -f "${SESSION_TEST_PY}" ]]; then
+# → system prompt), group tool-limitation disclosure, and group-visible private
+# profile redaction. Source-side hooks live in gateway/session.py + gateway/run.py;
+# stream guardrails live in gateway/stream_consumer.py. The data files
+# ~/.hermes/people.yaml and ~/.hermes/groups.yaml are in the config repo and
+# intentionally NOT PATCHED_FILES.
+STREAM_CONSUMER_PY="${HERMES_AGENT}/gateway/stream_consumer.py"
+STREAM_CONSUMER_TEST_PY="${HERMES_AGENT}/tests/gateway/test_stream_consumer_silence.py"
+if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}" && -f "${SESSION_TEST_PY}" && -f "${STREAM_CONSUMER_TEST_PY}" ]]; then
     if grep -q 'people-profile' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'def _load_people_profiles' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'def _lookup_person' "${SESSION_PY}" 2>/dev/null &&
+        grep -q '称呼/address' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'redact_private_person_profile_text' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'redact_private_person_profile_text' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'text_filter' "${STREAM_CONSUMER_PY}" 2>/dev/null &&
         grep -q 'group-profile' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'def _load_group_profiles' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'def _lookup_group' "${SESSION_PY}" 2>/dev/null &&
         grep -q '_GROUP_TOOL_LIMITATION_RULE' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'test_address_is_public_and_usable_for_reply' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_private_profile_redactor_keeps_public_fields' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'class TestPeopleProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null &&
-        grep -q 'class TestGroupProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null; then
-        ok "People/group profile patch: active (people.yaml + groups.yaml lookup, prompt injection, group disclosure rule)"
+        grep -q 'class TestGroupProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_text_filter_applies_before_stream_delivery' "${STREAM_CONSUMER_TEST_PY}" 2>/dev/null; then
+        ok "People/group profile patch: active (people.yaml + groups.yaml lookup, address public, private-profile redaction, group disclosure rule)"
         _PEOPLE_PROFILE_PATCH_OK=true
     else
         warn "People/group profile patch inactive or partial"
