@@ -202,17 +202,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.18.0 (upstream `main` `88b720eb`，2026-07-03)
+## 当前版本：v0.18.0 (upstream `main` `95fc3c6b`，2026-07-05)
 
 **活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18（共 13 条）。
 
-**最近一次升级（v0.18.0 main 滚动，+57 commit，basis `30e947e0` → `88b720eb`）要点**：
+**最近一次升级（v0.18.0 main 滚动，+216 commit，basis `88b720eb` → `95fc3c6b`）要点**：
 
-- 上游主线：Desktop 修复更新提示图标（`88b720eb`）、macOS Tahoe traffic lights、profile rail、remote attachments/artifacts 与 `/journey` memory graph；Gateway 修复 webhook delivery 结束时关闭 session、session eviction `on_session_end` 覆盖与 idle cached agent 生命周期（`64ed99a6e` / `201b646d6` / `90b618f48`）；file tools 保留 Docker container paths（`e9ce25037`）；config atomic writes 保留 owner（`551e5af50`）；providers 模型发现透传 extra headers（`ab40e952f`）；Slack rich list 空行/编号列表修复；usage 捕获 `reasoning_tokens`（`3a122ba4a`）；auth 改进 xAI device-code-only。
-- patch apply：脚本 Step 8 从 `patches/local-patches.diff` **clean apply**，无 3-way、无冲突；PATCH-1/7/9/10/11/12/13/14/15/17/18 行为化 sentinel 全 OK，PATCH-2/4/5 上游吸收 sentinel OK；`local-patches.diff` 刷新到 `88b720eb`，本轮同步把 PATCH-14 的 `address` 公开称呼、私有画像脱敏与 streaming `text_filter` 纳入 patch 快照、`PATCHED_FILES` 和验证 sentinel。
-- 依赖：`hermes-agent` editable 重装；npm root/ui-tui/web 依赖安装，web UI rebuilt；`npm audit` no vulnerabilities；Skills mirror `+0/~0/-4`；lazy backend `platform.matrix` 刷新失败，保留旧版本。
-- 已知摩擦：脚本末尾 `hermes gateway status` 在自动 recovery 后仍报 `Gateway is not running`，Recommended action 要求 `hermes gateway start` / `hermes logs`；`platform.matrix` lazy backend pip install 失败属复发摩擦；内层 `uv.lock` 仍为额外 tracked 改动，不纳入 `local-patches.diff`。
-- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)` 且 `All checks passed`；仅保留未登录 auth provider、未配置 optional tool/API key 与 Skills Hub 未初始化等可选提示。
+- 上游主线：安全——generic webhook 新增 timestamp-bound V2 签名做重放保护（`70449a493` / `d577408f3`）、vision/memory 本地文件输入统一走凭证读取 guard（`9ae17b8ac` / `e02cef0d0`）、TLS 证书校验失败 fail-fast 带修复提示（`4751af0a0`）、approval root-collapse token 硬化（`ebfc49c4d`）；Gateway——PATH bootstrap 兼容 UV Python（`1b7853d7b` / `619db0175`）、compressor 传完整 transcript（`485ae54c9`）、proxy SSE 行缓冲上限（`5b8593266`）、silence marker 标点容忍（`30479961b`）；CLI/Skills——stacked slash-skill 连续调用（`9767e19b6` / `2c0820c9f`）；Agent——httpx pool-level keepalive 过期（`8324dd19c` / `51c1ba697`）；Computer-use——cua-driver label 解析 / CLI fallback / 启动超时多项修复；Auth/Providers——清理陈旧 custom model 凭证、保留静态 custom provider 模型（`791583704` / `fc18d15f4`）；Profiles——clone/export 保留 symlink（`b7192b1cb` / `8d9684c9d`）；Copilot——x-initiator 分 turn 计费（`6f052b7ff`）；apps/Desktop 161 文件大改（与本地补丁无关）。
+- patch apply：脚本 Step 8 整体回贴**失败**（`git apply` / `--unidiff-zero` / `--3way` 三档均失败并原子回滚到 HEAD）；逐文件定位仅 `gateway/run.py` 冲突——上游在 `_prepare_inbound_message_text` 独立新增 `session_key` 参数与 caller-threading（`session_key = session_key or self._session_key_for_source(source)`），与 PATCH-13 删除两个 dead locals 的 hunk 重叠。手动 3-way 解决：**保留上游 caller-threading + 删除 PATCH-13 dead locals**（`_group_sessions_per_user` / `_thread_sessions_per_user`，其唯一消费者 `is_shared_multi_user_session` 已被 PATCH-13 移除）；其余 39 文件 clean。重生成 `local-patches.diff` 并刷新 `.local-patches.base` 到 `95fc3c6b`（run.py 多个 hunk `@@` 行号 OLD→NEW 漂移）。**验证**：还原到干净 `95fc3c6b` 后 `git apply --check local-patches.diff` **clean**（round-trip 幂等成立）；15 个 patched 测试文件 **1062 passed**；`git diff --check` clean；sandbox plugin verify OK。**归类检查**：18 条补丁在本文件各出现一次（13 活跃 + 5 归档 PATCH-2/3/4/5/8），本轮**无新增、无新退役**；PATCH-1/7/9/10/11/12/13/14/15/16/17/18 脚本 sentinel OK、PATCH-2/4/5 上游吸收 guard OK；**本轮为 PATCH-16 补齐此前缺失的 Step 8b sentinel**（`grep _promote_block_markdown` / `convert_table_to_bullets` + `test_feishu.py`）并纳入 refresh gate，修复了 PATCHES.md/README「Step 8b 验证 PATCH-16」记载与脚本实际不符的问题。
+- 依赖：`hermes-agent` editable 重装（版本仍 `0.18.0`，未 bump）；npm root/ui-tui/web 依赖安装，web UI rebuilt；`npm audit` no vulnerabilities；Skills mirror `+0/~0/-2`；lazy backend `platform.matrix` pip install 失败，保留旧版本。
+- 已知摩擦：`git apply` 整体原子失败（单个 `run.py` 冲突拖垮全部 40 文件回贴）——已手动 3-way 解决；`platform.matrix` lazy backend pip install 失败属复发摩擦；升级中途 launchd `Bootstrap failed: 5`，最终 restart 后 launchd 监管恢复；内层 `uv.lock` 仍为额外 tracked 改动，不纳入 `local-patches.diff`。
+- 配置漂移：升级脚本中途 `hermes doctor` 报 `provider: vertex` 未识别（因彼时 PATCH-18 尚未回贴）；重启 gateway 加载补丁代码后 doctor `Config version up to date (v33)` 且 `All checks passed`；仅保留未登录 auth provider、未配置 optional tool/API key 与 Skills Hub 未初始化等可选提示。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 

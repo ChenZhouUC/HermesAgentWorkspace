@@ -37,6 +37,7 @@ _hermes() {
                 'completion:Print shell completion script (bash, zsh, or fish)'
                 'computer-use:Manage the Computer Use (cua-driver) backend (macOS/Windows/'
                 'config:View and edit configuration'
+                'console:Open the safe Hermes command console'
                 'cron:Cron job management'
                 'curator:Background skill maintenance (curator) — status, run, pause,'
                 'dashboard:Start the web UI dashboard'

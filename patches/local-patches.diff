@@ -207,10 +207,10 @@ index 7693cef1c..de0b50d44 100644
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
 diff --git a/gateway/run.py b/gateway/run.py
-index d3992a760..fd0b4339a 100644
+index 7e50f7363..48f8059f0 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -1676,6 +1676,7 @@ from gateway.session import (
+@@ -1700,6 +1700,7 @@ from gateway.session import (
      build_session_context_prompt,
      build_session_key,
      is_shared_multi_user_session,
@@ -218,7 +218,7 @@ index d3992a760..fd0b4339a 100644
  )
  from gateway.delivery import DeliveryRouter, looks_like_telegram_private_chat_id
  from gateway.authz_mixin import GatewayAuthorizationMixin
-@@ -2200,6 +2201,17 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2241,6 +2242,17 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -236,7 +236,7 @@ index d3992a760..fd0b4339a 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -5293,7 +5305,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -5348,7 +5360,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -245,7 +245,7 @@ index d3992a760..fd0b4339a 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -9784,8 +9796,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9839,8 +9851,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -262,16 +262,16 @@ index d3992a760..fd0b4339a 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -9978,8 +9996,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10061,8 +10079,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          """
          history = history or []
          message_text = event.text or ""
 -        _group_sessions_per_user = getattr(self.config, "group_sessions_per_user", True)
 -        _thread_sessions_per_user = getattr(self.config, "thread_sessions_per_user", False)
-         # Use the same helper every other call site uses so the write key here
-         # matches the consume key at the run_conversation site — even if the
-         # session store overrides build_session_key's default behavior.
-@@ -9988,13 +10004,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         # Prefer the already resolved session key from the caller so this write
+         # key matches the consume key at the run_conversation site. Fall back
+         # to deriving it here for tests and legacy standalone callers.
+@@ -10071,13 +10087,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # concurrently preparing multimodal turns on the same runner.
          self._consume_pending_native_image_paths(session_key)
  
@@ -287,7 +287,7 @@ index d3992a760..fd0b4339a 100644
  
          # Prepend channel context from history backfill (if any).  This
          # happens after sender-prefix so the prefix only applies to the
-@@ -10253,6 +10264,16 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10339,6 +10350,16 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
  
          return message_text
  
@@ -304,7 +304,7 @@ index d3992a760..fd0b4339a 100644
      def _consume_pending_native_image_paths(self, session_key: str) -> List[str]:
          pending_native = getattr(self, "_pending_native_image_paths_by_session", None)
          if not pending_native:
-@@ -11165,6 +11186,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11259,6 +11280,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -313,7 +313,7 @@ index d3992a760..fd0b4339a 100644
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -11199,7 +11222,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11293,7 +11316,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -322,7 +322,7 @@ index d3992a760..fd0b4339a 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -11256,7 +11279,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11350,7 +11373,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -331,7 +331,7 @@ index d3992a760..fd0b4339a 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -12774,7 +12797,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12873,7 +12896,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -340,7 +340,7 @@ index d3992a760..fd0b4339a 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -14314,6 +14337,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14413,6 +14436,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -348,7 +348,7 @@ index d3992a760..fd0b4339a 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -15966,7 +15990,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16111,7 +16135,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -357,7 +357,7 @@ index d3992a760..fd0b4339a 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -16024,6 +16048,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16169,6 +16193,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -369,7 +369,7 @@ index d3992a760..fd0b4339a 100644
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -16279,7 +16308,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16428,7 +16457,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -378,7 +378,7 @@ index d3992a760..fd0b4339a 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -17192,9 +17221,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17341,9 +17370,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # --session-key argv, a separate process) — so removing this in-process
              # gateway write does not affect any of them.
  
@@ -391,7 +391,7 @@ index d3992a760..fd0b4339a 100644
              
              # Combine platform context, YAML channel_prompts hint for this chat,
              # channel_overrides system_prompt (or global ephemeral), and gateway
-@@ -17321,6 +17350,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17470,6 +17499,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                              on_before_finalize=_pause_typing_before_finalize,
                              initial_reply_to_id=event_message_id,
                              run_still_current=_run_still_current,
@@ -403,7 +403,7 @@ index d3992a760..fd0b4339a 100644
                          )
                          if _want_stream_deltas:
                              def _stream_delta_cb(text: str) -> None:
-@@ -18227,6 +18261,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18376,6 +18410,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      result, final_response or "", history_len=len(agent_history),
                  )
                  final_response = _sanitize_gateway_final_response(source.platform, final_response)
@@ -413,7 +413,7 @@ index d3992a760..fd0b4339a 100644
                      final_response = f"⚠️ {result['error']}" if result.get("error") else ""
                  return {
 diff --git a/gateway/session.py b/gateway/session.py
-index 67bd84aaa..a002a2ef0 100644
+index 5ced2d8aa..8d24f0cef 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
 @@ -12,6 +12,7 @@ import hashlib
@@ -1140,10 +1140,10 @@ index a70fa36c9..58be10247 100644
              ):
                  check_warn(
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index eba4e4c0b..d4ee9e562 100644
+index f91abb33f..597b88972 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -1554,38 +1554,49 @@ def _get_platform_tools(
+@@ -1756,38 +1756,49 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -4852,7 +4852,7 @@ index 78bdd8d63..e8d2ebd4f 100644
          """Delete a single file.
  
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 85776ac90..43d8099c2 100644
+index 9f8081ca2..d260314b3 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -190,6 +190,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {

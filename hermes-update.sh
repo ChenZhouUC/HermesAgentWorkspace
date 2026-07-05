@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.18.0 / main 88b720eb, `hermes completion zsh` already emits the
+# As of v0.18.0 / main 95fc3c6b, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -600,6 +600,7 @@ _FEISHU_NO_THREAD_PATCH_OK=false
 _GROUP_AUTHOR_IDENTITY_PATCH_OK=false
 _PEOPLE_PROFILE_PATCH_OK=false
 _FEISHU_BACKFILL_PATCH_OK=false
+_FEISHU_MARKDOWN_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 
@@ -845,6 +846,26 @@ else
     warn "Could not locate Feishu adapter — skipping PATCH-15 check"
 fi
 
+# PATCH-16: Feishu outbound markdown full render. post/md cannot render ATX
+# headings (`## h`) or block quotes (`> q`), and GFM tables blank the whole
+# message; _build_outbound_payload promotes headings/quotes via
+# _promote_block_markdown and converts tables to bullets via
+# convert_table_to_bullets. Source + test live in adapter.py /
+# tests/gateway/test_feishu.py.
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
+    if grep -q 'def _promote_block_markdown' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'convert_table_to_bullets' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_table_converts_to_bullets_and_posts' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "Feishu markdown render patch: active (ATX heading/quote promoted, GFM table → bullets)"
+        _FEISHU_MARKDOWN_PATCH_OK=true
+    else
+        warn "Feishu markdown render patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-16] Feishu 出站消息 markdown 完整渲染"
+    fi
+else
+    warn "Could not locate Feishu adapter/test — skipping PATCH-16 check"
+fi
+
 # PATCH-17: Vertex OpenAI-compatible returns include_thoughts output as normal
 # assistant content. Keep model-side Gemini thinking level/budget, but force
 # include_thoughts=false so Feishu/dashboard only receive the final answer.
@@ -887,7 +908,7 @@ fi
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
