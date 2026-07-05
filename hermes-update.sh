@@ -716,8 +716,11 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" 
         grep -q '_read_spreadsheet' "${FILE_OPERATIONS_PY}" 2>/dev/null &&
         grep -q 'test_doc_read_builds_env_client_outside_comment_context' "${FEISHU_TOOLS_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_read_file_extracts_xlsx_as_text' "${FILE_OPERATIONS_TEST_PY}" 2>/dev/null; then
-        ok "Feishu group mention/context patch: active (bot/@assistant trigger, configured-human no-intro, group history, feishu_group key, doc/xlsx reads)"
+        grep -q 'test_read_file_extracts_xlsx_as_text' "${FILE_OPERATIONS_TEST_PY}" 2>/dev/null &&
+        grep -q 'bare_mention_intent' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q '_build_bare_mention_intent_text' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_bare_mention_dropped_when_toggle_disabled' "${HERMES_AGENT}/tests/gateway/test_feishu.py" 2>/dev/null; then
+        ok "Feishu group mention/context patch: active (bot/@assistant trigger, configured-human no-intro, group history, feishu_group key, doc/xlsx reads, bare-@ intent)"
         _FEISHU_GROUP_PATCH_OK=true
     else
         warn "Feishu group mention/context patch inactive or partial"

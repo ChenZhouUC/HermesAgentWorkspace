@@ -423,6 +423,7 @@ feishu:
   history_backfill_limit: 30
   history_backfill_seconds: 1800
   history_backfill_max_chars: 6000
+  bare_mention_intent: true
   group_rules:
     '*':
       policy: open
