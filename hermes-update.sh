@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.18.0 / main 95fc3c6b, `hermes completion zsh` already emits the
+# As of v0.18.0 / main 7426c09b, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -143,10 +143,10 @@ _has_conflict_markers() {
 }
 
 # Returns 0 (true) if the launchd gateway service has an active PID.
-# hermes gateway status on macOS outputs a launchd JSON blob that contains
-# "PID" = NNNN only when the process is running.
+# Older hermes gateway status output used launchd's quoted "PID" field; current
+# pretty output prints "Gateway is supervised by launchd (PID NNN)".
 gw_running() {
-    hermes gateway status 2>&1 | grep -q '"PID"'
+    hermes gateway status 2>&1 | grep -Eq '"PID"|PID[[:space:]]+[0-9]+'
 }
 
 # ── Trap: restore patches if script dies after reverting them ────────────────

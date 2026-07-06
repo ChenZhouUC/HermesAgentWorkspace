@@ -4,7 +4,7 @@ Dependency installs: Any dependency installation or environment-changing depende
 §
 400 loop fix: `hermes sessions delete SESSION_ID`
 §
-Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Docx: `feishu_doc_read`. Sheets: API with tenant token. Groups: `feishu-groups` skill. Emoji: ONLY Unicode emoji renders in posts; `[中文名]` bracket emoji ships as literal text via API.
+Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Docx: `feishu_doc_read`. Sheets: API with tenant token. Groups: `feishu-groups` skill. Emoji: ONLY Unicode renders. Diagnostic: empty body + high revision_id = content deleted (scripts exit 0 empty — correct).
 §
 Skill maintenance: Prioritize execution efficiency. Keep SKILL.md concise by extracting inline scripts into separate files under a scripts/ directory to reduce token load. Prefers generic, scalable directory names (e.g., 'editor-configs').
 §

@@ -1,6 +1,9 @@
 model:
   provider: vertex
   default: google/gemini-3.1-pro-preview
+session_reset:
+  mode: none
+group_sessions_per_user: false
 vertex:
   project_id: wh-gemini-1
   region: global

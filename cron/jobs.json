@@ -20,18 +20,18 @@
       "schedule_display": "0 22 * * *",
       "repeat": {
         "times": null,
-        "completed": 10
+        "completed": 14
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-06-23T22:07:31.987308+08:00",
-      "next_run_at": "2026-07-03T22:00:00+08:00",
-      "last_run_at": "2026-07-02T22:01:27.626773+08:00",
-      "last_status": "ok",
-      "last_error": null,
-      "last_delivery_error": null,
+      "next_run_at": "2026-07-07T22:00:00+08:00",
+      "last_run_at": "2026-07-06T22:01:46.504913+08:00",
+      "last_status": "error",
+      "last_error": "Script exited with code 1\nstderr:\nTraceback (most recent call last):\n  File \"/Users/chenzhou/.hermes/scripts/nightly_greeting.py\", line 744, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/Users/chenzhou/.hermes/scripts/nightly_greeting.py\", line 739, in main\n    run(args)\n  File \"/Users/chenzhou/.hermes/scripts/nightly_greeting.py\", line 683, in run\n    draft = run_hermes_generation(build_generation_prompt(day, session_text))\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/chenzhou/.hermes/scripts/nightly_greeting.py\", line 337, in run_hermes_generation\n    raise RuntimeError(f\"Hermes generation failed ({res.returncode}): {res.stderr.strip() or res.stdout.strip()}\")\nRuntimeError: Hermes generation failed (1): hermes -z: agent failed: Vertex AI credentials could not be resolved. Vertex uses OAuth2 (not a static API key): provide a service-account JSON via GOOGLE_APPLICATION_CREDENTIALS (or VERTEX_CREDENTIALS_PATH) in ~/.hermes/.env, or run 'gcloud auth application-default login' for ADC. Set the GCP project/region under vertex: in config.yaml if they aren't embedded in the credentials. Install the extra with: pip install 'hermes-agent[vertex]'.",
+      "last_delivery_error": "delivery error: Feishu send failed: cannot schedule new futures after interpreter shutdown",
       "deliver": "origin",
       "origin": {
         "platform": "feishu",
@@ -44,5 +44,5 @@
       "fire_claim": null
     }
   ],
-  "updated_at": "2026-07-02T22:01:27.627239+08:00"
+  "updated_at": "2026-07-06T22:01:46.505479+08:00"
 }

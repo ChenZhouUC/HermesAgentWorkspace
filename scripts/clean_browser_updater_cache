@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# Clean redundant staged browser copies left behind by the Chromium
+# auto-updaters (Microsoft EdgeUpdater / Google GoogleUpdater).
+#
+# Each update stages a FULL browser .app under the updater's apps/ cache before
+# swapping it into /Applications. Stale copies routinely linger there, get
+# indexed by Spotlight, and surface as duplicate "Microsoft Edge" / "Google
+# Chrome" entries in search and Launchpad. The real install in /Applications is
+# never touched — only the disposable updater cache is cleaned.
+#
+# Run it to get a report and clean in one go:
+#   clean_browser_updater_cache            # report + clean
+#   clean_browser_updater_cache -n         # dry-run: report only, delete nothing
+#   clean_browser_updater_cache --no-mark  # skip the Spotlight-exclusion marker
+#   clean_browser_updater_cache -h         # help
+
+set -uo pipefail
+
+DRY_RUN=0
+DO_MARK=1
+
+usage() {
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -n | --dry-run) DRY_RUN=1 ;;
+    --no-mark) DO_MARK=0 ;;
+    -h | --help) usage 0 ;;
+    *)
+        printf 'unknown option: %s\n\n' "$1" >&2
+        usage 1
+        ;;
+    esac
+    shift
+done
+
+# Total bytes reclaimed across all browsers (kept in KB to stay integer-safe).
+TOTAL_KB=0
+
+# human_kb <kilobytes> -> human-readable size string.
+human_kb() {
+    awk -v kb="$1" 'BEGIN {
+        if (kb >= 1048576) printf "%.1fG", kb/1048576;
+        else if (kb >= 1024) printf "%.0fM", kb/1024;
+        else printf "%dK", kb;
+    }'
+}
+
+# app_version <path-to.app> -> CFBundleShortVersionString, or "?" if unreadable.
+app_version() {
+    /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+        "$1/Contents/Info.plist" 2>/dev/null || printf '?'
+}
+
+# clean_updater <label> <updater_root> <staged_bundle_name> <real_app>
+clean_updater() {
+    local label="$1" updater_root="$2" bundle="$3" real_app="$4"
+    local apps_root="$updater_root/apps"
+
+    printf '\n== %s ==\n' "$label"
+
+    if [ ! -d "$updater_root" ]; then
+        printf '  updater not present, skipping (%s)\n' "$updater_root"
+        return
+    fi
+
+    if [ -d "$real_app" ]; then
+        printf '  installed: %s  (v%s, kept)\n' "$real_app" "$(app_version "$real_app")"
+    else
+        printf '  installed: %s  (NOT FOUND — skipping to be safe)\n' "$real_app"
+        return
+    fi
+
+    # Safety guard: if the updater is mid-swap, leave its cache alone.
+    if [ "$DRY_RUN" -eq 0 ] && grep -q '"swapping":true' "$updater_root/prefs.json" 2>/dev/null; then
+        printf '  update in progress (swapping=true) — skipping cleanup this run\n'
+        maybe_mark "$updater_root" "$apps_root"
+        return
+    fi
+
+    if [ ! -d "$apps_root" ]; then
+        printf '  no staged copies ✅\n'
+        maybe_mark "$updater_root" "$apps_root"
+        return
+    fi
+
+    # Collect the version directories that hold a staged browser bundle.
+    local -a version_dirs=()
+    local app_path version_dir
+    while IFS= read -r -d '' app_path; do
+        version_dir="$(dirname "$app_path")"
+        # Defensive: only ever touch paths under the updater's apps/ cache.
+        case "$version_dir/" in
+        "$apps_root"/*) version_dirs+=("$version_dir") ;;
+        esac
+    done < <(find "$apps_root" -maxdepth 4 -type d -name "$bundle" -print0 2>/dev/null)
+
+    if [ "${#version_dirs[@]}" -eq 0 ]; then
+        printf '  no staged copies ✅\n'
+        maybe_mark "$updater_root" "$apps_root"
+        return
+    fi
+
+    local kb sub_kb=0 dir
+    for dir in "${version_dirs[@]}"; do
+        kb="$(du -sk "$dir" 2>/dev/null | awk '{print $1}')"
+        kb="${kb:-0}"
+        sub_kb=$((sub_kb + kb))
+        printf '  staged copy: v%s  (%s)  %s\n' \
+            "$(app_version "$dir/$bundle")" "$(human_kb "$kb")" \
+            "$([ "$DRY_RUN" -eq 1 ] && echo '[dry-run, kept]' || echo '-> removing')"
+        if [ "$DRY_RUN" -eq 0 ]; then
+            rm -rf "$dir"
+            # Tidy the now-empty channel/app-id parent (e.g. msedge-stable/).
+            rmdir "$(dirname "$dir")" 2>/dev/null || true
+        fi
+    done
+
+    TOTAL_KB=$((TOTAL_KB + sub_kb))
+    if [ "$DRY_RUN" -eq 1 ]; then
+        printf '  would reclaim: %s across %d copy(ies)\n' \
+            "$(human_kb "$sub_kb")" "${#version_dirs[@]}"
+    else
+        printf '  reclaimed: %s across %d copy(ies)\n' \
+            "$(human_kb "$sub_kb")" "${#version_dirs[@]}"
+    fi
+
+    maybe_mark "$updater_root" "$apps_root"
+}
+
+# maybe_mark <updater_root> <apps_root>
+# Drop .metadata_never_index markers so future staged copies are never indexed
+# by Spotlight (and thus never appear as duplicate browsers). Idempotent.
+maybe_mark() {
+    [ "$DO_MARK" -eq 1 ] || return 0
+    local root="$1" apps="$2" made=0 d
+    for d in "$root" "$apps"; do
+        [ -d "$d" ] || continue
+        [ -e "$d/.metadata_never_index" ] && continue
+        if [ "$DRY_RUN" -eq 1 ]; then
+            made=1
+        else
+            : >"$d/.metadata_never_index" 2>/dev/null && made=1
+        fi
+    done
+    if [ "$made" -eq 1 ]; then
+        printf '  spotlight-exclude marker %s\n' \
+            "$([ "$DRY_RUN" -eq 1 ] && echo 'would be added' || echo 'added')"
+    fi
+    return 0
+}
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    printf 'Browser updater cache cleanup (DRY RUN — nothing will be deleted)\n'
+else
+    printf 'Browser updater cache cleanup\n'
+fi
+
+clean_updater "Microsoft Edge" \
+    "$HOME/Library/Application Support/Microsoft/EdgeUpdater" \
+    "Microsoft Edge.app" \
+    "/Applications/Microsoft Edge.app"
+
+clean_updater "Google Chrome" \
+    "$HOME/Library/Application Support/Google/GoogleUpdater" \
+    "Google Chrome.app" \
+    "/Applications/Google Chrome.app"
+
+printf '\n== summary ==\n'
+if [ "$DRY_RUN" -eq 1 ]; then
+    printf '  would reclaim %s total. Re-run without -n to clean.\n' "$(human_kb "$TOTAL_KB")"
+else
+    printf '  reclaimed %s total.\n' "$(human_kb "$TOTAL_KB")"
+fi

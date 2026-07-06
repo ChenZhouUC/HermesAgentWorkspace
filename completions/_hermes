@@ -69,7 +69,7 @@ _hermes() {
                 'project:Manage projects (named, multi-folder workspaces)'
                 'prompt-size:Show a byte breakdown of the system prompt + tool schemas'
                 'proxy:Local OpenAI-compatible proxy to OAuth providers'
-                'secrets:Manage external secret sources (Bitwarden Secrets Manager)'
+                'secrets:Manage external secret sources (Bitwarden, 1Password)'
                 'security:Supply-chain audit (OSV.dev) for venv, plugins, and MCP serv'
                 'send:Send a message to a configured platform (scripts, cron jobs,'
                 'serve:Start the Hermes backend server (headless; powers the deskto'
@@ -450,6 +450,7 @@ _hermes() {
                     local -a secrets_cmds
                     secrets_cmds=(
                     'bitwarden:Bitwarden Secrets Manager integration'
+                    'onepassword:1Password (op:// references) integration'
                     )
                     _describe 'secrets command' secrets_cmds
                     ;;
@@ -463,12 +464,13 @@ _hermes() {
                 sessions)
                     local -a sessions_cmds
                     sessions_cmds=(
+                    'archive:Bulk-archive (soft-hide) sessions matching filters — no dele'
                     'browse:Interactive session picker — browse, search, and resume sess'
                     'delete:Delete a specific session'
                     'export:Export sessions to a JSONL file'
                     'list:List recent sessions'
                     'optimize:Reclaim disk space: merge FTS5 segments + VACUUM (no data ch'
-                    'prune:Delete old sessions'
+                    'prune:Delete old sessions (filterable by time window, source, titl'
                     'rename:Set or change a sessions title'
                     'repair:Repair a malformed state.db schema so hidden sessions reappe'
                     'stats:Show session store statistics'
