@@ -20,12 +20,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表                                   | 管理方式                                                                                                                                                                                                                           |
-| -------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
-| **工程外补丁** | PATCH-3                                | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
-| **运行时补丁** | PATCH-6                                | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
-| **已上游合并** | PATCH-2/3/4/5/8                        | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
+| 类型           | 代表                                      | 管理方式                                                                                                                                                                                                                           |
+| -------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
+| **工程外补丁** | PATCH-3                                   | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
+| **运行时补丁** | PATCH-6                                   | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
+| **已上游合并** | PATCH-2/3/4/5/8                           | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -69,8 +69,9 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
   │   ├─ PATCH-14: grep people-profile/_load_people_profiles/_lookup_person + group-profile/_load_group_profiles/_lookup_group/_GROUP_TOOL_LIMITATION_RULE + TestPeopleProfileInjection/TestGroupProfileInjection
   │   ├─ PATCH-15: grep _backfill_sender_attachments/_backfill_reply_attachments/_mark_attachment_backfilled + _FEISHU_BACKFILL_WINDOW_SECONDS/_backfilled_attachment_ids in adapter.py
-  │   ├─ PATCH-17: grep Vertex include_thoughts=false + hidden-thoughts regression test
-  │   └─ PATCH-18: grep doctor Vertex provider/profile/env hints + google model slug regression test
+  │   ├─ PATCH-17: grep Vertex include_thoughts=false + single-level {"google":…} + hidden-thoughts regression test
+  │   ├─ PATCH-18: grep doctor Vertex provider/profile/env hints + google model slug regression test
+  │   └─ PATCH-19: grep get_vertex_fallback_config/apply_global_project_override + vertex-fallback in auth.py + has_vertex_fallback_credentials + name="vertex-fallback" + fallback regression test
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -202,17 +203,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.18.0 (upstream `main` `7426c09b`，2026-07-06)
+## 当前版本：v0.18.0 (upstream `main` `05cbddc0`，2026-07-07)
 
-**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18（共 13 条）。
+**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19（共 14 条）。
 
-**最近一次升级（v0.18.0 main 滚动，+176 commit，basis `95fc3c6b` → `7426c09b`）要点**：
+**最近一次升级（v0.18.0 main 滚动，+36 commit，basis `7426c09b` → `05cbddc0`）要点**：
 
-- 上游主线：Secrets——新增 pluggable `SecretSource`、多 source orchestrator 与 1Password `op://` 支持（`2d16ec7f` / `5c4c0e9d` / `8235f484`）；Gateway——修复 post-`/stop` stale interrupt 吞下一条消息、interrupt slate、multiplex profile 路由/环境读取、session routing index 迁入 `state.db`（`a14caf77` / `d7348bf2` / `8a9bc38c` / `94205a11`）；Cron——one-shot run-claim 持久化、拒绝过期 one-shot、shutdown delivery drain（`06cc983b` / `3b5c6454` / `5986cdd3`）；MCP——connect timeout、preflight POST fallback、park/revive stale servers 与 tool re-register（`d52d2973` / `32c1c47e` / `e412316b`）；Web/Providers——web backend disabled-plugin 诊断、config-aware env resolution、auxiliary custom provider 继承（`27f74b26` / `1a288553` / `92da7a99`）；Sessions/CLI——prune 全过滤面与 bulk archive、prompt-size 尊重平台 toolset、TTFT partial-line streaming（`040a5e30` / `fe8d02ce` / `0800af0b`）；安全/平台——aiohttp webhook body cap、user deny rules、read_file graceful truncation、STT echo toggle、WhatsApp native polls、Feishu webhook cap（`8986981d` / `e2fe529e` / `25f0cecf` / `bfc52627` / `11627fdc` / `2bcb893d`）。
-- patch apply：Step 8 通过 `--unidiff-zero` fallback **clean apply**，无 3-way、无冲突；`local-patches.diff` 与 `.local-patches.base` 刷新到 `7426c09b`，主要是 index hash 与 `gateway/run.py` / `gateway/config.py` / `gateway/authz_mixin.py` 等 hunk 行号漂移。PATCH-1/7/9/10/11/12/13/14/15/16/17/18 行为化 sentinel 全 OK，PATCH-2/4/5 上游吸收 guard OK；本轮无新增、无新退役。验证：脚本刷新后补丁快照 40 files；后续 round-trip `git apply --check` 在干净 `7426c09b` 上通过，幂等成立；15 个 patched 测试文件 **1083 passed**（仅第三方 deprecation warnings）。
-- 依赖：`hermes-agent` editable 重装（版本仍 `0.18.0`，未 bump）；npm root/ui-tui/web 依赖安装，web UI rebuilt；`npm audit` no vulnerabilities；Skills mirror `+0/~0/-4`；lazy backend `platform.matrix` pip install 失败，保留旧版本；内层 `uv.lock` 作为额外 tracked 改动恢复，继续不纳入 `local-patches.diff`。
-- 已知摩擦：`platform.matrix` lazy backend refresh 失败属复发摩擦；脚本末尾曾把 pretty `hermes gateway status` 的 `PID 42419` 误判为未运行，原因是 `gw_running()` 只匹配旧 JSON `"PID"` 字段，本轮已让脚本同时匹配 pretty PID 输出；gateway 复查由 launchd 监管运行。
-- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)` 且 `All checks passed`；仅保留未登录 auth provider、未配置 optional tool/API key、Skills Hub 未初始化、`gemini` 路由不可达等可选提示。
+- 上游主线：Serve/CLI——`hermes serve` 变成真正的 headless backend（`f0f8c84d`）、`hermes -z --usage-file` JSON 用量报告（`7dfd5077`，#59615）、新增 `display.timestamp_format`（`1ea0bbbb`）、`hermes plugins list` 展示 entry-point 插件（`94cdd56b`）、banner skills 宽度自适应终端（`51e6ef5f`）；Compression/Codex——gpt-5.5 autoraise 去重/floor/不下调更高阈值（`fff24089` / `bdca94e7` / `60391d0e`）、gpt-5.4 纳入 272K compaction autoraise（`948993cd`）、gpt-5.3-codex-spark 阈值 70%（`0b6df665`，#48621）、compression timeout floor 防 reasoning 模型回落 marker（`370a489f`，#54915）、codex replay tail budget（`78ee0aa3`）；Auxiliary/Providers——401 时刷新 auto-routed 凭证（`f69e3aad`）、stale fallback-candidate 凭证恢复而非 abort（`d42e9b17`）；TUI——model picker refresh/probe/稳定裸列表、`-m` 不再把模型全局持久化（`70c6ae60`，#59805）；Web/Desktop——dashboard model picker 刷新（`83016547`）、`HERMES_DESKTOP_CWD` 缺省取 cwd（`5431bf29`）；Skills/Docs——`hermes curator usage` 全 skill 用量视图（`586acf53`）、dynamic-workflow orchestration skill 本轮新增后又被整体 revert（`5e5191b9` → `05cbddc0`）、browser provider plugin guide 与 Plugins 子类目/secret-source/1Password guide。
+- patch apply：Step 8 **clean apply**，无 3-way、无冲突；`local-patches.diff` / `.local-patches.base` 刷新到 `05cbddc0`，主要是 index hash 与 hunk 行号漂移。**本轮新增 PATCH-19**（第二 Vertex 账号做 fallback：`vertex-fallback` provider，`agent/vertex_adapter.py` / `hermes_cli/auth.py` / `agent/auxiliary_client.py` 三文件新入 `PATCHED_FILES`，快照 40 → 43 files），并**修正 PATCH-17**（`build_extra_body` 由双层 `{"extra_body":{"google":…}}` 改单层 `{"google":…}` 根治飞书 thinking 泄漏）；PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19 行为化 sentinel 全 OK，PATCH-2/4/5 上游吸收 guard OK；无新退役。验证：还原到干净 `05cbddc0` 上 `git apply --check patches/local-patches.diff` clean，round-trip 幂等成立；vertex/doctor 定向 pytest **87 passed**（仅第三方 audioop deprecation warning）。
+- 依赖：`hermes-agent` editable 重装（版本仍 `0.18.0`，未 bump）；npm root/ui-tui/web 依赖安装，web UI rebuilt；`npm audit` no vulnerabilities；Skills mirror `+0/~0/-4`（含上游 revert 的 dynamic-workflow 及 shop 重命名清理）；内层 `uv.lock` 作为额外 tracked 改动，继续不纳入 `local-patches.diff`。
+- 已知摩擦：本轮 patch clean apply、无冲突、无 launchd/uv 报错；`hermes gateway status` 的 "service definition stale" 提示在本轮 plist 刷新后已消除（升级前存在，属 cosmetic）。
+- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)` 且 `All checks passed`；仅保留未登录 auth provider、未配置 optional tool/API key、Skills Hub 未初始化等可选提示。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -406,9 +407,13 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：官方 `provider: vertex` 通过 Vertex OpenAI-compatible endpoint 调 Gemini 3.x 时，`reasoning_effort: high` 会映射到 `extra_body.google.thinking_config.include_thoughts=true`。实测 Vertex 这条 OpenAI-compatible 路径不会把 thought 拆成 Hermes 可隐藏的 `reasoning_content` 字段，而是把 thought text 直接拼进 `message.content`，飞书端会看到类似 `**Identifying Current Model**` 的思考段，即使 `display.show_reasoning=false`。
 
-**修复**：Vertex provider profile 仍复用 Gemini thinking level / budget 映射，但在 OpenAI-compatible 请求体里把 `include_thoughts=true` 强制改为 `include_thoughts=false`。这样保留 `thinking_level=high` 等模型侧思考强度，让模型继续内部思考；同时禁止 Vertex 把 thought text 返回到普通正文，飞书 / dashboard 只收到最终答案。
+**（2026-07-07 修订·真实根因）**：初版把 `include_thoughts` 强制改 false 后返回 `{"extra_body": {"google": {...}}}`——**多包了一层 `extra_body` 键**。基类 `ProviderProfile.build_extra_body` 的约定是"返回值会被 merge 进 extra_body"，经 `_build_kwargs_from_profile` 后线上真正发出的是 `extra_body={"extra_body": {"google": {...}}}`；Vertex 不认这个顶层 `extra_body` 字段，直接忽略 → `include_thoughts` 回落默认 true → thought 仍进正文。初版的"真链路验证"用的是**手写单层** `extra_body={'google': {...}}`（未走 `build_kwargs` 组装），因此漏掉了这层 bug。飞书主会话据此泄漏大量 `**加粗标题** + "I'm diving into…"` 思考段。
 
-**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 中存在 `include_thoughts=true` 问题说明与 `thinking_config["include_thoughts"] = False`；grep `tests/hermes_cli/test_vertex_provider.py` 中存在 `test_vertex_extra_body_preserves_disabled_reasoning`。单测 `venv/bin/pytest tests/hermes_cli/test_vertex_provider.py -q` 15 passed；真链路直连 Vertex `extra_body={'google': {'thinking_config': {'include_thoughts': False, 'thinking_level': 'high'}}}` 返回 `hidden-thinking-ok`，正文无 thought 段。
+**修复**：`build_extra_body` 改为返回**单层** `{"google": {"thinking_config": thinking_config}}`（与 qwen/nous 等 profile 的扁平返回约定一致），使线上 `api_kwargs["extra_body"]` 恰为 `{"google": {"thinking_config": {"include_thoughts": False, "thinking_level": "high"}}}`——Vertex 读到顶层 `google.thinking_config`，抑制生效。保留 `thinking_level=high` 让模型继续内部思考，只是不把 thought text 返回正文。
+
+**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 存在 `include_thoughts=true` 说明、`thinking_config["include_thoughts"] = False` 与**单层** `return {"google": {"thinking_config": thinking_config}}`；grep test 存在 `test_vertex_extra_body_preserves_disabled_reasoning`。单测 `venv/bin/python -m pytest tests/hermes_cli/test_vertex_provider.py -q` 19 passed。真链路 A/B 对比（`VERTEX_ACCESS_TOKEN`，同一 plan 类 prompt）：**A 单层 → 干净答案**；**B 双层（旧）→ `" Too simple, doesn't add value…"` 思考泄漏**。`build_kwargs(provider_profile=vertex)` 输出确认为单层结构。
+
+**注**：`plugins/model-providers/gemini/__init__.py`（AI-Studio `gemini` provider）存在同构的双层写法，但本环境不走该 provider，暂不改动，待验证。
 
 **上游吸收判断**：若上游能把 Vertex OpenAI-compatible 返回的 Gemini thoughts 解析并存入隐藏 reasoning 字段，或官方 Vertex profile 默认隐藏 thoughts 且保留 thinking level，可归档本补丁。
 
@@ -428,6 +433,30 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `hermes_cli/doctor.py` 中存在 `_get_provider_profile`、`GOOGLE_APPLICATION_CREDENTIALS` 与 `"vertex"`，并 grep `tests/hermes_cli/test_doctor.py` 中存在 `test_run_doctor_accepts_vertex_provider_and_google_model_slugs`。单测 `venv/bin/pytest tests/hermes_cli/test_doctor.py tests/hermes_cli/test_vertex_provider.py tests/gateway/test_session.py -q` 193 passed；实际 `hermes doctor` 在当前 `provider: vertex` 配置下显示 `Config version up to date (v33)` 且 `All checks passed`。
 
 **上游吸收判断**：若上游 doctor 原生读取 model-provider plugin registry，或官方 registry/catalog 把 `vertex` 与其 `google/*` OpenAI-compatible 模型名纳入健康检查策略，可归档本补丁。
+
+---
+
+### [PATCH-19] 第二个 Vertex 账号做 fallback（绕开单账号限额）
+
+| 字段     | 内容                                                                                                                                                                   |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/vertex_adapter.py`, `hermes_cli/auth.py`, `agent/auxiliary_client.py`, `plugins/model-providers/vertex/__init__.py`, `tests/hermes_cli/test_vertex_provider.py` |
+| **状态** | 🟡 未上游合并                                                                                                                                                          |
+
+**问题**：主模型 `google/gemini-3.1-pro-preview`（Vertex，project `wh-gemini-1`）频繁 `429 RESOURCE_EXHAUSTED`（单账号/单 project 配额），回退到 `alibaba/qwen3.6-plus`，行为与质量都跟主模型不一致。需求：fallback 换成**第二个 Vertex 账号**跑同一个 gemini-3.1-pro，行为与主模型一致，仅换账号绕开限额。两处架构约束使"同 provider 同模型换账号"无法直接配置：①`vertex` 不在 `hermes_cli.auth.PROVIDER_REGISTRY`（auto-extend 只收 `auth_type=="api_key"`），主模型靠 `resolve_runtime_provider()` 专门解析，而 **fallback 走 `resolve_provider_client()`，只从 `PROVIDER_REGISTRY.get()` 取 pconfig** → 现有 `auth_type=="vertex"` 分支对 fallback 是够不到的死代码；②fallback 去重（`chat_completion_helpers._try_activate_fallback`）对 `provider+model` 相同的条目直接跳过。此外 `get_vertex_credentials` 里 `_resolve_project_override()`（`VERTEX_PROJECT_ID`/config）会把任何账号的 token 重绑到主 project → 第二账号 403。
+
+**修复**：新增独立 provider `vertex-fallback`，复用同一 `VertexProfile`（自动继承 PATCH-17 单层抑制 → 行为一致），只换凭证：
+
+1. `agent/vertex_adapter.py`：新增 `get_vertex_fallback_config()` / `has_vertex_fallback_credentials()`，从 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID`（经 `_get_secret`）解析第二账号；给 `get_vertex_credentials`/`get_vertex_config` 加 `project_override`（显式项目优先）与 `apply_global_project_override=False`（不套用 `VERTEX_PROJECT_ID`），确保第二账号 token 锁在自己的 project；token 按 path 各自缓存 + 自动刷新（复用 `_creds_cache`）。
+2. `hermes_cli/auth.py`：在 `PROVIDER_REGISTRY` 显式登记 `vertex-fallback`（`auth_type="vertex"`，别名 `vertex2`/`vertex-secondary`），使 `resolve_provider_client` 能取到 pconfig 并命中 vertex 分支。
+3. `agent/auxiliary_client.py`：`resolve_provider_client` 的 `auth_type=="vertex"` 分支内，`provider=="vertex-fallback"` 时改用 `get_vertex_fallback_config` / `has_vertex_fallback_credentials`。
+4. `plugins/model-providers/vertex/__init__.py`：用同一 `VertexProfile` 类再 `register_provider` 一个 `name="vertex-fallback"` 实例，使 `get_provider_profile("vertex-fallback")` 可解析（fallback 激活后 `_build_request_kwargs` 走 profile 路径拿到单层抑制）。
+
+配套（非工程内补丁）：`~/.hermes/.env` 加 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID`（第二账号 SA 文件 `~/.gemini/gen-lang-client-0217395804-…json`，project `gen-lang-client-0217395804`）；`~/.hermes/config.yaml` 把 `fallback_providers` 设为 `vertex-fallback/gemini-3.1-pro`，`fallback_model` 保留 `alibaba/qwen3.6-plus` 作末位兜底（有效链 = 二者 merge 去重）。
+
+**验证**：Step 8b grep `agent/vertex_adapter.py` 存在 `def get_vertex_fallback_config` + `apply_global_project_override`；`hermes_cli/auth.py` 存在 `"vertex-fallback"`；`agent/auxiliary_client.py` 存在 `has_vertex_fallback_credentials`；`plugins/.../vertex/__init__.py` 存在 `name="vertex-fallback"`；test 存在 `test_vertex_fallback_profile_registered`。单测 19 passed（含 4 条 fallback 回归）。真链路端到端：加载 `.env` 后 `get_vertex_fallback_config()` 返回 base_url 锁定 `projects/gen-lang-client-0217395804`（未被主 project 覆盖），`resolve_provider_client("vertex-fallback", model="google/gemini-3.1-pro-preview")` 返回可用 client 且真实调用返回干净答案（无 thought 段）。第二账号 SA 直连 Vertex `/v1`+`/v1beta1` global 均 200。
+
+**上游吸收判断**：若上游为 Vertex/OAuth-token 类 provider 提供多凭证轮换池（credential pool），或让 fallback 条目原生携带 per-entry `credentials_path`/`project`，可归档本补丁改用原生机制。
 
 ---
 

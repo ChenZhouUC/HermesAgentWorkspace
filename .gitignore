@@ -32,6 +32,7 @@ processes.json
 .clean_shutdown
 .restart_last_processed.json
 .restart_pending.json
+gateway/restart_loop.json
 
 # ── 密钥缓存（含明文 API key，绝对不入库）─────────────────────────
 auth.json

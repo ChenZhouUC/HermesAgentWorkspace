@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INTERVAL_LABEL="ai.hermes.vertex-refresh"
+WAKE_LABEL="ai.hermes.vertex-wake"
+
+usage() {
+    cat <<'EOF'
+Usage: stop_vertex_refresh_launchd
+
+Stops and removes the deprecated Vertex refresh LaunchAgents:
+  - ai.hermes.vertex-refresh
+  - ai.hermes.vertex-wake
+
+The script unloads the LaunchAgents before killing residual refresh/wake
+processes, so launchd KeepAlive cannot immediately start them again. It also
+removes the installed plist files and the stale Vertex refresh lock.
+EOF
+}
+
+log() {
+    printf '[stop_vertex_refresh_launchd] %s\n' "$*"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    *)
+        echo "Unknown argument: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+done
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "This script only supports macOS launchd." >&2
+    exit 1
+fi
+
+ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+HERMES_HOME="${HERMES_HOME:-$ROOT}"
+PLIST_DIR="${HOME}/Library/LaunchAgents"
+BOOTSTRAP_DOMAIN="gui/$(id -u)"
+INTERVAL_PLIST_PATH="${PLIST_DIR}/${INTERVAL_LABEL}.plist"
+WAKE_PLIST_PATH="${PLIST_DIR}/${WAKE_LABEL}.plist"
+LOCK_DIR="${HERMES_HOME}/.locks/vertex-refresh.lock"
+
+unload_launchagent() {
+    local label="$1"
+    local plist_path="$2"
+
+    log "Unloading ${label}"
+    launchctl bootout "$BOOTSTRAP_DOMAIN" "$plist_path" >/dev/null 2>&1 || true
+    launchctl bootout "${BOOTSTRAP_DOMAIN}/${label}" >/dev/null 2>&1 || true
+}
+
+remove_plist() {
+    local plist_path="$1"
+
+    if [[ -e "$plist_path" ]]; then
+        rm -f "$plist_path"
+        log "Removed ${plist_path}"
+    else
+        log "Plist already absent: ${plist_path}"
+    fi
+}
+
+append_unique_pid() {
+    local pid="$1"
+
+    [[ -n "$pid" ]] || return 0
+    [[ "$pid" != "$$" ]] || return 0
+    [[ "$pid" != "${PPID}" ]] || return 0
+    case " ${PIDS} " in
+    *" ${pid} "*) ;;
+    *) PIDS="${PIDS} ${pid}" ;;
+    esac
+}
+
+collect_residual_pids() {
+    local pattern
+    local pid
+
+    PIDS=""
+    for pattern in \
+        "${ROOT}/scripts/vertex_wake_watcher.swift" \
+        "${ROOT}/scripts/refresh_vertex_and_restart_gateway" \
+        "${ROOT}/scripts/refresh_vertex_access_token" \
+        "${ROOT}/scripts/refresh_vertex_access_token.py"; do
+        while IFS= read -r pid; do
+            append_unique_pid "$pid"
+        done < <(pgrep -f "$pattern" 2>/dev/null || true)
+    done
+}
+
+alive_pids() {
+    local pid
+    local alive=""
+
+    for pid in $PIDS; do
+        if kill -0 "$pid" 2>/dev/null; then
+            alive="${alive} ${pid}"
+        fi
+    done
+    printf '%s\n' "$alive"
+}
+
+stop_residual_processes() {
+    local alive
+    local waited
+
+    collect_residual_pids
+    if [[ -z "${PIDS// /}" ]]; then
+        log "No residual Vertex refresh processes found"
+        return 0
+    fi
+
+    log "Stopping residual Vertex refresh processes:${PIDS}"
+    # shellcheck disable=SC2086
+    kill -TERM $PIDS 2>/dev/null || true
+
+    waited=0
+    while [[ "$waited" -lt 5 ]]; do
+        sleep 1
+        alive="$(alive_pids)"
+        if [[ -z "${alive// /}" ]]; then
+            log "Residual processes stopped"
+            return 0
+        fi
+        waited=$((waited + 1))
+    done
+
+    alive="$(alive_pids)"
+    if [[ -n "${alive// /}" ]]; then
+        log "Force-killing residual processes:${alive}"
+        # shellcheck disable=SC2086
+        kill -KILL $alive 2>/dev/null || true
+    fi
+}
+
+remove_lock() {
+    if [[ -d "$LOCK_DIR" ]]; then
+        rm -f "${LOCK_DIR}/pid" 2>/dev/null || true
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+        if [[ -d "$LOCK_DIR" ]]; then
+            log "Lock directory still exists: ${LOCK_DIR}"
+        else
+            log "Removed stale lock: ${LOCK_DIR}"
+        fi
+    else
+        log "Lock already absent: ${LOCK_DIR}"
+    fi
+}
+
+unload_launchagent "$INTERVAL_LABEL" "$INTERVAL_PLIST_PATH"
+unload_launchagent "$WAKE_LABEL" "$WAKE_PLIST_PATH"
+remove_plist "$INTERVAL_PLIST_PATH"
+remove_plist "$WAKE_PLIST_PATH"
+stop_residual_processes
+remove_lock
+
+printf 'Vertex refresh LaunchAgents stopped and removed.\n'
+printf 'Reinstall only if needed with:\n'
+printf '  %s/scripts/install_vertex_refresh_launchd\n' "$ROOT"

@@ -1,3 +1,53 @@
+diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
+index 93b7abcef..5969eb2d6 100644
+--- a/agent/auxiliary_client.py
++++ b/agent/auxiliary_client.py
+@@ -4911,22 +4911,36 @@ def resolve_provider_client(
+         # OAuth2 bearer token (NOT a static key). We build a standard OpenAI
+         # client pointed at the runtime-computed Vertex base_url with a fresh
+         # token; no custom SDK or message translation needed.
++        # ``vertex-fallback`` is a second Vertex account (distinct SA file /
++        # GCP project, resolved from VERTEX_FALLBACK_* env) used as a fallback
++        # to dodge the primary account's per-project quota. Same OpenAI-compat
++        # surface and profile behavior — only the credentials differ.
++        _is_vertex_fallback = provider == "vertex-fallback"
+         try:
+-            from agent.vertex_adapter import get_vertex_config, has_vertex_credentials
++            if _is_vertex_fallback:
++                from agent.vertex_adapter import (
++                    get_vertex_fallback_config as _get_vertex_cfg,
++                    has_vertex_fallback_credentials as _has_vertex_creds,
++                )
++            else:
++                from agent.vertex_adapter import (
++                    get_vertex_config as _get_vertex_cfg,
++                    has_vertex_credentials as _has_vertex_creds,
++                )
+         except ImportError:
+-            logger.warning("resolve_provider_client: vertex requested but "
+-                           "google-auth not installed")
++            logger.warning("resolve_provider_client: %s requested but "
++                           "google-auth not installed", provider)
+             return None, None
+ 
+-        if not has_vertex_credentials():
+-            logger.debug("resolve_provider_client: vertex requested but "
+-                         "no GCP credentials found")
++        if not _has_vertex_creds():
++            logger.debug("resolve_provider_client: %s requested but "
++                         "no GCP credentials found", provider)
+             return None, None
+ 
+-        token, base_url = get_vertex_config()
++        token, base_url = _get_vertex_cfg()
+         if not token or not base_url:
+-            logger.warning("resolve_provider_client: vertex requested but "
+-                           "could not mint token / resolve project")
++            logger.warning("resolve_provider_client: %s requested but "
++                           "could not mint token / resolve project", provider)
+             return None, None
+ 
+         default_model = "google/gemini-3-flash-preview"
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
 index 3ec4a40b3..0a3bdb56c 100644
 --- a/agent/prompt_builder.py
@@ -167,6 +217,137 @@ index 187c47d70..00c4516d1 100644
              if str(skill_name) in disabled:
                  continue
              if not skill_matches_platform(frontmatter):
+diff --git a/agent/vertex_adapter.py b/agent/vertex_adapter.py
+index 6e425753f..911cc2935 100644
+--- a/agent/vertex_adapter.py
++++ b/agent/vertex_adapter.py
+@@ -108,11 +108,22 @@ def _refresh_credentials(creds) -> None:
+     creds.refresh(auth_req)
+ 
+ 
+-def get_vertex_credentials(credentials_path: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
++def get_vertex_credentials(
++    credentials_path: Optional[str] = None,
++    project_override: Optional[str] = None,
++    apply_global_project_override: bool = True,
++) -> Tuple[Optional[str], Optional[str]]:
+     """Return a (fresh access_token, project_id) pair or (None, None) on failure.
+ 
+     Caches the underlying Credentials object and refreshes it when within
+     5 minutes of expiry, so repeated calls don't thrash the token endpoint.
++
++    ``project_override`` — when set, this project_id wins over both the
++    credentials' embedded project and the process-wide VERTEX_PROJECT_ID/config
++    override. ``apply_global_project_override`` — when False, the process-wide
++    VERTEX_PROJECT_ID/config override is NOT consulted. Both exist so a second
++    Vertex account (the fallback provider) stays pinned to its own project and
++    is not silently rebound to the primary account's project (which would 403).
+     """
+     if google is None:
+         logger.warning("google-auth package not installed. Cannot use Vertex AI.")
+@@ -167,9 +178,12 @@ def get_vertex_credentials(credentials_path: Optional[str] = None) -> Tuple[Opti
+         if needs_refresh:
+             _refresh_credentials(creds)
+ 
+-        override_project = _resolve_project_override()
+-        if override_project:
+-            project_id = override_project
++        if project_override:
++            project_id = project_override
++        elif apply_global_project_override:
++            override_project = _resolve_project_override()
++            if override_project:
++                project_id = override_project
+ 
+         return creds.token, project_id
+     except Exception as e:
+@@ -182,7 +196,11 @@ def get_vertex_credentials(credentials_path: Optional[str] = None) -> Tuple[Opti
+             sa_path = _resolve_credentials_path(credentials_path)
+             if sa_path:
+                 logger.info("ADC failed, retrying with service account: %s", sa_path)
+-                return get_vertex_credentials(sa_path)
++                return get_vertex_credentials(
++                    sa_path,
++                    project_override=project_override,
++                    apply_global_project_override=apply_global_project_override,
++                )
+ 
+         return None, None
+ 
+@@ -202,9 +220,15 @@ def build_vertex_base_url(project_id: str, region: str = DEFAULT_REGION) -> str:
+ def get_vertex_config(
+     credentials_path: Optional[str] = None,
+     region: Optional[str] = None,
++    project_override: Optional[str] = None,
++    apply_global_project_override: bool = True,
+ ) -> Tuple[Optional[str], Optional[str]]:
+     """Resolve (access_token, base_url) for Vertex AI, or (None, None) on failure."""
+-    token, project_id = get_vertex_credentials(credentials_path)
++    token, project_id = get_vertex_credentials(
++        credentials_path,
++        project_override=project_override,
++        apply_global_project_override=apply_global_project_override,
++    )
+     if not token or not project_id:
+         return None, None
+ 
+@@ -213,6 +237,56 @@ def get_vertex_config(
+     return token, base_url
+ 
+ 
++# ── Fallback account (second Vertex project to dodge per-project quota) ──────
++#
++# The primary Vertex account (GOOGLE_APPLICATION_CREDENTIALS / VERTEX_PROJECT_ID)
++# and this fallback account run the SAME model (google/gemini-3.x) through the
++# SAME OpenAI-compatible surface — only the service-account file and GCP project
++# differ. Wired as a distinct ``vertex-fallback`` provider so the fallback chain
++# doesn't dedup it against the primary ``vertex`` provider (see
++# chat_completion_helpers._try_activate_fallback).
++
++def _resolve_fallback_credentials_path() -> Optional[str]:
++    """Path to the fallback account's service-account JSON, or None."""
++    raw = (_get_secret("VERTEX_FALLBACK_CREDENTIALS_PATH") or "").strip()
++    if not raw:
++        return None
++    path = os.path.expanduser(raw)
++    return path if os.path.exists(path) else None
++
++
++def has_vertex_fallback_credentials() -> bool:
++    """Fast, no-network check for whether the fallback account is configured."""
++    return _resolve_fallback_credentials_path() is not None
++
++
++def get_vertex_fallback_config(
++    region: Optional[str] = None,
++) -> Tuple[Optional[str], Optional[str]]:
++    """Resolve (access_token, base_url) for the SECOND Vertex account.
++
++    Mints a fresh token from ``VERTEX_FALLBACK_CREDENTIALS_PATH`` and pins the
++    request to that account's own project — ``VERTEX_FALLBACK_PROJECT_ID`` if
++    set, else the service-account file's embedded project. The primary
++    VERTEX_PROJECT_ID override is deliberately NOT applied, so the fallback
++    token is never rebound to the primary project.
++    """
++    path = _resolve_fallback_credentials_path()
++    if not path:
++        return None, None
++    project_override = (_get_secret("VERTEX_FALLBACK_PROJECT_ID") or "").strip() or None
++    token, project_id = get_vertex_credentials(
++        path,
++        project_override=project_override,
++        apply_global_project_override=False,
++    )
++    if not token or not project_id:
++        return None, None
++    effective_region = _resolve_region(region)
++    base_url = build_vertex_base_url(project_id, effective_region)
++    return token, base_url
++
++
+ def has_vertex_credentials() -> bool:
+     """Fast check for whether Vertex credentials appear configured.
+ 
 diff --git a/gateway/authz_mixin.py b/gateway/authz_mixin.py
 index f84ca259c..491a9d44f 100644
 --- a/gateway/authz_mixin.py
@@ -1034,6 +1215,35 @@ index a08e169f2..4f4a39413 100644
                      reply_to=self._initial_reply_to_id,
                      metadata=self._metadata_for_send(
                          final=finalize,
+diff --git a/hermes_cli/auth.py b/hermes_cli/auth.py
+index 91911e77e..3e02fe0d7 100644
+--- a/hermes_cli/auth.py
++++ b/hermes_cli/auth.py
+@@ -479,6 +479,24 @@ except Exception:
+     pass
+ 
+ 
++# The Vertex fallback provider uses OAuth (auth_type="vertex"), so the api-key
++# auto-extend above skips it. Register it explicitly so resolve_provider_client()
++# — which looks providers up in PROVIDER_REGISTRY, not the plugin registry —
++# can find its pconfig and take the auth_type=="vertex" branch. The primary
++# ``vertex`` provider doesn't need an entry here: it's booted via
++# resolve_runtime_provider(), not resolve_provider_client().
++if "vertex-fallback" not in PROVIDER_REGISTRY:
++    PROVIDER_REGISTRY["vertex-fallback"] = ProviderConfig(
++        id="vertex-fallback",
++        name="Vertex AI (fallback account)",
++        auth_type="vertex",
++        inference_base_url="https://aiplatform.googleapis.com",
++    )
++    for _vf_alias in ("vertex2", "vertex-secondary"):
++        if _vf_alias not in PROVIDER_REGISTRY:
++            PROVIDER_REGISTRY[_vf_alias] = PROVIDER_REGISTRY["vertex-fallback"]
++
++
+ # =============================================================================
+ # Anthropic Key Helper
+ # =============================================================================
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
 index 12b688b22..0ceb6ade2 100644
 --- a/hermes_cli/doctor.py
@@ -1243,7 +1453,7 @@ index c108a99ea..6979cc0f8 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/model-providers/vertex/__init__.py b/plugins/model-providers/vertex/__init__.py
-index f0d0d4f89..7220d462f 100644
+index f0d0d4f89..2bf2daa4b 100644
 --- a/plugins/model-providers/vertex/__init__.py
 +++ b/plugins/model-providers/vertex/__init__.py
 @@ -8,9 +8,10 @@ resolution and refresh live in ``agent/vertex_adapter.py``; runtime_provider.py
@@ -1260,7 +1470,7 @@ index f0d0d4f89..7220d462f 100644
  
  ``auth_type="vertex"`` marks this as an OAuth-token provider (resolved
  specially, like bedrock's ``aws_sdk``) so it is never treated as an
-@@ -24,13 +25,18 @@ from providers.base import ProviderProfile
+@@ -24,13 +25,29 @@ from providers.base import ProviderProfile
  
  
  class VertexProfile(ProviderProfile):
@@ -1279,19 +1489,32 @@ index f0d0d4f89..7220d462f 100644
 +        separate reasoning field. Keep the requested thinking level/budget, but
 +        force ``include_thoughts=false`` so messaging platforms only receive the
 +        final answer.
++
++        The returned dict is *merged into* the request ``extra_body`` by
++        ``ChatCompletionsTransport._build_kwargs_from_profile`` (see the base
++        ``ProviderProfile.build_extra_body`` contract: "Merged into the API
++        kwargs extra_body"). It must therefore expose the Google params at the
++        top level (``{"google": {...}}``) — NOT wrapped in a second
++        ``extra_body`` key. Wrapping produced ``extra_body={"extra_body":
++        {"google": {...}}}`` on the wire; Vertex ignores the unknown top-level
++        ``extra_body`` field, ``thinking_config`` never applies, and Gemini 3.x
++        falls back to ``include_thoughts=true`` — leaking thought text into the
++        visible reply.
          """
          from agent.transports.chat_completions import (
              _build_gemini_thinking_config,
-@@ -47,6 +53,8 @@ class VertexProfile(ProviderProfile):
+@@ -47,7 +64,9 @@ class VertexProfile(ProviderProfile):
          thinking_config = _snake_case_gemini_thinking_config(raw_thinking_config)
          if not thinking_config:
              return {}
+-        return {"extra_body": {"google": {"thinking_config": thinking_config}}}
 +        if thinking_config.get("include_thoughts") is True:
 +            thinking_config["include_thoughts"] = False
-         return {"extra_body": {"google": {"thinking_config": thinking_config}}}
++        return {"google": {"thinking_config": thinking_config}}
  
      def fetch_models(
-@@ -64,7 +72,7 @@ class VertexProfile(ProviderProfile):
+         self,
+@@ -64,7 +83,7 @@ class VertexProfile(ProviderProfile):
  
  vertex = VertexProfile(
      name="vertex",
@@ -1300,6 +1523,28 @@ index f0d0d4f89..7220d462f 100644
      api_mode="chat_completions",
      env_vars=(),  # OAuth2 via service account / ADC — not a static key env var
      base_url="https://aiplatform.googleapis.com",  # real base_url computed at runtime
+@@ -73,3 +92,21 @@ vertex = VertexProfile(
+ )
+ 
+ register_provider(vertex)
++
++# Second Vertex account used as a fallback. Same profile behavior (including the
++# thoughts-hidden extra_body above) — only the service-account file / GCP project
++# differ, resolved from VERTEX_FALLBACK_* env vars in agent/vertex_adapter.py.
++# Registered under a distinct name so the fallback chain does not dedup it
++# against the primary ``vertex`` provider, and so get_provider_profile()
++# resolves it once fallback is active and the profile build path runs.
++vertex_fallback = VertexProfile(
++    name="vertex-fallback",
++    aliases=("vertex2", "vertex-secondary"),
++    api_mode="chat_completions",
++    env_vars=(),
++    base_url="https://aiplatform.googleapis.com",
++    auth_type="vertex",
++    default_aux_model="google/gemini-3-flash-preview",
++)
++
++register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
 index 7dd7e2389..611150f20 100644
 --- a/plugins/platforms/feishu/adapter.py
@@ -4546,15 +4791,21 @@ index dbe95a0cb..3f3db810b 100644
      for plat in ["cli", "telegram", "discord"]:
          enabled = _get_platform_tools({}, plat)
 diff --git a/tests/hermes_cli/test_vertex_provider.py b/tests/hermes_cli/test_vertex_provider.py
-index af67aacac..3515c1a62 100644
+index af67aacac..9c72e537e 100644
 --- a/tests/hermes_cli/test_vertex_provider.py
 +++ b/tests/hermes_cli/test_vertex_provider.py
-@@ -90,7 +90,22 @@ def test_vertex_extra_body_thinking_config():
+@@ -88,9 +88,26 @@ def test_vertex_extra_body_thinking_config():
+         model="google/gemini-3-pro-preview",
+         reasoning_config={"effort": "high"},
      )
-     assert "extra_body" in body
-     assert "google" in body["extra_body"]
+-    assert "extra_body" in body
+-    assert "google" in body["extra_body"]
 -    assert "thinking_config" in body["extra_body"]["google"]
-+    thinking_config = body["extra_body"]["google"]["thinking_config"]
++    # Single-level: build_extra_body's return is merged into extra_body, so the
++    # google params must sit at the top level — NOT nested under a second
++    # "extra_body" key, which Vertex ignores (re-leaking thoughts into content).
++    assert "extra_body" not in body
++    thinking_config = body["google"]["thinking_config"]
 +    assert thinking_config["include_thoughts"] is False
 +    assert thinking_config["thinking_level"] == "high"
 +
@@ -4567,12 +4818,99 @@ index af67aacac..3515c1a62 100644
 +        model="google/gemini-3-pro-preview",
 +        reasoning_config={"enabled": False},
 +    )
-+    assert body["extra_body"]["google"]["thinking_config"] == {
++    assert body["google"]["thinking_config"] == {
 +        "include_thoughts": False,
 +    }
  
  
  def test_vertex_extra_body_empty_without_reasoning():
+@@ -98,3 +115,86 @@ def test_vertex_extra_body_empty_without_reasoning():
+ 
+     p = get_provider_profile("vertex")
+     assert p.build_extra_body(model="google/gemini-3-flash-preview") == {}
++
++
++# ── vertex-fallback: second account used as fallback provider ────────────────
++
++def test_vertex_fallback_profile_registered():
++    """The fallback provider reuses VertexProfile → inherits the hidden-thoughts
++    single-level extra_body fix, so its behavior matches the primary."""
++    from providers import get_provider_profile
++
++    p = get_provider_profile("vertex-fallback")
++    assert p is not None
++    assert p.name == "vertex-fallback"
++    assert p.auth_type == "vertex"
++    body = p.build_extra_body(
++        model="google/gemini-3-pro-preview", reasoning_config={"effort": "high"}
++    )
++    assert "extra_body" not in body  # single-level, same as primary vertex
++    assert body["google"]["thinking_config"]["include_thoughts"] is False
++
++
++def test_vertex_fallback_in_provider_registry():
++    """resolve_provider_client() looks providers up in PROVIDER_REGISTRY (not the
++    plugin registry), so the fallback must have an explicit entry there."""
++    from hermes_cli.auth import PROVIDER_REGISTRY
++
++    assert "vertex-fallback" in PROVIDER_REGISTRY
++    assert PROVIDER_REGISTRY["vertex-fallback"].auth_type == "vertex"
++
++
++def test_has_vertex_fallback_credentials(monkeypatch, tmp_path):
++    import agent.vertex_adapter as va
++
++    monkeypatch.setattr(va, "_get_secret", lambda k: "")
++    assert va.has_vertex_fallback_credentials() is False
++
++    sa = tmp_path / "sa.json"
++    sa.write_text("{}")
++    monkeypatch.setattr(
++        va,
++        "_get_secret",
++        lambda k: str(sa) if k == "VERTEX_FALLBACK_CREDENTIALS_PATH" else "",
++    )
++    assert va.has_vertex_fallback_credentials() is True
++
++
++def test_fallback_project_not_clobbered_by_global_override(monkeypatch):
++    """The primary VERTEX_PROJECT_ID override must NOT rebind a second account's
++    token to the primary project (that 403s). project_override wins over both;
++    apply_global_project_override=False keeps the SA file's own project."""
++    import agent.vertex_adapter as va
++
++    class _FakeCreds:
++        token = "fake-token"
++        expiry = None
++        expired = False
++        project_id = "gen-lang-client-0217395804"
++
++    monkeypatch.setattr(va, "_creds_cache", {})
++    monkeypatch.setattr(va, "_resolve_credentials_path", lambda p: "/fake/sa.json")
++    monkeypatch.setattr(
++        va.service_account.Credentials,
++        "from_service_account_file",
++        lambda *a, **k: _FakeCreds(),
++    )
++    monkeypatch.setattr(va, "_refresh_credentials", lambda c: None)
++    # The process-wide override points at the PRIMARY project.
++    monkeypatch.setattr(va, "_resolve_project_override", lambda: "wh-gemini-1")
++
++    # Default path: global override wins (unchanged primary behavior).
++    _, proj_default = va.get_vertex_credentials("/fake/sa.json")
++    assert proj_default == "wh-gemini-1"
++
++    # Fallback path: keep the SA file's own project.
++    _, proj_fb = va.get_vertex_credentials(
++        "/fake/sa.json", apply_global_project_override=False
++    )
++    assert proj_fb == "gen-lang-client-0217395804"
++
++    # Explicit project_override always wins.
++    _, proj_explicit = va.get_vertex_credentials(
++        "/fake/sa.json", project_override="explicit-proj"
++    )
++    assert proj_explicit == "explicit-proj"
 diff --git a/tests/tools/test_feishu_tools.py b/tests/tools/test_feishu_tools.py
 index 15b27b4ab..0a3f0723f 100644
 --- a/tests/tools/test_feishu_tools.py

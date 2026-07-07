@@ -186,6 +186,7 @@ _hermes() {
                     'run:Trigger a curator review now'
                     'status:Show curator status and skill stats'
                     'unpin:Unpin a skill'
+                    'usage:Show usage telemetry for ALL skills (built-in, hub, agent) w'
                     )
                     _describe 'curator command' curator_cmds
                     ;;

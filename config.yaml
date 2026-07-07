@@ -7,7 +7,9 @@ group_sessions_per_user: false
 vertex:
   project_id: wh-gemini-1
   region: global
-fallback_providers: []
+fallback_providers:
+  - provider: vertex-fallback
+    model: google/gemini-3.1-pro-preview
 toolsets:
   - hermes-cli
 platform_toolsets:
@@ -583,6 +585,9 @@ smart_model_routing:
   max_simple_chars: 160
   max_simple_words: 28
   cheap_model: {}
+# Effective fallback chain = fallback_providers ++ fallback_model (deduped):
+#   1) vertex-fallback / google/gemini-3.1-pro-preview  (2nd Vertex account, VERTEX_FALLBACK_* in .env)
+#   2) alibaba / qwen3.6-plus                            (last-resort tail if both Google accounts are rate-limited)
 fallback_model:
   provider: alibaba
   model: qwen3.6-plus

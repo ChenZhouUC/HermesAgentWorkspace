@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.18.0 / main 7426c09b, `hermes completion zsh` already emits the
+# As of v0.18.0 / main 05cbddc0, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -96,6 +96,9 @@ PATCHED_FILES=(
     "website/docs/user-guide/messaging/feishu.md"
     "plugins/model-providers/vertex/__init__.py"
     "tests/hermes_cli/test_vertex_provider.py"
+    "agent/vertex_adapter.py"
+    "hermes_cli/auth.py"
+    "agent/auxiliary_client.py"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -603,6 +606,7 @@ _FEISHU_BACKFILL_PATCH_OK=false
 _FEISHU_MARKDOWN_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
+_VERTEX_FALLBACK_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -872,13 +876,17 @@ fi
 # PATCH-17: Vertex OpenAI-compatible returns include_thoughts output as normal
 # assistant content. Keep model-side Gemini thinking level/budget, but force
 # include_thoughts=false so Feishu/dashboard only receive the final answer.
+# The suppression MUST return single-level {"google": {...}} (merged into
+# extra_body) — a double-wrapped {"extra_body": {"google": {...}}} reaches the
+# wire as an unknown top-level field Vertex ignores, re-leaking thoughts.
 VERTEX_PROVIDER_PY="${HERMES_AGENT}/plugins/model-providers/vertex/__init__.py"
 VERTEX_PROVIDER_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_vertex_provider.py"
 if [[ -f "${VERTEX_PROVIDER_PY}" && -f "${VERTEX_PROVIDER_TEST_PY}" ]]; then
     if grep -q 'include_thoughts=true' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
         grep -q 'thinking_config\["include_thoughts"\] = False' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
+        grep -q 'return {"google": {"thinking_config": thinking_config}}' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
         grep -q 'test_vertex_extra_body_preserves_disabled_reasoning' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null; then
-        ok "Vertex hidden-thoughts patch: active (thinking level kept, thought text hidden from content)"
+        ok "Vertex hidden-thoughts patch: active (single-level extra_body, thought text hidden from content)"
         _VERTEX_THOUGHTS_PATCH_OK=true
     else
         warn "Vertex hidden-thoughts patch inactive or partial"
@@ -907,11 +915,35 @@ else
     warn "Could not locate doctor files — skipping PATCH-18 check"
 fi
 
+# PATCH-19: second Vertex account as fallback provider. Same model/profile via a
+# distinct SA file + GCP project (VERTEX_FALLBACK_*), wired as provider
+# "vertex-fallback" so the fallback chain doesn't dedup it against primary vertex
+# and resolve_provider_client() finds it in PROVIDER_REGISTRY.
+VERTEX_ADAPTER_PY="${HERMES_AGENT}/agent/vertex_adapter.py"
+AUTH_PY="${HERMES_AGENT}/hermes_cli/auth.py"
+AUX_CLIENT_PY="${HERMES_AGENT}/agent/auxiliary_client.py"
+if [[ -f "${VERTEX_ADAPTER_PY}" && -f "${AUTH_PY}" && -f "${AUX_CLIENT_PY}" && -f "${VERTEX_PROVIDER_PY}" ]]; then
+    if grep -q 'def get_vertex_fallback_config' "${VERTEX_ADAPTER_PY}" 2>/dev/null &&
+        grep -q 'apply_global_project_override' "${VERTEX_ADAPTER_PY}" 2>/dev/null &&
+        grep -q '"vertex-fallback"' "${AUTH_PY}" 2>/dev/null &&
+        grep -q 'has_vertex_fallback_credentials' "${AUX_CLIENT_PY}" 2>/dev/null &&
+        grep -q 'name="vertex-fallback"' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
+        grep -q 'test_vertex_fallback_profile_registered' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null; then
+        ok "Vertex fallback provider patch: active (vertex-fallback = 2nd account, quota failover)"
+        _VERTEX_FALLBACK_PATCH_OK=true
+    else
+        warn "Vertex fallback provider patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-19] Vertex 第二账号 fallback provider"
+    fi
+else
+    warn "Could not locate Vertex fallback files — skipping PATCH-19 check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

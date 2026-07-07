@@ -59,7 +59,7 @@ if ! [[ "$INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [[ "$INTERVAL_SECONDS" -lt 60 ]]; 
     exit 2
 fi
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 INTERVAL_RUNNER="${ROOT}/scripts/refresh_vertex_and_restart_gateway"
 WAKE_RUNNER="${ROOT}/scripts/vertex_wake_watcher.swift"
 PLIST_DIR="${HOME}/Library/LaunchAgents"
@@ -194,6 +194,4 @@ printf '  tail -f %s\n' "$INTERVAL_STDOUT_PATH"
 printf '  tail -f %s\n' "$WAKE_STDOUT_PATH"
 printf '\n'
 printf 'To uninstall:\n'
-printf '  launchctl bootout %s %s\n' "$BOOTSTRAP_DOMAIN" "$INTERVAL_PLIST_PATH"
-printf '  launchctl bootout %s %s\n' "$BOOTSTRAP_DOMAIN" "$WAKE_PLIST_PATH"
-printf '  rm -f %s %s\n' "$INTERVAL_PLIST_PATH" "$WAKE_PLIST_PATH"
+printf '  %s/scripts/stop_vertex_refresh_launchd\n' "$ROOT"
