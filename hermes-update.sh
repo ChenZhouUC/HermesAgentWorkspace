@@ -99,6 +99,8 @@ PATCHED_FILES=(
     "agent/vertex_adapter.py"
     "hermes_cli/auth.py"
     "agent/auxiliary_client.py"
+    "agent/image_routing.py"
+    "tests/agent/test_image_routing.py"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -607,6 +609,7 @@ _FEISHU_MARKDOWN_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _VERTEX_FALLBACK_PATCH_OK=false
+_VERTEX_VISION_ROUTING_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -939,11 +942,32 @@ else
     warn "Could not locate Vertex fallback files — skipping PATCH-19 check"
 fi
 
+# PATCH-20: Vertex Gemini 3.x should be treated as vision-capable even when the
+# dynamic model catalog lacks the preview slug. Otherwise image_input_mode:auto
+# routes attached images through auxiliary vision_analyze, which fails on
+# Vertex-only installs without OpenRouter/Nous auxiliary credentials.
+IMAGE_ROUTING_PY="${HERMES_AGENT}/agent/image_routing.py"
+IMAGE_ROUTING_TEST_PY="${HERMES_AGENT}/tests/agent/test_image_routing.py"
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" ]]; then
+    if grep -q 'def _known_provider_model_supports_vision' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q '"vertex-fallback"' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q 'gemini-3.1-pro-preview' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
+        ok "Vertex Gemini vision routing patch: active (Gemini 3.x routes attached images natively)"
+        _VERTEX_VISION_ROUTING_PATCH_OK=true
+    else
+        warn "Vertex Gemini vision routing patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-20] Vertex Gemini vision routing"
+    fi
+else
+    warn "Could not locate image routing files — skipping PATCH-20 check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_VISION_ROUTING_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

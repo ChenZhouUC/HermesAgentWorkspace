@@ -48,6 +48,51 @@ index 93b7abcef..5969eb2d6 100644
              return None, None
  
          default_model = "google/gemini-3-flash-preview"
+diff --git a/agent/image_routing.py b/agent/image_routing.py
+index 1fe52d956..ad33b0276 100644
+--- a/agent/image_routing.py
++++ b/agent/image_routing.py
+@@ -333,6 +333,29 @@ def _should_probe_ollama_vision(provider: str, base_url: str) -> bool:
+         return False
+ 
+ 
++def _known_provider_model_supports_vision(provider: str, model: str) -> Optional[bool]:
++    """Return hardcoded capability for provider/model pairs missing catalog data.
++
++    Keep this narrow: these are models/providers whose public wire path accepts
++    image input but whose dynamic catalog may be unavailable or incomplete.
++    """
++    p = (provider or "").strip().lower()
++    m = (model or "").strip().lower()
++    if not p or not m:
++        return None
++
++    # Vertex's OpenAI-compatible Gemini 3.x route accepts image content, but
++    # live model discovery is unavailable and models.dev may not know newly
++    # released preview slugs yet. Without this, auto routing falls back to
++    # vision_analyze text pre-analysis, which then fails on installs with only
++    # Vertex credentials and no OpenRouter/Nous auxiliary vision backend.
++    if p in {"vertex", "vertex-fallback", "google-vertex", "vertex-ai", "vertexai"}:
++        if "gemini-3" in m or "gemini-pro-3" in m or "gemini-flash-3" in m:
++            return True
++
++    return None
++
++
+ def _coerce_mode(raw: Any) -> str:
+     """Normalize a config value into one of the valid modes."""
+     if not isinstance(raw, str):
+@@ -395,6 +418,10 @@ def _lookup_supports_vision(
+     if caps is not None:
+         return bool(caps.supports_vision)
+ 
++    known = _known_provider_model_supports_vision(provider, model)
++    if known is not None:
++        return known
++
+     base_url = _resolve_inference_base_url(cfg, provider)
+     if not base_url and (provider or "").strip().lower() == "ollama":
+         base_url = "http://localhost:11434/v1"
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
 index 3ec4a40b3..0a3bdb56c 100644
 --- a/agent/prompt_builder.py
@@ -2823,6 +2868,71 @@ index 963210075..ae00b7acc 100644
  google = [
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
+diff --git a/tests/agent/test_image_routing.py b/tests/agent/test_image_routing.py
+index 671e6aaa1..faea0a3fa 100644
+--- a/tests/agent/test_image_routing.py
++++ b/tests/agent/test_image_routing.py
+@@ -11,6 +11,7 @@ from agent.image_routing import (
+     _coerce_capability_bool,
+     _coerce_mode,
+     _explicit_aux_vision_override,
++    _known_provider_model_supports_vision,
+     _lookup_supports_vision,
+     _supports_vision_override,
+     build_native_content_parts,
+@@ -137,6 +138,19 @@ class TestDecideImageInputMode:
+         with patch("agent.models_dev.fetch_models_dev", return_value=registry):
+             assert decide_image_input_mode("xiaomi", "mimo-v2.5-pro", {}) == "text"
+ 
++    def test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry(self):
++        """Vertex Gemini 3.x accepts images even when models.dev lacks the slug."""
++        with patch("agent.models_dev.get_model_capabilities", return_value=None), \
++             patch("agent.image_routing._should_probe_ollama_vision", return_value=False):
++            assert (
++                decide_image_input_mode(
++                    "vertex",
++                    "google/gemini-3.1-pro-preview",
++                    {},
++                )
++                == "native"
++            )
++
+ 
+ # ─── _coerce_capability_bool ─────────────────────────────────────────────────
+ 
+@@ -313,6 +327,32 @@ class TestLookupSupportsVisionOverride:
+             assert _lookup_supports_vision("openrouter", "x", None) is None
+ 
+ 
++# ─── known provider/model capability fallbacks ───────────────────────────────
++
++
++class TestKnownProviderModelSupportsVision:
++    def test_vertex_gemini_3_preview_supports_vision_without_catalog(self):
++        assert (
++            _known_provider_model_supports_vision(
++                "vertex",
++                "google/gemini-3.1-pro-preview",
++            )
++            is True
++        )
++
++    def test_vertex_fallback_gemini_3_preview_supports_vision(self):
++        assert (
++            _known_provider_model_supports_vision(
++                "vertex-fallback",
++                "google/gemini-3.1-pro-preview",
++            )
++            is True
++        )
++
++    def test_vertex_non_gemini_3_unknown(self):
++        assert _known_provider_model_supports_vision("vertex", "text-only-model") is None
++
++
+ # ─── decide_image_input_mode with auto + override ────────────────────────────
+ 
+ 
 diff --git a/tests/gateway/feishu_helpers.py b/tests/gateway/feishu_helpers.py
 index ae8a4bfc3..24beb0931 100644
 --- a/tests/gateway/feishu_helpers.py
