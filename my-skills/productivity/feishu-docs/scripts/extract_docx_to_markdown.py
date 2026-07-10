@@ -1,4 +1,8 @@
-import os, re, requests, sys
+import os
+import re
+import sys
+
+import requests
 
 
 def get_tenant_access_token():

@@ -8,7 +8,8 @@ Usage: python rebuild_doc_from_md.py <target_doc_token> <md_file_path> [title]
 Requires FEISHU_APP_ID / FEISHU_APP_SECRET in env or ~/.hermes/.env.
 """
 
-import os, sys
+import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from feishu_common import (
@@ -36,7 +37,10 @@ def rebuild(doc_token, md_file, title=None):
         # Snapshot version history while the table is still intact.
         existing_rows, _count, _bm, _root = read_version_tables(token, doc_token)
 
-        root = do_req(token, f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_token}/blocks/{doc_token}")
+        root = do_req(
+            token,
+            f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_token}/blocks/{doc_token}",
+        )
         children = root["data"]["block"].get("children", [])
         if children:
             print(f"Clearing {len(children)} blocks...")

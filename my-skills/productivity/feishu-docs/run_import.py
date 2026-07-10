@@ -1,5 +1,4 @@
 import os
-import sys
 import json
 import time
 import subprocess
@@ -15,7 +14,11 @@ APP_SECRET = os.environ.get("FEISHU_APP_SECRET")
 def get_tenant_access_token():
     url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
     payload = {"app_id": APP_ID, "app_secret": APP_SECRET}
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
     res = json.loads(urllib.request.urlopen(req).read())
     return res["tenant_access_token"]
 
@@ -59,7 +62,10 @@ def create_import_task(token, file_token):
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
     )
     res = json.loads(urllib.request.urlopen(req).read())
     return res["data"]["ticket"]

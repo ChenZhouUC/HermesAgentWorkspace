@@ -1,4 +1,8 @@
-import os, re, requests, json, sys
+import os
+import re
+import sys
+
+import requests
 
 # Robust script to download a Feishu Docx and convert its blocks to Markdown.
 # Requires FEISHU_APP_ID and FEISHU_APP_SECRET in ~/.hermes/.env

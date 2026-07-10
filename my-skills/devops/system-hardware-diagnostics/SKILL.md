@@ -16,6 +16,8 @@ macOS uses APFS with a system volume (read-only) and a data volume sharing the s
 - **Command**: `df -h / /System/Volumes/Data`
 - **Pitfall**: Do not just check `/`. Always check `/System/Volumes/Data` to see the actual user capacity.
 
+For macOS `/tmp` lifecycle details, see [`references/macos_tmp_cleaner.md`](references/macos_tmp_cleaner.md).
+
 ### Memory (RAM) Analysis
 
 macOS memory management relies on aggressive caching and compression.
@@ -29,9 +31,13 @@ macOS memory management relies on aggressive caching and compression.
 - **Logitech Options+**: Highly sensitive to display sleep. If it breaks after wake, restart it: `pkill -9 -f "logioptionsplus_agent --launchd"`
 - **Amphetamine**: Screen Lock overrides cause input daemon crashes. Restrict it strictly to keeping the Mac awake.
 
+See [`references/amphetamine-logi-options-crash.md`](references/amphetamine-logi-options-crash.md) for the conflict and recovery workflow.
+
 ### Programmatic Sleep Prevention
 
 - **Use native `caffeinate`**: `caffeinate -di -t 3600 &` (1 hour background). Do not attempt to script Amphetamine.
+
+See [`references/sleep-and-lock-state.md`](references/sleep-and-lock-state.md) for assertion and lock-state probes.
 
 ## 2. Embedded Linux & Edge AI Boards (Rockchip / Sophgo)
 
@@ -48,3 +54,5 @@ macOS memory management relies on aggressive caching and compression.
 ### Hardware Model Probing
 
 - **Fix**: Use vendor-specific SMI tools. For Sophgo, use `bm-smi` (`/opt/sophon/libsophon-current/bin/bm-smi`) for authoritative model and TPU utilization.
+
+See [`references/bypassing_cma_overlayfs.md`](references/bypassing_cma_overlayfs.md) for the full physical-memory and storage workflow.

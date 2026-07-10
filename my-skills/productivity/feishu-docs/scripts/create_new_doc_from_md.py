@@ -8,7 +8,12 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from feishu_common import get_tenant_token, upload_md, import_md_to_doc, append_version_row
+from feishu_common import (
+    get_tenant_token,
+    upload_md,
+    import_md_to_doc,
+    append_version_row,
+)
 
 
 def _decode_inline_content(value):
@@ -90,7 +95,10 @@ def create_doc(md_path, title):
     req = urllib.request.Request(
         f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_token}/blocks/{doc_token}",
         data=json.dumps(title_payload).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
         method="PATCH",
     )
     urllib.request.urlopen(req)
@@ -106,7 +114,10 @@ def create_doc(md_path, title):
     req = urllib.request.Request(
         f"https://open.feishu.cn/open-apis/drive/v1/permissions/{doc_token}/public?type=docx",
         data=json.dumps(perm_payload).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
         method="PATCH",
     )
     urllib.request.urlopen(req)
@@ -120,7 +131,7 @@ def create_doc(md_path, title):
         )
         try:
             children = json.loads(urllib.request.urlopen(req).read())["data"].get("items", [])
-        except:
+        except Exception:
             return False
         for c in children:
             if c["block_type"] == 2:
@@ -134,7 +145,10 @@ def create_doc(md_path, title):
                         preq = urllib.request.Request(
                             f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_token}/blocks/{c['block_id']}",
                             data=json.dumps(payload).encode(),
-                            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                            headers={
+                                "Authorization": f"Bearer {token}",
+                                "Content-Type": "application/json",
+                            },
                             method="PATCH",
                         )
                         urllib.request.urlopen(preq)

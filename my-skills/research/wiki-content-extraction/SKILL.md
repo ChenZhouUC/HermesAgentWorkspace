@@ -1,10 +1,6 @@
 ---
 name: wiki-content-extraction
-description: "Extract structured knowledge from session history, documents, or tools into a Karpathy-style wiki — with proper SCHEMA.md tag registration, wiki_lint.py validation, and _living source creation."
-version: 1.0.0
-author: Hermes Agent
-license: MIT
-platforms: [linux, macos, windows]
+description: Use when extracting structured knowledge from session history, documents, or tools into the local Karpathy-style wiki, including SCHEMA.md tag registration, _living source creation, and wiki_lint.py validation.
 ---
 
 # Wiki Content Extraction
@@ -27,19 +23,23 @@ Use when the user asks to:
 For session history mining (SQLite-backed Hermes state.db):
 
 ```python
-import sqlite3, json
+import sqlite3
+from pathlib import Path
 
-db = sqlite3.connect("~/.hermes/state.db")
+db = sqlite3.connect(Path("~/.hermes/state.db").expanduser())
+db.row_factory = sqlite3.Row
 cursor = db.cursor()
+keyword = "KEYWORD"
 
 # Find matching user messages
 query = """
 SELECT m.session_id, m.id as msg_id, m.content, m.timestamp
 FROM messages m
-WHERE m.role = 'user' AND m.content LIKE '%KEYWORD%'
+WHERE m.role = 'user' AND m.content LIKE ?
 ORDER BY m.timestamp ASC
 """
-cursor.execute(query)
+cursor.execute(query, (f"%{keyword}%",))
+results = cursor.fetchall()
 
 # For each, fetch next assistant message
 for msg in results:

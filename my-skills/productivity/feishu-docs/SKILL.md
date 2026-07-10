@@ -25,7 +25,7 @@ Use this skill whenever you need to read, summarize, create, or update documents
 14. **Wiki vs Docx Permission Scope**: If the target URL is a Feishu Wiki link (`https://domain.feishu.cn/wiki/TOKEN`), the application MUST have `wiki:wiki:readonly` or `wiki:node:read` permissions. If it only has document permissions, the API will reject it with a `99991672 Access denied` error. Ask the user to grant the Wiki scope or provide the underlying standard `.docx` link.
 15. **Shortcuts (404 / 1770032 forBidden)**: If you obtain a file token from a folder listing and that token is a `shortcut` type, reading its raw token or its metadata directly often fails with 404 or `1770032 forBidden`. If extraction fails on a shortcut, notify the user that the source file is either deleted or lacks public/group permissions inherited by the bot.
 16. **Media Token Isolation (No Image/Video Copying)**: Feishu strictly isolates media (images/videos) per document. A media token from Doc A will return `403 Forbidden` if inserted into Doc B. To copy media, you would have to download the binary and use the `Upload Media` API to get a new token for Doc B. Because this is slow and prone to timeouts, our Markdown extraction scripts **intentionally drop images and videos**. If the user asks why images didn't copy over, explain this architectural limitation.
-17. **Rebuild Script KeyError / HTTP 400 on Deep Nesting & Lists**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild and trigger a safe rollback. Feishu may also reject rich-text lists with `HTTP 400 Invalid parameter value: {"block_type":12,"bullet"...}`. When either happens, do NOT retry the exact same Markdown — abandon the in-place rebuild and fallback to `create_new_doc_from_md.py` to generate a fresh document, then inform the user to use the new link.
+17. **Rebuild Script KeyError on Deep Nesting**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild and trigger a safe rollback. For a true mapping `KeyError`, use `create_new_doc_from_md.py` only when the user explicitly permits a replacement document. For rich-text-list `HTTP 400` errors, fix the Markdown and rerun the rebuild on the same document as required by rule 21.
 18. **Tenant Domain Configuration**: Scripts output placeholder URLs (e.g. `domain.feishu.cn`). Make sure your execution substitutes the actual tenant domain (`whales.feishu.cn`) when giving links back to the user.
 19. **Nested Inline Formatting in List Items (HTTP 400)**: Feishu's Block API rejects Markdown where bold/italic styling is nested directly inside list items (e.g., `- **Label**: text` or nested sub-lists like `  * **Sub-item**:`), failing with `HTTP 400 Invalid parameter type in json: children`. **WARNING: As an AI, you naturally default to generating `\* **Key**: Value` lists. You MUST actively suppress this habit when generating Markdown for Feishu Docs.** **Resolution**: Flatten the list into regular paragraphs (e.g., `**Label**: text` on its own line), strip the inline emphasis from bullets, or **use Markdown blockquotes (`> text`) instead of lists** to maintain indentation without triggering the rejection. _Example Fix:_ Change `* **Item**:` to `> **Item**:`.
 20. **Process Substitution Upload Bug**: Never use bash process substitution (e.g., `<(cat ... )`) as the `md_file_path` for `create_new_doc_from_md.py` or `append_md_to_doc.py`. The underlying `curl -F file=@...` cannot properly read `/dev/fd/N` and will fail with `exit status 26`. Always write your markdown to a real file in `~/.hermes/tmp/` first.
@@ -33,8 +33,7 @@ Use this skill whenever you need to read, summarize, create, or update documents
     - **Transient 5006 Errors**: If an import fails with `job_status=3 detail={'job_error_msg': 'call CreateObjNode return error code, code: 5006...'}`, this is a transient Feishu API flake. Retry the exact same command immediately; it usually succeeds on the second try.
     - **Preserving Version History on 400 Errors**: If `rebuild_doc_from_md.py` triggers an atomic rollback due to formatting errors (e.g., the nested bold list `HTTP 400` bug), **you MUST fix the markdown and rerun `rebuild` on the exact same doc_token**. Do NOT create a brand new document and delete the old one to bypass the error—doing so resets the Version Table history to `.01ed` and destroys the user's audit trail.
     - **Empty File Append Bug**: Never pass `/dev/null` or a completely empty file to `append_md_to_doc.py` (e.g., to force a version bump); the Drive API will reject it with `1061002 params error.`. If you must append nothing but a version bump, use a file containing an HTML comment like `<!-- touch -->`. **CRITICAL**: Do NOT delete the target document and use `create_new_doc_from_md.py` to bypass the error. Doing so destroys the Version Table history (resetting it to `.01ed`), which upsets the user's tracking. Because `rebuild` is atomic, the original document is safe—always fix the markdown and retry the rebuild on the _same_ token.
-22. **Transient Import Error 5006**: If the import script fails with `job_error_msg: call CreateObjNode return error code, code: 5006`, this is a random Feishu Drive backend failure. Do not panic or change the file; simply re-run the exact same script command immediately. It usually succeeds on the second try.
-23. **Customer-Facing Tone**: When drafting solution documents for external customers (e.g., Topsports), STRICTLY avoid academic formulas (e.g., $t_0 + \Delta$). Translate all technical triggers into plain, business-oriented descriptions.
+22. **Customer-Facing Tone**: When drafting solution documents for external customers (e.g., Topsports), STRICTLY avoid academic formulas (e.g., $t_0 + \Delta$). Translate all technical triggers into plain, business-oriented descriptions.
 
 ---
 
@@ -173,24 +172,18 @@ only, no `cells`/`merge_info` → refill cells → delete old table), including 
 split that otherwise throws `HTTP 400 (1770001)`. If you ever must debug it, see
 `scripts/feishu_common.py`; do not reimplement it inline. Use `batch_delete` (as shown above) to delete the old table block from the document, and delete the default empty text block (index 0) from each new cell (**wrap the cell deletion in a `try...except` block**, as Feishu may return `HTTP 404 (1770002)` if the block is already absent or processed).
 
-### 3. Complex Lists (1770001 Fix & HTTP 400 Bug)
-
-- Do NOT fallback to fake text bullets (`•`).
-- When POSTing a list, the payload is `{"block_type": 12, "bullet": {"elements": [...]}}` (Note the key is `bullet` or `ordered`, NOT `text`).
-- **Nested Style Bug (HTTP 400)**: Feishu's API frequently rejects nested text styles (e.g., bolding `**text**` or italics) inside bullet list items during a rebuild/import. If `rebuild_doc_from_md.py` fails with `Invalid parameter type in json ... "block_type":12,"bullet"...`, immediately flatten the Markdown list into regular paragraphs (e.g., change `- **Item**:` to just `**Item**:`) or strip the bolding before retrying.
-
-### 4. Updating Text/Headings (Error 400 Fix)
+### 3. Updating Text/Headings (Error 400 Fix)
 
 When patching existing text blocks, you **MUST** use `update_text_elements`:
 `{"update_text_elements": {"elements": [{"text_run": {"content": "New Text"}}]}}`
 
 **Deep Traversal Pitfall (Tables & Cells):** When searching for text to patch (e.g., to fix plain text `@Gödel` mentions), be aware that Table (31) and Cell (32) blocks might not reliably expose `has_child: true` in the parent's `/children` API response. You MUST explicitly check for `block_type in (31, 32)` and recursively fetch their children to reach the nested Text (2) blocks.
 
-### 5. Document Metadata & Creation Time
+### 4. Document Metadata & Creation Time
 
 The `documents/{doc_token}` API does NOT return `created_at` or `update_time` directly. To get a document's creation time (especially for Wiki docs), query the Wiki API `wiki/v2/spaces/get_node?token={wiki_token}` and read `obj_create_time` or `node_create_time` (Unix timestamp).
 
-### 6. Copying Content (Import Temp Doc -> Existing Doc)
+### 5. Copying Content (Import Temp Doc -> Existing Doc)
 
 To merge large Markdown content into an existing document with perfect native formatting:
 

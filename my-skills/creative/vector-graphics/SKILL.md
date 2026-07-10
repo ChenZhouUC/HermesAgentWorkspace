@@ -119,7 +119,6 @@ Where `to_square_svg.py` is shorthand for `python3 ~/.hermes/my-skills/creative/
 
 - **Raster-to-vector tracing** (PNG → real vector paths). Embedding the PNG in an SVG is lossless and matches the user's intent here. Only invoke tracing when explicitly asked. References:
   - `references/inkscape-png-to-svg.md` — Inkscape GUI / CLI tracing
-  - `references/inkscape_trace_bitmap.md` — Trace Bitmap details
 
   CLI fallback for monochrome / line-art:
 
