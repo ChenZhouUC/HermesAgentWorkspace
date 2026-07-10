@@ -1,8 +1,8 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index 93b7abcef..5969eb2d6 100644
+index b1d9a8135..3219bb7cc 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
-@@ -4911,22 +4911,36 @@ def resolve_provider_client(
+@@ -5014,22 +5014,36 @@ def resolve_provider_client(
          # OAuth2 bearer token (NOT a static key). We build a standard OpenAI
          # client pointed at the runtime-computed Vertex base_url with a fresh
          # token; no custom SDK or message translation needed.
@@ -49,7 +49,7 @@ index 93b7abcef..5969eb2d6 100644
  
          default_model = "google/gemini-3-flash-preview"
 diff --git a/agent/image_routing.py b/agent/image_routing.py
-index 1fe52d956..ad33b0276 100644
+index 1fe52d956..ed76cbe74 100644
 --- a/agent/image_routing.py
 +++ b/agent/image_routing.py
 @@ -333,6 +333,29 @@ def _should_probe_ollama_vision(provider: str, base_url: str) -> bool:
@@ -93,11 +93,270 @@ index 1fe52d956..ad33b0276 100644
      base_url = _resolve_inference_base_url(cfg, provider)
      if not base_url and (provider or "").strip().lower() == "ollama":
          base_url = "http://localhost:11434/v1"
+@@ -450,6 +477,60 @@ def decide_image_input_mode(
+     return "text"
+ 
+ 
++def _known_provider_model_supports_video(provider: str, model: str) -> Optional[bool]:
++    """Video-input capability for provider/model pairs known to accept it.
++
++    Vertex's OpenAI-compatible endpoint accepts any GenerateContent MIME as
++    a base64 ``data:`` URI inside an ``image_url`` part, and Gemini 3.x
++    understands video natively. Image vision support
++    (``_lookup_supports_vision``) must NOT be used as a proxy here — most
++    vision-capable models cannot take video, and there is no models.dev-style
++    catalog for video input, so keep this allowlist narrow.
++    """
++    p = (provider or "").strip().lower()
++    m = (model or "").strip().lower()
++    if not p or not m:
++        return None
++    if p in {"vertex", "vertex-fallback", "google-vertex", "vertex-ai", "vertexai"}:
++        if "gemini-3" in m or "gemini-pro-3" in m or "gemini-flash-3" in m:
++            return True
++    return None
++
++
++def decide_video_input_mode(
++    provider: str,
++    model: str,
++    cfg: Optional[Dict[str, Any]],
++) -> str:
++    """Return ``"native"`` or ``"text"`` for user-attached videos this turn.
++
++    ``native`` attaches the video bytes as a ``data:video/...`` URL on the
++    user turn (same ``image_url`` part shape the Vertex OpenAI-compat
++    endpoint expects for all inline media). ``text`` keeps the pre-existing
++    behaviour: a path-pointing note is prepended so the agent can process
++    the file with its own tools — which sandboxed group chats cannot do,
++    hence the native path.
++
++    Config override: ``agent.video_input_mode`` (``auto``/``native``/``text``,
++    default ``auto``). In auto mode only the narrow allowlist above goes
++    native; there is no reactive shrink-and-retry salvage for video, so an
++    optimistic default would fail whole turns on providers that reject it.
++    """
++    mode_cfg = "auto"
++    if isinstance(cfg, dict):
++        agent_cfg = cfg.get("agent") or {}
++        if isinstance(agent_cfg, dict):
++            mode_cfg = _coerce_mode(agent_cfg.get("video_input_mode"))
++
++    if mode_cfg == "native":
++        return "native"
++    if mode_cfg == "text":
++        return "text"
++    if _known_provider_model_supports_video(provider, model) is True:
++        return "native"
++    return "text"
++
++
+ # Image size handling is REACTIVE rather than proactive: we attempt native
+ # attachment at full size regardless of provider, and rely on
+ # ``run_agent._try_shrink_image_parts_in_messages`` to shrink + retry if
+@@ -669,10 +750,132 @@ def _file_to_data_url(path: Path) -> Optional[str]:
+     return f"data:{mime};base64,{b64}"
+ 
+ 
++# ── Video attachments ───────────────────────────────────────────────────────
++# Video MIME types Gemini's GenerateContent documents as supported. Anything
++# outside this set is skipped from native attachment (the caller falls back
++# to the path-note flow) rather than risking a whole-turn HTTP 400 — unlike
++# images there is no shrink-on-reject salvage for video.
++_GEMINI_SUPPORTED_VIDEO_MIMES = frozenset({
++    "video/mp4", "video/mpeg", "video/mov", "video/quicktime", "video/avi",
++    "video/x-flv", "video/mpg", "video/webm", "video/wmv", "video/3gpp",
++})
++
++# Conservative inline ceiling. Vertex documents a 15 MB per-file inline media
++# limit with a ~20 MB total request cap; base64 adds ~33%, so cap the raw file
++# at 14 MB. Oversized videos keep the path-note flow (checked again here as
++# defense in depth — the gateway pre-filters on size before routing native).
++NATIVE_VIDEO_MAX_BYTES = 14 * 1024 * 1024
++
++_VIDEO_MIME_BY_SUFFIX = {
++    ".mp4": "video/mp4",
++    ".m4v": "video/mp4",
++    ".mov": "video/mov",
++    ".mpeg": "video/mpeg",
++    ".mpg": "video/mpg",
++    ".webm": "video/webm",
++    ".avi": "video/avi",
++    ".wmv": "video/wmv",
++    ".flv": "video/x-flv",
++    ".3gp": "video/3gpp",
++}
++
++
++def _sniff_video_mime_from_bytes(raw: bytes) -> Optional[str]:
++    """Detect video MIME from magic bytes. Returns None if unrecognised."""
++    if not raw or len(raw) < 12:
++        return None
++    # ISO-BMFF family (MP4/MOV/3GPP): size(4) + 'ftyp' + major brand. Image
++    # brands (HEIC/AVIF) live in the same container — leave those to the
++    # image sniffer.
++    if raw[4:8] == b"ftyp":
++        brand = raw[8:12]
++        if brand in {
++            b"avif", b"avis", b"heic", b"heix", b"hevc", b"hevx",
++            b"mif1", b"msf1", b"heim", b"heis",
++        }:
++            return None
++        if brand == b"qt  ":
++            return "video/mov"
++        if brand.startswith(b"3gp"):
++            return "video/3gpp"
++        return "video/mp4"
++    # EBML (Matroska/WebM): DocType string sits within the first header bytes.
++    if raw[:4] == b"\x1a\x45\xdf\xa3":
++        return "video/webm" if b"webm" in raw[:64] else "video/x-matroska"
++    # RIFF AVI
++    if raw[:4] == b"RIFF" and raw[8:12] == b"AVI ":
++        return "video/avi"
++    # FLV
++    if raw[:3] == b"FLV":
++        return "video/x-flv"
++    # ASF (WMV)
++    if raw[:4] == b"\x30\x26\xb2\x75":
++        return "video/wmv"
++    # MPEG program stream / video sequence
++    if raw[:4] in {b"\x00\x00\x01\xba", b"\x00\x00\x01\xb3"}:
++        return "video/mpeg"
++    return None
++
++
++def _guess_video_mime(path: Path, raw: Optional[bytes] = None) -> str:
++    """Return video MIME type for *path* (magic bytes win, then suffix)."""
++    if raw is not None:
++        sniffed = _sniff_video_mime_from_bytes(raw)
++        if sniffed:
++            return sniffed
++    mime, _ = mimetypes.guess_type(str(path))
++    if mime and mime.startswith("video/"):
++        return mime
++    return _VIDEO_MIME_BY_SUFFIX.get(path.suffix.lower(), "video/mp4")
++
++
++def _video_file_to_data_url(path: Path) -> Optional[str]:
++    """Encode a local video as a base64 data URL, or None if unattachable.
++
++    Returns None when the file is blocked by file_safety, unreadable, larger
++    than ``NATIVE_VIDEO_MAX_BYTES``, or in a format outside
++    ``_GEMINI_SUPPORTED_VIDEO_MIMES``. The caller reports those paths in
++    ``skipped`` and the rest of the turn proceeds (path-note fallback).
++    """
++    try:
++        from agent.file_safety import raise_if_read_blocked
++
++        raise_if_read_blocked(str(path))
++    except ValueError as exc:
++        logger.warning("image_routing: blocked local video attachment %s -- %s", path, exc)
++        return None
++    except Exception:
++        pass
++
++    try:
++        raw = path.read_bytes()
++    except Exception as exc:
++        logger.warning("image_routing: failed to read %s — %s", path, exc)
++        return None
++    if len(raw) > NATIVE_VIDEO_MAX_BYTES:
++        logger.warning(
++            "image_routing: %s is %.1f MB which exceeds the %d MB native video "
++            "inline ceiling; skipping (path-note fallback).",
++            path, len(raw) / (1024 * 1024), NATIVE_VIDEO_MAX_BYTES // (1024 * 1024),
++        )
++        return None
++    mime = _guess_video_mime(path, raw=raw)
++    if mime not in _GEMINI_SUPPORTED_VIDEO_MIMES:
++        logger.warning(
++            "image_routing: %s is %s which the native video path does not "
++            "accept; skipping (path-note fallback).",
++            path, mime,
++        )
++        return None
++    b64 = base64.b64encode(raw).decode("ascii")
++    return f"data:{mime};base64,{b64}"
++
++
+ def build_native_content_parts(
+     user_text: str,
+     image_paths: List[str],
+     image_urls: Optional[List[str]] = None,
++    video_paths: Optional[List[str]] = None,
+ ) -> Tuple[List[Dict[str, Any]], List[str]]:
+     """Build an OpenAI-style ``content`` list for a user turn.
+ 
+@@ -711,6 +914,7 @@ def build_native_content_parts(
+     image_parts: List[Dict[str, Any]] = []
+     attached_paths: List[str] = []
+     attached_urls: List[str] = []
++    attached_video_paths: List[str] = []
+ 
+     for raw_path in image_paths:
+         p = Path(raw_path)
+@@ -727,6 +931,27 @@ def build_native_content_parts(
+         })
+         attached_paths.append(str(raw_path))
+ 
++    # Videos ride the same ``image_url`` part shape with a ``data:video/...``
++    # URL — that is the wire format the Vertex OpenAI-compat endpoint accepts
++    # for all inline media, and it keeps every downstream walker (shrink
++    # recovery, part-type checks) on a single part type. The shrink recovery
++    # path only rewrites ``data:image/...`` payloads, so video parts pass
++    # through it untouched.
++    for raw_path in video_paths or []:
++        p = Path(raw_path)
++        if not p.exists() or not p.is_file():
++            skipped.append(str(raw_path))
++            continue
++        data_url = _video_file_to_data_url(p)
++        if not data_url:
++            skipped.append(str(raw_path))
++            continue
++        image_parts.append({
++            "type": "image_url",
++            "image_url": {"url": data_url},
++        })
++        attached_video_paths.append(str(raw_path))
++
+     for url in image_urls or []:
+         url = (url or "").strip()
+         if not url:
+@@ -741,11 +966,17 @@ def build_native_content_parts(
+ 
+     # If at least one image attached, build a single text part that combines
+     # the user's caption (or a neutral default) with one hint per image.
+-    if attached_paths or attached_urls:
+-        base_text = text or "What do you see in this image?"
++    if attached_paths or attached_urls or attached_video_paths:
++        if text:
++            base_text = text
++        elif attached_paths or attached_urls:
++            base_text = "What do you see in this image?"
++        else:
++            base_text = "What do you see in this video?"
+         hint_lines: List[str] = []
+         hint_lines.extend(f"[Image attached at: {p}]" for p in attached_paths)
+         hint_lines.extend(f"[Image attached: {u}]" for u in attached_urls)
++        hint_lines.extend(f"[Video attached at: {p}]" for p in attached_video_paths)
+         combined_text = f"{base_text}\n\n" + "\n".join(hint_lines)
+         parts: List[Dict[str, Any]] = [{"type": "text", "text": combined_text}]
+         parts.extend(image_parts)
+@@ -760,6 +991,8 @@ def build_native_content_parts(
+ 
+ __all__ = [
+     "decide_image_input_mode",
++    "decide_video_input_mode",
+     "build_native_content_parts",
+     "extract_image_refs",
++    "NATIVE_VIDEO_MAX_BYTES",
+ ]
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index 3ec4a40b3..0a3bdb56c 100644
+index b5b2b58c3..b07b0c4c6 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
-@@ -20,7 +20,10 @@ from agent.skill_utils import (
+@@ -23,7 +23,10 @@ from agent.skill_utils import (
      extract_skill_conditions,
      extract_skill_description,
      get_all_skills_dirs,
@@ -108,20 +367,41 @@ index 3ec4a40b3..0a3bdb56c 100644
      iter_skill_index_files,
      parse_frontmatter,
      skill_matches_environment,
-@@ -1451,10 +1454,12 @@ def build_skills_system_prompt(
-     from gateway.session_context import get_session_env
-     _platform_hint = (
-         os.environ.get("HERMES_PLATFORM")
-+        or get_session_env("HERMES_SESSION_PLATFORM_CONFIG_KEY")
-         or get_session_env("HERMES_SESSION_PLATFORM")
-         or ""
-     )
+@@ -1428,7 +1431,11 @@ def _skill_should_show(
+ 
+ def _current_session_platform_hint() -> str:
+     """Return the active platform without importing the gateway package on CLI startup."""
+-    platform = os.environ.get("HERMES_PLATFORM") or os.environ.get("HERMES_SESSION_PLATFORM")
++    platform = (
++        os.environ.get("HERMES_PLATFORM")
++        or os.environ.get("HERMES_SESSION_PLATFORM_CONFIG_KEY")
++        or os.environ.get("HERMES_SESSION_PLATFORM")
++    )
+     if platform:
+         return platform
+ 
+@@ -1437,7 +1444,11 @@ def _current_session_platform_hint() -> str:
+     if get_session_env is None:
+         return ""
+     try:
+-        return get_session_env("HERMES_SESSION_PLATFORM") or ""
++        return (
++            get_session_env("HERMES_SESSION_PLATFORM_CONFIG_KEY")
++            or get_session_env("HERMES_SESSION_PLATFORM")
++            or ""
++        )
+     except Exception:
+         return ""
+ 
+@@ -1478,6 +1489,7 @@ def build_skills_system_prompt(
+     # produce distinct cache entries (gateway serves multiple platforms).
+     _platform_hint = _current_session_platform_hint()
      disabled = get_disabled_skill_names(_platform_hint or None)
 +    allowed = get_allowed_skill_names(_platform_hint or None)
      cache_key = (
-         str(skills_dir.resolve()),
+         str(skills_dir),
          tuple(str(d) for d in external_dirs),
-@@ -1462,6 +1467,7 @@ def build_skills_system_prompt(
+@@ -1485,6 +1497,7 @@ def build_skills_system_prompt(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
@@ -129,9 +409,9 @@ index 3ec4a40b3..0a3bdb56c 100644
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1487,7 +1493,9 @@ def build_skills_system_prompt(
+@@ -1510,7 +1523,9 @@ def build_skills_system_prompt(
              platforms = entry.get("platforms") or []
-             if not skill_matches_platform({"platforms": platforms}):
+             if not skill_matches_platform_list(platforms):
                  continue
 -            if frontmatter_name in disabled or skill_name in disabled:
 +            if not is_skill_allowed_name(frontmatter_name, allowed) and not is_skill_allowed_name(skill_name, allowed):
@@ -140,7 +420,7 @@ index 3ec4a40b3..0a3bdb56c 100644
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1512,7 +1520,9 @@ def build_skills_system_prompt(
+@@ -1535,7 +1550,9 @@ def build_skills_system_prompt(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
@@ -151,20 +431,22 @@ index 3ec4a40b3..0a3bdb56c 100644
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -1567,6 +1577,8 @@ def build_skills_system_prompt(
+@@ -1590,7 +1607,9 @@ def build_skills_system_prompt(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
+-                if frontmatter_name in disabled or skill_name in disabled:
 +                if not is_skill_allowed_name(frontmatter_name, allowed) and not is_skill_allowed_name(skill_name, allowed):
 +                    continue
-                 if frontmatter_name in disabled or skill_name in disabled:
++                if is_skill_disabled_name(frontmatter_name, disabled) or is_skill_disabled_name(skill_name, disabled):
                      continue
                  if not _skill_should_show(
+                     extract_skill_conditions(frontmatter),
 diff --git a/agent/skill_utils.py b/agent/skill_utils.py
-index 187c47d70..00c4516d1 100644
+index d07bb5324..72c29dc21 100644
 --- a/agent/skill_utils.py
 +++ b/agent/skill_utils.py
-@@ -350,6 +350,17 @@ def _load_raw_config() -> Dict[str, Any]:
+@@ -354,6 +354,17 @@ def _load_raw_config() -> Dict[str, Any]:
      return parsed
  
  
@@ -182,7 +464,7 @@ index 187c47d70..00c4516d1 100644
  def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
      """Read disabled skill names from config.yaml.
  
-@@ -372,22 +383,55 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
+@@ -376,22 +387,55 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
      if not isinstance(skills_cfg, dict):
          return set()
  
@@ -245,7 +527,7 @@ index 187c47d70..00c4516d1 100644
  def _normalize_string_set(values) -> Set[str]:
      if values is None:
          return set()
-@@ -630,6 +674,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+@@ -691,6 +735,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
      seen_keys: set = set()
  
      disabled = get_disabled_skill_names()
@@ -253,7 +535,7 @@ index 187c47d70..00c4516d1 100644
      for skills_dir in get_all_skills_dirs():
          if not skills_dir.is_dir():
              continue
-@@ -641,6 +686,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+@@ -702,6 +747,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
                  continue
  
              skill_name = frontmatter.get("name") or skill_file.parent.name
@@ -394,10 +676,10 @@ index 6e425753f..911cc2935 100644
      """Fast check for whether Vertex credentials appear configured.
  
 diff --git a/gateway/authz_mixin.py b/gateway/authz_mixin.py
-index f84ca259c..491a9d44f 100644
+index 166635df5..99c47afcb 100644
 --- a/gateway/authz_mixin.py
 +++ b/gateway/authz_mixin.py
-@@ -373,6 +373,7 @@ class GatewayAuthorizationMixin:
+@@ -388,6 +388,7 @@ class GatewayAuthorizationMixin:
          platform_group_chat_env_map = {
              Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_CHATS",
              Platform.QQBOT: "QQ_GROUP_ALLOWED_USERS",
@@ -406,10 +688,10 @@ index f84ca259c..491a9d44f 100644
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index d6f84b240..4cdc3ef7e 100644
+index 8c467196e..2c757dc34 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
-@@ -1157,6 +1157,23 @@ def load_gateway_config() -> GatewayConfig:
+@@ -1211,6 +1211,23 @@ def load_gateway_config() -> GatewayConfig:
                      bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
                  if "group_user_allowed_commands" in platform_cfg:
                      bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
@@ -433,11 +715,34 @@ index d6f84b240..4cdc3ef7e 100644
                  if plat in {Platform.DISCORD, Platform.SLACK} and "channel_skill_bindings" in platform_cfg:
                      bridged["channel_skill_bindings"] = platform_cfg["channel_skill_bindings"]
                  if "channel_prompts" in platform_cfg:
+diff --git a/gateway/display_config.py b/gateway/display_config.py
+index e352ea0e9..872839467 100644
+--- a/gateway/display_config.py
++++ b/gateway/display_config.py
+@@ -133,7 +133,17 @@ _PLATFORM_DEFAULTS: dict[str, dict[str, Any]] = {
+     "slack":           {**_TIER_MEDIUM, "tool_progress": "off"},
+     "mattermost":      _TIER_MEDIUM,
+     "matrix":          _TIER_MEDIUM,
+-    "feishu":          _TIER_MEDIUM,
++    # Feishu group chats are often watched by many users and Feishu topic
++    # semantics make progress/interim bubbles visually noisy. Default to one
++    # final quote-reply only; users can opt back in per platform.
++    "feishu":          {
++        **_TIER_MEDIUM,
++        "tool_progress": "off",
++        "streaming": False,
++        "interim_assistant_messages": False,
++        "long_running_notifications": False,
++        "busy_ack_detail": False,
++    },
+ 
+     # Tier 3 — no edit support, progress messages are permanent
+     "signal":          _TIER_LOW,
 diff --git a/gateway/run.py b/gateway/run.py
-index 8256c283d..f415437b8 100644
+index 313d9a148..12bc6a68c 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -1717,6 +1717,7 @@ from gateway.session import (
+@@ -1751,6 +1751,7 @@ from gateway.session import (
      build_session_context_prompt,
      build_session_key,
      is_shared_multi_user_session,
@@ -445,7 +750,7 @@ index 8256c283d..f415437b8 100644
  )
  from gateway.delivery import DeliveryRouter, looks_like_telegram_private_chat_id
  from gateway.authz_mixin import GatewayAuthorizationMixin
-@@ -2258,6 +2259,17 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2294,6 +2295,17 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -463,7 +768,15 @@ index 8256c283d..f415437b8 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -5404,7 +5416,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -2930,6 +2942,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         # preserve the queue.
+         self._queued_events: Dict[str, List[MessageEvent]] = {}
+         self._pending_native_image_paths_by_session: Dict[str, List[str]] = {}
++        self._pending_native_video_paths_by_session: Dict[str, List[str]] = {}
+         self._busy_ack_ts: Dict[str, float] = {}  # last busy-ack timestamp per session (debounce)
+         self._session_run_generation: Dict[str, int] = {}
+         # Startup restore gate: while restart-interrupted sessions are being
+@@ -5534,7 +5547,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -472,7 +785,7 @@ index 8256c283d..f415437b8 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -9906,8 +9918,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10107,8 +10120,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -489,7 +802,7 @@ index 8256c283d..f415437b8 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -10149,8 +10167,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10350,23 +10369,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          """
          history = history or []
          message_text = event.text or ""
@@ -498,9 +811,12 @@ index 8256c283d..f415437b8 100644
          # Prefer the already resolved session key from the caller so this write
          # key matches the consume key at the run_conversation site. Fall back
          # to deriving it here for tests and legacy standalone callers.
-@@ -10159,13 +10175,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         session_key = session_key or self._session_key_for_source(source)
+-        # Reset only this session's per-call buffer; other sessions may be
++        # Reset only this session's per-call buffers; other sessions may be
          # concurrently preparing multimodal turns on the same runner.
          self._consume_pending_native_image_paths(session_key)
++        self._consume_pending_native_video_paths(session_key)
  
 -        _is_shared_multi_user = is_shared_multi_user_session(
 -            source,
@@ -514,7 +830,48 @@ index 8256c283d..f415437b8 100644
  
          # Prepend channel context from history backfill (if any).  This
          # happens after sender-prefix so the prefix only applies to the
-@@ -10428,6 +10439,16 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10484,6 +10497,40 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+                 )
+                 message_text = f"{_note}\n\n{message_text}"
+ 
++        if video_paths:
++            # Same native-vs-text split as images: when the active model can
++            # take video directly (Vertex Gemini 3.x), attach the bytes on
++            # the user turn instead of a path note the agent must process
++            # with its own tools — sandboxed group chats block those tools,
++            # which is exactly where quoted/backfilled videos arrive.
++            _vid_mode = self._decide_image_input_mode(
++                source=source,
++                session_key=session_key,
++                kind="video",
++            )
++            _native_vids: list[str] = []
++            if _vid_mode == "native":
++                from agent.image_routing import NATIVE_VIDEO_MAX_BYTES
++                for _vpath in video_paths:
++                    try:
++                        _v_ok = os.path.getsize(_vpath) <= NATIVE_VIDEO_MAX_BYTES
++                    except OSError:
++                        _v_ok = False
++                    if _v_ok:
++                        _native_vids.append(_vpath)
++            if _native_vids:
++                pending_native_vids = getattr(self, "_pending_native_video_paths_by_session", None)
++                if pending_native_vids is None:
++                    pending_native_vids = {}
++                    self._pending_native_video_paths_by_session = pending_native_vids
++                pending_native_vids[session_key] = list(_native_vids)
++                logger.info(
++                    "Video routing: native (model supports video). %d video(s) will be attached inline.",
++                    len(_native_vids),
++                )
++            # Oversized / non-native videos keep the path-note flow below.
++            video_paths = [p for p in video_paths if p not in _native_vids]
++
+         if video_paths:
+             from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
+             for _vpath in video_paths:
+@@ -10629,12 +10676,28 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
  
          return message_text
  
@@ -531,7 +888,19 @@ index 8256c283d..f415437b8 100644
      def _consume_pending_native_image_paths(self, session_key: str) -> List[str]:
          pending_native = getattr(self, "_pending_native_image_paths_by_session", None)
          if not pending_native:
-@@ -11355,6 +11376,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             return []
+         return list(pending_native.pop(session_key, []) or [])
+ 
++    def _consume_pending_native_video_paths(self, session_key: str) -> List[str]:
++        pending_native = getattr(self, "_pending_native_video_paths_by_session", None)
++        if not pending_native:
++            return []
++        return list(pending_native.pop(session_key, []) or [])
++
+     def _cache_session_source(self, session_key: str, source) -> None:
+         if not session_key or source is None:
+             return
+@@ -11635,6 +11698,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -540,7 +909,7 @@ index 8256c283d..f415437b8 100644
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -11389,7 +11412,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11669,7 +11734,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -549,7 +918,7 @@ index 8256c283d..f415437b8 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -11446,7 +11469,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11726,7 +11791,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -558,7 +927,7 @@ index 8256c283d..f415437b8 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -12973,7 +12996,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13273,7 +13338,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -567,7 +936,7 @@ index 8256c283d..f415437b8 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -14513,6 +14536,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14899,6 +14964,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -575,7 +944,41 @@ index 8256c283d..f415437b8 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -16221,7 +16245,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14972,11 +15038,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         user_config: Optional[dict] = None,
+         provider: Optional[str] = None,
+         model: Optional[str] = None,
++        kind: str = "image",
+     ) -> str:
+-        """Resolve image-input routing for the effective model this turn.
++        """Resolve image/video-input routing for the effective model this turn.
+ 
+         Returns ``"native"`` (attach pixels on the user turn) or ``"text"``
+-        (pre-analyze with vision_analyze and prepend the description). See
++        (pre-analyze with vision_analyze and prepend the description; for
++        ``kind="video"``, prepend a path-pointing note instead). See
+         agent/image_routing.py for the full decision table.
+ 
+         Gateway sessions can have /model overrides that live outside
+@@ -14986,7 +15054,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+         only the persisted default model.
+         """
+         try:
+-            from agent.image_routing import decide_image_input_mode
++            from agent.image_routing import decide_image_input_mode, decide_video_input_mode
+             from agent.auxiliary_client import _read_main_model, _read_main_provider
+             from hermes_cli.config import load_config
+ 
+@@ -15019,6 +15087,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             if not resolved_model:
+                 resolved_model = _read_main_model()
+ 
++            if kind == "video":
++                return decide_video_input_mode(resolved_provider, resolved_model, cfg)
+             return decide_image_input_mode(resolved_provider, resolved_model, cfg)
+         except Exception as exc:
+             logger.debug("image_routing: decision failed, falling back to text — %s", exc)
+@@ -16621,7 +16691,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -584,7 +987,7 @@ index 8256c283d..f415437b8 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -16279,6 +16303,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16679,6 +16749,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -596,7 +999,7 @@ index 8256c283d..f415437b8 100644
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -16538,7 +16567,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16938,7 +17013,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -605,7 +1008,7 @@ index 8256c283d..f415437b8 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -17488,9 +17517,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17888,9 +17963,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # --session-key argv, a separate process) — so removing this in-process
              # gateway write does not affect any of them.
  
@@ -618,7 +1021,7 @@ index 8256c283d..f415437b8 100644
              
              # Combine platform context, YAML channel_prompts hint for this chat,
              # channel_overrides system_prompt (or global ephemeral), and gateway
-@@ -17617,6 +17646,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18017,6 +18092,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                              on_before_finalize=_pause_typing_before_finalize,
                              initial_reply_to_id=event_message_id,
                              run_still_current=_run_still_current,
@@ -630,7 +1033,49 @@ index 8256c283d..f415437b8 100644
                          )
                          if _want_stream_deltas:
                              def _stream_delta_cb(text: str) -> None:
-@@ -18524,6 +18558,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18759,31 +18839,33 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             _approval_session_token = set_current_session_key(_approval_session_key)
+             register_gateway_notify(_approval_session_key, _approval_notify_sync)
+             try:
+-                # If _prepare_inbound_message_text buffered image paths for native
+-                # attachment, wrap the user turn as an OpenAI-style multimodal
+-                # content list. Consume-and-clear so subsequent turns on the same
+-                # runner instance don't re-attach stale images.
++                # If _prepare_inbound_message_text buffered image/video paths for
++                # native attachment, wrap the user turn as an OpenAI-style
++                # multimodal content list. Consume-and-clear so subsequent turns
++                # on the same runner instance don't re-attach stale media.
+                 _native_imgs = self._consume_pending_native_image_paths(session_key)
+-                if _native_imgs:
++                _native_vids = self._consume_pending_native_video_paths(session_key)
++                if _native_imgs or _native_vids:
+                     try:
+                         from agent.image_routing import build_native_content_parts
+                         _parts, _skipped = build_native_content_parts(
+                             message,
+                             _native_imgs,
++                            video_paths=_native_vids,
+                         )
+                         if _skipped:
+                             logger.warning(
+-                                "Native image attachment: skipped %d unreadable path(s): %s",
++                                "Native media attachment: skipped %d unreadable path(s): %s",
+                                 len(_skipped), _skipped,
+                             )
+                         if any(p.get("type") == "image_url" for p in _parts):
+                             _run_message: Any = _parts
+                         else:
+-                            # All images failed to read — fall back to plain text.
++                            # All attachments failed to read — fall back to plain text.
+                             _run_message = message
+                     except Exception as _img_exc:
+                         logger.warning(
+-                            "Native image attachment failed, falling back to text: %s",
++                            "Native media attachment failed, falling back to text: %s",
+                             _img_exc,
+                         )
+                         _run_message = message
+@@ -18945,6 +19027,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      result, final_response or "", history_len=len(agent_history),
                  )
                  final_response = _sanitize_gateway_final_response(source.platform, final_response)
@@ -640,7 +1085,7 @@ index 8256c283d..f415437b8 100644
                      final_response = f"⚠️ {result['error']}" if result.get("error") else ""
                  return {
 diff --git a/gateway/session.py b/gateway/session.py
-index 9d20c204a..5b936b082 100644
+index fb2e08f42..0baced2cc 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
 @@ -12,6 +12,7 @@ import hashlib
@@ -651,7 +1096,7 @@ index 9d20c204a..5b936b082 100644
  import threading
  import uuid
  from pathlib import Path
-@@ -363,6 +364,386 @@ def _format_untrusted_prompt_value(value: Any, *, max_chars: int = _MAX_PROMPT_M
+@@ -377,6 +378,386 @@ def _format_untrusted_prompt_value(value: Any, *, max_chars: int = _MAX_PROMPT_M
      return json.dumps(text, ensure_ascii=False)
  
  
@@ -1038,7 +1483,7 @@ index 9d20c204a..5b936b082 100644
  def build_session_context_prompt(
      context: SessionContext,
      *,
-@@ -461,12 +842,26 @@ def build_session_context_prompt(
+@@ -475,12 +856,26 @@ def build_session_context_prompt(
      # changes per-turn and would bust the prompt cache.  Instead, note that
      # this is a multi-user session; individual sender names are prefixed on
      # each user message by the gateway.
@@ -1065,7 +1510,7 @@ index 9d20c204a..5b936b082 100644
      elif context.source.user_name:
          lines.append(
              f"**User:** {_format_untrusted_prompt_value(context.source.user_name)}"
-@@ -477,6 +872,54 @@ def build_session_context_prompt(
+@@ -491,6 +886,54 @@ def build_session_context_prompt(
              uid = _hash_sender_id(uid)
          lines.append(f"**User ID:** {_format_untrusted_prompt_value(uid)}")
  
@@ -1121,7 +1566,7 @@ index 9d20c204a..5b936b082 100644
      if context.source.platform == Platform.SLACK:
          lines.append("")
 diff --git a/gateway/session_context.py b/gateway/session_context.py
-index cdd1a8bfa..af307aa0f 100644
+index 2214c2a56..48df7fe4f 100644
 --- a/gateway/session_context.py
 +++ b/gateway/session_context.py
 @@ -71,6 +71,7 @@ def session_context_engaged() -> bool:
@@ -1132,7 +1577,7 @@ index cdd1a8bfa..af307aa0f 100644
  _SESSION_SOURCE: ContextVar = ContextVar("HERMES_SESSION_SOURCE", default=_UNSET)
  _SESSION_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
  _SESSION_CHAT_NAME: ContextVar = ContextVar("HERMES_SESSION_CHAT_NAME", default=_UNSET)
-@@ -115,6 +116,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
+@@ -122,6 +123,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
  
  _VAR_MAP = {
      "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
@@ -1140,7 +1585,7 @@ index cdd1a8bfa..af307aa0f 100644
      "HERMES_SESSION_SOURCE": _SESSION_SOURCE,
      "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
      "HERMES_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
-@@ -148,6 +150,7 @@ def set_current_session_id(session_id: str) -> None:
+@@ -156,6 +158,7 @@ def set_current_session_id(session_id: str) -> None:
  
  def set_session_vars(
      platform: str = "",
@@ -1148,7 +1593,7 @@ index cdd1a8bfa..af307aa0f 100644
      source: str = "",
      chat_id: str = "",
      chat_name: str = "",
-@@ -183,6 +186,7 @@ def set_session_vars(
+@@ -192,6 +195,7 @@ def set_session_vars(
      _session_context_engaged = True
      tokens = [
          _SESSION_PLATFORM.set(platform),
@@ -1156,7 +1601,7 @@ index cdd1a8bfa..af307aa0f 100644
          _SESSION_SOURCE.set(source),
          _SESSION_CHAT_ID.set(chat_id),
          _SESSION_CHAT_NAME.set(chat_name),
-@@ -217,6 +221,7 @@ def clear_session_vars(tokens: list) -> None:
+@@ -227,6 +231,7 @@ def clear_session_vars(tokens: list) -> None:
      """
      for var in (
          _SESSION_PLATFORM,
@@ -1261,7 +1706,7 @@ index a08e169f2..4f4a39413 100644
                      metadata=self._metadata_for_send(
                          final=finalize,
 diff --git a/hermes_cli/auth.py b/hermes_cli/auth.py
-index 91911e77e..3e02fe0d7 100644
+index 5cf6d5018..ce3399b9f 100644
 --- a/hermes_cli/auth.py
 +++ b/hermes_cli/auth.py
 @@ -479,6 +479,24 @@ except Exception:
@@ -1396,10 +1841,10 @@ index 12b688b22..0ceb6ade2 100644
              ):
                  check_warn(
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index f91abb33f..597b88972 100644
+index ee3762741..e835f68ab 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -1756,38 +1756,49 @@ def _get_platform_tools(
+@@ -1789,38 +1789,49 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -1591,7 +2036,7 @@ index f0d0d4f89..2bf2daa4b 100644
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 7dd7e2389..611150f20 100644
+index 7dd7e2389..d1a793d71 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -98,6 +98,7 @@ try:
@@ -2820,7 +3265,61 @@ index 7dd7e2389..611150f20 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4861,6 +5800,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4620,34 +5559,25 @@ class FeishuAdapter(BasePlatformAdapter):
+             request = self._build_reply_message_request(effective_reply_to, body)
+             return await self._run_blocking(self._client.im.v1.message.reply, request)
+ 
+-        # For topic/thread messages that fell back from reply→create, use
+-        # thread_id as receive_id so the message lands in the topic instead of
+-        # the main chat.
+-        _thread_id = (metadata or {}).get("thread_id")
+-        if _thread_id:
+-            body = self._build_create_message_body(
+-                receive_id=_thread_id,
+-                msg_type=msg_type,
+-                content=payload,
+-                uuid_value=str(uuid.uuid4()),
+-            )
+-            request = self._build_create_message_request("thread_id", body)
+-        else:
+-            receive_id = chat_id
+-            receive_id_type = "chat_id"
+-            if chat_id.startswith("feishu_user_id:"):
+-                receive_id = chat_id.split(":", 1)[1]
+-                receive_id_type = "user_id"
+-            elif chat_id.startswith("ou_"):
+-                receive_id_type = "open_id"
+-
+-            body = self._build_create_message_body(
+-                receive_id=receive_id,
+-                msg_type=msg_type,
+-                content=payload,
+-                uuid_value=str(uuid.uuid4()),
+-            )
+-            request = self._build_create_message_request(receive_id_type, body)
++        # Ignore generic thread metadata on Feishu. Gateway progress/interim
++        # paths pass source.thread_id for many platforms, but on Feishu using it
++        # as receive_id creates a topic/comment lane instead of a normal chat
++        # message. With no valid reply anchor, fall back to the main chat.
++        receive_id = chat_id
++        receive_id_type = "chat_id"
++        if chat_id.startswith("feishu_user_id:"):
++            receive_id = chat_id.split(":", 1)[1]
++            receive_id_type = "user_id"
++        elif chat_id.startswith("ou_"):
++            receive_id_type = "open_id"
++
++        body = self._build_create_message_body(
++            receive_id=receive_id,
++            msg_type=msg_type,
++            content=payload,
++            uuid_value=str(uuid.uuid4()),
++        )
++        request = self._build_create_message_request(receive_id_type, body)
+         return await self._run_blocking(self._client.im.v1.message.create, request)
+ 
+     @staticmethod
+@@ -4861,6 +5791,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -2856,7 +3355,7 @@ index 7dd7e2389..611150f20 100644
      def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
          if "GetMessageResourceRequest" in globals():
 diff --git a/pyproject.toml b/pyproject.toml
-index 963210075..ae00b7acc 100644
+index 0253b6f1b..a4942903f 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -249,7 +249,7 @@ termux-all = [
@@ -2869,10 +3368,10 @@ index 963210075..ae00b7acc 100644
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
 diff --git a/tests/agent/test_image_routing.py b/tests/agent/test_image_routing.py
-index 671e6aaa1..faea0a3fa 100644
+index 671e6aaa1..2c1804e4e 100644
 --- a/tests/agent/test_image_routing.py
 +++ b/tests/agent/test_image_routing.py
-@@ -11,6 +11,7 @@ from agent.image_routing import (
+@@ -11,10 +11,12 @@ from agent.image_routing import (
      _coerce_capability_bool,
      _coerce_mode,
      _explicit_aux_vision_override,
@@ -2880,7 +3379,12 @@ index 671e6aaa1..faea0a3fa 100644
      _lookup_supports_vision,
      _supports_vision_override,
      build_native_content_parts,
-@@ -137,6 +138,19 @@ class TestDecideImageInputMode:
+     decide_image_input_mode,
++    decide_video_input_mode,
+     extract_image_refs,
+ )
+ 
+@@ -137,6 +139,19 @@ class TestDecideImageInputMode:
          with patch("agent.models_dev.fetch_models_dev", return_value=registry):
              assert decide_image_input_mode("xiaomi", "mimo-v2.5-pro", {}) == "text"
  
@@ -2900,7 +3404,7 @@ index 671e6aaa1..faea0a3fa 100644
  
  # ─── _coerce_capability_bool ─────────────────────────────────────────────────
  
-@@ -313,6 +327,32 @@ class TestLookupSupportsVisionOverride:
+@@ -313,6 +328,32 @@ class TestLookupSupportsVisionOverride:
              assert _lookup_supports_vision("openrouter", "x", None) is None
  
  
@@ -2933,6 +3437,150 @@ index 671e6aaa1..faea0a3fa 100644
  # ─── decide_image_input_mode with auto + override ────────────────────────────
  
  
+@@ -846,3 +887,143 @@ class TestFormatCompatibility:
+         img_path.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>')
+         url = _file_to_data_url(img_path)
+         assert url is None
++
++
++# ─── Video: decide_video_input_mode / native video parts ─────────────────────
++
++
++def _mp4_bytes() -> bytes:
++    """Return minimal ISO-BMFF bytes: an 'ftyp' box with an mp4 major brand."""
++    return b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 16
++
++
++class TestDecideVideoInputMode:
++    def test_auto_native_for_vertex_gemini_3(self):
++        assert (
++            decide_video_input_mode("vertex", "google/gemini-3.1-pro-preview", {})
++            == "native"
++        )
++
++    def test_auto_native_for_vertex_fallback_provider(self):
++        assert (
++            decide_video_input_mode("vertex-fallback", "google/gemini-3.1-pro-preview", {})
++            == "native"
++        )
++
++    def test_auto_text_for_non_video_capable_models(self):
++        """Image vision support must not be used as a proxy for video."""
++        assert decide_video_input_mode("anthropic", "claude-opus-4-8", {}) == "text"
++        assert decide_video_input_mode("vertex", "google/gemini-2.0-flash", {}) == "text"
++        assert decide_video_input_mode("", "", {}) == "text"
++
++    def test_config_override_native(self):
++        cfg = {"agent": {"video_input_mode": "native"}}
++        assert decide_video_input_mode("anthropic", "claude-opus-4-8", cfg) == "native"
++
++    def test_config_override_text(self):
++        cfg = {"agent": {"video_input_mode": "text"}}
++        assert (
++            decide_video_input_mode("vertex", "google/gemini-3.1-pro-preview", cfg)
++            == "text"
++        )
++
++
++class TestVideoMimeSniffing:
++    def test_mp4_ftyp(self, tmp_path: Path):
++        from agent.image_routing import _guess_video_mime
++
++        vid = tmp_path / "clip.bin"
++        vid.write_bytes(_mp4_bytes())
++        assert _guess_video_mime(vid, raw=_mp4_bytes()) == "video/mp4"
++
++    def test_quicktime_brand(self):
++        from agent.image_routing import _sniff_video_mime_from_bytes
++
++        raw = b"\x00\x00\x00\x14ftypqt  \x00\x00\x02\x00" + b"\x00" * 8
++        assert _sniff_video_mime_from_bytes(raw) == "video/mov"
++
++    def test_webm_ebml(self):
++        from agent.image_routing import _sniff_video_mime_from_bytes
++
++        raw = b"\x1a\x45\xdf\xa3" + b"\x00" * 20 + b"webm" + b"\x00" * 40
++        assert _sniff_video_mime_from_bytes(raw) == "video/webm"
++
++    def test_matroska_is_not_webm(self):
++        from agent.image_routing import _sniff_video_mime_from_bytes
++
++        raw = b"\x1a\x45\xdf\xa3" + b"\x00" * 20 + b"matroska" + b"\x00" * 40
++        assert _sniff_video_mime_from_bytes(raw) == "video/x-matroska"
++
++    def test_heic_brand_left_to_image_sniffer(self):
++        from agent.image_routing import _sniff_video_mime_from_bytes
++
++        raw = b"\x00\x00\x00\x18ftypheic\x00\x00\x02\x00" + b"\x00" * 8
++        assert _sniff_video_mime_from_bytes(raw) is None
++
++    def test_suffix_fallback(self, tmp_path: Path):
++        from agent.image_routing import _guess_video_mime
++
++        vid = tmp_path / "clip.mp4"
++        assert _guess_video_mime(vid) == "video/mp4"
++
++
++class TestBuildNativeContentPartsVideo:
++    def test_video_attached_as_data_url_part(self, tmp_path: Path):
++        vid = tmp_path / "demo.mp4"
++        vid.write_bytes(_mp4_bytes())
++        parts, skipped = build_native_content_parts(
++            "看看这个视频", [], video_paths=[str(vid)]
++        )
++        assert skipped == []
++        assert len(parts) == 2
++        assert parts[0]["type"] == "text"
++        assert parts[0]["text"] == f"看看这个视频\n\n[Video attached at: {vid}]"
++        assert parts[1]["type"] == "image_url"
++        assert parts[1]["image_url"]["url"].startswith("data:video/mp4;base64,")
++
++    def test_empty_text_inserts_video_default_prompt(self, tmp_path: Path):
++        vid = tmp_path / "demo.mp4"
++        vid.write_bytes(_mp4_bytes())
++        parts, _ = build_native_content_parts("", [], video_paths=[str(vid)])
++        assert parts[0]["text"].startswith("What do you see in this video?")
++
++    def test_image_and_video_combined(self, tmp_path: Path):
++        img = tmp_path / "cat.png"
++        img.write_bytes(_png_bytes())
++        vid = tmp_path / "demo.mp4"
++        vid.write_bytes(_mp4_bytes())
++        parts, skipped = build_native_content_parts(
++            "both", [str(img)], video_paths=[str(vid)]
++        )
++        assert skipped == []
++        assert [p["type"] for p in parts] == ["text", "image_url", "image_url"]
++        assert f"[Image attached at: {img}]" in parts[0]["text"]
++        assert f"[Video attached at: {vid}]" in parts[0]["text"]
++        assert parts[1]["image_url"]["url"].startswith("data:image/png;base64,")
++        assert parts[2]["image_url"]["url"].startswith("data:video/mp4;base64,")
++
++    def test_missing_video_is_skipped(self, tmp_path: Path):
++        missing = tmp_path / "gone.mp4"
++        parts, skipped = build_native_content_parts("hi", [], video_paths=[str(missing)])
++        assert skipped == [str(missing)]
++        assert all(p.get("type") != "image_url" for p in parts)
++
++    def test_oversized_video_is_skipped(self, tmp_path: Path):
++        from agent import image_routing
++
++        vid = tmp_path / "big.mp4"
++        vid.write_bytes(_mp4_bytes())
++        with patch.object(image_routing, "NATIVE_VIDEO_MAX_BYTES", 8):
++            parts, skipped = build_native_content_parts(
++                "hi", [], video_paths=[str(vid)]
++            )
++        assert skipped == [str(vid)]
++        assert all(p.get("type") != "image_url" for p in parts)
++
++    def test_unsupported_container_is_skipped(self, tmp_path: Path):
++        """Matroska is outside Gemini's documented set — skip, don't 400."""
++        vid = tmp_path / "clip.mkv"
++        vid.write_bytes(b"\x1a\x45\xdf\xa3" + b"\x00" * 20 + b"matroska" + b"\x00" * 40)
++        parts, skipped = build_native_content_parts("hi", [], video_paths=[str(vid)])
++        assert skipped == [str(vid)]
++        assert all(p.get("type") != "image_url" for p in parts)
 diff --git a/tests/gateway/feishu_helpers.py b/tests/gateway/feishu_helpers.py
 index ae8a4bfc3..24beb0931 100644
 --- a/tests/gateway/feishu_helpers.py
@@ -2965,7 +3613,7 @@ index ae8a4bfc3..24beb0931 100644
  
  
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index d32c63ee8..6e1ad3a07 100644
+index 6dc246e83..d3b4a68f6 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
 @@ -1029,6 +1029,49 @@ class TestLoadGatewayConfig:
@@ -3018,8 +3666,37 @@ index d32c63ee8..6e1ad3a07 100644
      def test_invalid_quick_commands_in_config_yaml_are_ignored(self, tmp_path, monkeypatch):
          hermes_home = tmp_path / ".hermes"
          hermes_home.mkdir()
+diff --git a/tests/gateway/test_display_config.py b/tests/gateway/test_display_config.py
+index d05807e41..c9ca51b90 100644
+--- a/tests/gateway/test_display_config.py
++++ b/tests/gateway/test_display_config.py
+@@ -240,12 +240,22 @@ class TestPlatformDefaults:
+         assert resolve_display_setting({}, "discord", "tool_progress") == "all"
+ 
+     def test_medium_tier_platforms(self):
+-        """Mattermost, Matrix, Feishu, WhatsApp default to 'new' tool progress."""
++        """Mattermost, Matrix, WhatsApp default to 'new' tool progress."""
+         from gateway.display_config import resolve_display_setting
+ 
+-        for plat in ("mattermost", "matrix", "feishu", "whatsapp"):
++        for plat in ("mattermost", "matrix", "whatsapp"):
+             assert resolve_display_setting({}, plat, "tool_progress") == "new", plat
+ 
++    def test_feishu_defaults_to_final_only(self):
++        """Feishu defaults to one final reply, not progress/interim bubbles."""
++        from gateway.display_config import resolve_display_setting
++
++        assert resolve_display_setting({}, "feishu", "tool_progress") == "off"
++        assert resolve_display_setting({}, "feishu", "streaming") is False
++        assert resolve_display_setting({}, "feishu", "interim_assistant_messages") is False
++        assert resolve_display_setting({}, "feishu", "long_running_notifications") is False
++        assert resolve_display_setting({}, "feishu", "busy_ack_detail") is False
++
+     def test_slack_defaults_tool_progress_off(self):
+         """Slack defaults to quiet tool progress (permanent chat noise otherwise)."""
+         from gateway.display_config import resolve_display_setting
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index 58d7bb888..709a10cd5 100644
+index 58d7bb888..c726b27a1 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -171,6 +171,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -3726,16 +4403,53 @@ index 58d7bb888..709a10cd5 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2113,7 +2774,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2113,7 +2774,44 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
 -        self.assertTrue(captured["request"].request_body.reply_in_thread)
 +        self.assertFalse(captured["request"].request_body.reply_in_thread)
++
++    @patch.dict(os.environ, {}, clear=True)
++    def test_send_ignores_thread_metadata_when_no_reply_anchor(self):
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig())
++        captured = {}
++
++        class _MessageAPI:
++            def create(self, request):
++                captured["request"] = request
++                return SimpleNamespace(
++                    success=lambda: True,
++                    data=SimpleNamespace(message_id="om_flat"),
++                )
++
++        adapter._client = SimpleNamespace(
++            im=SimpleNamespace(v1=SimpleNamespace(message=_MessageAPI()))
++        )
++
++        async def _direct(func, *args, **kwargs):
++            return func(*args, **kwargs)
++
++        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
++            result = asyncio.run(
++                adapter.send(
++                    chat_id="oc_chat",
++                    content="status update",
++                    metadata={"thread_id": "omt-thread"},
++                )
++            )
++
++        self.assertTrue(result.success)
++        self.assertEqual(result.message_id, "om_flat")
++        self.assertEqual(captured["request"].receive_id_type, "chat_id")
++        self.assertEqual(captured["request"].request_body.receive_id, "oc_chat")
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2204,7 +2865,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2204,7 +2902,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -3744,7 +4458,7 @@ index 58d7bb888..709a10cd5 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2256,7 +2917,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2256,7 +2954,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -3753,7 +4467,7 @@ index 58d7bb888..709a10cd5 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -2582,8 +3243,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2582,8 +3280,10 @@ class TestAdapterBehavior(unittest.TestCase):
          adapter = FeishuAdapter(PlatformConfig())
          payload = json.loads(adapter._build_post_payload("# 标题\n访问 [文档](https://example.com)"))
  
@@ -3765,7 +4479,7 @@ index 58d7bb888..709a10cd5 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_build_post_payload_wraps_markdown_in_md_tag(self):
-@@ -2621,6 +3284,64 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2621,6 +3321,64 @@ class TestAdapterBehavior(unittest.TestCase):
              [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
          )
  
@@ -3830,7 +4544,7 @@ index 58d7bb888..709a10cd5 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_send_uses_post_for_inline_markdown(self):
          from gateway.config import PlatformConfig
-@@ -4789,6 +5510,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -4789,6 +5547,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -4864,10 +5578,10 @@ index 8fbb063f6..cb693a861 100644
          """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
          config = tmp_path / "config.yaml"
 diff --git a/tests/hermes_cli/test_tools_config.py b/tests/hermes_cli/test_tools_config.py
-index dbe95a0cb..3f3db810b 100644
+index 8a14fba3c..f4f27df02 100644
 --- a/tests/hermes_cli/test_tools_config.py
 +++ b/tests/hermes_cli/test_tools_config.py
-@@ -1343,6 +1343,32 @@ def test_get_platform_tools_feishu_includes_doc_and_drive():
+@@ -1417,6 +1417,32 @@ def test_get_platform_tools_feishu_includes_doc_and_drive():
      assert "feishu_drive" in enabled
  
  
@@ -5021,6 +5735,55 @@ index af67aacac..9c72e537e 100644
 +        "/fake/sa.json", project_override="explicit-proj"
 +    )
 +    assert proj_explicit == "explicit-proj"
+diff --git a/tests/tools/test_approval.py b/tests/tools/test_approval.py
+index e364dcd3b..f070bc36d 100644
+--- a/tests/tools/test_approval.py
++++ b/tests/tools/test_approval.py
+@@ -2072,7 +2072,8 @@ class TestApprovalTimeoutIsNotConsent:
+             k: os.environ.get(k)
+             for k in ("HERMES_GATEWAY_SESSION", "HERMES_CRON_SESSION",
+                       "HERMES_YOLO_MODE",
+-                      "HERMES_SESSION_KEY", "HERMES_INTERACTIVE")
++                      "HERMES_SESSION_KEY", "HERMES_SESSION_PLATFORM",
++                      "HERMES_SESSION_CHAT_ID", "HERMES_INTERACTIVE")
+         }
+         os.environ.pop("HERMES_YOLO_MODE", None)
+         os.environ.pop("HERMES_INTERACTIVE", None)
+@@ -2172,6 +2173,34 @@ class TestApprovalTimeoutIsNotConsent:
+         assert "NOT consented" in r["message"]
+         assert "rephrase" in r["message"].lower()
+ 
++    def test_feishu_group_dangerous_command_does_not_send_approval_card(self):
++        """Feishu group sessions must not be able to upgrade terminal commands.
++
++        Group sandboxes may allow a narrow terminal subset, but dangerous
++        command approval is an owner-DM capability. A group approval card would
++        let chat participants turn a blocked/restricted tool path into host
++        execution by clicking a button.
++        """
++        from tools import approval as mod
++
++        group_session = "agent:main:feishu:group:oc_group:om_trigger"
++        os.environ["HERMES_SESSION_PLATFORM"] = "feishu"
++        os.environ["HERMES_SESSION_CHAT_ID"] = "oc_group"
++        notified = []
++        mod.register_gateway_notify(group_session, lambda data: notified.append(data))
++        token = mod.set_current_session_key(group_session)
++        try:
++            result = mod.check_all_command_guards("rm -rf .git", "local")
++        finally:
++            mod.reset_current_session_key(token)
++
++        assert result["approved"] is False
++        assert result.get("outcome") == "restricted_chat"
++        assert result.get("user_consent") is False
++        assert "Feishu chat is not allowed" in result["message"]
++        assert not notified
++        assert not mod._gateway_queues.get(group_session)
++
+     def test_timeout_emits_post_hook_with_timeout_outcome(self, monkeypatch):
+         """Plugins must be able to distinguish timeout from explicit deny.
+ 
 diff --git a/tests/tools/test_feishu_tools.py b/tests/tools/test_feishu_tools.py
 index 15b27b4ab..0a3f0723f 100644
 --- a/tests/tools/test_feishu_tools.py
@@ -5273,6 +6036,80 @@ index a7445207c..c48e60159 100644
      def test_legacy_flat_md_skill_preserves_frontmatter_metadata(self, tmp_path):
          flat_skill = tmp_path / "legacy-skill.md"
          flat_skill.write_text(
+diff --git a/tools/approval.py b/tools/approval.py
+index 05f2eb523..f46f7f721 100644
+--- a/tools/approval.py
++++ b/tools/approval.py
+@@ -176,6 +176,48 @@ def _get_session_platform() -> str:
+         return os.getenv("HERMES_SESSION_PLATFORM", "") or ""
+ 
+ 
++def _parse_session_key_chat_type(session_key: str) -> str:
++    """Extract chat_type from ``agent:main:{platform}:{chat_type}:...`` keys."""
++    parts = str(session_key or "").split(":")
++    if len(parts) >= 4 and parts[0] == "agent" and parts[1] == "main":
++        return parts[3].strip().lower()
++    return ""
++
++
++def _is_restricted_feishu_approval_session(session_key: str) -> bool:
++    """Return True when gateway approval must not be offered in this Feishu chat.
++
++    Feishu group/channel sessions are intentionally sandboxed to a read-mostly
++    tool surface. A dangerous-command approval card would let someone in that
++    public chat upgrade a terminal command after the model asks, bypassing the
++    intended owner-DM boundary. Owner DMs remain approval-capable.
++    """
++    if (_get_session_platform() or "").strip().lower() != "feishu":
++        return False
++
++    chat_type = _parse_session_key_chat_type(session_key)
++    if chat_type in {"group", "forum", "channel", "thread"}:
++        return True
++
++    return False
++
++
++def _restricted_feishu_approval_result(description: str) -> dict:
++    return {
++        "approved": False,
++        "message": (
++            f"BLOCKED: Command flagged as dangerous ({description}) and this "
++            "Feishu chat is not allowed to approve terminal commands. Do NOT "
++            "retry this command, do NOT rephrase it, and do NOT attempt the "
++            "same outcome via a different command. Ask the owner to continue "
++            "from the private owner chat if terminal access is required."
++        ),
++        "description": description,
++        "outcome": "restricted_chat",
++        "user_consent": False,
++    }
++
++
+ def _is_gateway_approval_context() -> bool:
+     """True when this call is inside a gateway/API session.
+ 
+@@ -2280,6 +2322,10 @@ def check_dangerous_command(command: str, env_type: str,
+     if not is_dangerous:
+         return {"approved": True, "message": None}
+ 
++    session_key = get_current_session_key()
++    if _is_gateway_approval_context() and _is_restricted_feishu_approval_session(session_key):
++        return _restricted_feishu_approval_result(description)
++
+     return _run_approval_gate(
+         pattern_key=pattern_key,
+         description=description,
+@@ -2776,6 +2822,9 @@ def check_all_command_guards(command: str, env_type: str,
+     # input() flow.  The agent never sees "approval_required"; it either
+     # gets the command output (approved) or a definitive "BLOCKED" message.
+     if is_gateway or is_ask:
++        if is_gateway and _is_restricted_feishu_approval_session(session_key):
++            return _restricted_feishu_approval_result(combined_desc)
++
+         notify_cb = None
+         with _lock:
+             notify_cb = _gateway_notify_cbs.get(session_key)
 diff --git a/tools/feishu_doc_tool.py b/tools/feishu_doc_tool.py
 index 6d2aad8fc..9fdf4348a 100644
 --- a/tools/feishu_doc_tool.py
@@ -5346,7 +6183,7 @@ index 6d2aad8fc..9fdf4348a 100644
      try:
          from lark_oapi import AccessTokenType
 diff --git a/tools/file_operations.py b/tools/file_operations.py
-index 78bdd8d63..e8d2ebd4f 100644
+index 35b60b0b7..6dd83efa5 100644
 --- a/tools/file_operations.py
 +++ b/tools/file_operations.py
 @@ -28,6 +28,7 @@ Usage:
@@ -5357,7 +6194,7 @@ index 78bdd8d63..e8d2ebd4f 100644
  from abc import ABC, abstractmethod
  from dataclasses import dataclass, field
  from typing import Optional, List, Dict, Any, ClassVar
-@@ -1088,6 +1089,9 @@ class ShellFileOperations(FileOperations):
+@@ -1116,6 +1117,9 @@ class ShellFileOperations(FileOperations):
                      "Use vision_analyze with this file path to inspect the image contents."
                  ),
              )
@@ -5367,7 +6204,7 @@ index 78bdd8d63..e8d2ebd4f 100644
          
          # Read a sample to check for binary content
          sample_cmd = f"head -c 1000 {self._escape_shell_arg(path)} 2>/dev/null"
-@@ -1229,6 +1233,155 @@ class ShellFileOperations(FileOperations):
+@@ -1257,6 +1261,155 @@ class ShellFileOperations(FileOperations):
              file_size=file_size,
          )
  
@@ -5524,7 +6361,7 @@ index 78bdd8d63..e8d2ebd4f 100644
          """Delete a single file.
  
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 9f8081ca2..d260314b3 100644
+index 94cd069b8..126dd7124 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -190,6 +190,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
@@ -5536,10 +6373,10 @@ index 9f8081ca2..d260314b3 100644
      # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index 2d7d9fa9a..33a8dbff6 100644
+index 3045474b1..059c2a878 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -560,10 +560,35 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -576,10 +576,23 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -5548,57 +6385,45 @@ index 2d7d9fa9a..33a8dbff6 100644
 +
 +    Uses the first configured external dir (skills.external_dirs) so that
 +    agent-created skills land in the user-managed directory rather than the
-+    bundled skills dir. Falls back to SKILLS_DIR if no external dirs are
-+    configured.
++    bundled skills dir. Falls back to the active profile skills dir if no
++    external dirs are configured.
 +    """
 +    try:
-+        from agent.skill_utils import get_config_path
++        from agent.skill_utils import get_external_skills_dirs
 +
-+        cfg = yaml.safe_load(get_config_path().read_text(encoding="utf-8")) or {}
-+        raw_dirs = cfg.get("skills", {}).get("external_dirs") or []
-+        if isinstance(raw_dirs, str):
-+            raw_dirs = [raw_dirs]
-+        local_resolved = SKILLS_DIR.resolve()
-+        for entry in raw_dirs:
-+            expanded = os.path.expanduser(os.path.expandvars(str(entry).strip()))
-+            candidate = Path(expanded).resolve()
-+            if candidate != local_resolved:
-+                base = candidate
-+                break
-+        else:
-+            base = SKILLS_DIR
++        base = next(iter(get_external_skills_dirs()), _skills_dir())
 +    except Exception:
-+        base = SKILLS_DIR
++        base = _skills_dir()
 +
      if category:
--        return SKILLS_DIR / category / name
--    return SKILLS_DIR / name
+-        return _skills_dir() / category / name
+-    return _skills_dir() / name
 +        return base / category / name
 +    return base / name
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -828,7 +853,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -845,7 +858,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
--        "path": str(skill_dir.relative_to(SKILLS_DIR)),
+-        "path": str(skill_dir.relative_to(_skills_dir())),
 +        "path": (
-+            str(skill_dir.relative_to(SKILLS_DIR))
-+            if skill_dir.is_relative_to(SKILLS_DIR)
++            str(skill_dir.relative_to(_skills_dir()))
++            if skill_dir.is_relative_to(_skills_dir())
 +            else str(skill_dir)
 +        ),
          "skill_md": str(skill_md),
          "_change": {"description": _desc},
      }
-@@ -1097,9 +1126,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
+@@ -1114,9 +1131,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
  
      shutil.rmtree(skill_dir)
  
 -    # Clean up empty category directories (don't remove the skills root itself)
 +    # Clean up empty category directories (don't remove SKILLS_DIR or the
 +    # resolved skills root that contained the deleted skill).
-+    protected = {SKILLS_DIR.resolve(), skills_root.resolve()}
++    protected = {_skills_dir().resolve(), skills_root.resolve()}
      parent = skill_dir.parent
 -    if parent != skills_root and parent.exists() and not any(parent.iterdir()):
 +    if parent.resolve() not in protected and parent.exists() and not any(parent.iterdir()):
@@ -5606,10 +6431,52 @@ index 2d7d9fa9a..33a8dbff6 100644
  
      message = f"Skill '{name}' deleted."
 diff --git a/tools/skills_tool.py b/tools/skills_tool.py
-index cd699fae8..ab5efc5e8 100644
+index a5613f62c..a4a0876c9 100644
 --- a/tools/skills_tool.py
 +++ b/tools/skills_tool.py
-@@ -570,7 +570,11 @@ def _get_session_platform() -> str:
+@@ -93,7 +93,8 @@ logger = logging.getLogger(__name__)
+ #   - signature = per-dir max mtime of the dir AND its immediate children
+ #     (one scandir per dir; catches skill add/remove inside categories,
+ #     which does NOT bump the root dir's mtime), plus the disabled-set
+-#     (config-driven — changes with no filesystem mtime bump at all)
++#     (config-driven — changes with no filesystem mtime bump at all), plus
++#     the allowed-set for platform allowlists
+ #   - a short TTL bounds staleness from in-place SKILL.md edits, which
+ #     bump only the file's mtime, invisible to any directory signature.
+ # skip_disabled True/False are cached separately.
+@@ -103,7 +104,7 @@ _SKILLS_CACHE_KEY_DISABLED = "with_disabled"
+ _SKILLS_CACHE_KEY_FILTERED = "filtered"
+ 
+ 
+-def _skills_scan_signature(dirs_to_scan, disabled) -> tuple:
++def _skills_scan_signature(dirs_to_scan, disabled, allowed=None) -> tuple:
+     """Cheap change-signature for the skill scan inputs.
+ 
+     O(#dirs + #categories) stat calls, not a recursive walk. Includes the
+@@ -133,7 +134,8 @@ def _skills_scan_signature(dirs_to_scan, disabled) -> tuple:
+         except OSError:
+             pass
+         sig.append((str(d), m))
+-    return (tuple(sig), frozenset(disabled), platform)
++    allowed_sig = None if allowed is None else frozenset(allowed)
++    return (tuple(sig), frozenset(disabled), allowed_sig, platform)
+ 
+ 
+ # All skills live in ~/.hermes/skills/ (seeded from bundled skills/ on install).
+@@ -626,6 +628,12 @@ def _get_disabled_skill_names() -> Set[str]:
+     return get_disabled_skill_names()
+ 
+ 
++def _get_allowed_skill_names() -> Optional[Set[str]]:
++    """Load optional allowed skill names from config for the active platform."""
++    from agent.skill_utils import get_allowed_skill_names
++    return get_allowed_skill_names()
++
++
+ def _get_session_platform() -> str:
+     """Resolve the current platform from gateway session context.
+ 
+@@ -635,7 +643,11 @@ def _get_session_platform() -> str:
      """
      try:
          from gateway.session_context import get_session_env
@@ -5622,7 +6489,7 @@ index cd699fae8..ab5efc5e8 100644
      except Exception:
          return ""
  
-@@ -584,23 +588,29 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
+@@ -649,23 +661,29 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
      3. ``HERMES_SESSION_PLATFORM`` from gateway session context
      """
      try:
@@ -5664,24 +6531,29 @@ index cd699fae8..ab5efc5e8 100644
  def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
      """Recursively find all skills in ~/.hermes/skills/ and external dirs.
  
-@@ -617,8 +627,15 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
-     skills = []
-     seen_names: set = set()
+@@ -685,9 +703,10 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
  
--    # Load disabled set once (not per-skill)
-+    # Load filters once (not per-skill).
+     cache_key = _SKILLS_CACHE_KEY_DISABLED if skip_disabled else _SKILLS_CACHE_KEY_FILTERED
+ 
+-    # Load disabled set once (not per-skill). Part of the cache signature:
+-    # disabling a skill is a config change with no filesystem mtime bump.
++    # Load filters once (not per-skill). Part of the cache signature:
++    # config filters can change with no filesystem mtime bump.
      disabled = set() if skip_disabled else _get_disabled_skill_names()
-+    allowed = None
-+    if not skip_disabled:
-+        try:
-+            from agent.skill_utils import get_allowed_skill_names
-+            allowed = get_allowed_skill_names()
-+        except Exception:
-+            allowed = None
++    allowed = None if skip_disabled else _get_allowed_skill_names()
  
-     # Scan local dir first, then external dirs (local takes precedence)
-     dirs_to_scan = []
-@@ -646,7 +663,9 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+     # Collect directories to scan — same resolution as the scan loop below
+     # (_skills_dir() resolves the LIVE profile HERMES_HOME; the module-level
+@@ -698,7 +717,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+         dirs_to_scan.append(active_skills_dir)
+     dirs_to_scan.extend(get_external_skills_dirs())
+ 
+-    signature = _skills_scan_signature(dirs_to_scan, disabled)
++    signature = _skills_scan_signature(dirs_to_scan, disabled, allowed)
+     now = time.monotonic()
+ 
+     cached = _SKILLS_CACHE.get(cache_key)
+@@ -737,7 +756,9 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
                  name = frontmatter.get("name", skill_dir.name)[:MAX_NAME_LENGTH]
                  if name in seen_names:
                      continue
@@ -5692,7 +6564,7 @@ index cd699fae8..ab5efc5e8 100644
                      continue
  
                  description = frontmatter.get("description", "")
-@@ -924,6 +943,24 @@ def skill_view(
+@@ -1021,6 +1042,24 @@ def skill_view(
              plugin_skill_md = pm.find_plugin_skill(name)
  
              if plugin_skill_md is not None:
@@ -5717,7 +6589,7 @@ index cd699fae8..ab5efc5e8 100644
                  if not plugin_skill_md.exists():
                      # Stale registry entry — file deleted out of band
                      pm.remove_plugin_skill(name)
-@@ -1120,6 +1157,30 @@ def skill_view(
+@@ -1218,6 +1257,30 @@ def skill_view(
                  ensure_ascii=False,
              )
  
@@ -5748,7 +6620,7 @@ index cd699fae8..ab5efc5e8 100644
          # Read the file once — reused for platform check and main content below
          try:
              content = skill_md.read_text(encoding="utf-8")
-@@ -1179,6 +1240,15 @@ def skill_view(
+@@ -1277,6 +1340,15 @@ def skill_view(
  
          # Check if the skill is disabled by the user
          resolved_name = parsed_frontmatter.get("name", skill_md.parent.name)
@@ -5807,7 +6679,7 @@ index 38a27e622..4590ea5f0 100644
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 9f4aa2144..dbb2e780f 100644
+index b7df68238..9f736f35d 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
 @@ -375,8 +375,13 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI

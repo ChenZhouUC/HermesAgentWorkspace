@@ -64,15 +64,15 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-7: grep 'python-socks' in pyproject.toml + tools/lazy_deps.py
   │   ├─ PATCH-9: grep 确认 OpenClaw 迁移不再写入 HERMES_GATEWAY_TOKEN
   │   ├─ PATCH-10: grep Feishu group trigger/context/config/doc/xlsx sentinels
-  │   ├─ PATCH-11: grep per-platform skill allowlist + read-only toolset sentinels
-  │   ├─ PATCH-12: grep reply_in_thread = False
+  │   ├─ PATCH-11: grep per-platform skill allowlist + read-only toolset + Feishu group approval hard-block sentinels
+  │   ├─ PATCH-12: grep reply_in_thread=False + metadata.thread_id ignored + Feishu final-only display defaults
   │   ├─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
   │   ├─ PATCH-14: grep people-profile/_load_people_profiles/_lookup_person + group-profile/_load_group_profiles/_lookup_group/_GROUP_TOOL_LIMITATION_RULE + TestPeopleProfileInjection/TestGroupProfileInjection
   │   ├─ PATCH-15: grep _backfill_sender_attachments/_backfill_reply_attachments/_mark_attachment_backfilled + _FEISHU_BACKFILL_WINDOW_SECONDS/_backfilled_attachment_ids in adapter.py
   │   ├─ PATCH-17: grep Vertex include_thoughts=false + single-level {"google":…} + hidden-thoughts regression test
   │   ├─ PATCH-18: grep doctor Vertex provider/profile/env hints + google model slug regression test
   │   ├─ PATCH-19: grep get_vertex_fallback_config/apply_global_project_override + vertex-fallback in auth.py + has_vertex_fallback_credentials + name="vertex-fallback" + fallback regression test
-  │   └─ PATCH-20: grep _known_provider_model_supports_vision + vertex-fallback + gemini-3.1-pro-preview routing regression test
+  │   └─ PATCH-20: grep _known_provider_model_supports_vision + vertex-fallback + decide_video_input_mode + _pending_native_video_paths_by_session (run.py) + gemini-3.1-pro-preview / video data-url routing regression tests
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -211,17 +211,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.18.0 (upstream `main` `05cbddc0`，2026-07-07)
+## 当前版本：v0.18.2 (upstream `main` `79f12748`，2026-07-10)
 
 **活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19 / PATCH-20（共 15 条）。
 
-**最近一次升级（v0.18.0 main 滚动，+36 commit，basis `7426c09b` → `05cbddc0`）要点**：
+**最近一次升级（v0.18.2 main 滚动，+312 commit，basis `05cbddc0` → `79f12748`）要点**：
 
-- 上游主线：Serve/CLI——`hermes serve` 变成真正的 headless backend（`f0f8c84d`）、`hermes -z --usage-file` JSON 用量报告（`7dfd5077`，#59615）、新增 `display.timestamp_format`（`1ea0bbbb`）、`hermes plugins list` 展示 entry-point 插件（`94cdd56b`）、banner skills 宽度自适应终端（`51e6ef5f`）；Compression/Codex——gpt-5.5 autoraise 去重/floor/不下调更高阈值（`fff24089` / `bdca94e7` / `60391d0e`）、gpt-5.4 纳入 272K compaction autoraise（`948993cd`）、gpt-5.3-codex-spark 阈值 70%（`0b6df665`，#48621）、compression timeout floor 防 reasoning 模型回落 marker（`370a489f`，#54915）、codex replay tail budget（`78ee0aa3`）；Auxiliary/Providers——401 时刷新 auto-routed 凭证（`f69e3aad`）、stale fallback-candidate 凭证恢复而非 abort（`d42e9b17`）；TUI——model picker refresh/probe/稳定裸列表、`-m` 不再把模型全局持久化（`70c6ae60`，#59805）；Web/Desktop——dashboard model picker 刷新（`83016547`）、`HERMES_DESKTOP_CWD` 缺省取 cwd（`5431bf29`）；Skills/Docs——`hermes curator usage` 全 skill 用量视图（`586acf53`）、dynamic-workflow orchestration skill 本轮新增后又被整体 revert（`5e5191b9` → `05cbddc0`）、browser provider plugin guide 与 Plugins 子类目/secret-source/1Password guide。
-- patch apply：Step 8 **clean apply**，无 3-way、无冲突；`local-patches.diff` / `.local-patches.base` 刷新到 `05cbddc0`，主要是 index hash 与 hunk 行号漂移。**本轮新增 PATCH-19**（第二 Vertex 账号做 fallback：`vertex-fallback` provider，`agent/vertex_adapter.py` / `hermes_cli/auth.py` / `agent/auxiliary_client.py` 三文件新入 `PATCHED_FILES`，快照 40 → 43 files），升级后追加 **PATCH-20**（Vertex Gemini 3.x 附图走 native vision：`agent/image_routing.py` / `tests/agent/test_image_routing.py` 新入 `PATCHED_FILES`，快照 43 → 45 files），并**修正 PATCH-17**（`build_extra_body` 由双层 `{"extra_body":{"google":…}}` 改单层 `{"google":…}` 根治飞书 thinking 泄漏）；PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20 行为化 sentinel 全 OK，PATCH-2/4/5 上游吸收 guard OK；无新退役。验证：还原到干净 `05cbddc0` 上 `git apply --check patches/local-patches.diff` clean，当前 applied tree 上 `git apply --reverse --check ../patches/local-patches.diff` clean，round-trip 幂等成立；image-routing/vertex/doctor 定向 pytest **188 passed**（仅第三方 audioop deprecation warning）。
-- 依赖：`hermes-agent` editable 重装（版本仍 `0.18.0`，未 bump）；npm root/ui-tui/web 依赖安装，web UI rebuilt；`npm audit` no vulnerabilities；Skills mirror `+0/~0/-4`（含上游 revert 的 dynamic-workflow 及 shop 重命名清理）；内层 `uv.lock` 作为额外 tracked 改动，继续不纳入 `local-patches.diff`。
-- 已知摩擦：本轮 patch clean apply、无冲突、无 launchd/uv 报错；`hermes gateway status` 的 "service definition stale" 提示在本轮 plist 刷新后已消除（升级前存在，属 cosmetic）。
-- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)` 且 `All checks passed`；仅保留未登录 auth provider、未配置 optional tool/API key、Skills Hub 未初始化等可选提示。
+- 上游主线：Gateway/Cron/Delegation——generic OIDC relay provisioning（`f64e4f4f`）、webhook payload filters 与 route scripts offload（`0cf2e39c` / `ae5e3900`）、cron shutdown drain、malformed/id-less/non-dict job containment（`862aee49` / `26f040ef` / `8e2ce435` / `c71d19c`）、delegation async result 归源与 orphan fail-closed（`aab351bf` / `4b27be11` / `75efd739`）；Dashboard/Desktop/TUI/Kanban——session DB/cron/profile I/O off event loop 与 PID/status cache（`9a4341aa` / `24d5bda1` / `49fa04a2`）、mobile OAuth/login/chat reconnect（`3e24b16f` / `0b2b08d5`）、Desktop TypeScript 化与 stored session continuation（`39d09453` / `8e734810`）、kanban headless spawn / retry diagnostics（`e87c495d` / `aea570db` / `77db9d6b`）；Skills/State——skill discovery cache + signature/TTL/per-call copy hardening（`5a424914` / `9e9608ec` / `cbdf87b2`）、session list compact rows 与 descendant CTE dedup/pagination、hygiene compression 不破坏 archived transcript（`22eb1af2` / `1e2ad17a` / `549b87c9`）；Models/Reasoning——xAI Grok 4.5、Tencent Hy3 GA、OpenAI gpt-5.6 / pro variants 完整注册、Kimi/Moonshot cache policy、DeepSeek V4 reasoning floor、compaction 75% floor/summary cap/trace exclusion（`62ada517` / `b64b8021` / `bd767b57` / `a3828a94` / `750c1310` / `1e161206` / `76381e2`）；Tools/Security/Config——JSON/YAML/TOML invalid write fail-closed、YAML syntax-only gate、config parse fail 保留 last-known-good、switch_model 不把新 provider 绑定 stale base_url（`2e1982f` / `6695640` / `fe25806a` / `a23d5073`）。
+- patch apply：首轮 Step 8 整体回贴失败，逐文件定位仅 `agent/prompt_builder.py`、`tools/skill_manager_tool.py`、`tools/skills_tool.py` 需要按新 upstream 重定锚；手工保留上游 skills cache/profile 逻辑并恢复本地 platform allowlist、external skill create root、skill_view 过滤语义。另发现 PATCH-11 新增的 `tools/approval.py` / `tests/tools/test_approval.py` 未列入 `PATCHED_FILES`，被脚本当额外改动 stash；本轮已加入 `PATCHED_FILES` 并把 Feishu group approval hard-block 适配到上游新的 `_run_approval_gate()` 结构。最终补跑到 `79f12748` 后 **clean apply**，47 个 patched file 全部刷新，PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20 sentinel 全 OK，PATCH-2/4/5 上游吸收 guard OK；无新退役。
+- 依赖：`hermes-agent` editable 从 `0.18.0` 升到 `0.18.2 (2026.7.7.2)`；npm root/ui-tui/web 依赖安装 + web UI rebuilt；`npm audit` no vulnerabilities；首次升级 bundled skills 更新 `hermes-agent`，Skills mirror `+0/~0/-4`，幂等复跑 mirror `+0/~0/-1`；lazy backend `platform.matrix` 仍有 upstream pip install 失败，保留既有版本。
+- 已知摩擦：首轮有 npm `allow-scripts` 提示（`agent-browser` / `esbuild` / `fsevents` / `unicode-animations`，非阻塞）；首轮 patch 未回贴时 doctor 暂报 `provider: vertex` 未识别，补丁回贴并重启 gateway 后恢复；脚本保留了 `stash@{0}`（`hermes-update-extra-20260710-004821`）作为手动恢复保险，内容已纳入当前 patch 管理，未再 pop/drop。
+- 配置漂移：最终 `hermes doctor` 显示 `Config version up to date (v33)` 且 `All checks passed`；gateway launchd plist matches current install，PID `95563` 受 launchd 监管；仅保留未登录 auth provider、未配置 optional tool/API key、Skills Hub 未初始化等可选提示。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -300,37 +300,37 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-11] 平台级 skill allowlist 与只读 skill 工具集
+### [PATCH-11] 平台级 skill allowlist、只读工具集与群聊审批硬拦
 
-| 字段     | 内容                                                                                                                                                                                                                                                       |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/skill_utils.py`, `agent/prompt_builder.py`, `tools/skills_tool.py`, `tests/tools/test_skills_tool.py`, `toolsets.py`, `tests/hermes_cli/test_skills_config.py`, `tests/hermes_cli/test_tools_config.py`, `website/docs/user-guide/configuration.md` |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                              |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                            |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/skill_utils.py`, `agent/prompt_builder.py`, `tools/skills_tool.py`, `tests/tools/test_skills_tool.py`, `toolsets.py`, `tools/approval.py`, `tests/tools/test_approval.py`, `tests/hermes_cli/test_skills_config.py`, `tests/hermes_cli/test_tools_config.py`, `website/docs/user-guide/configuration.md` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                   |
 
-**问题**：`skills.disabled` 只能做全局/平台禁用，无法表达“群聊只允许少数安全 skill，但私聊保持不受限”。同时上游 `skills` toolset 同时包含 `skills_list`、`skill_view`、`skill_manage`；群聊只想读取 `llm-wiki` 时，如果直接启用 `skills`，会把写/改 skill 的 `skill_manage` 也暴露给群成员。
+**问题**：`skills.disabled` 只能做全局/平台禁用，无法表达“群聊只允许少数安全 skill，但私聊保持不受限”。同时上游 `skills` toolset 同时包含 `skills_list`、`skill_view`、`skill_manage`；群聊只想读取 `llm-wiki` 时，如果直接启用 `skills`，会把写/改 skill 的 `skill_manage` 也暴露给群成员。2026-07-10 复盘 Feishu 群聊视频测试时发现第二个边界洞：群聊 sandbox 虽会先拦非法 `terminal`（如 `ffprobe`、`python3 -c`、复合命令），但若某条群聊 terminal 调用进入 dangerous-command approval 流，`tools/approval.py` 只按“gateway session”发送审批卡，没有再区分 owner DM 与 group/channel。实际日志中 `AI 解放生产力` 群 session 出现 `Feishu button resolved 1 approval(s)`，且第一次 `once` 后 terminal 确实继续执行；这等于让群聊参与者用审批按钮升级群聊终端权限。
 
-**修复**：新增 `skills.platform_allowed.<platform>` allowlist。未配置表示保持原行为；配置为空列表表示该平台禁用所有 skill；配置具体名称表示只允许这些 skill。`build_skills_system_prompt`、`skills_list`、`skill_view`、skill config var discovery 都遵守该 allowlist，并优先使用 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，因此 Feishu 群聊能独立使用 `feishu_group` allowlist。新增内部工具集 `skills_readonly`，只包含 `skills_list` 与 `skill_view`，不包含 `skill_manage`。本地分类 skill 的 `category:skill` 规范名也按短名兜底匹配 allowlist，避免配置已允许 `feishu-docs` 时 `skill_view("productivity:feishu-docs")` 被误拒。
+**修复**：新增 `skills.platform_allowed.<platform>` allowlist。未配置表示保持原行为；配置为空列表表示该平台禁用所有 skill；配置具体名称表示只允许这些 skill。`build_skills_system_prompt`、`skills_list`、`skill_view`、skill config var discovery 都遵守该 allowlist，并优先使用 `HERMES_SESSION_PLATFORM_CONFIG_KEY`，因此 Feishu 群聊能独立使用 `feishu_group` allowlist。新增内部工具集 `skills_readonly`，只包含 `skills_list` 与 `skill_view`，不包含 `skill_manage`。本地分类 skill 的 `category:skill` 规范名也按短名兜底匹配 allowlist，避免配置已允许 `feishu-docs` 时 `skill_view("productivity:feishu-docs")` 被误拒。审批层新增 `_is_restricted_feishu_approval_session()`：当当前平台是 Feishu 且 session key 的 chat_type 为 `group` / `forum` / `channel` / `thread` 时，dangerous-command approval 直接返回 `BLOCKED`，不调用 gateway notify、不入 pending queue、不发送 Feishu interactive card；owner DM 审批保持原行为。该硬拦同时接入旧 `check_dangerous_command` 与主路径 `check_all_command_guards`。
 
-**验证**：Step 8b grep `get_allowed_skill_names` 在 `agent/skill_utils.py`、`agent/prompt_builder.py`、`tools/skills_tool.py` 中存在，并 grep `toolsets.py` 中存在 `skills_readonly`、`file_readonly`、`skills_list`、`skill_view`、`read_file`、`search_files`，另 grep `tests/tools/test_skills_tool.py` 中存在 `test_qualified_local_skill_allowed_by_bare_name`。定向测试覆盖空 allowlist 禁用全部 skill、命名 allowlist 只允许指定 skill、qualified 本地分类 skill 按短名通过、`feishu_group` 独立工具集配置，以及内部 `file_readonly` 工具集不会被平台配置过滤。
+**验证**：Step 8b grep `get_allowed_skill_names` 在 `agent/skill_utils.py`、`agent/prompt_builder.py`、`tools/skills_tool.py` 中存在，并 grep `toolsets.py` 中存在 `skills_readonly`、`file_readonly`、`skills_list`、`skill_view`、`read_file`、`search_files`，另 grep `tests/tools/test_skills_tool.py` 中存在 `test_qualified_local_skill_allowed_by_bare_name`，grep `tools/approval.py` 中存在 `_is_restricted_feishu_approval_session`，grep `tests/tools/test_approval.py` 中存在 `test_feishu_group_dangerous_command_does_not_send_approval_card`。定向测试覆盖空 allowlist 禁用全部 skill、命名 allowlist 只允许指定 skill、qualified 本地分类 skill 按短名通过、`feishu_group` 独立工具集配置、内部 `file_readonly` 工具集不会被平台配置过滤，以及 Feishu group dangerous command 直接 `restricted_chat`、不发送审批卡、不入 approval queue。
 
-**上游吸收判断**：如果上游后续提供平台级 skill allowlist 与只读 skill 工具集，且能通过 `feishu_group` 或等价群聊上下文独立约束 skills，可归档本补丁。
+**上游吸收判断**：如果上游后续提供平台级 skill allowlist 与只读 skill 工具集，且能通过 `feishu_group` 或等价群聊上下文独立约束 skills，并且 approval/terminal 权限按 chat_type 区分、群聊不能发 dangerous-command approval，可归档本补丁。
 
 ---
 
 ### [PATCH-12] Feishu 回复不再创建话题（始终普通引用回复）
 
-| 字段     | 内容                                                                  |
-| -------- | --------------------------------------------------------------------- |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_feishu.py` |
-| **状态** | 🟡 未上游合并                                                         |
+| 字段     | 内容                                                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/display_config.py`, `tests/gateway/test_feishu.py`, `tests/gateway/test_display_config.py` |
+| **状态** | 🟡 未上游合并                                                                                                                              |
 
-**问题**：bot 在飞书里的回复会变成一个**话题（Thread）**，嵌在被回复消息下方、像评论而非主消息流里的正常回复。根因有两处叠加：入站处理 `adapter.py` 把 `thread_id = message.thread_id or message.root_id`——飞书普通群里只要消息处于「引用回复链」中 `root_id` 就有值，于是 `source.thread_id` 被填上并随 metadata 透传；出站 `_send_raw_message` 据此 `reply_in_thread = bool(metadata["thread_id"])`，飞书 `im.v1.message.reply` 接口在该标志为真时把回复挂成话题。结果任何引用链中的消息都触发话题化。
+**问题**：bot 在飞书里的回复会变成一个**话题（Thread）**，嵌在被回复消息下方、像评论而非主消息流里的正常回复。初始根因有两处叠加：入站处理 `adapter.py` 把 `thread_id = message.thread_id or message.root_id`——飞书普通群里只要消息处于「引用回复链」中 `root_id` 就有值，于是 `source.thread_id` 被填上并随 metadata 透传；出站 `_send_raw_message` 据此 `reply_in_thread = bool(metadata["thread_id"])`，飞书 `im.v1.message.reply` 接口在该标志为真时把回复挂成话题。2026-07-10 复盘 `AI 解放生产力` 群最近一次 ref 提问时发现老补丁仍有漏口：即使 `reply_in_thread=False` 已生效，gateway 的 streaming / status / interim 路径仍会把 `source.thread_id` 放进 `metadata.thread_id`；当没有有效 `reply_to` 或 reply fallback 时，Feishu adapter 后续 `createMessage` 分支会把该 `thread_id` 当成 `receive_id_type="thread_id"` 投递，仍然落入话题/评论 lane。另一个可见问题是 Feishu 的默认 display tier 会发送 tool progress / interim assistant bubbles；这些中间态可能包含 `_thinking`/草稿式内容，即便最终答案和 provider reasoning 已按 `display.show_reasoning=false` 隐藏。
 
-**修复**：在所有飞书发送的唯一出口 `_send_raw_message` 钉死 `reply_in_thread = False`，并把「引用目标」回退从依赖 `thread_id` 解耦（`effective_reply_to` 改为 `reply_to or metadata["reply_to_message_id"]`，不再要求 `thread_id` 存在）。这样无论普通群还是话题群，bot 都以**普通引用回复**（`message.reply` + `reply_in_thread=False`）跟在被回复消息后面发一条新消息，绝不开话题。入站 `thread_id`（含 `root_id` 回退）保留不动——它仍用于 `reply_to_message_id` 提取与 channel/session 路由，只是不再决定「是否开话题」。
+**修复**：在所有飞书发送的唯一出口 `_send_raw_message` 钉死 `reply_in_thread = False`，并把「引用目标」回退从依赖 `thread_id` 解耦（`effective_reply_to` 改为 `reply_to or metadata["reply_to_message_id"]`，不再要求 `thread_id` 存在）。同时让 Feishu create-message 分支**忽略 generic `metadata.thread_id`**，永远按 `chat_id` / `open_id` / `feishu_user_id:` 投递；有 `metadata.reply_to_message_id` 时仍走普通引用回复，没有有效引用锚点时退回主聊天普通消息，绝不把 metadata thread 当 receive_id。入站 `thread_id`（含 `root_id` 回退）保留不动——它仍用于 `reply_to_message_id` 提取与 channel/session 路由，只是不再决定「是否开话题」。显示层把 Feishu 内置默认收敛为 final-only：`tool_progress=off`、`streaming=false`、`interim_assistant_messages=false`、`long_running_notifications=false`、`busy_ack_detail=false`，避免群聊里出现工具进度/思考草稿中间消息；当前本机 `config.yaml` 也显式加了 `display.platforms.feishu` 覆盖，防止全局 `interim_assistant_messages:true` 抢先级。
 
-**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `reply_in_thread = False`。定向测试覆盖：带 `thread_id` metadata 的回复 `reply_in_thread` 为 False、用 `metadata["reply_to_message_id"]` 作引用目标且不开话题、文档回复同样不开话题（`test_send_never_replies_in_thread_even_with_thread_metadata`、`test_send_uses_metadata_reply_target_without_threading`、`test_send_document_reply_never_uses_thread_flag`）；`tests/gateway/test_feishu.py` 全量 207 passed。
+**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `reply_in_thread = False` 与 `Ignore generic thread metadata on Feishu`，grep `tests/gateway/test_feishu.py` 中存在 `test_send_ignores_thread_metadata_when_no_reply_anchor`，grep `gateway/display_config.py` 中存在 Feishu final-only defaults，grep `tests/gateway/test_display_config.py` 中存在 `test_feishu_defaults_to_final_only`。定向测试覆盖：带 `thread_id` metadata 的回复 `reply_in_thread` 为 False、用 `metadata["reply_to_message_id"]` 作引用目标且不开话题、无 reply anchor 但带 `metadata.thread_id` 时仍 `receive_id_type="chat_id"`、文档回复同样不开话题，以及 Feishu 默认不发 progress/interim/streaming（`test_send_never_replies_in_thread_even_with_thread_metadata`、`test_send_uses_metadata_reply_target_without_threading`、`test_send_ignores_thread_metadata_when_no_reply_anchor`、`test_send_document_reply_never_uses_thread_flag`、`test_feishu_defaults_to_final_only`）。定向测试：`tests/gateway/test_feishu.py` 225 passed，`tests/gateway/test_display_config.py` 53 passed。
 
-**上游吸收判断**：如果上游后续不再把 `root_id` 并入 `thread_id`、或为 Feishu 回复提供「普通引用 vs 话题」开关并默认普通引用，可归档本补丁。
+**上游吸收判断**：如果上游后续不再把 `root_id` 并入 `thread_id`、或为 Feishu 回复提供「普通引用 vs 话题」开关并默认普通引用，且 generic thread metadata 不会被 Feishu adapter 当 topic receive_id，同时 Feishu 群聊默认不展示内部 progress/interim/thinking bubbles，可归档本补丁。
 
 ---
 
@@ -468,20 +468,20 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-20] Vertex Gemini 3.x 附图自动走 native vision
+### [PATCH-20] Vertex Gemini 3.x 附图/附视频自动走 native 多模态
 
-| 字段     | 内容                                                          |
-| -------- | ------------------------------------------------------------- |
-| **文件** | `agent/image_routing.py`, `tests/agent/test_image_routing.py` |
-| **状态** | 🟡 未上游合并                                                 |
+| 字段     | 内容                                                                            |
+| -------- | ------------------------------------------------------------------------------- |
+| **文件** | `agent/image_routing.py`, `tests/agent/test_image_routing.py`, `gateway/run.py` |
+| **状态** | 🟡 未上游合并                                                                   |
 
-**问题**：当前主模型走官方 `provider: vertex` + `google/gemini-3.1-pro-preview`，但 `agent.image_input_mode: auto` 依赖 `_lookup_supports_vision()` 判断主模型是否能原生接收图片。Vertex OpenAI-compatible endpoint 没有 `/models` discovery，`models.dev` 也可能尚未收录新的 Gemini 3.x preview slug，于是 capability 解析为 `None`，auto 路由退回 `text`。群聊/私聊/CLI 附图都会先调用 `vision_analyze` 做文本预分析；而当前安装只有 Vertex 凭据，没有可用 OpenRouter/Nous auxiliary vision backend，日志反复报 `No LLM provider configured for task=vision provider=auto`。Feishu 群聊只是最明显的入口，根因在通用图片路由，不在 Feishu 沙箱或附件下载。
+**问题**：（图片，2026-07-09）当前主模型走官方 `provider: vertex` + `google/gemini-3.1-pro-preview`，但 `agent.image_input_mode: auto` 依赖 `_lookup_supports_vision()` 判断主模型是否能原生接收图片。Vertex OpenAI-compatible endpoint 没有 `/models` discovery，`models.dev` 也可能尚未收录新的 Gemini 3.x preview slug，于是 capability 解析为 `None`，auto 路由退回 `text`。群聊/私聊/CLI 附图都会先调用 `vision_analyze` 做文本预分析；而当前安装只有 Vertex 凭据，没有可用 OpenRouter/Nous auxiliary vision backend，日志反复报 `No LLM provider configured for task=vision provider=auto`。（视频，2026-07-10）图片修好后视频依然"读不了"：上游对视频只有 path-note 流——`gateway/run.py` 把 `[The user sent a video attachment ... saved at <path>]` 注入文本，期望 agent 用自己的工具（ffprobe/ffmpeg）处理。DM 里有 terminal 权限还能凑合；群聊沙箱把 terminal/python 全拦掉（日志：`sandbox: blocked terminal args={'command': 'ffprobe ...'}`），模型手里只有路径、看不到内容，只能回复"无法读取视频"。PATCH-15 的回填/下载层其实工作正常（`Cached message video resource ... .mp4`），断点在送模型这一段。
 
-**修复**：在 `agent/image_routing.py` 新增窄口径 fallback `_known_provider_model_supports_vision(provider, model)`：当 provider 是 `vertex` / `vertex-fallback` / Vertex 常见 alias，且模型名匹配 Gemini 3.x（`gemini-3` / `gemini-pro-3` / `gemini-flash-3`）时返回 `True`；其他 provider/model 仍返回 `None`，继续走现有 config override、models.dev、Ollama probe 逻辑。这样 `image_input_mode: auto` 在 Vertex Gemini 3.x 上选择 `native`，直接把像素交给主模型，不再依赖 auxiliary `vision_analyze`。不把所有 Vertex 模型一概判为 vision-capable，避免扩大权限/能力面。
+**修复**：（图片）在 `agent/image_routing.py` 新增窄口径 fallback `_known_provider_model_supports_vision(provider, model)`：当 provider 是 `vertex` / `vertex-fallback` / Vertex 常见 alias，且模型名匹配 Gemini 3.x（`gemini-3` / `gemini-pro-3` / `gemini-flash-3`）时返回 `True`；其他 provider/model 仍返回 `None`，继续走现有 config override、models.dev、Ollama probe 逻辑。（视频）让视频与图片同路：Vertex OpenAI-compat endpoint 接受任意 GenerateContent MIME 的 `data:` URI 内联在 `image_url` part 中，Gemini 3.x 原生看视频。`image_routing.py` 新增 `decide_video_input_mode`（config 键 `agent.video_input_mode`，默认 auto；auto 下仅 `_known_provider_model_supports_video` 窄白名单 = Vertex + Gemini 3.x 走 native——图片 vision 能力**不可**作为视频能力的代理，且视频没有 shrink-on-reject 补救，故不做乐观默认）、视频 magic-bytes 嗅探（ftyp/EBML/RIFF/FLV/ASF/MPEG-PS，ISO-BMFF 图片 brand 留给图片嗅探器）、`_video_file_to_data_url`（file_safety 守卫 + `NATIVE_VIDEO_MAX_BYTES=14MB` 内联上限 + `_GEMINI_SUPPORTED_VIDEO_MIMES` 白名单，超限/不支持返回 None 走回退）；`build_native_content_parts` 增加 `video_paths` 参数，视频输出 `data:video/*;base64` 的 `image_url` part（shrink recovery 只改写 `data:image/*`，视频 part 天然跳过）+ `[Video attached at: <path>]` hint。`gateway/run.py`：`_decide_image_input_mode` 增加 `kind="video"` 分派；`_prepare_inbound_message_text` 中 `video_paths` 桶按 native/text 分流——native 且 `os.path.getsize ≤ 14MB` 的缓冲进新 session buffer `_pending_native_video_paths_by_session`（消费点与图片 buffer 一起传入 `build_native_content_parts`），超大/非 native 的保留原 path-note 流。群聊沙箱无需放开任何工具。
 
-**验证**：Step 8b grep `agent/image_routing.py` 中存在 `def _known_provider_model_supports_vision` 与 `"vertex-fallback"`，grep `tests/agent/test_image_routing.py` 中存在 `gemini-3.1-pro-preview` 和 `test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry`。单测 `venv/bin/python -m pytest tests/agent/test_image_routing.py -q` 101 passed。当前真实配置验证：`_lookup_supports_vision("vertex", "google/gemini-3.1-pro-preview") == True`，`decide_image_input_mode(...) == "native"`；`check_vision_requirements == False` 仍符合预期，表示独立辅助 `vision_analyze` 没有 OpenRouter/Nous 后端，但用户直接附图不再需要它。
+**验证**：Step 8b grep `agent/image_routing.py` 中存在 `def _known_provider_model_supports_vision`、`"vertex-fallback"`、`def decide_video_input_mode`，grep `gateway/run.py` 中存在 `_pending_native_video_paths_by_session`，grep `tests/agent/test_image_routing.py` 中存在 `gemini-3.1-pro-preview`、`test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry`、`test_video_attached_as_data_url_part`。单测 `venv/bin/python -m pytest tests/agent/test_image_routing.py -q` 118 passed（视频新增 17）；`tests/agent/test_image_routing.py + tests/gateway/test_feishu.py + tests/gateway/test_config.py + tests/hermes_cli/test_doctor.py` 共 496 passed。真实配置验证：`decide_video_input_mode("vertex"/"vertex-fallback", "google/gemini-3.1-pro-preview", cfg) == "native"`；用群里实际缓存的 11MB `iShot_*.mp4` 构造 parts 成功（`data:video/mp4;base64,` 14.7MB data URL + hint）。真机：群聊引用视频/发视频后 @机器人，`logs/agent.log` 应出现 `Video routing: native ...` 且模型能描述视频内容。
 
-**上游吸收判断**：若上游模型能力 catalog 原生覆盖 Vertex Gemini 3.x preview，或 provider profile / image routing 能从 Vertex profile 推断 Gemini 3.x vision support，可归档本补丁。
+**上游吸收判断**：若上游模型能力 catalog 原生覆盖 Vertex Gemini 3.x preview（含视频输入能力），或上游为用户附件提供通用的 native video 路由（等价 `video_input_mode`），可归档本补丁。
 
 ---
 

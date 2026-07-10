@@ -275,6 +275,13 @@ display:
   tool_progress_grouping: accumulate
   ephemeral_system_ttl: 0
   platforms:
+    feishu:
+      tool_progress: off
+      streaming: false
+      interim_assistant_messages: false
+      long_running_notifications: false
+      busy_ack_detail: false
+      thinking_progress: false
     telegram:
       streaming: true
     discord:

@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.18.0 / main 05cbddc0, `hermes completion zsh` already emits the
+# As of v0.18.2 / main 79f12748, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -64,6 +64,7 @@ PATCHED_FILES=(
     "website/docs/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
     "gateway/config.py"
+    "gateway/display_config.py"
     "plugins/platforms/feishu/adapter.py"
     "gateway/run.py"
     "gateway/session.py"
@@ -73,6 +74,8 @@ PATCHED_FILES=(
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
+    "tools/approval.py"
+    "tests/tools/test_approval.py"
     "tools/skills_tool.py"
     "tests/tools/test_skills_tool.py"
     "toolsets.py"
@@ -82,6 +85,7 @@ PATCHED_FILES=(
     "tests/tools/test_file_operations.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
+    "tests/gateway/test_display_config.py"
     "tests/gateway/test_feishu.py"
     "tests/gateway/test_feishu_bot_admission.py"
     "tests/gateway/test_feishu_bot_auth_bypass.py"
@@ -742,7 +746,9 @@ PROMPT_BUILDER_PY="${HERMES_AGENT}/agent/prompt_builder.py"
 SKILLS_TOOL_PY="${HERMES_AGENT}/tools/skills_tool.py"
 SKILLS_TOOL_TEST_PY="${HERMES_AGENT}/tests/tools/test_skills_tool.py"
 TOOLSETS_PY="${HERMES_AGENT}/toolsets.py"
-if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${SKILLS_TOOL_TEST_PY}" && -f "${TOOLSETS_PY}" ]]; then
+APPROVAL_PY="${HERMES_AGENT}/tools/approval.py"
+APPROVAL_TEST_PY="${HERMES_AGENT}/tests/tools/test_approval.py"
+if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${SKILLS_TOOL_TEST_PY}" && -f "${TOOLSETS_PY}" && -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
     if grep -q 'get_allowed_skill_names' "${SKILL_UTILS_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${PROMPT_BUILDER_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${SKILLS_TOOL_PY}" 2>/dev/null &&
@@ -752,28 +758,39 @@ if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_P
         grep -q 'skill_view' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'skills_list' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'read_file' "${TOOLSETS_PY}" 2>/dev/null &&
-        grep -q 'search_files' "${TOOLSETS_PY}" 2>/dev/null; then
-        ok "Feishu/group skill allowlist patch: active (per-platform skill allowlist + read-only skills/file toolsets)"
+        grep -q 'search_files' "${TOOLSETS_PY}" 2>/dev/null &&
+        grep -q '_is_restricted_feishu_approval_session' "${APPROVAL_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_dangerous_command_does_not_send_approval_card' "${APPROVAL_TEST_PY}" 2>/dev/null; then
+        ok "Feishu/group skill allowlist patch: active (per-platform skill allowlist + read-only skills/file toolsets + group approval hard-block)"
         _FEISHU_SKILL_SCOPE_PATCH_OK=true
     else
         warn "Feishu/group skill allowlist patch inactive or partial"
         add_act "Re-apply: see PATCHES.md § [PATCH-11] per-platform skill allowlist"
     fi
 else
-    warn "Could not locate skill scope files — skipping skill allowlist patch check"
+    warn "Could not locate skill scope/approval files — skipping skill allowlist patch check"
 fi
 
-# PATCH-12: Feishu replies must never create a topic/thread (always normal quote-reply)
-if [[ -f "${FEISHU_PY}" ]]; then
-    if grep -q 'reply_in_thread = False' "${FEISHU_PY}" 2>/dev/null; then
-        ok "Feishu no-thread reply patch: active (reply_in_thread forced False — normal quote-reply only)"
+# PATCH-12: Feishu replies must never create a topic/thread (always normal
+# quote-reply, and generic metadata.thread_id must not become receive_id_type
+# thread_id). Feishu also defaults to final-only display so internal thinking /
+# interim status bubbles do not show up in group chats.
+DISPLAY_CONFIG_PY="${HERMES_AGENT}/gateway/display_config.py"
+DISPLAY_CONFIG_TEST_PY="${HERMES_AGENT}/tests/gateway/test_display_config.py"
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" ]]; then
+    if grep -q 'reply_in_thread = False' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'Ignore generic thread metadata on Feishu' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_send_ignores_thread_metadata_when_no_reply_anchor' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q '"feishu":          {' "${DISPLAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_defaults_to_final_only' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null; then
+        ok "Feishu no-thread reply patch: active (reply_in_thread false, thread metadata ignored, final-only defaults)"
         _FEISHU_NO_THREAD_PATCH_OK=true
     else
-        warn "Feishu no-thread reply patch inactive"
+        warn "Feishu no-thread reply patch inactive or partial"
         add_act "Re-apply: see PATCHES.md § [PATCH-12] Feishu replies never create a thread"
     fi
 else
-    warn "Could not locate Feishu adapter — skipping no-thread reply patch check"
+    warn "Could not locate Feishu/display files — skipping no-thread reply patch check"
 fi
 
 SESSION_PY="${HERMES_AGENT}/gateway/session.py"
@@ -946,14 +963,21 @@ fi
 # dynamic model catalog lacks the preview slug. Otherwise image_input_mode:auto
 # routes attached images through auxiliary vision_analyze, which fails on
 # Vertex-only installs without OpenRouter/Nous auxiliary credentials.
+# Also covers native video routing: user-attached videos ride the same
+# image_url data-URI path (decide_video_input_mode + gateway video buffering)
+# so sandboxed group chats can see video without terminal tools.
 IMAGE_ROUTING_PY="${HERMES_AGENT}/agent/image_routing.py"
 IMAGE_ROUTING_TEST_PY="${HERMES_AGENT}/tests/agent/test_image_routing.py"
-if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" ]]; then
+GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${GATEWAY_RUN_PY}" ]]; then
     if grep -q 'def _known_provider_model_supports_vision' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q '"vertex-fallback"' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q 'def decide_video_input_mode' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q '_pending_native_video_paths_by_session' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'gemini-3.1-pro-preview' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
-        ok "Vertex Gemini vision routing patch: active (Gemini 3.x routes attached images natively)"
+        grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_video_attached_as_data_url_part' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
+        ok "Vertex Gemini vision routing patch: active (Gemini 3.x routes attached images + videos natively)"
         _VERTEX_VISION_ROUTING_PATCH_OK=true
     else
         warn "Vertex Gemini vision routing patch inactive or partial"

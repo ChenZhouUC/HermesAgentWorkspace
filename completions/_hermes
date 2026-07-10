@@ -468,7 +468,7 @@ _hermes() {
                     'archive:Bulk-archive (soft-hide) sessions matching filters — no dele'
                     'browse:Interactive session picker — browse, search, and resume sess'
                     'delete:Delete a specific session'
-                    'export:Export sessions to a JSONL file'
+                    'export:Export sessions to JSONL, Markdown, or QMD'
                     'list:List recent sessions'
                     'optimize:Reclaim disk space: merge FTS5 segments + VACUUM (no data ch'
                     'prune:Delete old sessions (filterable by time window, source, titl'
