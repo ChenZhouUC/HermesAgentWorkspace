@@ -1,7 +1,7 @@
 ---
 title: Network Centrality Algorithms (网络中心性算法)
 created: 2026-05-17
-updated: 2026-06-29
+updated: 2026-07-11
 type: concept
 tags: [algorithm, math, wiki]
 sources: [_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics.md]
@@ -58,7 +58,3 @@ confidence: high
 ## 社区发现与审计用途
 
 Louvain、Leiden、Label Propagation 等社区发现算法可以根据边密度识别主题簇。对大型 vault 来说，它们适合发现自然主题域、跨主题桥接节点、错误归类页面和可能需要拆分的大主题。但社区边界会被目录页、模板链接、标签建模和过滤规则影响，因此应作为审计线索，而不是最终分类真理。^[[[_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics|Obsidian-Knowledge-Base-Mechanics]]]
-
-**相关工具应用**:
-
-- 该算法组被深度集成于现代笔记图谱引擎中：[[obsidian]]

@@ -1,7 +1,7 @@
 ---
 title: 推理时计算扩展 (Test-Time Compute Scaling)
 created: 2026-05-24
-updated: 2026-05-24
+updated: 2026-07-11
 type: concept
 tags: [llm, reasoning, paper]
 sources: [_living/AI-Infrastructure/LLM-Reasoning-Thinking-and-Effort.md]
@@ -34,12 +34,3 @@ confidence: high
 ## 局限与边界
 
 推理时算力并非越多越好——存在过度思考与逆向扩展现象，详见 [[reasoning-effort-control]]。这一范式也改变了基准测试的计算口径：评测必须固定或报告推理预算才公平，相关方法学见 [[llm-benchmark-methodology]]。
-
----
-
-**相关概念**:
-
-- [[chain-of-thought]]
-- [[reasoning-effort-control]]
-- [[reasoning-model-apis]]
-- [[llm-benchmark-methodology]]

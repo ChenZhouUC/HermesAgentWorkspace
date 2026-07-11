@@ -1,7 +1,7 @@
 ---
 title: TRAJEX vs HIDALGO (ReID 系统的感知层与计算层分工对比)
 created: 2026-05-26
-updated: 2026-07-01
+updated: 2026-07-11
 type: comparison
 tags: [comparison, computer-vision, reid, architecture]
 sources:
@@ -67,15 +67,3 @@ confidence: high
 - 广告检索：感知层做 embedding 召回，计算层做精排——和 ReID 同构。
 
 把"何时拆"这个问题工程化成"GPU/CPU 工作负载形态 + 时序/批式 SLO 差异 + 模型/策略迭代节奏差异"三维评分，几乎在任何 ML 数据管线选型中都能复用。
-
----
-
-**相关概念**:
-
-- [[trajex|TRAJEX]]
-- [[hidalgo|HIDALGO]]
-- [[reid-pipeline]]
-- [[reid-library-lookup]]
-- [[multi-stage-clustering]]
-- [[schema-as-handoff-contract]]
-- [[model-shadow-deployment]]

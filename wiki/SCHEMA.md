@@ -1,7 +1,7 @@
 ---
 title: Wiki Schema
 created: 2026-05-14
-updated: 2026-07-01
+updated: 2026-07-11
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -23,7 +23,7 @@ AI 算法工程与统计学习 (Algorithm Engineering & Statistical Learning)
   - **Living Sources:** `_living/**`。用户私有手写、持续更新的运维知识与研究笔记；由用户维护，Agent 不主动污染正文或添加图谱链接。
   - **Raw Reference Sources:** `raw/**`。承载具有**公开版本属性**的外部内容——互联网网页、论文、书籍、杂志期刊等；用于给 Layer 2 提供可复核的外部引用锚点，推荐保留来源 URL、访问/发布日期与 sha256 校验以追踪版本。
 - **Layer 2 / Active Knowledge Nodes:** `entities/*.md`、`concepts/*.md`、`comparisons/*.md`、`queries/*.md`。这些页面由 Agent 维护，必须满足下文全部硬约束。
-- **Meta Pages:** `SCHEMA.md`、`index.md`、`log.md`。这些页面也必须有 frontmatter，但不参与 Layer 2 节点计数。
+- **Meta Pages:** `SCHEMA.md`、`index.md`、`log.md`。这些页面也必须有 frontmatter，但不参与 Layer 2 节点计数或语义 wikilink 网络；它们之间以及其他页面指向它们的导航使用纯文本 / 代码路径，不使用普通 wikilink。
 - **Archive Pages:** `_archive/**/*.md`。归档页不属于 active graph，不得继续作为 Layer 2 的正常目标节点被引用。
 
 ## Maintenance Entry Checklist (运维入口检查)
@@ -46,7 +46,7 @@ AI 算法工程与统计学习 (Algorithm Engineering & Statistical Learning)
 - Active Layer 2 页面使用 `\[\[wikilinks\]\]` 进行图谱连线；**鼓励**每页至少 2 个**已解析**出链以维持图连通性，但若严格遵守"关联谨慎保守原则"后只能给出 0 或 1 条强关联，则保留少链优于强加弱链（详见 `Layer 2 Graph Invariants` 章节）。指向 Layer 1（`_living/` / `raw/`）的溯源脚注**不计入**出链数。
 - Active Layer 2 页面中，所有非代码块/非行内代码中的 `\[\[wikilinks\]\]` 都必须能解析到现存页面；**禁止 unresolved links**
 - Active Layer 2 页面更新正文、frontmatter、slug 或出链时，必须同步更新 `updated` 字段
-- 所有 Active Layer 2 页面必须注册到 `index.md` 的对应区块下，且**恰好出现一次**
+- 所有 Active Layer 2 页面必须注册到 `index.md` 的对应区块下，且**恰好出现一次**；登记行以带类型目录的行内代码路径开头（如 `entities/slug.md`），后接一句话摘要，不得使用 wikilink，以免索引页成为语义图谱的伪中心节点
 - create / rename / replace / split / merge / archive / delete 这类核心操作需记录到 `log.md`；同一天的多项维护按 `Daily Log Policy` 合并到当天唯一条目
 - **Provenance markers (溯源标记):** 两种语法按目标层级选择：
   - 指向 `_living/` 私有文档：使用紧凑内联脚注 `^[[[_living/path/to/file|显示别名]]]`（详见 `Living Documents Policy` 第 4 条的红线约束）。
@@ -157,6 +157,14 @@ _新增标签前必须在此处注册_
 - Active Layer 2 页面不得引用零字节节点、根目录幽灵页或已被替换的旧 slug
 - 已归档节点不得继续作为 active 页面中的正常关联目标
 - **关联谨慎保守原则 (Conservative Linking)**：仅在两个节点之间存在**明显、可在 body 中具体陈述**的语义关系时才建立 wikilink。**禁止**仅凭"同一主题词"、"都属于 AI 领域"等抽象共性主观臆断地连接两个节点。判据：如果要在 body 里描述这条关联，找不到一句可以具体说出关系本质的话（如"是 X 的父类"、"由 Y 提出"、"被 Z 实现"、"与 W 互为选型替代"），则**不应建立**该 wikilink。本原则的强度优先于 SCHEMA 中"每页至少 2 个出链"的软性建议——宁可少链不连错。
+- **正文优先，不建页尾凑数边**：关系应出现在能够解释其语义的正文句子中；禁止仅为反向链接、对称性、连通率或凑足出链数而维护无解释的 `Related / 相关概念` 页尾清单。正文已存在同目标链接时，不再在页尾重复一次。
+
+### Meta Graph Isolation
+
+- Meta 页面是运维载体，不是知识节点，不得通过普通 wikilink 进入语义网络。
+- `index.md` 使用带目录的代码路径登记 Active Layer 2 节点，不使用 wikilink；该注册表由 lint 解析并验证。
+- `log.md` 只记录纯文本或代码路径，不得包含普通 wikilink；任何 Wiki 页面也不得用普通 wikilink 指向 `log.md`。
+- `SCHEMA.md` 中若需展示 wikilink 语法，必须转义或放入代码块 / 行内代码，不能产生真实图边。
 
 ## Node Lifecycle (节点生命周期)
 
@@ -223,9 +231,10 @@ python3 scripts/wiki_lint.py
 12. `_living/` 文档不得包含图谱 wikilinks 或语义型 frontmatter 字段（如 `type`, `tags`, `concepts`）
 13. `_living/` 一级分类目录必须符合 2–3 词段 kebab-case 主题命名规则
 14. `log.md` 顶层维护日志必须按 `Daily Log Policy` 使用同一日期唯一的 `## [YYYY-MM-DD] daily | ...` 条目
-15. Obsidian 本地启用插件清单必须与 `wiki/.obsidian/plugins/*/manifest.json` 保持一致
-16. `SCHEMA.md` 的 Tag Taxonomy 与 Validation Invariants 必须和 `scripts/wiki_lint.py` 的 fallback 标签集与默认检查清单保持一致
-17. Active graph 的 wikilink 目标、index 登记 slug、`contradictions` slug 与本地 `sources` 路径必须使用与真实文件完全一致的大小写；不得依赖大小写不敏感文件系统自动兜底
+15. Meta 页面不得包含真实图谱 wikilink，任何 Wiki 页面也不得用普通 wikilink 指向 Meta 页面；`index.md` 必须使用代码路径而非 wikilink 注册 Active Layer 2 节点
+16. Obsidian 本地启用插件清单必须与 `wiki/.obsidian/plugins/*/manifest.json` 保持一致
+17. `SCHEMA.md` 的 Tag Taxonomy 与 Validation Invariants 必须和 `scripts/wiki_lint.py` 的 fallback 标签集与默认检查清单保持一致
+18. Active graph 的 wikilink 目标、index 登记 slug、`contradictions` slug 与本地 `sources` 路径必须使用与真实文件完全一致的大小写；不得依赖大小写不敏感文件系统自动兜底
 
 ### Lint Co-evolution Policy (校验工具随 Schema 演进)
 
@@ -248,6 +257,7 @@ python3 scripts/wiki_lint.py
 3. **保留可审计信息**：合并后仍需保留 Trigger / Actions / Boundary / Verification 等关键信息；不得为了压缩条目而丢失核心操作、删除/归档/重命名记录或校验结果。
 4. **跨日不回填**：跨自然日的维护必须新开对应日期条目，不把今天的操作写回昨天，也不把昨天的未提交事项并入今天除非今天实际完成了复核或修复。
 5. **报告口径**：最终汇报可按当天 daily 条目的子段概括，不需要逐条复述所有小修。
+6. **图谱隔离**：日志正文只使用纯文本或代码路径记录节点与文件，不使用普通 wikilink，也不接受其他页面的 wikilink 导航；日志可审计性不得依赖图谱反向链接。
 
 ### Obsidian Carrier Maintenance (载体插件运维)
 

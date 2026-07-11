@@ -1,7 +1,7 @@
 ---
 title: LMM Input Mechanics
 created: 2026-05-15
-updated: 2026-05-15
+updated: 2026-07-11
 type: concept
 tags: [vlm, architecture, agent]
 sources: [_living/AI-Infrastructure/LMM-Input-Mechanics.md]
@@ -10,7 +10,7 @@ confidence: high
 
 # LMM Input Mechanics
 
-The mechanism by which Large Multimodal Models (LMMs) process user inputs (like Markdown with embedded media) into underlying mathematical tokens.
+The mechanism by which Large Multimodal Models (LMMs) process user inputs (like Markdown with embedded media) into underlying mathematical tokens. It describes the model-side processing that sits beneath [[markdown-llm-protocol|Markdown-based LLM interaction protocols]].
 
 ## Architecture Evolution
 
@@ -36,7 +36,3 @@ LMM APIs do not parse Markdown UI sugar natively. Agents must:
 1. Parse the AST to identify media links.
 2. Extract and upload files to get system URIs.
 3. Construct a standard JSON Payload (Multi-part Array) preserving the chronological interleave of text and media. ^[[[_living/AI-Infrastructure/LMM-Input-Mechanics|LMM-Input-Mechanics]]]
-
-**Related:**
-
-- [[markdown-llm-protocol]]

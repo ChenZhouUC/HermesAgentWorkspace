@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-07-02
+updated: 2026-07-11
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,20 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-07-11] daily | Wiki graph structure audit
+
+### audit | Conservative graph cleanup and Meta isolation
+
+- Trigger: 用户要求完整审计 Wiki 结构，避免 `log.md` 等运维页面进入语义网络，并清理牵强连接、冗余关系及过度提取节点。
+- Actions:
+  - 完整复核 `SCHEMA.md`、42 个 Active Layer 2 节点、`index.md`、`log.md` 与现有 lint 规则。
+  - 将 Meta 页面排除在语义 wikilink 网络之外；`index.md` 注册表改用带目录的代码路径，历史日志中的真实 wikilink 改为行内代码示例或纯文本路径。
+  - 删除页尾仅用于反链、对称性或连通度的 `Related / 相关概念` 清单，保留正文中能够具体解释关系的链接。
+  - 删除过薄且依附 RuView 才成立的 `entities/esp32-s3.md`，以及与既有 concept 内容高度重复的 `comparisons/reid-embedding-model-families.md`；对应信息仍保留在母体节点中。
+  - 收紧 Agent、Benchmark 与 ReID 集群中的间接或传递性连接，不为孤立节点强加弱边。
+- Boundary: 未 ingest 或重写 `_living` 原材料；`SpaceSight-QA-List.md` 保持当前未 ingest 状态。未修改用户已有的 Obsidian 插件配置变更。
+- Verification: `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json` 均通过 18 项检查；Meta 页面真实 wikilink 为 0，`index.md` 恰好登记 40 个 Active 节点，无断链、跨层链接或残留页尾 Related 清单。
 
 ## [2026-07-02] daily | SpaceSight Edge ALGO Integration
 
@@ -298,7 +312,7 @@ confidence: high
 - 触发：用户要求调研 ReID 特征向量模型现状（FastReid 已用过，关心 ViT 等新 SOTA），并落地到 \_living + Layer 2
 - 调研路径：WebSearch 拉取近年 ReID 特征模型现状（FastReid / TransReID / SOLIDER / CLIP-ReID / PersonViT / LUPerson / DINOv2 / ViT 边缘部署），覆盖学术 SOTA + 实战部署 + 跨域泛化三个维度
 - 新建 `_living/Whale-SpaceSight/ReID-Embedding-Models.md`：技术谱系（BoT/FastReid → TransReID → SOLIDER/CLIP-ReID → PersonViT）、选型决策框架（域泛化/算力/微调成本/遮挡）、部署约束（TensorRT 延迟、256×128 输入、跨域掉点幅度）、评估方法学局限（学术数据集 vs 零售门店的 domain gap）
-- Layer 2 提炼：新增 `concepts/reid-embedding-models.md`——独立的"特征提取器"主题，与 [[reid-pipeline]]（管线架构）解耦；颗粒度对齐现有"技术谱系类" concepts（chain-of-thought / test-time-compute-scaling）；无 entity（无专有产品名）
+- Layer 2 提炼：新增 `concepts/reid-embedding-models.md`——独立的"特征提取器"主题，与 `[[reid-pipeline]]`（管线架构）解耦；颗粒度对齐现有"技术谱系类" concepts（chain-of-thought / test-time-compute-scaling）；无 entity（无专有产品名）
 - 关联性：与 ReID 三角连成"四点闭合"——`reid-embedding-models ↔ reid-pipeline / multi-stage-clustering / customer-flow-post-processing`；body 内显式引用前两者
 - 索引同步：`index.md` Concepts 区按字母序插入；`Total pages` 24 → 25
 - 内容控制：调研结果包含学术 mAP 数字（用以体现谱系差异）；本次不强行剔除——这些是"可复现的学术事实"而非"项目内部实现细节"，与之前 ReID Layer 1 脱敏的初衷不冲突
@@ -385,7 +399,7 @@ confidence: high
   - `comparisons/online-vs-offline-reid-compute-split` — 与 TRAJEX-vs-HIDALGO 高度重叠
   - `queries/where-do-reid-features-come-from` — 太薄，不构成 SOP
 - 反向链补充（按 Conservative Linking，仅在 body 有显式陈述时建立）：
-  - `concepts/reid-pipeline.md` body 中"上游感知层"段引入 [[trajex|TRAJEX]] 与 [[reid-library-lookup]]；Related 区新增 [[trajex|TRAJEX]]、[[trajex-vs-hidalgo|TRAJEX vs HIDALGO]]
+  - `concepts/reid-pipeline.md` body 中"上游感知层"段引入 `[[trajex|TRAJEX]]` 与 `[[reid-library-lookup]]`；Related 区新增 `[[trajex|TRAJEX]]`、`[[trajex-vs-hidalgo|TRAJEX vs HIDALGO]]`
 - 索引同步：`index.md` Entities/Concepts/Comparisons/Queries 四个区都新增条目；`Total pages` 26 → 32
 - `wiki_lint: OK`
 

@@ -1,7 +1,7 @@
 ---
 title: SpaceSight
 created: 2026-07-01
-updated: 2026-07-01
+updated: 2026-07-11
 type: entity
 tags: [spacesight, product-management, computer-vision]
 sources:
@@ -31,11 +31,3 @@ SpaceSight 相关问题通常分三类：
 
 - [[diagnose-spacesight-traffic-count-mismatch]]
 - [[design-spacesight-nonstandard-traffic-plan]]
-
-**相关概念**:
-
-- [[edge-algo|Edge ALGO]]
-- [[reid-pipeline]]
-- [[customer-flow-post-processing]]
-- [[edge-sophon]]
-- [[edge-rk3576]]

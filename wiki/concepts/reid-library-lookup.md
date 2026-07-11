@@ -1,7 +1,7 @@
 ---
 title: ReID Library Lookup (库查询作为特征提取阶段)
 created: 2026-05-26
-updated: 2026-07-01
+updated: 2026-07-11
 type: concept
 tags: [computer-vision, reid, algorithm]
 sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md]
@@ -56,13 +56,3 @@ confidence: high
 学术 ReID（Market-1501 等）默认 query/gallery 闭集——所有身份都有底库样本。零售场景是混合范式：**店员/外卖/快递/保安是闭集（有底库）+ 顾客是开集（每天都有新身份）**。把闭集那一半交给库查询、开集那一半交给聚类，是符合数据本质的工程拆分。
 
 特征模型选型详见 [[reid-embedding-models]]——库查询的精度直接受底库特征模型质量影响。
-
----
-
-**相关概念**:
-
-- [[reid-pipeline]]
-- [[hidalgo|HIDALGO]]
-- [[multi-stage-clustering]]
-- [[reid-embedding-models]]
-- [[trajex|TRAJEX]]

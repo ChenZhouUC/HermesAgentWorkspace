@@ -1,7 +1,7 @@
 ---
 title: ReID Pipeline (行人重识别系统流水线)
 created: 2026-05-25
-updated: 2026-07-01
+updated: 2026-07-11
 type: concept
 tags: [computer-vision, reid, pipeline, architecture]
 sources: [_living/Whale-SpaceSight/ReID-Pipeline-Architecture.md]
@@ -92,14 +92,3 @@ Database  ─▶ Schema    ─▶ Table      ─▶ Partition ─▶ Column
 ## 多层级聚合
 
 ReID 单纯靠 Embedding 单阶段聚类性能不够，门店间方差极大；必须采用按"由严到松、由同向到异向、由轨迹到批次"分多层 tier 的策略，详见 [[multi-stage-clustering]]。
-
----
-
-**相关概念**:
-
-- [[customer-flow-post-processing]]
-- [[edge-algo|Edge ALGO]]
-- [[hidalgo|HIDALGO]]
-- [[multi-stage-clustering]]
-- [[trajex|TRAJEX]]
-- [[trajex-vs-hidalgo|TRAJEX vs HIDALGO]]

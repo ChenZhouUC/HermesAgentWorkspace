@@ -1,7 +1,7 @@
 ---
 title: TRAJEX (ReID 感知层服务)
 created: 2026-05-26
-updated: 2026-07-01
+updated: 2026-07-11
 type: entity
 tags: [computer-vision, reid, pipeline, ops]
 sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md]
@@ -40,15 +40,3 @@ TRAJEX 包含三个独立运维面：
 - **告警服务**：扫描"未匹配设备"集合，按组织分发告警。
 
 回放工具链分三种：定时补漏、人工重跑、缓存重建；其中人工重跑绕过去重，缓存重建只修复去重态、不重算特征。
-
----
-
-**相关概念**:
-
-- [[edge-algo|Edge ALGO]]
-- [[reid-pipeline]]
-- [[hidalgo|HIDALGO]]
-- [[trajex-vs-hidalgo|TRAJEX vs HIDALGO]]
-- [[reid-library-lookup]]
-- [[model-shadow-deployment]]
-- [[schema-as-handoff-contract]]

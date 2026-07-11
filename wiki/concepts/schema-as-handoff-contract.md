@@ -1,7 +1,7 @@
 ---
 title: Schema as Handoff Contract (DDL 作为生产者/消费者契约)
 created: 2026-05-26
-updated: 2026-07-01
+updated: 2026-07-11
 type: concept
 tags: [architecture, ops, pipeline]
 sources: [_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX.md]
@@ -64,12 +64,3 @@ DDL 契约的特殊优势：
 ## 与影子部署的协同
 
 [[model-shadow-deployment|配对特征轴影子部署]]本质上是这套模式的一个特例：生产者用"双特征轴写入"在 schema 内部演化模型版本，消费者通过修改"读哪一组字段"完成 cutover，无需 schema 大版本变更。两个模式叠加后，整条管线的版本演化几乎可以做到"全部在配置层完成"。
-
----
-
-**相关概念**:
-
-- [[trajex|TRAJEX]]
-- [[hidalgo|HIDALGO]]
-- [[reid-pipeline]]
-- [[model-shadow-deployment]]

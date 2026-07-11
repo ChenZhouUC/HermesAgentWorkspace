@@ -30,8 +30,11 @@ INDEX_SECTIONS = {
     "Queries": "queries",
 }
 
+INDEX_ENTRY_RE = re.compile(r"^- `(entities|concepts|comparisons|queries)/([a-z0-9]+(?:-[a-z0-9]+)*)\.md` - .+$")
+
 META_FILES = {"SCHEMA.md", "index.md", "log.md"}
 META_SLUGS = {Path(name).stem for name in META_FILES}
+META_SLUGS_CASEFOLD = {slug.casefold() for slug in META_SLUGS}
 ACTIVE_FILENAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 LIVING_TOPIC_DIR_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+){1,2}$")
 LIVING_SEMANTIC_FIELDS = {"type", "tags", "concepts", "links", "aliases", "category"}
@@ -170,6 +173,10 @@ CHECKS = (
     (
         "log.md uses one daily top-level maintenance entry per date",
         ("invalid_log_headings", "duplicate_log_dates"),
+    ),
+    (
+        "Meta pages are isolated from the semantic wikilink graph",
+        ("meta_graph_wikilinks", "meta_graph_inbound_wikilinks"),
     ),
     (
         "Obsidian enabled plugin list matches local plugin manifests",
@@ -377,22 +384,19 @@ def count_schema_validation_items(schema_text: str) -> int:
     return len(re.findall(r"^\d+\.\s+", match.group(0), flags=re.M))
 
 
-def parse_index_entries(index_text: str) -> list[tuple[str, str | None]]:
-    entries: list[tuple[str, str | None]] = []
+def parse_index_entries(index_text: str) -> list[tuple[str, str | None, str]]:
+    entries: list[tuple[str, str | None, str]] = []
     current_dir: str | None = None
 
-    for line in strip_non_graph_markup(index_text).splitlines():
+    for line in index_text.splitlines():
         if line.startswith("## "):
             heading = line[3:].split("(", 1)[0].strip()
             current_dir = INDEX_SECTIONS.get(heading)
             continue
-        if not line.startswith("- "):
-            continue
-        for target in LINK_RE.findall(line):
-            slug = Path(target).name
-            if slug in META_SLUGS:
-                continue
-            entries.append((slug, current_dir))
+        match = INDEX_ENTRY_RE.match(line)
+        if match:
+            path_dir, slug = match.groups()
+            entries.append((slug, current_dir, path_dir))
 
     return entries
 
@@ -423,6 +427,23 @@ def validate_log_policy(root: Path, issues: dict[str, list[Any]]) -> None:
     for date, count in sorted(Counter(dates).items()):
         if count > 1:
             issues["duplicate_log_dates"].append([date, count])
+
+
+def validate_meta_graph_isolation(root: Path, issues: dict[str, list[Any]]) -> None:
+    for name in sorted(META_FILES):
+        path = root / name
+        if not path.exists():
+            continue
+        links = extract_links(path.read_text())
+        if links:
+            issues["meta_graph_wikilinks"].append([name, links])
+
+    for path in wiki_markdown_pages(root):
+        if path.parent == root and path.name in META_FILES:
+            continue
+        for target in extract_links(path.read_text()):
+            if Path(target).stem.casefold() in META_SLUGS_CASEFOLD:
+                issues["meta_graph_inbound_wikilinks"].append([relative(path, root), target])
 
 
 def validate_obsidian_plugins(root: Path, issues: dict[str, list[Any]]) -> None:
@@ -541,6 +562,8 @@ def validate(root: Path) -> dict[str, list[Any]]:
         "invalid_living_topic_dirs": [],
         "invalid_log_headings": [],
         "duplicate_log_dates": [],
+        "meta_graph_wikilinks": [],
+        "meta_graph_inbound_wikilinks": [],
         "obsidian_missing_community_plugins": [],
         "obsidian_invalid_community_plugins": [],
         "obsidian_enabled_missing_plugin_dirs": [],
@@ -670,7 +693,7 @@ def validate(root: Path) -> dict[str, list[Any]]:
     if index_path.exists():
         index_text = index_path.read_text()
         index_entries = parse_index_entries(index_text)
-        index_links = [slug for slug, _section_dir in index_entries]
+        index_links = [slug for slug, _section_dir, _path_dir in index_entries]
 
         counts = Counter(index_links)
         for slug, count in sorted(counts.items()):
@@ -694,10 +717,12 @@ def validate(root: Path) -> dict[str, list[Any]]:
                     issues["stale_index_entries"].append(slug)
 
         active_dirs_by_slug = {path.stem: path.relative_to(root).parts[0] for path in pages}
-        for slug, section_dir in index_entries:
+        for slug, section_dir, path_dir in index_entries:
             active_dir = active_dirs_by_slug.get(slug)
             if active_dir and section_dir != active_dir:
                 issues["wrong_index_section"].append([slug, section_dir, active_dir])
+            if active_dir and path_dir != active_dir:
+                issues["wrong_index_section"].append([slug, path_dir, active_dir])
 
         match = TOTAL_PAGES_RE.search(index_text)
         if match and int(match.group(1)) != len(pages):
@@ -721,6 +746,7 @@ def validate(root: Path) -> dict[str, list[Any]]:
                 issues["invalid_living_topic_dirs"].append(relative(path, root))
 
     validate_log_policy(root, issues)
+    validate_meta_graph_isolation(root, issues)
     validate_obsidian_plugins(root, issues)
     validate_schema_lint_alignment(root, issues)
 

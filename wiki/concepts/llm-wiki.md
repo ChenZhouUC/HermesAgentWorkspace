@@ -1,7 +1,7 @@
 ---
 title: LLM Wiki
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-07-11
 type: concept
 tags: [llm, wiki, markdown]
 sources: [_living/AI-Infrastructure/Evolution-of-Knowledge-Graphs.md]
@@ -43,10 +43,3 @@ Karpathy 的 LLM Wiki idea file 是文档优先的 v1 构想：用 LLM 从原材
 - 在需要跨文档推理时接入 [[graph-rag]]，把页面网络进一步组织为实体关系图或社区摘要。
 
 LLM Wiki v2 有明确来源文本，但不是标准组织定义的规范；使用时应把它理解为 Karpathy v1 构想的社区工程化扩展。
-
-**相关概念**:
-
-- [[traditional-knowledge-graph]]
-- [[wikilinks]]
-- [[hybrid-search-rrf]]
-- [[graph-rag]]

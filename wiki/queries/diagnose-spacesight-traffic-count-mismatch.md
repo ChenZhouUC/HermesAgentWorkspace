@@ -1,7 +1,7 @@
 ---
 title: 如何排查 SpaceSight 出入口客流人数偏差
 created: 2026-07-01
-updated: 2026-07-01
+updated: 2026-07-11
 type: query
 tags: [spacesight, computer-vision, reid, ops]
 sources:
@@ -62,11 +62,3 @@ confidence: high
 - 把员工过滤、过店过滤、ReID 去重、业务口径混在一个“准确率”里；
 - 为了让某一天总数对齐而牺牲其他时间段稳定性；
 - 把非标门店参数推广成全局默认。
-
-**相关概念**:
-
-- [[spacesight]]
-- [[edge-algo|Edge ALGO]]
-- [[reid-pipeline]]
-- [[customer-flow-post-processing]]
-- [[hidalgo|HIDALGO]]

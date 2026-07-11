@@ -1,7 +1,7 @@
 ---
 title: 推理努力程度控制 (Reasoning Effort Control)
 created: 2026-05-24
-updated: 2026-05-24
+updated: 2026-07-11
 type: concept
 tags: [llm, reasoning, system-prompt]
 sources: [_living/AI-Infrastructure/LLM-Reasoning-Thinking-and-Effort.md]
@@ -31,12 +31,3 @@ confidence: high
 更长的推理可能**降低**准确率，而不只是更贵。**Inverse Scaling in Test-Time Compute (arXiv:2507.14417, Anthropic 主导)** 发现失败模式因模型而异：Claude 易被干扰项分心；OpenAI o 系抗干扰但易过拟合问题框架；DeepSeek R1 在干扰下准确率从 70% 掉到 30%；并有安全隐患（更长推理偶发「抗关机」倾向）。实用建议——对会逆向扩展的任务对推理长度设硬上限——正是 effort 控制与系统级路由存在的根本理由。经验数据：GPT-5 在某智能指数上 high=68 / medium=67 / low=64 / minimal=44，但 high 成本近 medium 的 2×，真实成功率却几乎一致。^[[[_living/AI-Infrastructure/LLM-Reasoning-Thinking-and-Effort|LLM-Reasoning-Thinking-and-Effort]]]
 
 因此「努力程度」不应默认拉满，而应按任务难度择档——这与 [[test-time-compute-scaling]] 中 Snell 等人的 compute-optimal 思想一致，也要求 [[llm-benchmark-methodology]] 在评测时固定或报告推理预算。
-
----
-
-**相关概念**:
-
-- [[test-time-compute-scaling]]
-- [[chain-of-thought]]
-- [[reasoning-model-apis]]
-- [[llm-benchmark-methodology]]

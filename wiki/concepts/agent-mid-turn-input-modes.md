@@ -1,7 +1,7 @@
 ---
 title: Agent Mid-Turn Input Modes (插入式输入调度)
 created: 2026-05-27
-updated: 2026-06-29
+updated: 2026-07-11
 type: concept
 tags: [agent, ops]
 sources: [_living/AI-Applications/Hermes-Agent-macOS-Ops.md]
@@ -47,9 +47,3 @@ confidence: high
 - 想给当前任务补一条约束 → `steer`
 
 `interrupt` 与 `steer` 的核心差异不是"快慢"，而是**是否保留正在跑的那份上下文**——保留就用 steer，必须丢弃就用 interrupt。
-
----
-
-**相关图谱**:
-
-- 实现节点：[[hermes-agent]]

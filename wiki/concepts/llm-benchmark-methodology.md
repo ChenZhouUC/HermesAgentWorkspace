@@ -1,7 +1,7 @@
 ---
 title: LLM Benchmark Methodology
 created: 2026-05-14
-updated: 2026-05-24
+updated: 2026-07-11
 type: concept
 tags: [benchmark, llm]
 sources: [_living/AI-Infrastructure/LLM-Benchmarks.md]
@@ -57,7 +57,7 @@ confidence: medium
 ### 工具调用与智能体
 
 - **BFCL**：Function Calling 正确性（2,000+ 用例，AST 或真实 API 验证）；前沿约 90-93%。
-- **WebArena**：沙盒浏览器 812 个真实网页任务，评估 [[agent-frameworks|Agent]] 闭环操作；前沿仅约 35-45%，是当前的难关。^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
+- **WebArena**：沙盒浏览器 812 个真实网页任务，评估 Agent 闭环操作；前沿仅约 35-45%，是当前的难关。^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
 
 ## 厂商基准偏好
 
@@ -66,13 +66,3 @@ confidence: medium
 ## 方法学新挑战：推理模型的「思考预算」
 
 推理模型引入了早期评测没有的混淆变量：分数取决于模型被允许「想多久」，因此评测必须**固定或报告推理预算**才有可比性，否则就是拿不同算力档位的结果横向比。详见 [[test-time-compute-scaling]] 与 [[reasoning-effort-control]]。理论侧关于「多步推理为何必要」的边界分析见 [[llm-computational-complexity]]。
-
----
-
-**Related:**
-
-- [[llm-computational-complexity]]
-- [[agent-frameworks]]
-- [[test-time-compute-scaling]]
-- [[chain-of-thought]]
-- [[reasoning-effort-control]]

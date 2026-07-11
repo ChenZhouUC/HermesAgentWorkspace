@@ -1,7 +1,7 @@
 ---
 title: 如何设计 SpaceSight 非标店内客流方案
 created: 2026-07-01
-updated: 2026-07-01
+updated: 2026-07-11
 type: query
 tags: [spacesight, computer-vision, reid, product-management]
 sources:
@@ -64,12 +64,3 @@ confidence: high
 ## 实时性边界
 
 出入口方案天然接近实时；店内替代方案需要持续检测、轨迹跟踪、ReID 去重和后处理，实时性成本更高。若现场算力或带宽不足，应明确降级为分钟级或 T+1，而不是承诺实时。
-
-**相关概念**:
-
-- [[spacesight]]
-- [[edge-algo|Edge ALGO]]
-- [[reid-pipeline]]
-- [[customer-flow-post-processing]]
-- [[edge-rk3576]]
-- [[edge-sophon]]

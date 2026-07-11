@@ -1,7 +1,7 @@
 ---
 title: Markdown as LLM Protocol
 created: 2026-05-14
-updated: 2026-06-29
+updated: 2026-07-11
 type: concept
 tags: [architecture, llm]
 sources: [_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs.md]
@@ -87,10 +87,3 @@ confidence: high
 3. **表层（人类消费 / 汇报展示）**：优先卡片化 UI、交互图表、HTML/CSS、Dashboard。
 
 这一分层与 [[lmm-input-mechanics|多模态输入机制]] 互补：Markdown 是面向人类的 UI 糖，真正进入模型前仍需被解构为底层 Token 序列。
-
----
-
-**Related:**
-
-- [[lmm-input-mechanics]]
-- [[wikilinks]]

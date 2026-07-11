@@ -1,7 +1,7 @@
 ---
 title: Multi-Stage Clustering (轨迹相似度图的多层级连通分量聚合)
 created: 2026-05-25
-updated: 2026-07-01
+updated: 2026-07-11
 type: concept
 tags: [computer-vision, reid, clustering, algorithm]
 sources: [_living/Whale-SpaceSight/ReID-Pipeline-Architecture.md]
@@ -71,11 +71,3 @@ confidence: high
 - 连通分量替代 linkage 函数，把多个"局部松/紧"的判定融为一张可裁剪的图——支持任意复杂的领域约束（动作方向、摄像头、时间窗），而不被 linkage 的几何对称性限制。
 
 下游的客流后处理见 [[customer-flow-post-processing]]，它消费的是这个分层聚合的最终输出。
-
----
-
-**相关概念**:
-
-- [[reid-pipeline]]
-- [[hidalgo|HIDALGO]]
-- [[customer-flow-post-processing]]

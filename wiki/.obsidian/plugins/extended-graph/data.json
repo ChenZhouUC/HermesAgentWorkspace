@@ -14,7 +14,7 @@
       "focus": true,
       "shapes": true,
       "elements-stats": true,
-      "names": false,
+      "names": true,
       "icons": false,
       "arrows": true,
       "layers": false
@@ -33,7 +33,7 @@
       "focus": true,
       "shapes": true,
       "elements-stats": true,
-      "names": false,
+      "names": true,
       "icons": false,
       "arrows": true,
       "layers": false
@@ -216,7 +216,14 @@
     "pentagon": {
       "combinationLogic": "AND",
       "index": 5,
-      "rules": []
+      "rules": [
+        {
+          "source": "path",
+          "property": "",
+          "value": "queries",
+          "logic": "contains"
+        }
+      ]
     },
     "hexagon": {
       "combinationLogic": "AND",
@@ -313,12 +320,12 @@
   "arrowColor": "#75140c",
   "numberOfCharacters": null,
   "ellipsis": "…",
-  "showOnlyFileName": false,
-  "noExtension": false,
+  "showOnlyFileName": true,
+  "noExtension": true,
   "usePropertiesForName": [],
   "addBackgroundToName": false,
   "nameVerticalOffset": 0,
-  "dynamicVerticalOffset": false,
+  "dynamicVerticalOffset": true,
   "showNamesWhenNeighborHighlighted": false,
   "iconProperties": [
     ""
@@ -363,11 +370,11 @@
     "focus": true,
     "shapes": false,
     "layers": true,
-    "elements-stats": false,
+    "elements-stats": true,
     "names": true,
     "zoom": true,
     "local-graph": true,
-    "display": false,
+    "display": true,
     "filter": true,
     "inputs": true,
     "performances": true,
@@ -386,5 +393,6 @@
     "useModifiedNames": true,
     "showIcons": false
   },
-  "multipleNodesData": {}
+  "multipleNodesData": {},
+  "useBitmapsForLinkLabels": false
 }

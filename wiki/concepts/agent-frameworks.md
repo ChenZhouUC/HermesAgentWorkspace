@@ -1,7 +1,7 @@
 ---
 title: AI Agent Frameworks Selection
 created: 2026-05-14
-updated: 2026-06-03
+updated: 2026-07-11
 type: concept
 tags: [agent, ops, llm]
 sources: [_living/AI-Infrastructure/AI-Agent-Frameworks.md]
@@ -14,7 +14,7 @@ confidence: high
 
 ## 认知澄清：什么是真正的 "Agent 框架"
 
-一个真正符合直觉的 Agent 框架（[[agent-harness|Agent Harness]] / OS）应满足：开发者只提供工具（Tools/API/数据库）与系统设定（System Prompt），框架在底层接管大模型的调度循环（思考 → 调用工具 → 观察结果 → 再思考），并处理死循环、上下文截断、入参错误重试等复杂逻辑，最终产出能自主决策、长期运行、解决开放性任务的智能程序实例。这个「思考 - 行动」循环正是 [[chain-of-thought|ReAct 模式]] 的工程化落地。^[[[_living/AI-Infrastructure/AI-Agent-Frameworks|AI-Agent-Frameworks]]]
+一个真正符合直觉的 Agent 框架（[[agent-harness|Agent Harness]] / OS）应满足：开发者只提供工具（Tools/API/数据库）与系统设定（System Prompt），框架在底层接管大模型的调度循环（思考 → 调用工具 → 观察结果 → 再思考），并处理死循环、上下文截断、入参错误重试等复杂逻辑，最终产出能自主决策、长期运行、解决开放性任务的智能程序实例。这个「思考 - 行动」循环是 ReAct 模式的工程化落地。^[[[_living/AI-Infrastructure/AI-Agent-Frameworks|AI-Agent-Frameworks]]]
 
 ## 五大阵营全景
 
@@ -61,14 +61,4 @@ confidence: high
 - **极长周期复杂软件工程**：DeepAgents（虚拟文件系统 + 任务列表引擎）
 - **多模态感知 + 垂直业务（安防/IoT）**：Agno（多模态较好 + Pydantic 工具挂载控制 API）^[[[_living/AI-Infrastructure/AI-Agent-Frameworks|AI-Agent-Frameworks]]]
 
-本仓库自身的多模态 Agent 实体 [[hermes-agent]]（及其前代 [[openclaw]]）即属于阵营一的 [[agent-harness|Harness]] 形态，并以 [[markdown-llm-protocol|Markdown 协议]] 作为人机交互的底层文本载体。
-
----
-
-**Related:**
-
-- [[agent-harness]] — Agent Harness 底座架构详解
-- [[markdown-llm-protocol]]
-- [[hermes-agent]]
-- [[openclaw]]
-- [[chain-of-thought]]
+本仓库自身的多模态 Agent 实体 [[hermes-agent]]（及其前代 [[openclaw]]）即属于阵营一的 [[agent-harness|Harness]] 形态，并以 Markdown 作为人机交互的底层文本载体。

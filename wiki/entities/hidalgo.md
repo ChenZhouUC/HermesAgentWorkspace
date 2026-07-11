@@ -1,7 +1,7 @@
 ---
 title: HIDALGO (ReID 项目与计算层服务)
 created: 2026-05-26
-updated: 2026-07-01
+updated: 2026-07-11
 type: entity
 tags: [computer-vision, reid, pipeline, ops]
 sources:
@@ -29,13 +29,3 @@ HIDALGO 是线下零售门店 ReID 重构项目的顶层项目名，也常用于
 [[trajex|TRAJEX]] 是 HIDALGO 项目中的上游特征推理服务。两者之间通过数据库表握手：TRAJEX 生产特征表，HIDALGO 消费特征表并写结果表；双方不通过 RPC 调用，也不共享运行时内存。这种服务边界是 [[schema-as-handoff-contract|DDL 作为契约]] 在 ReID 管线中的具体实践。^[[[_living/Whale-SpaceSight/ReID-Perception-Layer-TRAJEX|ReID-Perception-Layer-TRAJEX]]]
 
 因此，[[reid-pipeline]] 是对 HIDALGO / TRAJEX 这套系统分层方法的抽象描述；HIDALGO 本身是其中具体的软件实体。
-
----
-
-**相关概念**:
-
-- [[trajex|TRAJEX]]
-- [[reid-pipeline]]
-- [[multi-stage-clustering]]
-- [[schema-as-handoff-contract]]
-- [[trajex-vs-hidalgo|TRAJEX vs HIDALGO]]

@@ -1,7 +1,7 @@
 ---
 title: Graph RAG
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-07-11
 type: concept
 tags: [llm, architecture, reasoning]
 sources: [_living/AI-Infrastructure/Evolution-of-Knowledge-Graphs.md]
@@ -37,10 +37,3 @@ Microsoft Research 的 GraphRAG 工作强调社区摘要对 query-focused summar
 Graph RAG 继承了 [[traditional-knowledge-graph]] 的结构化表示能力，但把最终推理和语言生成交给 LLM。它也可以作为 [[llm-wiki]] 的生产化增强：当 Markdown 页面网络不足以支撑复杂多跳问题时，系统可在页面之上叠加实体关系图和社区摘要。
 
 代价是索引构建更重，需要实体抽取、关系抽取、图维护和摘要刷新；在数据源频繁变化的场景中，更新成本高于普通文本检索。
-
-**相关概念**:
-
-- [[traditional-knowledge-graph]]
-- [[ontology]]
-- [[llm-wiki]]
-- [[hybrid-search-rrf]]

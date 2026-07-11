@@ -1,7 +1,7 @@
 ---
 title: Wikilinks & Extension Syntax
 created: 2026-05-17
-updated: 2026-06-29
+updated: 2026-07-11
 type: concept
 tags: [markdown, wiki]
 sources: [_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics.md]
@@ -30,8 +30,3 @@ confidence: high
 
 核心格式为 `\^\[内联文本\]`。
 这种极其紧凑的语法允许作者在不打断行文思路的情况下插入关联与溯源。解析器（如 remark-parse）在 AST 阶段自动剥离该节点，并在渲染时统一在文末生成集中式列表与返回锚点。^[[[_living/AI-Infrastructure/Obsidian-Knowledge-Base-Mechanics|Obsidian-Knowledge-Base-Mechanics]]]
-
-**相关工具应用**:
-
-- 最典型的实现：[[obsidian]]
-- 知识库基础协议：[[markdown-llm-protocol]]

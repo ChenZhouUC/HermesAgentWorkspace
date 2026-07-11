@@ -1,7 +1,7 @@
 ---
 title: LLM Computational Complexity
 created: 2026-05-14
-updated: 2026-05-24
+updated: 2026-07-11
 type: concept
 tags: [tcs, complexity, llm, proof]
 sources: [_living/TCS-and-Math/LLM-Computational-Complexity.md]
@@ -43,11 +43,3 @@ confidence: high
 ## 小结：理论与工程的会合点
 
 四篇论文共同指向一个结论——**推理深度受限于计算步数**，而 CoT / 推理时算力是突破该限制的关键机制。这把 [[chain-of-thought]] 这一经验技巧、[[test-time-compute-scaling]] 这一工程范式，与电路复杂性这一硬数学边界统一了起来。理论侧的「应该多想几步」恰好为工程侧的推理预算控制提供了第一性原理依据。
-
----
-
-**Related:**
-
-- [[llm-benchmark-methodology]]
-- [[chain-of-thought]]
-- [[test-time-compute-scaling]]

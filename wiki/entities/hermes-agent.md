@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent
 created: 2026-05-17
-updated: 2026-06-29
+updated: 2026-07-11
 type: entity
 tags: [agent, ops, macos]
 sources: [_living/AI-Applications/Hermes-Agent-macOS-Ops.md]
@@ -33,13 +33,3 @@ Hermes 是前代智能体架构 OpenClaw 的继任者，不仅支持核心技能
 ## 连续对话调度
 
 Hermes Gateway 在用户 mid-turn 追加输入时实现了 [[agent-mid-turn-input-modes]] 三种调度模式（interrupt / queue / steer），通过 `/busy` 命令热切换；其中 `steer` 模式利用工具调用边界注入引导上下文，避免破坏 Prompt Cache。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
-
----
-
-**相关图谱概念**:
-
-- 实现模式：[[agent-harness]]
-- 所属类别：[[agent-frameworks]]
-- 底层交互协议关联：[[markdown-llm-protocol]]
-- 历史继任前代实体：[[openclaw]]
-- 连续对话机制：[[agent-mid-turn-input-modes]]

@@ -1,7 +1,7 @@
 ---
 title: Set Theory (集合论)
 created: 2026-05-17
-updated: 2026-05-17
+updated: 2026-07-11
 type: concept
 tags: [tcs, math, logic]
 sources: [_living/TCS-and-Math/Set-Theory-Reading-List.md]
@@ -21,7 +21,3 @@ confidence: high
 ## 异见与新基础
 
 除了主流的 ZFC 体系，还存在如蒯因（W.V. Quine）提出的 NF（New Foundations）集合论。NF 集合论允许某种意义上的“所有集合的集合”存在（宇宙集合），但通过分层理解的公式限制来规避悖论。尽管其在逻辑上很精巧，但因与日常数学直觉差异较大，通常作为替代基础系统进行研究。^[[[_living/TCS-and-Math/Set-Theory-Reading-List|Set-Theory-Reading-List]]]
-
-**相关概念**：
-
-- [[llm-computational-complexity]]

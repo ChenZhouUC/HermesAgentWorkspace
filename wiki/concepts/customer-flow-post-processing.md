@@ -1,7 +1,7 @@
 ---
 title: Customer Flow Post-Processing (客流后处理与指标加工)
 created: 2026-05-25
-updated: 2026-07-02
+updated: 2026-07-11
 type: concept
 tags: [computer-vision, spacesight, pipeline]
 sources: [_living/Whale-SpaceSight/Customer-Flow-Post-Processing.md]
@@ -42,11 +42,3 @@ confidence: high
   - 无人接待与深度接待批次。
 - **在店与区域驻留 (Shop Stay & ROI)**：合并同批次内多次捕捉，计算顾客生命周期的在店总时长，并映射至具体展区（AreaMap）生成漏斗。
 - **路过与进店率 (Outside Traffic)**：提取店外视野客群，计算最终的门店进店率。^[[[_living/Whale-SpaceSight/Customer-Flow-Post-Processing|Customer-Flow-Post-Processing]]]
-
----
-
-**相关概念**:
-
-- [[hidalgo|HIDALGO]]
-- [[edge-algo|Edge ALGO]]
-- [[reid-pipeline]]

@@ -1,7 +1,7 @@
 ---
 title: 如何把一个新的 ReID 特征模型上线到生产
 created: 2026-05-26
-updated: 2026-07-01
+updated: 2026-07-11
 type: query
 tags: [computer-vision, reid, ops, pipeline]
 sources:
@@ -95,15 +95,3 @@ confidence: high
 - ❌ **跳过对照期直接全量上线**：离线评测的 mAP 与生产业务指标常常不对齐；
 - ❌ **下游不带按店配置直接切**：失去灰度能力，任何问题都是全量爆炸；
 - ❌ **影子期超过半年**：双写成本累积，要有明确 sunset 时间点。
-
----
-
-**相关概念**:
-
-- [[model-shadow-deployment]]
-- [[reid-embedding-models]]
-- [[edge-algo|Edge ALGO]]
-- [[trajex|TRAJEX]]
-- [[hidalgo|HIDALGO]]
-- [[reid-pipeline]]
-- [[reid-library-lookup]]
