@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.18.2 / main 79f12748, `hermes completion zsh` already emits the
+# As of v0.18.2 / main 7acaff5e, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -60,6 +60,7 @@ PATCHED_FILES=(
     "tests/tools/test_skill_manager_tool.py"
     "pyproject.toml"
     "tools/lazy_deps.py"
+    "tests/tools/test_lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
     "website/docs/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
@@ -161,8 +162,12 @@ gw_running() {
 # ── Trap: restore patches if script dies after reverting them ────────────────
 # Set to true in step 2 after reverting; cleared once hermes update completes.
 _PATCHES_REVERTED=false
+_NPM_POLICY_FILE=""
 
 _trap_restore_patches() {
+    if [[ -n "${_NPM_POLICY_FILE:-}" ]]; then
+        rm -f -- "${_NPM_POLICY_FILE}" 2>/dev/null || true
+    fi
     if $_PATCHES_REVERTED && [[ -f "${PATCH_FILE}" ]]; then
         printf "\n${YLW}⚠${NC}  Script exited early — attempting to restore local patches...\n"
         cd "${HERMES_AGENT}" && git apply "${PATCH_FILE}" 2>/dev/null ||
@@ -264,9 +269,27 @@ if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
 fi
 cd - >/dev/null
 
+# npm 12 blocks unreviewed dependency lifecycle scripts by default.  Keep the
+# approval scoped to this Hermes update via a temporary global-config file:
+# project-scoped --allow-scripts/env flags are rejected by npm, while changing
+# ~/.npmrc would broaden the policy to unrelated projects.  Versions are pinned
+# so an upstream bump becomes a deliberate re-review instead of inheriting
+# executable permission silently.  unicode-animations is harmless under CI=1;
+# fsevents ships the native artifact used on macOS.
+_NPM_POLICY_ENV=()
+_NPM_MAJOR=$(npm --version 2>/dev/null | cut -d. -f1 || true)
+if [[ "${_NPM_MAJOR}" =~ ^[0-9]+$ ]] && ((_NPM_MAJOR >= 12)); then
+    _NPM_POLICY_FILE=$(mktemp -t hermes-npm-policy.XXXXXX)
+    chmod 600 "${_NPM_POLICY_FILE}"
+    printf '%s\n' \
+        'allow-scripts=agent-browser@0.26.0,esbuild@0.28.1,fsevents@2.3.3,unicode-animations@1.0.3' \
+        >"${_NPM_POLICY_FILE}"
+    _NPM_POLICY_ENV=("NPM_CONFIG_GLOBALCONFIG=${_NPM_POLICY_FILE}")
+fi
+
 _UPDATE_LOG=$(mktemp -t hermes-update.XXXXXX)
 set +e
-hermes update 2>&1 | tee "${_UPDATE_LOG}"
+env "${_NPM_POLICY_ENV[@]}" hermes update 2>&1 | tee "${_UPDATE_LOG}"
 UPDATE_RC=${PIPESTATUS[0]}
 set -e
 echo ""
@@ -334,7 +357,7 @@ step "Fixing npm vulnerabilities"
 
 cd "${HERMES_AGENT}"
 set +e
-_AUDIT_OUT=$(npm audit fix --quiet 2>&1)
+_AUDIT_OUT=$(env "${_NPM_POLICY_ENV[@]}" CI=1 npm audit fix --quiet 2>&1)
 _AUDIT_RC=$?
 set -e
 
@@ -347,6 +370,11 @@ if [[ $_AUDIT_RC -eq 0 ]]; then
 else
     warn "npm audit fix exited $_AUDIT_RC — non-critical"
     add_act "Run manually: cd ${HERMES_AGENT} && npm audit fix"
+fi
+
+if [[ -n "${_NPM_POLICY_FILE}" ]]; then
+    rm -f -- "${_NPM_POLICY_FILE}"
+    _NPM_POLICY_FILE=""
 fi
 
 # npm audit fix can legitimately update the tracked upstream lockfile. Keep it
@@ -528,6 +556,7 @@ DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
 DELEGATE_TOOL="${HERMES_AGENT}/tools/delegate_tool.py"
 PYPROJECT="${HERMES_AGENT}/pyproject.toml"
 LAZY_DEPS_PY="${HERMES_AGENT}/tools/lazy_deps.py"
+LAZY_DEPS_TEST_PY="${HERMES_AGENT}/tests/tools/test_lazy_deps.py"
 _PATCH_APPLY_OK=false
 
 # -- 8a. Apply saved diff -------------------------------------------------------
@@ -602,6 +631,7 @@ fi
 _SKILL_PATCH_OK=false
 _DELEGATE_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
+_LAZY_ACTIVE_ANCHOR_PATCH_OK=false
 _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
 _FEISHU_GROUP_PATCH_OK=false
 _FEISHU_SKILL_SCOPE_PATCH_OK=false
@@ -689,6 +719,19 @@ else
     warn "Could not locate pyproject.toml or tools/lazy_deps.py — skipping feishu deps check"
 fi
 
+if [[ -f "${LAZY_DEPS_PY}" && -f "${LAZY_DEPS_TEST_PY}" ]]; then
+    if grep -q 'LAZY_FEATURE_ACTIVE_ANCHORS' "${LAZY_DEPS_PY}" 2>/dev/null &&
+        grep -q 'test_matrix_shared_aiohttp_does_not_activate_backend' "${LAZY_DEPS_TEST_PY}" 2>/dev/null; then
+        ok "Lazy feature activation anchor patch: active (core aiohttp does not activate Matrix)"
+        _LAZY_ACTIVE_ANCHOR_PATCH_OK=true
+    else
+        warn "Lazy feature activation anchor patch inactive — update may retry unused Matrix/python-olm"
+        add_act "Re-apply: see PATCHES.md § [PATCH-21] lazy feature activation anchors"
+    fi
+else
+    warn "Could not locate lazy dependency source/tests — skipping PATCH-21 check"
+fi
+
 OPENCLAW_MIGRATOR="${HERMES_AGENT}/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
 OPENCLAW_MIGRATION_DOC="${HERMES_AGENT}/website/docs/guides/migrate-from-openclaw.md"
 if [[ -f "${OPENCLAW_MIGRATOR}" && -f "${OPENCLAW_MIGRATION_DOC}" ]]; then
@@ -714,6 +757,7 @@ FILE_OPERATIONS_PY="${HERMES_AGENT}/tools/file_operations.py"
 FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
 FILE_OPERATIONS_TEST_PY="${HERMES_AGENT}/tests/tools/test_file_operations.py"
 FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admission.py"
+FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
 if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_sender_is_configured_assistant_user' "${FEISHU_PY}" 2>/dev/null &&
@@ -796,7 +840,6 @@ fi
 SESSION_PY="${HERMES_AGENT}/gateway/session.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
 SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
-FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
 if [[ -f "${SESSION_PY}" && -f "${FEISHU_PY}" && -f "${SESSION_TEST_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" ]]; then
     if grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'Current-author rule' "${SESSION_PY}" 2>/dev/null &&
@@ -993,7 +1036,7 @@ fi
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_VISION_ROUTING_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_LAZY_ACTIVE_ANCHOR_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_VISION_ROUTING_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

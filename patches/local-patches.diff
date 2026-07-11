@@ -1,5 +1,5 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index b1d9a8135..3219bb7cc 100644
+index d8ff9204d..3ebc3b41a 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
 @@ -5014,22 +5014,36 @@ def resolve_provider_client(
@@ -688,10 +688,10 @@ index 166635df5..99c47afcb 100644
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index 8c467196e..2c757dc34 100644
+index 87f1c7014..2f101b4c5 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
-@@ -1211,6 +1211,23 @@ def load_gateway_config() -> GatewayConfig:
+@@ -1228,6 +1228,23 @@ def load_gateway_config() -> GatewayConfig:
                      bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
                  if "group_user_allowed_commands" in platform_cfg:
                      bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
@@ -739,10 +739,10 @@ index e352ea0e9..872839467 100644
      # Tier 3 — no edit support, progress messages are permanent
      "signal":          _TIER_LOW,
 diff --git a/gateway/run.py b/gateway/run.py
-index 313d9a148..12bc6a68c 100644
+index ccfa8e92c..db5da6a01 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -1751,6 +1751,7 @@ from gateway.session import (
+@@ -1752,6 +1752,7 @@ from gateway.session import (
      build_session_context_prompt,
      build_session_key,
      is_shared_multi_user_session,
@@ -750,7 +750,7 @@ index 313d9a148..12bc6a68c 100644
  )
  from gateway.delivery import DeliveryRouter, looks_like_telegram_private_chat_id
  from gateway.authz_mixin import GatewayAuthorizationMixin
-@@ -2294,6 +2295,17 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2295,6 +2296,17 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -768,7 +768,7 @@ index 313d9a148..12bc6a68c 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -2930,6 +2942,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -2935,6 +2947,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # preserve the queue.
          self._queued_events: Dict[str, List[MessageEvent]] = {}
          self._pending_native_image_paths_by_session: Dict[str, List[str]] = {}
@@ -776,7 +776,7 @@ index 313d9a148..12bc6a68c 100644
          self._busy_ack_ts: Dict[str, float] = {}  # last busy-ack timestamp per session (debounce)
          self._session_run_generation: Dict[str, int] = {}
          # Startup restore gate: while restart-interrupted sessions are being
-@@ -5534,7 +5547,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -5554,7 +5567,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -785,7 +785,7 @@ index 313d9a148..12bc6a68c 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -10107,8 +10120,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10127,8 +10140,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -802,7 +802,7 @@ index 313d9a148..12bc6a68c 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -10350,23 +10369,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10370,23 +10389,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          """
          history = history or []
          message_text = event.text or ""
@@ -830,7 +830,7 @@ index 313d9a148..12bc6a68c 100644
  
          # Prepend channel context from history backfill (if any).  This
          # happens after sender-prefix so the prefix only applies to the
-@@ -10484,6 +10497,40 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10504,6 +10517,40 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  message_text = f"{_note}\n\n{message_text}"
  
@@ -871,7 +871,7 @@ index 313d9a148..12bc6a68c 100644
          if video_paths:
              from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
              for _vpath in video_paths:
-@@ -10629,12 +10676,28 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10649,12 +10696,28 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
  
          return message_text
  
@@ -900,7 +900,7 @@ index 313d9a148..12bc6a68c 100644
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -11635,6 +11698,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11664,6 +11727,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -909,7 +909,7 @@ index 313d9a148..12bc6a68c 100644
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -11669,7 +11734,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11698,7 +11763,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -918,7 +918,7 @@ index 313d9a148..12bc6a68c 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -11726,7 +11791,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -11755,7 +11820,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -927,7 +927,7 @@ index 313d9a148..12bc6a68c 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -13273,7 +13338,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13302,7 +13367,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -936,7 +936,7 @@ index 313d9a148..12bc6a68c 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -14899,6 +14964,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14928,6 +14993,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -944,7 +944,7 @@ index 313d9a148..12bc6a68c 100644
              chat_id=context.source.chat_id,
              chat_name=context.source.chat_name or "",
              thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -14972,11 +15038,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15001,11 +15067,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -960,7 +960,7 @@ index 313d9a148..12bc6a68c 100644
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -14986,7 +15054,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15015,7 +15083,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          only the persisted default model.
          """
          try:
@@ -969,7 +969,7 @@ index 313d9a148..12bc6a68c 100644
              from agent.auxiliary_client import _read_main_model, _read_main_provider
              from hermes_cli.config import load_config
  
-@@ -15019,6 +15087,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15048,6 +15116,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not resolved_model:
                  resolved_model = _read_main_model()
  
@@ -978,7 +978,7 @@ index 313d9a148..12bc6a68c 100644
              return decide_image_input_mode(resolved_provider, resolved_model, cfg)
          except Exception as exc:
              logger.debug("image_routing: decision failed, falling back to text — %s", exc)
-@@ -16621,7 +16691,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16651,7 +16721,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -987,7 +987,7 @@ index 313d9a148..12bc6a68c 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -16679,6 +16749,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16709,6 +16779,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -999,7 +999,7 @@ index 313d9a148..12bc6a68c 100644
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -16938,7 +17013,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16968,7 +17043,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -1008,7 +1008,7 @@ index 313d9a148..12bc6a68c 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -17888,9 +17963,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17918,9 +17993,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # --session-key argv, a separate process) — so removing this in-process
              # gateway write does not affect any of them.
  
@@ -1021,7 +1021,7 @@ index 313d9a148..12bc6a68c 100644
              
              # Combine platform context, YAML channel_prompts hint for this chat,
              # channel_overrides system_prompt (or global ephemeral), and gateway
-@@ -18017,6 +18092,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18047,6 +18122,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                              on_before_finalize=_pause_typing_before_finalize,
                              initial_reply_to_id=event_message_id,
                              run_still_current=_run_still_current,
@@ -1033,7 +1033,7 @@ index 313d9a148..12bc6a68c 100644
                          )
                          if _want_stream_deltas:
                              def _stream_delta_cb(text: str) -> None:
-@@ -18759,31 +18839,33 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18789,31 +18869,33 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              _approval_session_token = set_current_session_key(_approval_session_key)
              register_gateway_notify(_approval_session_key, _approval_notify_sync)
              try:
@@ -1075,7 +1075,7 @@ index 313d9a148..12bc6a68c 100644
                              _img_exc,
                          )
                          _run_message = message
-@@ -18945,6 +19027,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18975,6 +19057,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      result, final_response or "", history_len=len(agent_history),
                  )
                  final_response = _sanitize_gateway_final_response(source.platform, final_response)
@@ -1085,10 +1085,10 @@ index 313d9a148..12bc6a68c 100644
                      final_response = f"⚠️ {result['error']}" if result.get("error") else ""
                  return {
 diff --git a/gateway/session.py b/gateway/session.py
-index fb2e08f42..4db005433 100644
+index fea3ba4a3..abb360248 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
-@@ -12,6 +12,7 @@ import hashlib
+@@ -13,6 +13,7 @@ import hashlib
  import logging
  import os
  import json
@@ -1096,7 +1096,7 @@ index fb2e08f42..4db005433 100644
  import threading
  import uuid
  from pathlib import Path
-@@ -377,6 +378,393 @@ def _format_untrusted_prompt_value(value: Any, *, max_chars: int = _MAX_PROMPT_M
+@@ -378,6 +379,393 @@ def _format_untrusted_prompt_value(value: Any, *, max_chars: int = _MAX_PROMPT_M
      return json.dumps(text, ensure_ascii=False)
  
  
@@ -1490,7 +1490,7 @@ index fb2e08f42..4db005433 100644
  def build_session_context_prompt(
      context: SessionContext,
      *,
-@@ -475,12 +863,26 @@ def build_session_context_prompt(
+@@ -476,12 +864,26 @@ def build_session_context_prompt(
      # changes per-turn and would bust the prompt cache.  Instead, note that
      # this is a multi-user session; individual sender names are prefixed on
      # each user message by the gateway.
@@ -1517,7 +1517,7 @@ index fb2e08f42..4db005433 100644
      elif context.source.user_name:
          lines.append(
              f"**User:** {_format_untrusted_prompt_value(context.source.user_name)}"
-@@ -491,6 +893,54 @@ def build_session_context_prompt(
+@@ -492,6 +894,54 @@ def build_session_context_prompt(
              uid = _hash_sender_id(uid)
          lines.append(f"**User ID:** {_format_untrusted_prompt_value(uid)}")
  
@@ -1713,7 +1713,7 @@ index a08e169f2..4f4a39413 100644
                      metadata=self._metadata_for_send(
                          final=finalize,
 diff --git a/hermes_cli/auth.py b/hermes_cli/auth.py
-index 5cf6d5018..ce3399b9f 100644
+index b97cbf32d..badbd786d 100644
 --- a/hermes_cli/auth.py
 +++ b/hermes_cli/auth.py
 @@ -479,6 +479,24 @@ except Exception:
@@ -1848,7 +1848,7 @@ index 12b688b22..0ceb6ade2 100644
              ):
                  check_warn(
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index ee3762741..e835f68ab 100644
+index 9dbfe51b8..32df42c9f 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
 @@ -1789,38 +1789,49 @@ def _get_platform_tools(
@@ -2043,7 +2043,7 @@ index f0d0d4f89..2bf2daa4b 100644
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 7dd7e2389..d1a793d71 100644
+index 9fecc91dd..b5c353f9a 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -98,6 +98,7 @@ try:
@@ -3326,7 +3326,7 @@ index 7dd7e2389..d1a793d71 100644
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -4861,6 +5791,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4867,6 +5797,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -3362,15 +3362,15 @@ index 7dd7e2389..d1a793d71 100644
      def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
          if "GetMessageResourceRequest" in globals():
 diff --git a/pyproject.toml b/pyproject.toml
-index 0253b6f1b..a4942903f 100644
+index 851473b13..a2c067b1f 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -249,7 +249,7 @@ termux-all = [
    "hermes-agent[web]",
  ]
  dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
--feishu = ["lark-oapi==1.5.3", "qrcode==7.4.2"]
-+feishu = ["lark-oapi==1.5.3", "qrcode==7.4.2", "python-socks==2.8.1"]
+-feishu = ["lark-oapi==1.6.8", "qrcode==7.4.2"]
++feishu = ["lark-oapi==1.6.8", "qrcode==7.4.2", "python-socks==2.8.1"]
  google = [
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
@@ -3620,10 +3620,10 @@ index ae8a4bfc3..24beb0931 100644
  
  
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index 6dc246e83..d3b4a68f6 100644
+index 46ceeb205..7a4ff2168 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
-@@ -1029,6 +1029,49 @@ class TestLoadGatewayConfig:
+@@ -1088,6 +1088,49 @@ class TestLoadGatewayConfig:
  
          assert os.environ.get("TELEGRAM_ALLOW_BOTS") == "none"
  
@@ -3703,7 +3703,7 @@ index d05807e41..c9ca51b90 100644
          """Slack defaults to quiet tool progress (permanent chat noise otherwise)."""
          from gateway.display_config import resolve_display_setting
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index 58d7bb888..c726b27a1 100644
+index 0d63659bc..b3fb59b3d 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -171,6 +171,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -3806,10 +3806,10 @@ index 58d7bb888..c726b27a1 100644
 +
  
  class TestFeishuAdapterMessaging(unittest.TestCase):
-     @patch.dict(os.environ, {
-@@ -414,6 +508,330 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
-         self.assertEqual(sleeps, [1])
-         self.assertEqual(fake_loop.calls, 2)
+     @unittest.skipUnless(_HAS_LARK_OAPI, "lark-oapi not installed")
+@@ -483,6 +577,330 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+         self.assertEqual(call_kwargs["extra_ua_tags"], ["channel"],
+                          "extra_ua_tags must be ['channel'] to enable group event routing")
  
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_fetch_channel_context_formats_recent_group_messages(self):
@@ -4138,7 +4138,7 @@ index 58d7bb888..c726b27a1 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1738,6 +2156,101 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1807,6 +2225,101 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.text, "A\nB")
          self.assertEqual(event.message_type, MessageType.TEXT)
  
@@ -4240,7 +4240,7 @@ index 58d7bb888..c726b27a1 100644
      @patch.dict(
          os.environ,
          {
-@@ -2036,7 +2549,155 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2105,7 +2618,155 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -4397,7 +4397,7 @@ index 58d7bb888..c726b27a1 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2074,10 +2735,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2143,10 +2804,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -4410,7 +4410,7 @@ index 58d7bb888..c726b27a1 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2113,7 +2774,44 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2182,7 +2843,44 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -4456,7 +4456,7 @@ index 58d7bb888..c726b27a1 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2204,7 +2902,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2273,7 +2971,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -4465,7 +4465,7 @@ index 58d7bb888..c726b27a1 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2256,7 +2954,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2325,7 +3023,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -4474,7 +4474,7 @@ index 58d7bb888..c726b27a1 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -2582,8 +3280,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2651,8 +3349,10 @@ class TestAdapterBehavior(unittest.TestCase):
          adapter = FeishuAdapter(PlatformConfig())
          payload = json.loads(adapter._build_post_payload("# 标题\n访问 [文档](https://example.com)"))
  
@@ -4486,7 +4486,7 @@ index 58d7bb888..c726b27a1 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_build_post_payload_wraps_markdown_in_md_tag(self):
-@@ -2621,6 +3321,64 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2690,6 +3390,64 @@ class TestAdapterBehavior(unittest.TestCase):
              [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
          )
  
@@ -4551,7 +4551,7 @@ index 58d7bb888..c726b27a1 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_send_uses_post_for_inline_markdown(self):
          from gateway.config import PlatformConfig
-@@ -4789,6 +5547,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -4858,6 +5616,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -5323,7 +5323,7 @@ index fc6dcf67e..42bf04805 100644
      async def test_marker_prefix_then_prose_is_delivered(self):
          """A reply that starts marker-like but continues is delivered whole.
 diff --git a/tests/hermes_cli/test_doctor.py b/tests/hermes_cli/test_doctor.py
-index b4c961e26..51d514ef8 100644
+index ba4e3846e..6a55df5e1 100644
 --- a/tests/hermes_cli/test_doctor.py
 +++ b/tests/hermes_cli/test_doctor.py
 @@ -612,6 +612,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
@@ -5390,10 +5390,10 @@ index b4c961e26..51d514ef8 100644
  
  def test_run_doctor_accepts_kimi_coding_cn_provider(monkeypatch, tmp_path):
 diff --git a/tests/hermes_cli/test_skills_config.py b/tests/hermes_cli/test_skills_config.py
-index 8fbb063f6..cb693a861 100644
+index 31365fcf2..51a1783b2 100644
 --- a/tests/hermes_cli/test_skills_config.py
 +++ b/tests/hermes_cli/test_skills_config.py
-@@ -92,75 +92,100 @@ class TestSaveDisabledSkills:
+@@ -120,75 +120,100 @@ class TestSaveDisabledSkills:
  # ---------------------------------------------------------------------------
  
  class TestIsSkillDisabled:
@@ -5532,7 +5532,7 @@ index 8fbb063f6..cb693a861 100644
          from tools.skills_tool import _is_skill_disabled
          assert _is_skill_disabled("discord-skill") is True
  
-@@ -210,6 +235,60 @@ class TestGetDisabledSkillNames:
+@@ -238,6 +263,60 @@ class TestGetDisabledSkillNames:
          result = get_disabled_skill_names()
          assert result == {"discord-skill", "global-skill"}
  
@@ -5947,6 +5947,34 @@ index eda5140b0..e244a84d1 100644
  
  class TestSearchPathValidation:
      """Test that search() returns an error for non-existent paths."""
+diff --git a/tests/tools/test_lazy_deps.py b/tests/tools/test_lazy_deps.py
+index 4296ffda4..ee8216571 100644
+--- a/tests/tools/test_lazy_deps.py
++++ b/tests/tools/test_lazy_deps.py
+@@ -326,6 +326,23 @@ class TestActiveFeatures:
+         )
+         assert "platform.slack" in ld.active_features()
+ 
++    def test_matrix_shared_aiohttp_does_not_activate_backend(self, monkeypatch):
++        # aiohttp is core and appears in platform.matrix only to pin its secure
++        # version.  It must not make every install look like Matrix was enabled,
++        # otherwise update repeatedly attempts the unsupported python-olm build.
++        monkeypatch.setattr(
++            ld, "_is_present",
++            lambda spec: ld._pkg_name_from_spec(spec) == "aiohttp",
++        )
++        assert "platform.matrix" not in ld.active_features()
++
++    def test_matrix_mautrix_anchor_activates_backend(self, monkeypatch):
++        monkeypatch.setattr(
++            ld, "_is_present",
++            lambda spec: ld._pkg_name_from_spec(spec) == "mautrix",
++        )
++        assert "platform.matrix" in ld.active_features()
++
+ 
+ class TestRefreshActiveFeatures:
+     def test_no_active_features_returns_empty(self, monkeypatch):
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
 index bcecddeea..032fe78b7 100644
 --- a/tests/tools/test_skill_manager_tool.py
@@ -6377,22 +6405,59 @@ index 35b60b0b7..6dd83efa5 100644
          """Delete a single file.
  
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 94cd069b8..126dd7124 100644
+index d35feb861..b59fdcca4 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -190,6 +190,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
      "platform.feishu": (
-         "lark-oapi==1.5.3",
+         "lark-oapi==1.6.8",
          "qrcode==7.4.2",
 +        "python-socks==2.8.1",
      ),
      # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
+@@ -242,6 +243,15 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
+     "tool.trace_upload": ("huggingface-hub==1.2.3",),
+ }
+ 
++# Some lazy features include shared core/transitive packages that may be
++# installed even when the feature itself has never been activated.  Those
++# packages are not sufficient evidence for update-time refresh.  Matrix is the
++# important case: aiohttp is a core dependency, while mautrix is the actual
++# platform SDK and its encryption extra pulls python-olm's native build.
++LAZY_FEATURE_ACTIVE_ANCHORS: dict[str, tuple[str, ...]] = {
++    "platform.matrix": ("mautrix",),
++}
++
+ 
+ # Conservative regex for spec validation — package name plus optional
+ # version range. Reject anything that looks like a URL, file path, or shell
+@@ -859,7 +869,9 @@ def active_features() -> list[str]:
+     """Return the list of features the user has ever lazy-installed.
+ 
+     A feature counts as "active" if at least one of its declared packages
+-    is currently installed in the venv (presence check, ignoring version).
++    is currently installed in the venv (presence check, ignoring version),
++    unless the feature defines explicit identity anchors.  Anchors prevent a
++    shared dependency such as core aiohttp from falsely activating Matrix.
+     Features the user has never enabled stay quiet.
+ 
+     Used by ``hermes update`` to figure out which lazy backends need a
+@@ -867,7 +879,8 @@ def active_features() -> list[str]:
+     """
+     active = []
+     for feature, specs in LAZY_DEPS.items():
+-        if any(_is_present(s) for s in specs):
++        probes = LAZY_FEATURE_ACTIVE_ANCHORS.get(feature, specs)
++        if any(_is_present(s) for s in probes):
+             active.append(feature)
+     return active
+ 
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index 3045474b1..059c2a878 100644
+index 3045474b1..7cd60bca2 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -576,10 +576,23 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -576,10 +576,39 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -6401,15 +6466,31 @@ index 3045474b1..059c2a878 100644
 +
 +    Uses the first configured external dir (skills.external_dirs) so that
 +    agent-created skills land in the user-managed directory rather than the
-+    bundled skills dir. Falls back to the active profile skills dir if no
-+    external dirs are configured.
++    bundled skills dir. The configured directory need not exist yet; create
++    will make it. Falls back to the active profile skills dir if no external
++    dirs are configured.
 +    """
++    base = _skills_dir()
 +    try:
-+        from agent.skill_utils import get_external_skills_dirs
++        from agent.skill_utils import _load_raw_config
 +
-+        base = next(iter(get_external_skills_dirs()), _skills_dir())
++        skills_cfg = _load_raw_config().get("skills") or {}
++        raw_dirs = skills_cfg.get("external_dirs") or []
++        if isinstance(raw_dirs, str):
++            raw_dirs = [raw_dirs]
++        for entry in raw_dirs if isinstance(raw_dirs, list) else []:
++            expanded = os.path.expandvars(os.path.expanduser(str(entry).strip()))
++            if not expanded:
++                continue
++            candidate = Path(expanded)
++            if not candidate.is_absolute():
++                candidate = get_hermes_home() / candidate
++            candidate = candidate.resolve()
++            if candidate != base.resolve():
++                base = candidate
++                break
 +    except Exception:
-+        base = _skills_dir()
++        pass
 +
      if category:
 -        return _skills_dir() / category / name
@@ -6419,7 +6500,7 @@ index 3045474b1..059c2a878 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -845,7 +858,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -845,7 +874,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -6432,7 +6513,7 @@ index 3045474b1..059c2a878 100644
          "skill_md": str(skill_md),
          "_change": {"description": _desc},
      }
-@@ -1114,9 +1131,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
+@@ -1114,9 +1147,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
  
      shutil.rmtree(skill_dir)
  

@@ -20,12 +20,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表                                         | 管理方式                                                                                                                                                                                                                           |
-| -------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
-| **工程外补丁** | PATCH-3                                      | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
-| **运行时补丁** | PATCH-6                                      | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
-| **已上游合并** | PATCH-2/3/4/5/8                              | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
+| 类型           | 代表                                            | 管理方式                                                                                                                                                                                                                           |
+| -------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20/21 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
+| **工程外补丁** | PATCH-3                                         | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
+| **运行时补丁** | PATCH-6                                         | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
+| **已上游合并** | PATCH-2/3/4/5/8                                 | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -72,7 +72,8 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-17: grep Vertex include_thoughts=false + single-level {"google":…} + hidden-thoughts regression test
   │   ├─ PATCH-18: grep doctor Vertex provider/profile/env hints + google model slug regression test
   │   ├─ PATCH-19: grep get_vertex_fallback_config/apply_global_project_override + vertex-fallback in auth.py + has_vertex_fallback_credentials + name="vertex-fallback" + fallback regression test
-  │   └─ PATCH-20: grep _known_provider_model_supports_vision + vertex-fallback + decide_video_input_mode + _pending_native_video_paths_by_session (run.py) + gemini-3.1-pro-preview / video data-url routing regression tests
+  │   ├─ PATCH-20: grep _known_provider_model_supports_vision + vertex-fallback + decide_video_input_mode + _pending_native_video_paths_by_session (run.py) + gemini-3.1-pro-preview / video data-url routing regression tests
+  │   └─ PATCH-21: grep Matrix lazy-feature identity anchor + shared-aiohttp regression test
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -211,17 +212,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.18.2 (upstream `main` `79f12748`，2026-07-10)
+## 当前版本：v0.18.2 (upstream `main` `7acaff5e`，2026-07-11)
 
-**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19 / PATCH-20（共 15 条）。
+**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19 / PATCH-20 / PATCH-21（共 16 条）。
 
-**最近一次升级（v0.18.2 main 滚动，+312 commit，basis `05cbddc0` → `79f12748`）要点**：
+**最近一次升级（v0.18.2 main 滚动，+118 commits，basis `79f12748` → `7acaff5e`）要点**：
 
-- 上游主线：Gateway/Cron/Delegation——generic OIDC relay provisioning（`f64e4f4f`）、webhook payload filters 与 route scripts offload（`0cf2e39c` / `ae5e3900`）、cron shutdown drain、malformed/id-less/non-dict job containment（`862aee49` / `26f040ef` / `8e2ce435` / `c71d19c`）、delegation async result 归源与 orphan fail-closed（`aab351bf` / `4b27be11` / `75efd739`）；Dashboard/Desktop/TUI/Kanban——session DB/cron/profile I/O off event loop 与 PID/status cache（`9a4341aa` / `24d5bda1` / `49fa04a2`）、mobile OAuth/login/chat reconnect（`3e24b16f` / `0b2b08d5`）、Desktop TypeScript 化与 stored session continuation（`39d09453` / `8e734810`）、kanban headless spawn / retry diagnostics（`e87c495d` / `aea570db` / `77db9d6b`）；Skills/State——skill discovery cache + signature/TTL/per-call copy hardening（`5a424914` / `9e9608ec` / `cbdf87b2`）、session list compact rows 与 descendant CTE dedup/pagination、hygiene compression 不破坏 archived transcript（`22eb1af2` / `1e2ad17a` / `549b87c9`）；Models/Reasoning——xAI Grok 4.5、Tencent Hy3 GA、OpenAI gpt-5.6 / pro variants 完整注册、Kimi/Moonshot cache policy、DeepSeek V4 reasoning floor、compaction 75% floor/summary cap/trace exclusion（`62ada517` / `b64b8021` / `bd767b57` / `a3828a94` / `750c1310` / `1e161206` / `76381e2`）；Tools/Security/Config——JSON/YAML/TOML invalid write fail-closed、YAML syntax-only gate、config parse fail 保留 last-known-good、switch_model 不把新 provider 绑定 stale base_url（`2e1982f` / `6695640` / `fe25806a` / `a23d5073`）。
-- patch apply：首轮 Step 8 整体回贴失败，逐文件定位仅 `agent/prompt_builder.py`、`tools/skill_manager_tool.py`、`tools/skills_tool.py` 需要按新 upstream 重定锚；手工保留上游 skills cache/profile 逻辑并恢复本地 platform allowlist、external skill create root、skill_view 过滤语义。另发现 PATCH-11 新增的 `tools/approval.py` / `tests/tools/test_approval.py` 未列入 `PATCHED_FILES`，被脚本当额外改动 stash；本轮已加入 `PATCHED_FILES` 并把 Feishu group approval hard-block 适配到上游新的 `_run_approval_gate()` 结构。最终补跑到 `79f12748` 后 **clean apply**，47 个 patched file 全部刷新，PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20 sentinel 全 OK，PATCH-2/4/5 上游吸收 guard OK；无新退役。
-- 依赖：`hermes-agent` editable 从 `0.18.0` 升到 `0.18.2 (2026.7.7.2)`；npm root/ui-tui/web 依赖安装 + web UI rebuilt；`npm audit` no vulnerabilities；首次升级 bundled skills 更新 `hermes-agent`，Skills mirror `+0/~0/-4`，幂等复跑 mirror `+0/~0/-1`；lazy backend `platform.matrix` 仍有 upstream pip install 失败，保留既有版本。
-- 已知摩擦：首轮有 npm `allow-scripts` 提示（`agent-browser` / `esbuild` / `fsevents` / `unicode-animations`，非阻塞）；首轮 patch 未回贴时 doctor 暂报 `provider: vertex` 未识别，补丁回贴并重启 gateway 后恢复；脚本保留了 `stash@{0}`（`hermes-update-extra-20260710-004821`）作为手动恢复保险，内容已纳入当前 patch 管理，未再 pop/drop。
-- 配置漂移：最终 `hermes doctor` 显示 `Config version up to date (v33)` 且 `All checks passed`；gateway launchd plist matches current install，PID `95563` 受 launchd 监管；仅保留未登录 auth provider、未配置 optional tool/API key、Skills Hub 未初始化等可选提示。
+- 上游主线：Config/Agent 鲁棒性——CLI、Gateway、STT/TTS、Web、toolsets 对 null / scalar 配置统一 fail-safe（`bdecf0ab` / `46613071` / `50c66b2f` / `89371216` / `56932657` / `07271a6f`），tool-call 参数与 registry result contract 加固（`5e50f18b` / `f8361d29`）；Gateway/Cron/Memory——SessionStore 阻塞 I/O 全部移出 event loop、收敛 async boundary 与 save/reset races（`24c2a401` / `08e9dcf1` / `9d38a230` / `b3f77f5c` / `b196ce80`），cron profile store / webhook runtime 隔离、活跃 one-shot 与 claim heartbeat 防误清（`ec0227b4` / `f82c7139` / `9b72995a` / `dabae386`），holographic SQLite 连接按真实 DB 共享（`b5226caf` / `a8010466`）；Feishu——Channel signaling SDK 与 group @mention UA tag 落地，`lark-oapi` 升至 1.6.8（`949e4cb7` / `651e632b`）；Desktop/Dashboard/TUI——Hermes Cloud 登录发现、soft gateway switch、vibe hearts、chat zoom / draft / async session context 修复，以及 dashboard 粘贴/拖入图片（`c101207b` / `b3bde1fb` / `422d9da9` / `301acc9e` / `2afa92c7` / `7acaff5e`），TUI slash worker 支持 profile-local MCP（`623165a6`）；Providers/Tools/Security——custom catalog probe policy、Nous Portal 路由与共享 token 恢复（`5f00f36b` / `0629caac` / `3aeaf375` / `ca651354` / `0e67c723`），Windows MSYS path、web_extract 输入/顺序/短结果边界与确定性 tool-output risk（`3f8b2200` / `7ae9faec` / `459cf340` / `c2a40b2d` / `b9b463f3`）。
+- patch apply：首轮 `git apply` / zero-context / 3-way 整体失败，逐文件确认仅 `pyproject.toml`、`tools/lazy_deps.py` 与 `tests/gateway/test_feishu.py` 因 Feishu SDK 版本及测试插入点漂移需 rebase；其余 46 文件可直接/带 offset 应用。锚点包括 `gateway/config.py 1211→1228`、`gateway/run.py` 多段 `+1/+5/+20/+29/+30`、`gateway/session.py +1`、`adapter.py 4861→4867`、`test_config.py 1029→1088`、`test_feishu.py 414→483`、`test_skills_config.py +28`；PATCH-1 另补齐“external dir 尚不存在也应创建”的真实回归。升级后新增 PATCH-21，以 `mautrix` identity anchor 阻断核心 aiohttp 对未启用 Matrix 的误激活，并把 `tests/tools/test_lazy_deps.py` 纳入监管。最终 50 files **clean apply**，PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20/21 sentinel、PATCH-2/4/5 upstream guards 与 sandbox plugin verify 全 OK；无新退役。
+- 依赖：release / editable 版本维持 `0.18.2 (2026.7.7.2)`；active lazy backend `platform.feishu` 随上游刷新到 `lark-oapi 1.6.8`，本地 `python-socks 2.8.1` 保留；npm root/ui-tui/web 重装并 rebuild web UI，`npm audit` no vulnerabilities；Skills mirror 首跑 `+0/~0/-4`。升级后 PATCH-21 让从未启用的 Matrix 不再进入 refresh，真实 active backend 15 项全部 current；PATCH-6 用临时、版本钉死、仅限 Hermes update 的 npm policy 覆盖 `agent-browser/esbuild/fsevents/unicode-animations`，实跑 root + ui-tui/web `npm ci` 无 blocked warning 且运行产物正常；本轮 `uv` 未触发 python-path fallback。
+- 已知摩擦：首次回贴冲突按新上游锚点保守重放；`FEISHU_TEST_PY` 在 PATCH-12 检查前未赋值导致的 `set -u` 中止已修复。Matrix/python-olm 重复失败与 npm 四项 allowScripts 重复提示均已分别由 PATCH-21 / PATCH-6 规避；npm policy 使用精确版本 pin，上游若升级这些可执行脚本包会重新提示并要求复核，这是刻意保留的供应链安全 gate，不视为回归。最终完整 update exit 0、无 Recommended actions。
+- 配置漂移：最终 `hermes doctor` 显示 `Config version up to date (v33)`、`All checks passed`；Gateway plist matches current install，launchd PID `61895` 已重启加载 patched modules；仅保留未登录 auth provider、未配置 optional tool/API key、Skills Hub 未初始化等可选提示。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -234,22 +235,24 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：`skill_manage(action='create')` 默认把新 skill 写到 `~/.hermes/skills/`（官方目录），而不是用户的 `my-skills/`。上游已支持 external skill 原地 edit/patch/delete，但 create 仍有测试要求写入官方 root，所以本地 patch 是有意定制。
 
-**修复**：让 `_resolve_skill_dir()` 读 `config.yaml` 的 `skills.external_dirs`，第一个非官方目录作为新 skill 的基准路径；`_create_skill()` / `_delete_skill()` 同步适配，并加 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由与删除。
+**修复**：让 `_resolve_skill_dir()` 直接按配置顺序读取 `skills.external_dirs`，第一个非官方目录作为新 skill 的基准路径；即使目录尚不存在也由 create 建立，避免 discovery helper 只返回既存目录时错误回落官方 root。`_create_skill()` / `_delete_skill()` 同步适配，并加 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由、缺失目录创建与删除。
 
 **验证**：Step 8b 用真实 Python import + 调用 `_resolve_skill_dir("dummy_unit_test_skill")`，断言返回路径 startswith `~/.hermes/my-skills/`。
 
 ---
 
-### [PATCH-6] npm audit fix — node_modules 已知漏洞自动修复
+### [PATCH-6] npm 依赖安全维护 — audit fix + install-script policy
 
-| 字段     | 内容                                              |
-| -------- | ------------------------------------------------- |
-| **文件** | `node_modules/`（gitignored，非 `PATCHED_FILES`） |
-| **状态** | 🟢 自动化（`hermes-update.sh` Step 4）            |
+| 字段     | 内容                                                       |
+| -------- | ---------------------------------------------------------- |
+| **文件** | `hermes-update.sh` + `node_modules/`（gitignored）         |
+| **状态** | 🟢 自动化（Step 3 scoped policy + Step 4 `npm audit fix`） |
 
-**问题**：`hermes update` 用 `npm install --no-audit` 装 npm 依赖，不会自动修已知漏洞。例如 `basic-ftp ≤5.2.2` 的高危 DoS（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。
+**问题**：`hermes update` 用 `npm install --no-audit` 装 npm 依赖，不会自动修已知漏洞。例如 `basic-ftp ≤5.2.2` 的高危 DoS（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。Node 26 / npm 12 进一步默认阻止未经审核的 dependency lifecycle scripts；本仓 update 的 root + ui-tui/web 安装会反复提示 `agent-browser@0.26.0`、`esbuild@0.28.1`、`fsevents@2.3.3`、`unicode-animations@1.0.3` 未被 `allowScripts` 覆盖。四个包当前产物实际可用，但每次升级重复告警；用 `dangerously-allow-all-scripts` 会把未来任意传递依赖也放行，不可接受。
 
-**修复**：在 `hermes-update.sh` Step 4 里 `hermes update` 完成后跑 `npm audit fix --quiet`。`node_modules/` 是 gitignored，不进 `PATCHED_FILES` / `local-patches.diff`，每次 update 后重跑即可。
+**修复**：保留 Step 4 的 `npm audit fix --quiet`；同时在调用 `hermes update` 前为 npm ≥12 创建权限为 0600 的临时 global-config，仅写入四个已审核且**版本钉死**的 allow 条目，并通过 `NPM_CONFIG_GLOBALCONFIG` 只传给本轮 `hermes update` / audit，结束或异常退出均删除。不会修改 `~/.npmrc`，不会影响其他项目，也不会继承未来版本的脚本权限。`agent-browser` postinstall 只校验/准备对应平台 binary，`esbuild` 校验平台 binary，`fsevents` 提供 macOS native watcher，`unicode-animations` 在上游强制的 `CI=1` 环境中 no-op。
+
+**验证**：以相同临时 policy 实跑 root `npm ci --workspaces=false` 与 ui-tui/web workspace `npm ci`，均无 `install scripts blocked` / `not covered by allowScripts`；随后 audit 恢复完整 workspace 产物，`agent-browser 0.26.0`、`esbuild 0.28.1`、`require("fsevents")`、`require("unicode-animations")` 全部可用，package.json / lockfile 无 tracked drift。
 
 ---
 
@@ -260,7 +263,7 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `pyproject.toml`, `tools/lazy_deps.py` |
 | **状态** | 🟡 未上游合并                          |
 
-**问题**：`feishu` optional extra 和 `tools/lazy_deps.py` 的 `platform.feishu` 上游都只声明 `lark-oapi==1.5.3` + `qrcode==7.4.2`。代理网络下 `lark-oapi` 的 WebSocket 连接需要 SOCKS 支持，缺 `python-socks` 时 gateway 起来后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
+**问题**：`feishu` optional extra 和 `tools/lazy_deps.py` 的 `platform.feishu` 上游当前都只声明 `lark-oapi==1.6.8` + `qrcode==7.4.2`。代理网络下 `lark-oapi` 的 WebSocket 连接需要 SOCKS 支持，缺 `python-socks` 时 gateway 起来后报 `connecting through a SOCKS proxy requires python-socks` 并反复重连失败。
 
 **修复**：在 `pyproject.toml` 的 `feishu` extra 和 `tools/lazy_deps.py` 的 `LAZY_DEPS["platform.feishu"]` 都加 `"python-socks==2.8.1"`。手动 `.[feishu]`、`.[all,feishu]`、和上游 lazy install 三条路径都能拿到 SOCKS。版本钉死风格与上游 2026-05-14 起 messaging extras `==X.Y.Z` 约定一致（避免 `>=2.0,<3` 被 `uv lock --check` 报漂移）。
 
@@ -482,6 +485,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `agent/image_routing.py` 中存在 `def _known_provider_model_supports_vision`、`"vertex-fallback"`、`def decide_video_input_mode`，grep `gateway/run.py` 中存在 `_pending_native_video_paths_by_session`，grep `tests/agent/test_image_routing.py` 中存在 `gemini-3.1-pro-preview`、`test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry`、`test_video_attached_as_data_url_part`。单测 `venv/bin/python -m pytest tests/agent/test_image_routing.py -q` 118 passed（视频新增 17）；`tests/agent/test_image_routing.py + tests/gateway/test_feishu.py + tests/gateway/test_config.py + tests/hermes_cli/test_doctor.py` 共 496 passed。真实配置验证：`decide_video_input_mode("vertex"/"vertex-fallback", "google/gemini-3.1-pro-preview", cfg) == "native"`；用群里实际缓存的 11MB `iShot_*.mp4` 构造 parts 成功（`data:video/mp4;base64,` 14.7MB data URL + hint）。真机：群聊引用视频/发视频后 @机器人，`logs/agent.log` 应出现 `Video routing: native ...` 且模型能描述视频内容。
 
 **上游吸收判断**：若上游模型能力 catalog 原生覆盖 Vertex Gemini 3.x preview（含视频输入能力），或上游为用户附件提供通用的 native video 路由（等价 `video_input_mode`），可归档本补丁。
+
+---
+
+### [PATCH-21] lazy backend 激活锚点 — 避免未启用 Matrix 被重复刷新
+
+| 字段     | 内容                                                  |
+| -------- | ----------------------------------------------------- |
+| **文件** | `tools/lazy_deps.py`, `tests/tools/test_lazy_deps.py` |
+| **状态** | 🟡 未上游合并                                         |
+
+**问题**：`active_features()` 原先只要某个 lazy feature 的**任一**声明依赖已安装，就把它视为“用户曾启用”并在 `hermes update` 中刷新。`platform.matrix` 为安全钉住核心共享依赖 `aiohttp==3.14.1`，而 aiohttp 在所有正常 Hermes venv 中都存在，因此从未配置 Matrix 的机器也会被误判 active。刷新随即拉取 `mautrix[encryption] → python-olm 3.2.16`；该包没有现代 macOS arm64 wheel，内嵌 libolm 在 macOS 26.5.2 / Apple Clang 21 编译时报 `cannot assign to variable 'other_pos' with const-qualified type 'T *const'`，导致每次真正更新都重复显示 `platform.matrix failed to refresh`。
+
+**修复**：新增 `LAZY_FEATURE_ACTIVE_ANCHORS`，只为存在共享依赖误判的 Matrix 指定身份锚点 `mautrix`。其他 feature 仍保持上游“任一依赖存在即 active”的恢复语义；只有实际安装过 Matrix SDK 的环境才会进入 Matrix refresh。这里不伪装 `python-olm` 已满足、不移除 Matrix encryption，也不对 macOS 一刀切禁用，因此真实 Matrix 用户仍能看到依赖异常并选择 Linux/container 或维护自己的 native toolchain。
+
+**验证**：新增两条回归：仅 `aiohttp` 存在时 `platform.matrix` 不 active，`mautrix` 存在时仍 active；`tests/tools/test_lazy_deps.py` 66 passed。真实 venv 调用 `active_features()` / `refresh_active_features()` 均不再包含 `platform.matrix`，其余 15 个既有 active backend 全部保持 `current`。`hermes-update.sh` Step 8b grep anchor 与回归测试名，并将 PATCH-21 纳入 patch refresh gate。
+
+**上游吸收判断**：若上游用持久化 activation ledger 记录真正启用过的 lazy feature，或为 Matrix/其他含核心共享依赖的 feature 引入等价 identity anchor，即可归档本补丁。
 
 ---
 
