@@ -8,9 +8,7 @@ Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no traili
 §
 Skill maintenance: Prioritize execution efficiency. Keep SKILL.md concise by extracting inline scripts into separate files under a scripts/ directory to reduce token load. Prefers generic, scalable directory names (e.g., 'editor-configs').
 §
-Projects: SpaceSight(SaaS Product by Whale Tech). User focuses on Agent orchestration, not cloud infra.
-§
-Handles international vendor security and AI privacy compliance audits (SOC2, ISO, Model Inversion, ECE, SIEM/DLP) for Whale / SpaceSight.
+Projects: SpaceSight (SaaS Product by Whale Tech), expanding into APAC (Japan), involving local privacy/hardware audits. User focuses on Agent orchestration, vendor security/AI compliance (SOC2, ISO, ECE), and team tech-comms, not cloud infra.
 §
 LLM Wiki `~/.hermes/wiki`. Bipartite Graph: L1 (\_living/) = Hubs, L2 (entities/concepts) = Authorities, L2 cites L1 via wikilinks. Use HITS & Bipartite Projection (Jaccard) for topology. Run `python3 ~/.hermes/scripts/wiki_lint.py`.
 §

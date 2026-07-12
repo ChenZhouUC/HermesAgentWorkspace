@@ -13,12 +13,15 @@ pull can never clobber the subjective fields you set by hand:
          kept). Owner pinned to the top, everyone else sorted by employee_no.
 
 Field policy on merge:
-  Objective — always refreshed from the draft (don't hand-edit these):
-      name, department, employee_no, join_date, tenure,
+  Feishu-backed — refreshed when present in the draft; when Feishu omits a
+  field, keep the existing value:
+      name, role, department, employee_no, join_date, tenure,
       manager, direct_reports, total_reports
-  role — seeded from the Feishu job title only if you haven't set it.
   Subjective — created blank for new people, NEVER overwritten if already set:
       address, background, behavior, stance, risks
+  aliases — preserved for existing people; synthesized from the Feishu name for
+  new people, then left untouched for later manual refinement.
+  Roster — the draft is authoritative; entries absent from it are removed.
 
 Subordinate counts come from the management graph (each user's leader_user_id);
 employee_no + join_date reveal tenure / seniority.
@@ -57,6 +60,7 @@ PIN_FIRST = "ou_33eeacfbd0c0559b7b734f83503719ab"
 FIELD_ORDER = [
     "open_id",
     "name",
+    "aliases",
     "role",
     "department",
     "employee_no",
@@ -65,7 +69,6 @@ FIELD_ORDER = [
     "manager",
     "direct_reports",
     "total_reports",
-    "aliases",
     "address",
     "background",
     "behavior",
@@ -73,9 +76,10 @@ FIELD_ORDER = [
     "risks",
     "notes",
 ]
-# Objective fields the pull owns and the merge always refreshes.
+# Feishu-backed fields the merge refreshes whenever the draft provides a value.
 ALWAYS_REFRESH = [
     "name",
+    "role",
     "department",
     "employee_no",
     "join_date",
@@ -84,8 +88,6 @@ ALWAYS_REFRESH = [
     "direct_reports",
     "total_reports",
 ]
-# Seeded from Feishu but yours to refine — only filled when empty.
-FILL_IF_EMPTY = ["role"]
 # Purely human-set — created blank for new people, never overwritten.
 SUBJECTIVE = ["address", "background", "behavior", "stance", "risks"]
 
@@ -324,8 +326,17 @@ def make_yaml():
 def upsert(ent, key, value):
     """Set ent[key]=value, inserting at the canonical position if new."""
     if key in ent:
-        ent[key] = value
+        if ent[key] != value:
+            if key == "join_date" and isinstance(value, str):
+                from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+
+                value = DoubleQuotedScalarString(value)
+            ent[key] = value
         return
+    if key == "join_date" and isinstance(value, str):
+        from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+
+        value = DoubleQuotedScalarString(value)
     prevs = FIELD_ORDER[: FIELD_ORDER.index(key)]
     keys = list(ent.keys())
     pos = len(keys)
@@ -334,6 +345,35 @@ def upsert(ent, key, value):
             pos = keys.index(a) + 1
             break
     ent.insert(pos, key, value)
+
+
+def aliases_from_name(name: str) -> list[str]:
+    """Build the compact alias form used by existing people.yaml entries."""
+    text = " ".join(str(name or "").split())
+    if not text:
+        return []
+    aliases: list[str] = []
+
+    def add(value: str):
+        value = value.strip()
+        if value and value not in aliases:
+            aliases.append(value)
+
+    nickname_match = re.search(r"\(([^()]+)\)\s*$", text)
+    nickname = nickname_match.group(1).strip() if nickname_match else ""
+    base = text[: nickname_match.start()].strip() if nickname_match else text
+    parts = base.split()
+    latin_parts = [part for part in parts if re.search(r"[A-Za-z]", part)]
+    non_latin_parts = [part for part in parts if not re.search(r"[A-Za-z]", part)]
+    if latin_parts:
+        add(latin_parts[0])
+        add(" ".join(latin_parts))
+    for part in non_latin_parts:
+        add(part)
+    if not aliases:
+        add(base)
+    add(nickname)
+    return aliases
 
 
 def dump_sorted(yaml, doc) -> str:
@@ -359,6 +399,7 @@ def dump_sorted(yaml, doc) -> str:
     yaml.dump(doc, buf)
     text = buf.getvalue()
     text = re.sub(r"\n(  - open_id:)", r"\n\n\1", text)  # blank line between entries
+    text = re.sub(r"\n{3,}(  - open_id:)", r"\n\n\1", text)  # don't duplicate existing spacing
     text = re.sub(r"(people:\n)\n+", r"\1", text)  # but not right after "people:"
     return text
 
@@ -416,6 +457,12 @@ def cmd_merge(args):
 
     from ruamel.yaml.comments import CommentedMap
 
+    removed_ids = [oid for oid in index if oid not in draft]
+    for ent in list(seq):
+        if isinstance(ent, dict) and ent.get("open_id") in removed_ids:
+            seq.remove(ent)
+    index = {it["open_id"]: it for it in seq if isinstance(it, dict) and it.get("open_id")}
+
     added = updated = 0
     for oid, d in draft.items():
         ent = index.get(oid)
@@ -428,16 +475,14 @@ def cmd_merge(args):
         else:
             updated += 1
         for f in ALWAYS_REFRESH:
-            if f in d:
+            if f in d and d[f] not in (None, ""):
                 upsert(ent, f, d[f])
-        for f in FILL_IF_EMPTY:
-            if not ent.get(f) and d.get(f):
-                upsert(ent, f, d[f])
+        if "aliases" not in ent:
+            upsert(ent, "aliases", aliases_from_name(d.get("name") or ent.get("name") or ""))
         for f in SUBJECTIVE:
             if f not in ent:
                 upsert(ent, f, None)
 
-    kept_manual = [oid for oid in index if oid not in draft]
     text = dump_sorted(yaml, doc)
 
     if args.apply:
@@ -451,7 +496,7 @@ def cmd_merge(args):
             encoding="utf-8",
         )
 
-    print(f"merged: {updated} updated, {added} new, {len(kept_manual)} manual-only kept", file=sys.stderr)
+    print(f"merged: {updated} updated, {added} new, {len(removed_ids)} departed removed", file=sys.stderr)
     if args.apply:
         print(f"Applied → {PEOPLE_FILE} (backup: people.yaml.bak)", file=sys.stderr)
     else:
