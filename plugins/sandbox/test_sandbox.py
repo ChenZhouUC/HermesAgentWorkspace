@@ -87,6 +87,56 @@ def test_read_root_check_accepts_tmp_symlink_resolution():
     )
 
 
+def test_group_wiki_reads_require_an_explicit_configured_path(tmp_path, monkeypatch):
+    wiki_root = tmp_path / ".hermes" / "wiki"
+    wiki_root.mkdir(parents=True)
+
+    monkeypatch.setattr(sandbox, "_OWNER_CHAT_IDS", frozenset({"owner"}))
+    monkeypatch.setattr(sandbox, "_ALLOWED_TOOLS", frozenset())
+    monkeypatch.setattr(
+        sandbox,
+        "_GROUP_ALLOWED_TOOLS",
+        frozenset({"read_file", "search_files"}),
+    )
+    monkeypatch.setattr(sandbox, "_GROUP_ALLOWED_READ_ROOTS", (wiki_root.resolve(),))
+    sandbox._current_platform.set("feishu")
+    sandbox._current_chat_id.set("group-chat")
+    sandbox._current_chat_type.set("group")
+
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name="search_files",
+            args={"pattern": "SpaceSight", "path": str(wiki_root)},
+        )
+        is None
+    )
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name="read_file",
+            args={"path": str(wiki_root / "index.md")},
+        )
+        is None
+    )
+
+    missing_path = sandbox._on_pre_tool_call(
+        tool_name="search_files",
+        args={"pattern": "SpaceSight"},
+    )
+    wrong_path = sandbox._on_pre_tool_call(
+        tool_name="search_files",
+        args={"pattern": "SpaceSight", "path": str(tmp_path / "wiki")},
+    )
+
+    assert missing_path == {
+        "action": "block",
+        "message": sandbox._READ_ROOT_BLOCK_MESSAGE,
+    }
+    assert wrong_path == {
+        "action": "block",
+        "message": sandbox._READ_ROOT_BLOCK_MESSAGE,
+    }
+
+
 def test_group_terminal_allows_download_into_tmp(monkeypatch):
     tmp_root = sandbox.Path("/tmp").resolve(strict=False)
     monkeypatch.setattr(sandbox, "_GROUP_ALLOWED_DOWNLOAD_ROOTS", (tmp_root,))

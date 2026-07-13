@@ -1,7 +1,7 @@
 ---
 title: Wiki Index
 created: 2026-05-14
-updated: 2026-07-11
+updated: 2026-07-13
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -54,8 +54,8 @@ Registry Rules
 - `concepts/llm-benchmark-methodology.md` - AI 大模型基准测试系统调研
 - `concepts/llm-computational-complexity.md` - 大语言模型在 TCS 领域的计算复杂性与严格下界
 - `concepts/llm-wiki.md` - 由 LLM 维护 Markdown 页面、索引和 schema 的轻量知识库架构
-- `concepts/lmm-input-mechanics.md` - LMM (多模态大模型) 从 Markdown 到 Token 的处理机制
-- `concepts/markdown-llm-protocol.md` - Markdown 在 LLM 交互场景下的格式协议架构
+- `concepts/lmm-input-mechanics.md` - 多模态内容从媒体预处理、编码器与连接器到序列拼接或 cross-attention 的输入机制
+- `concepts/markdown-llm-protocol.md` - LLM 系统中存储、传输、Prompt、结构化输出与执行边界的文本格式协议
 - `concepts/model-shadow-deployment.md` - 模型升级时配对特征轴并行的影子部署模式
 - `concepts/multi-stage-clustering.md` - 轨迹相似度图上的多层级连通分量聚合（由严到松、由同向到异向）
 - `concepts/ontology.md` - 知识工程中的本体论概念及其规范边界

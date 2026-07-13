@@ -16,7 +16,7 @@
 #   8. Re-apply & verify local patches
 #      8a. Apply saved diff
 #      8b. Behavioral verification
-#      8c. Refresh saved diff
+#      8c. Refresh saved diff + re-sync patched bundled skills
 #      8d. Gateway restart         (reload patched Python modules into running process)
 #   8e. User-plugin compatibility checks (plugins/*/verify.sh)
 #   9. Health verification         (hermes doctor + gateway status)
@@ -68,6 +68,7 @@ PATCHED_FILES=(
     "gateway/config.py"
     "gateway/display_config.py"
     "plugins/platforms/feishu/adapter.py"
+    "skills/research/llm-wiki/SKILL.md"
     "gateway/platforms/base.py"
     "gateway/run.py"
     "gateway/session.py"
@@ -763,10 +764,14 @@ FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
 FILE_OPERATIONS_TEST_PY="${HERMES_AGENT}/tests/tools/test_file_operations.py"
 FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admission.py"
 FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
-if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" ]]; then
+LLM_WIKI_SKILL_MD="${HERMES_AGENT}/skills/research/llm-wiki/SKILL.md"
+if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${LLM_WIKI_SKILL_MD}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_sender_is_configured_assistant_user' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_FEISHU_GROUP_TECHNICAL_QUERY_INSTRUCTION' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'never omit search_files.path' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'retry with the explicit allowed path' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
         grep -q 'feishu_group' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'FEISHU_GROUP_ALLOWED_CHATS' "${AUTHZ_MIXIN_PY}" 2>/dev/null &&
@@ -776,11 +781,14 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" 
         grep -q '_read_spreadsheet' "${FILE_OPERATIONS_PY}" 2>/dev/null &&
         grep -q 'test_doc_read_builds_env_client_outside_comment_context' "${FEISHU_TOOLS_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'explicit path under ~/.hermes/wiki' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_read_file_extracts_xlsx_as_text' "${FILE_OPERATIONS_TEST_PY}" 2>/dev/null &&
         grep -q 'bare_mention_intent' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q '_build_bare_mention_intent_text' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'Sandboxed Feishu groups' "${LLM_WIKI_SKILL_MD}" 2>/dev/null &&
+        grep -q 'search_files(pattern="transformer", path="~/.hermes/wiki"' "${LLM_WIKI_SKILL_MD}" 2>/dev/null &&
         grep -q 'test_bare_mention_dropped_when_toggle_disabled' "${HERMES_AGENT}/tests/gateway/test_feishu.py" 2>/dev/null; then
-        ok "Feishu group mention/context patch: active (bot/@assistant trigger, configured-human no-intro, group history, feishu_group key, doc/xlsx reads, bare-@ intent)"
+        ok "Feishu group mention/context patch: active (bot/@assistant trigger, shared llm-wiki path guard, configured-human no-intro, group history, feishu_group key, doc/xlsx reads, bare-@ intent)"
         _FEISHU_GROUP_PATCH_OK=true
     else
         warn "Feishu group mention/context patch inactive or partial"
@@ -1078,6 +1086,29 @@ if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_
         fi
     fi
     cd - >/dev/null
+fi
+
+# The full bundled-skill mirror in step 4b runs before local patches are
+# re-applied. Re-seed llm-wiki from the now-patched bundled source and rebuild
+# its manifest baseline so a future startup/update does not classify this
+# maintained patch as an ad-hoc user edit or restore the old ~/wiki guidance.
+if $_PATCH_APPLY_OK && $_FEISHU_GROUP_PATCH_OK && [[ -f "${LLM_WIKI_SKILL_MD}" ]]; then
+    step "Syncing patched llm-wiki skill"
+    set +e
+    _LLM_WIKI_RESET_OUT=$(hermes skills reset llm-wiki --restore --yes 2>&1)
+    _LLM_WIKI_RESET_RC=$?
+    set -e
+    if [[ ${_LLM_WIKI_RESET_RC} -eq 0 ]] &&
+        cmp -s "${LLM_WIKI_SKILL_MD}" "${LOCAL_SKILLS_DIR}/research/llm-wiki/SKILL.md"; then
+        ok "Patched llm-wiki synced and manifest re-baselined"
+    else
+        warn "Could not sync patched llm-wiki into the runtime skills mirror"
+        if [[ -n "${_LLM_WIKI_RESET_OUT:-}" ]]; then
+            add_warn "llm-wiki reset output: ${_LLM_WIKI_RESET_OUT//$'\n'/ | }"
+        fi
+        add_act "Run: hermes skills reset llm-wiki --restore --yes"
+        FINAL_RC=1
+    fi
 fi
 
 # ── 8d. Gateway restart (post-patch) ─────────────────────────────────────────

@@ -1,7 +1,7 @@
 ---
 title: SpaceSight
 created: 2026-07-01
-updated: 2026-07-11
+updated: 2026-07-13
 type: entity
 tags: [spacesight, product-management, computer-vision]
 sources:
@@ -25,9 +25,6 @@ SpaceSight 相关问题通常分三类：
 - **客流与 ReID 质量**：出入口人数偏差、店内替代出入口、全店客流口径等问题，本质上落在 [[reid-pipeline]] 与 [[customer-flow-post-processing]] 的分层边界上。
 - **非标视觉场景**：车展、巡检、质检等场景需要先确认摄像机视角、遮挡、实时性与可交付口径，不能直接把标准门店客流能力外推。
 
-## 相关问答入口
+## 问题到 SOP 的映射
 
-完整业务问答保留在 living 文档中，Layer 2 只提取可复用 SOP：
-
-- [[diagnose-spacesight-traffic-count-mismatch]]
-- [[design-spacesight-nonstandard-traffic-plan]]
+当门店实测人数与系统结果出现偏差时，[[diagnose-spacesight-traffic-count-mismatch|客流人数偏差排查 SOP]] 按原始进店、ReID 去重、业务过滤三层定位误差来源；当车展、店内巡检等场景没有标准出入口视角时，[[design-spacesight-nonstandard-traffic-plan|非标客流方案设计 SOP]] 用视角可行性、轨迹规则、去重口径与现场基线决定是否以及如何交付。两者分别对应 SpaceSight 的故障诊断和方案设计，不是一般性的“相关页面”导航。

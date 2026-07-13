@@ -1,89 +1,102 @@
 ---
-title: Markdown as LLM Protocol
+title: LLM Text Format Protocols
 created: 2026-05-14
-updated: 2026-07-11
+updated: 2026-07-13
 type: concept
-tags: [architecture, llm]
+tags: [architecture, llm, protocol, markdown]
 sources: [_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs.md]
 confidence: high
 ---
 
-# Markdown as LLM Protocol
+# LLM 系统的文本格式协议
 
-在 AI 时代，文本载体正经历底层重构：Markdown 逐渐取代一部分富文本与二进制文档，成为大模型交互的常用协作格式。这并非偶然，而是 Token 成本、结构可解析性、训练语料分布、工具链兼容性与人机共同编辑需求共同推动的结果。^[[[_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs|Text-Format-Protocol-for-LLMs]]]
+文本格式协议不是“选 Markdown 还是 JSON”这样一个孤立问题，而是规定信息如何在**长期存储、程序传输、Prompt 上下文、模型输出与最终执行**之间转换。普通文本进入模型时通常先被序列化为 Unicode 字符串，再由具体模型的 tokenizer 映射为离散 Token ID：
 
-## 为什么 LLM 时代偏好 Markdown
+$$
+\tau_m:\mathcal{U}^*\rightarrow\{0,1,\ldots,|V_m|-1\}^*,
+\qquad
+(i_1,\ldots,i_L)=\tau_m(s)
+$$
 
-1. **Token 效率高**：相比 HTML / Word XML，用 `#`、`-`、`*` 等少量字符表达结构，降低 Token 消耗、在上下文窗口保留更多有效信息。
-2. **语义边界清晰**：标题、列表、代码块围栏为模型提供明确结构边界，便于区分指令、背景、数据与代码。
-3. **训练语料覆盖广**：GitHub、StackOverflow、Reddit 等大量使用 Markdown，使其成为预训练阶段高频接触的文本形态。
-4. **工具链兼容**：Markdown 可被 Git diff、静态站点、Obsidian、RAG pipeline、Agent 和人类编辑器共同处理。^[[[_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs|Text-Format-Protocol-for-LLMs]]]
+Markdown 标题、JSON 花括号和 XML 标签因此首先是字符序列中的模式。宿主系统可以预先把 Markdown 解析成 AST、把 HTML 解析成 DOM、把 JSON 校验后重新序列化，但这属于应用协议，不是语言模型天然执行的固定步骤。^[[[_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs|Text-Format-Protocol-for-LLMs]]]
 
-## 格式选择原则
+## 分层，而不是寻找单一最优格式
 
-格式选择应先看消费者是谁：
+一个可靠系统至少区分以下层次：
 
-| 消费者        | 主要诉求                 | 推荐格式                                 |
-| ------------- | ------------------------ | ---------------------------------------- |
-| AI 读、人不读 | 可解析、低 token、低歧义 | JSON, YAML, 极简 Markdown, TSV           |
-| AI 和人都读   | 可读、可 diff、结构清楚  | GFM, Mermaid, LaTeX, 简洁表格            |
-| 人读、AI 不读 | 展示效率、视觉层级、交互 | HTML/CSS, 原生 UI, 图表组件              |
-| 机器严格执行  | schema、类型、安全边界   | JSON Schema, typed JSON, XML with schema |
-| RAG 检索      | chunk 稳定、来源清楚     | Markdown + frontmatter + headings        |
+| 层               | 核心问题                              | 常用表示                                     |
+| ---------------- | ------------------------------------- | -------------------------------------------- |
+| Canonical Source | 原始证据、版本和转换过程能否重建      | Markdown、JSON、CSV、原始附件                |
+| Transport        | 数据能否完整、可幂等地跨 API/队列传递 | typed JSON、JSONL、二进制协议、文件引用      |
+| Prompt Context   | 指令、数据、示例和来源是否边界清楚    | content blocks、简洁 Markdown、XML 风格标签  |
+| Model Output     | 程序能否稳定解析模型结果              | JSON Schema constrained output、strict tools |
+| Execution        | 值是否真实、合法且获得授权            | 领域对象、业务验证、事务和权限系统           |
+| Presentation     | 人类是否易于阅读和交互                | HTML、原生 UI、图表和富文本                  |
 
-核心原则是：模型读语义，人读结构，机器读 schema。越靠近执行层，格式越要严格；越靠近协作层，格式越要可读。
+同一份内容可以在不同层采用不同表示。服务间可以用 Protobuf 传输，Prompt 边界转换成结构化 content blocks，模型输出再受 JSON Schema 约束，最后渲染成 HTML；没有理由要求所有层共享一种文本格式。
 
-## 按受众场景的格式架构
+## 格式选择可以写成损失函数
 
-核心洞察：信息封装格式应随**人机协作阶段**而变，不存在单一最优格式。
+对候选格式 $f$，可按任务定义：
 
-### 场景一：AI 读、人不读
+$$
+J(f)=\alpha N_m(f(x))
++\beta P_{\mathrm{parse}}(f)
++\gamma P_{\mathrm{semantic}}(f)
++\delta C_{\mathrm{maintain}}(f)
++\epsilon C_{\mathrm{interop}}(f)
+$$
 
-适用 AI-to-AI 通信、System Prompt、RAG 检索、系统日志。诉求是确定性、低 Token、严格解析；人类阅读体验非重点。
+$N_m$ 是目标模型下的 Token 数，$P_{\mathrm{parse}}$ 是语法解析失败概率，$P_{\mathrm{semantic}}$ 是“语法合法但含义错误”的概率，后两项分别表示维护与互操作成本。权重取决于风险：知识笔记重视可读、可 diff；付款、删除或外部工具调用重视 schema、语义验证和授权。
 
-- 文本：**YAML / JSON**（结构化参数与工具调用，YAML 更省 Token 但要防缩进/类型歧义）；**极简结构化 Markdown** 传递背景知识。
-- 多媒体：图片/视频用 URL 绝对路径或 Base64；图表/逻辑关系转为纯文本 Graph 节点列表、JSON 树或矩阵——AI 要底层结构而非渲染后的视觉。
+因此，“JSON 一定比 YAML 贵”或“Markdown 一定最省 Token”都不是普遍定律。Token 数取决于 tokenizer 和真实数据分布，格式优劣还取决于解析失败、歧义与维护成本，应该在目标模型和代表性样本上实测。
 
-### 场景二：AI 和人都读
+## 各格式的协议角色
 
-适用 Chat 上下文、Prompt 模板、人机协作文档、技能库。诉求是人机认知同频。
+| 格式               | 适合                                      | 主要边界                                      |
+| ------------------ | ----------------------------------------- | --------------------------------------------- |
+| Markdown           | 人机共读、知识沉淀、Prompt 模板、Git diff | 方言不同；不是 schema；视觉布局不是权限       |
+| JSON + JSON Schema | 程序交换、受约束输出、工具参数            | 冗长；schema 合法不代表事实正确               |
+| YAML/TOML          | 人类维护的配置                            | YAML 版本与隐式类型有歧义；执行前必须解析校验 |
+| XML                | 深层嵌套、混合内容、显式标签边界          | 转义与解析器安全复杂；标签不提升指令权限      |
+| CSV/TSV            | 规则二维数据                              | 方言、换行、缺失值和类型需另行约定            |
+| JSONL/NDJSON       | 逐记录流式处理和失败恢复                  | 每行应是独立 JSON 值，不适合跨行嵌套对象      |
+| HTML/UI            | 最终展示、交互和无障碍语义                | 展示 DOM 不宜直接作为规范知识源               |
 
-- 文本：**GitHub Flavored Markdown (GFM)**，在可读性与可解析性间平衡，便于在飞书/Obsidian/GitHub 间迁移。
-- 多媒体：架构图用 **Mermaid.js / PlantUML**（人端渲染流程图、AI 端直接读写纯文本定义）；公式用 **LaTeX**；图片用带语义 Alt text 的 Markdown 语法。
+Markdown 的优势来自源文本可读、标题和围栏结构清楚、工具链广泛，而不是“模型只偏爱 Markdown”。持久文档应声明 CommonMark、GFM、Obsidian 或 MDX 等方言及允许扩展；程序需要结构时应解析 AST，不用正则猜标题和代码块。
 
-### 场景三：人读、AI 不读
+## Prompt 边界不等于安全边界
 
-适用最终交付物、Dashboard、汇报演示、BI 看板。诉求是降低认知负担、提升可视化效率。
+Markdown 标题、XML 标签和代码围栏能提高区域可辨识度，却不能改变 system/developer/user 的权限，也不能让不可信文档失去提示注入能力。长 Prompt 至少应区分 instructions、documents、examples、current query、output contract、tool policy 和 untrusted content；真正的安全边界由角色隔离、最小工具权限、HITL、输出验证与审计实现。
 
-- 文本：**原生 UI 组件 / HTML+CSS**（飞书 Block 卡片、Notion 交互页），分栏/卡片/高亮更适合人类快速浏览，但对原生模型解析成本高。
-- 多媒体：ECharts/D3.js 交互图表、MP4/流媒体、状态徽标/进度条。^[[[_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs|Text-Format-Protocol-for-LLMs]]]
+模板插值也必须使用结构化 builder 或 serializer。若把用户文本直接拼进 `<document>...</document>`，用户可注入闭合标签；若手写 JSON，用户内容中的引号、反斜杠和控制字符同样会破坏结构。
 
-## Prompt 与 Agent 上下文协议
+## 结构化输出的保证边界
 
-长 prompt 应显式隔离 task、context、constraints、examples、tools、output contract 和 user data。Markdown 标题或 XML 风格标签都可以，关键是让模型知道哪些是指令、哪些是不可信数据。^[[[_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs|Text-Format-Protocol-for-LLMs]]]
+可靠性由弱到强依次是：自由文本、Prompt 要求 JSON、JSON mode、JSON Schema 受约束输出、strict tool schema，以及应用侧解析、领域验证与授权。受约束解码在每一步仅允许 grammar/schema 当前状态接受的 Token。若合法集合为 $A_t\subseteq V$，则：
 
-当输出要被程序消费时，应使用 API 原生结构化输出、function calling 或 JSON Schema；只在 prompt 中写“请输出 JSON”是不够稳的。RAG 文档、网页、日志和用户粘贴文本应标记为 untrusted context，不能覆盖 system/developer 指令、工具权限和输出契约。
+$$
+p_G(v\mid x_{<t})=
+\begin{cases}
+\dfrac{p(v\mid x_{<t})}{\sum_{u\in A_t}p(u\mid x_{<t})},&v\in A_t\\
+0,&v\notin A_t
+\end{cases}
+$$
 
-## RAG 文档规范
+它可以保证完成的输出属于受支持的语法语言，却不能保证金额、日期、资源 ID 或事实本身正确。应用仍需处理 refusal、截断、content filter、timeout 和 transport error，并在执行前完成 schema、领域不变量、身份权限、幂等性与并发检查。^[[[_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs|Text-Format-Protocol-for-LLMs]]]
 
-适合 RAG 的 Markdown 不是任意长文，而是能稳定切块、保留来源、chunk 自带上下文的文档：
+## Unicode、RAG 与多模态边界
 
-- frontmatter 保留 title、created/updated、source、confidence 等元数据；
-- 标题层级稳定，不跳级；
-- 每个二级标题围绕一个主题；
-- 代码块带语言；
-- 表格前写明含义，复杂表改用 CSV/TSV 或 JSON；
-- 结论和证据尽量相邻；
-- 图片、图表、音视频保留 alt text、源数据、转写或时间戳。^[[[_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs|Text-Format-Protocol-for-LLMs]]]
+跨平台文本可采用 UTF-8、NFC、LF 和末尾换行作为规范基线；原始证据与规范化派生文本应分开保存。哈希、缓存和签名前还必须固定换行、Unicode normalization、尾随空白与 JSON canonicalization 规则。
 
-常见反模式包括：无标题长文、只有截图没有文本、宽表格、视觉语义丢失、输出契约缺失、指令与数据混杂、无来源元数据。
+RAG 文档应保留 `source_id`、父级对象、转换器版本和原始位置，并沿 `raw source -> parsed blocks -> normalized text -> chunks -> index` 记录血缘。Chunk 边界应尊重标题、代码围栏、表格、页面和说话人，而不是机械地按固定 Token 数截断。
 
-## 三层数据流转架构
+文本协议只定义多模态消息的标签、说明、来源与逻辑顺序；媒体字节如何变成连续特征、沿哪个轴拼接以及使用 self-attention 还是 cross-attention，属于 [[lmm-input-mechanics|多模态输入机制]]。Markdown 中出现 `![图](path)` 也不表示模型已经读取图片，必须由宿主解析并构造显式媒体内容块。两者是相邻但不同的协议层。
 
-在 AI 软件工程中，数据流可按层次设计：
+## 决策规则
 
-1. **底层（机器执行 / AI 通信）**：优先 JSON、JSON Schema、严格 TSV/CSV、必要时 XML 标签隔离。
-2. **中层（人机协作 / 知识沉淀）**：优先 Markdown、Mermaid、LaTeX、frontmatter。
-3. **表层（人类消费 / 汇报展示）**：优先卡片化 UI、交互图表、HTML/CSS、Dashboard。
-
-这一分层与 [[lmm-input-mechanics|多模态输入机制]] 互补：Markdown 是面向人类的 UI 糖，真正进入模型前仍需被解构为底层 Token 序列。
+1. 先确定生产者、消费者、失败代价和执行权限，再选格式。
+2. 知识协作优先可读、可 diff；机器执行优先 typed schema 与应用验证。
+3. 明确格式方言、编码、换行、时间、单位、空值和 schema 版本。
+4. 对文本块和媒体块使用稳定 ID，不用“上面第二张图”作为唯一引用。
+5. 用目标模型、真实数据和故障样本评测 Token、解析率、语义正确率、成本与延迟。

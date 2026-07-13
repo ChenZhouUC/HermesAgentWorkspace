@@ -14,6 +14,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 
 ACTIVE_DIRS = {
@@ -33,6 +34,7 @@ INDEX_SECTIONS = {
 INDEX_ENTRY_RE = re.compile(r"^- `(entities|concepts|comparisons|queries)/([a-z0-9]+(?:-[a-z0-9]+)*)\.md` - .+$")
 
 META_FILES = {"SCHEMA.md", "index.md", "log.md"}
+META_FILES_CASEFOLD = {name.casefold() for name in META_FILES}
 META_SLUGS = {Path(name).stem for name in META_FILES}
 META_SLUGS_CASEFOLD = {slug.casefold() for slug in META_SLUGS}
 ACTIVE_FILENAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
@@ -175,8 +177,13 @@ CHECKS = (
         ("invalid_log_headings", "duplicate_log_dates"),
     ),
     (
-        "Meta pages are isolated from the semantic wikilink graph",
-        ("meta_graph_wikilinks", "meta_graph_inbound_wikilinks"),
+        "Meta pages have no inbound or outbound local document graph edges",
+        (
+            "meta_graph_wikilinks",
+            "meta_graph_markdown_links",
+            "meta_graph_inbound_wikilinks",
+            "meta_graph_inbound_markdown_links",
+        ),
     ),
     (
         "Obsidian enabled plugin list matches local plugin manifests",
@@ -210,6 +217,14 @@ CHECKS = (
 )
 
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
+MARKDOWN_INLINE_LINK_RE = re.compile(
+    r"!?\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)\n]+))"
+    r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^\)\n]*\)))?\s*\)"
+)
+MARKDOWN_REFERENCE_DEFINITION_RE = re.compile(
+    r"^\s{0,3}\[[^\]\n]+\]:\s*(?:<([^>\n]+)>|([^\s]+))",
+    re.M,
+)
 LIVING_PROVENANCE_RE = re.compile(r"\^\[\[\[_living/[^\]]+\]\]\]")
 TOTAL_PAGES_RE = re.compile(r"Total pages:\s*(\d+)")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -220,7 +235,7 @@ SCHEMA_VALIDATION_RE = re.compile(r"## Validation Invariants .*?(?=\n### |\n## |
 
 
 def strip_code(text: str) -> str:
-    """Remove fenced and inline code before wikilink extraction."""
+    """Remove fenced and inline code before graph-link extraction."""
     text = re.sub(r"```.*?```", "", text, flags=re.S)
     return re.sub(r"`[^`]*`", "", text)
 
@@ -322,6 +337,38 @@ def build_casefold_slug_index(root: Path) -> dict[str, list[str]]:
 
 def extract_links(text: str) -> list[str]:
     return LINK_RE.findall(strip_non_graph_markup(text))
+
+
+def extract_markdown_link_destinations(text: str) -> list[str]:
+    """Extract inline and reference-definition Markdown destinations."""
+    text = strip_non_graph_markup(text)
+    destinations: list[str] = []
+    for pattern in (MARKDOWN_INLINE_LINK_RE, MARKDOWN_REFERENCE_DEFINITION_RE):
+        for match in pattern.finditer(text):
+            destination = next((group for group in match.groups() if group is not None), "").strip()
+            if destination:
+                destinations.append(destination)
+    return destinations
+
+
+def resolve_local_markdown_document_link(source: Path, destination: str, root: Path) -> str | None:
+    """Resolve a local Markdown document destination relative to the wiki root."""
+    parsed = urlsplit(destination)
+    if parsed.scheme or parsed.netloc or not parsed.path:
+        return None
+
+    path_text = unquote(parsed.path)
+    candidate = root / path_text.lstrip("/") if path_text.startswith("/") else source.parent / path_text
+    if candidate.suffix.casefold() != ".md":
+        extension_candidate = candidate.with_suffix(".md")
+        if candidate.suffix or not extension_candidate.exists():
+            return None
+        candidate = extension_candidate
+
+    try:
+        return candidate.resolve(strict=False).relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
 
 
 def exact_existing_path(path: Path) -> Path | None:
@@ -434,16 +481,29 @@ def validate_meta_graph_isolation(root: Path, issues: dict[str, list[Any]]) -> N
         path = root / name
         if not path.exists():
             continue
-        links = extract_links(path.read_text())
-        if links:
-            issues["meta_graph_wikilinks"].append([name, links])
+        text = path.read_text()
+        wikilinks = extract_links(text)
+        if wikilinks:
+            issues["meta_graph_wikilinks"].append([name, wikilinks])
+        markdown_links = [
+            [destination, target]
+            for destination in extract_markdown_link_destinations(text)
+            if (target := resolve_local_markdown_document_link(path, destination, root)) is not None
+        ]
+        if markdown_links:
+            issues["meta_graph_markdown_links"].append([name, markdown_links])
 
     for path in wiki_markdown_pages(root):
         if path.parent == root and path.name in META_FILES:
             continue
-        for target in extract_links(path.read_text()):
+        text = path.read_text()
+        for target in extract_links(text):
             if Path(target).stem.casefold() in META_SLUGS_CASEFOLD:
                 issues["meta_graph_inbound_wikilinks"].append([relative(path, root), target])
+        for destination in extract_markdown_link_destinations(text):
+            target = resolve_local_markdown_document_link(path, destination, root)
+            if target is not None and Path(target).name.casefold() in META_FILES_CASEFOLD:
+                issues["meta_graph_inbound_markdown_links"].append([relative(path, root), destination, target])
 
 
 def validate_obsidian_plugins(root: Path, issues: dict[str, list[Any]]) -> None:
@@ -563,7 +623,9 @@ def validate(root: Path) -> dict[str, list[Any]]:
         "invalid_log_headings": [],
         "duplicate_log_dates": [],
         "meta_graph_wikilinks": [],
+        "meta_graph_markdown_links": [],
         "meta_graph_inbound_wikilinks": [],
+        "meta_graph_inbound_markdown_links": [],
         "obsidian_missing_community_plugins": [],
         "obsidian_invalid_community_plugins": [],
         "obsidian_enabled_missing_plugin_dirs": [],

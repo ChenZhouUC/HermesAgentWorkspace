@@ -18,6 +18,8 @@
 #      agent.log should report active=True. HARD FAIL if active=False
 #      (config drift). WARN if missing entirely (gateway hasn't restarted
 #      since plugin install).
+#   4. Group wiki contract: read_file/search_files and ~/.hermes/wiki remain
+#      explicitly allowlisted, with a recovery hint for wrong paths.
 #
 # Exit code: 0 = all good, 1 = at least one hard failure.
 
@@ -29,6 +31,7 @@ PLUGINS_SRC="${HERMES_AGENT}/hermes_cli/plugins.py"
 GATEWAY_RUN="${HERMES_AGENT}/gateway/run.py"
 MODEL_TOOLS="${HERMES_AGENT}/model_tools.py"
 AGENT_LOG="${HERMES_HOME}/logs/agent.log"
+PLUGIN_CONFIG="${HERMES_HOME}/plugins/sandbox/config.yaml"
 
 fail=0
 
@@ -74,6 +77,19 @@ if [[ -r "${AGENT_LOG}" ]]; then
     fi
 else
     echo "WARN agent.log not readable at ${AGENT_LOG}"
+fi
+
+# 4. Group wiki allowlist contract (HARD)
+if [[ -r "${PLUGIN_CONFIG}" ]] &&
+    grep -qF '  - read_file' "${PLUGIN_CONFIG}" &&
+    grep -qF '  - search_files' "${PLUGIN_CONFIG}" &&
+    grep -qF '  - ~/.hermes/wiki' "${PLUGIN_CONFIG}" &&
+    grep -qF 'read_root_block_message:' "${PLUGIN_CONFIG}"; then
+    echo "OK   group wiki read contract is explicit in sandbox config"
+else
+    echo "FAIL group wiki read contract is missing or partial at ${PLUGIN_CONFIG}"
+    echo "     Keep read_file/search_files scoped to ~/.hermes/wiki and preserve the recovery hint."
+    fail=1
 fi
 
 if ((fail)); then

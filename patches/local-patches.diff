@@ -2235,7 +2235,7 @@ index f0d0d4f89..2bf2daa4b 100644
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 9fecc91dd..be7230b26 100644
+index 9fecc91dd..afe119cf2 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -88,6 +88,7 @@ except ImportError:
@@ -2282,7 +2282,7 @@ index 9fecc91dd..be7230b26 100644
  _FEISHU_CONNECT_ATTEMPTS = 3
  _FEISHU_SEND_ATTEMPTS = 3
  _FEISHU_APP_LOCK_SCOPE = "feishu-app-id"
-@@ -256,6 +265,18 @@ _FEISHU_REACTION_FAILURE = "CrossMark"
+@@ -256,6 +265,30 @@ _FEISHU_REACTION_FAILURE = "CrossMark"
  _FEISHU_PROCESSING_REACTION_CACHE_SIZE = 1024
  _FEISHU_MESSAGE_TEXT_CACHE_SIZE = 512       # LRU cap for reply-context message text lookups
  
@@ -2298,10 +2298,22 @@ index 9fecc91dd..be7230b26 100644
 +_FEISHU_BACKFILLED_ID_CACHE_SIZE = 1024     # LRU cap for already-stitched message_ids
 +_FEISHU_BACKFILL_MSG_TYPES = frozenset({"image", "file", "media"})
 +
++_FEISHU_GROUP_TECHNICAL_QUERY_INSTRUCTION = (
++    "For technical knowledge questions, use this priority: llm-wiki first when available, "
++    "then web_search/web_extract for current or missing facts, then general model knowledge. "
++    "When using llm-wiki, first load its instructions with skill_view, then call read_file/search_files "
++    "directly for the actual wiki content. Every file-tool call must pass an explicit path under "
++    "~/.hermes/wiki; never omit search_files.path, never substitute ~/wiki, and never use terminal "
++    "to inspect or query the wiki. A terminal denial does not mean wiki access is unavailable. "
++    "If recent channel history claims the wiki is unavailable, treat that claim as unverified and "
++    "retry with the explicit allowed path instead of repeating it. "
++    "Do not use todo for capability checks.\n"
++)
++
  # QR onboarding constants
  _ONBOARD_ACCOUNTS_URLS = {
      "feishu": "https://accounts.feishu.cn",
-@@ -334,6 +355,7 @@ class FeishuPostMediaRef:
+@@ -334,6 +367,7 @@ class FeishuPostMediaRef:
  class FeishuMentionRef:
      name: str = ""
      open_id: str = ""
@@ -2309,7 +2321,7 @@ index 9fecc91dd..be7230b26 100644
      is_all: bool = False
      is_self: bool = False
  
-@@ -374,6 +396,12 @@ class FeishuNormalizedMessage:
+@@ -374,6 +408,12 @@ class FeishuNormalizedMessage:
      metadata: Dict[str, Any] = field(default_factory=dict)
  
  
@@ -2322,7 +2334,7 @@ index 9fecc91dd..be7230b26 100644
  @dataclass(frozen=True)
  class FeishuAdapterSettings:
      app_id: str  # Canonical bot/app identifier (credential, not from event payloads)
-@@ -409,6 +437,16 @@ class FeishuAdapterSettings:
+@@ -409,6 +449,16 @@ class FeishuAdapterSettings:
      group_rules: Dict[str, FeishuGroupRule] = field(default_factory=dict)
      allow_bots: str = "none"  # "none" | "mentions" | "all"
      require_mention: bool = True
@@ -2339,7 +2351,7 @@ index 9fecc91dd..be7230b26 100644
  
  
  @dataclass
-@@ -438,6 +476,7 @@ RejectReason = Literal[
+@@ -438,6 +488,7 @@ RejectReason = Literal[
      "self_ids_unknown",
      "bots_disabled",
      "bot_not_mentioned",
@@ -2347,7 +2359,7 @@ index 9fecc91dd..be7230b26 100644
      "group_policy_rejected",
  ]
  
-@@ -557,13 +596,75 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
+@@ -557,13 +608,75 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
      return default if parsed is None else parsed
  
  
@@ -2424,7 +2436,7 @@ index 9fecc91dd..be7230b26 100644
      return json.dumps(
          {
              "zh_cn": {
-@@ -1226,6 +1327,7 @@ def _build_mentions_map(
+@@ -1226,6 +1339,7 @@ def _build_mentions_map(
          result[key] = FeishuMentionRef(
              name=name,
              open_id=open_id,
@@ -2432,7 +2444,7 @@ index 9fecc91dd..be7230b26 100644
              is_self=bot.matches(open_id=open_id, user_id=user_id, name=name),
          )
      return result
-@@ -1370,11 +1472,13 @@ def check_feishu_requirements() -> bool:
+@@ -1370,11 +1484,13 @@ def check_feishu_requirements() -> bool:
      def _import():
          import lark_oapi as lark
          from lark_oapi.api.application.v6 import GetApplicationRequest
@@ -2446,7 +2458,7 @@ index 9fecc91dd..be7230b26 100644
              P2ImMessageMessageReadV1,
              ReplyMessageRequest, ReplyMessageRequestBody,
              UpdateMessageRequest, UpdateMessageRequestBody,
-@@ -1390,6 +1494,7 @@ def check_feishu_requirements() -> bool:
+@@ -1390,6 +1506,7 @@ def check_feishu_requirements() -> bool:
          return {
              "lark": lark,
              "GetApplicationRequest": GetApplicationRequest,
@@ -2454,7 +2466,7 @@ index 9fecc91dd..be7230b26 100644
              "CreateFileRequest": CreateFileRequest,
              "CreateFileRequestBody": CreateFileRequestBody,
              "CreateImageRequest": CreateImageRequest,
-@@ -1399,6 +1504,7 @@ def check_feishu_requirements() -> bool:
+@@ -1399,6 +1516,7 @@ def check_feishu_requirements() -> bool:
              "GetChatRequest": GetChatRequest,
              "GetMessageRequest": GetMessageRequest,
              "GetMessageResourceRequest": GetMessageResourceRequest,
@@ -2462,7 +2474,7 @@ index 9fecc91dd..be7230b26 100644
              "P2ImMessageMessageReadV1": P2ImMessageMessageReadV1,
              "ReplyMessageRequest": ReplyMessageRequest,
              "ReplyMessageRequestBody": ReplyMessageRequestBody,
-@@ -1481,6 +1587,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1481,6 +1599,9 @@ class FeishuAdapter(BasePlatformAdapter):
          self._sent_message_id_order: List[str] = []  # LRU order for _sent_message_ids_to_chat
          self._chat_info_cache: Dict[str, Dict[str, Any]] = {}
          self._message_text_cache: "OrderedDict[str, Optional[str]]" = OrderedDict()
@@ -2472,7 +2484,7 @@ index 9fecc91dd..be7230b26 100644
          self._app_lock_identity: Optional[str] = None
          self._text_batch_state = FeishuBatchState()
          self._pending_text_batches = self._text_batch_state.events
-@@ -1537,6 +1646,28 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1537,6 +1658,28 @@ class FeishuAdapter(BasePlatformAdapter):
                  allow_bots,
              )
              allow_bots = "none"
@@ -2501,7 +2513,7 @@ index 9fecc91dd..be7230b26 100644
  
          return FeishuAdapterSettings(
              app_id=str(extra.get("app_id") or os.getenv("FEISHU_APP_ID", "")).strip(),
-@@ -1600,6 +1731,46 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1600,6 +1743,46 @@ class FeishuAdapter(BasePlatformAdapter):
              require_mention=_to_boolean(
                  extra.get("require_mention", os.getenv("FEISHU_REQUIRE_MENTION", "true"))
              ),
@@ -2548,7 +2560,7 @@ index 9fecc91dd..be7230b26 100644
          )
  
      def _apply_settings(self, settings: FeishuAdapterSettings) -> None:
-@@ -1632,6 +1803,16 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1632,6 +1815,16 @@ class FeishuAdapter(BasePlatformAdapter):
          self._ws_ping_timeout = settings.ws_ping_timeout
          self._allow_bots = settings.allow_bots
          self._require_mention = settings.require_mention
@@ -2565,7 +2577,7 @@ index 9fecc91dd..be7230b26 100644
  
      def _build_event_handler(self) -> Any:
          if EventDispatcherHandler is None:
-@@ -3233,31 +3414,132 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3233,31 +3426,132 @@ class FeishuAdapter(BasePlatformAdapter):
          is_bot: bool = False,
      ) -> None:
          text, inbound_type, media_urls, media_types, mentions = await self._extract_message_content(message)
@@ -2707,7 +2719,7 @@ index 9fecc91dd..be7230b26 100644
          sender_primary = (
              getattr(sender_id, "open_id", None)
              or getattr(sender_id, "user_id", None)
-@@ -3276,13 +3558,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3276,13 +3570,11 @@ class FeishuAdapter(BasePlatformAdapter):
              len(media_urls),
          )
  
@@ -2722,7 +2734,7 @@ index 9fecc91dd..be7230b26 100644
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3302,8 +3582,376 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3302,8 +3594,376 @@ class FeishuAdapter(BasePlatformAdapter):
              channel_prompt=self._resolve_channel_prompt(chat_id, thread_id or None),
              timestamp=datetime.now(),
          )
@@ -3099,7 +3111,7 @@ index 9fecc91dd..be7230b26 100644
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -3338,6 +3986,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3338,6 +3998,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -3109,7 +3121,7 @@ index 9fecc91dd..be7230b26 100644
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3635,7 +4286,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3635,7 +4298,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -3121,7 +3133,7 @@ index 9fecc91dd..be7230b26 100644
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3754,6 +4408,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3754,6 +4420,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -3146,7 +3158,7 @@ index 9fecc91dd..be7230b26 100644
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3768,6 +4440,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3768,6 +4452,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -3257,7 +3269,7 @@ index 9fecc91dd..be7230b26 100644
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3822,6 +4598,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3822,6 +4610,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.AUDIO)
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -3266,7 +3278,7 @@ index 9fecc91dd..be7230b26 100644
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -3949,6 +4727,77 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3949,6 +4739,77 @@ class FeishuAdapter(BasePlatformAdapter):
                  )
          return "", ""
  
@@ -3344,7 +3356,7 @@ index 9fecc91dd..be7230b26 100644
      # =========================================================================
      # Static helpers — extension / media-type guessing
      # =========================================================================
-@@ -4179,10 +5028,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4179,10 +5040,19 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -3366,7 +3378,7 @@ index 9fecc91dd..be7230b26 100644
              )
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
-@@ -4235,6 +5093,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4235,6 +5105,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -3378,7 +3390,7 @@ index 9fecc91dd..be7230b26 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4250,7 +5113,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4250,7 +5125,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -3387,7 +3399,7 @@ index 9fecc91dd..be7230b26 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4271,8 +5134,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4271,8 +5146,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -3398,7 +3410,7 @@ index 9fecc91dd..be7230b26 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4370,6 +5233,170 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4370,6 +5245,167 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -3450,11 +3462,7 @@ index 9fecc91dd..be7230b26 100644
 +            f"message(s) or {self._assistant_identity_throttle_seconds} second(s)). "
 +            f"{self_intro_policy}"
 +            # --- technical answering priority ---
-+            "For technical knowledge questions, use this priority: llm-wiki first when available, "
-+            "then web_search/web_extract for current or missing facts, then general model knowledge. "
-+            "When using llm-wiki, first load its instructions with skill_view, then use read_file/search_files "
-+            "under ~/.hermes/wiki for actual wiki content; do not confuse lack of terminal access with lack of wiki access. "
-+            "Do not use todo for capability checks.\n"
++            f"{_FEISHU_GROUP_TECHNICAL_QUERY_INSTRUCTION}"
 +            # --- risk-control / sandbox framing (this is BY DESIGN, not a limitation) ---
 +            "This group runs inside a sandbox 琛哥 deliberately set up: only a small set of read-only query tools and skills "
 +            "are open, and writing files, running terminal commands, and most actions are intentionally blocked for safety. "
@@ -3481,7 +3489,8 @@ index 9fecc91dd..be7230b26 100644
 +            "The triggering group message was sent by the configured human user, 琛哥 / Zhou Chen, "
 +            "who deliberately mentioned Hermes. This sender already knows Hermes/Gödel. "
 +            "Do not open with a self-introduction or explain who you are; answer the request directly. "
-+            "If the message explicitly asks about your identity, answer briefly and then continue."
++            "If the message explicitly asks about your identity, answer briefly and then continue.\n"
++            f"{_FEISHU_GROUP_TECHNICAL_QUERY_INSTRUCTION}"
 +        )
 +        return f"{instruction}\n\n{text}" if text else instruction
 +
@@ -3569,7 +3578,7 @@ index 9fecc91dd..be7230b26 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4522,12 +5549,15 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4522,12 +5558,15 @@ class FeishuAdapter(BasePlatformAdapter):
      # =========================================================================
  
      def _build_outbound_payload(self, content: str) -> tuple[str, str]:
@@ -3590,7 +3599,7 @@ index 9fecc91dd..be7230b26 100644
          if _MARKDOWN_HINT_RE.search(content):
              return "post", _build_markdown_post_payload(content)
          text_payload = {"text": content}
-@@ -4607,9 +5637,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4607,9 +5646,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -3606,7 +3615,7 @@ index 9fecc91dd..be7230b26 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4620,34 +5654,25 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4620,34 +5663,25 @@ class FeishuAdapter(BasePlatformAdapter):
              request = self._build_reply_message_request(effective_reply_to, body)
              return await self._run_blocking(self._client.im.v1.message.reply, request)
  
@@ -3660,7 +3669,7 @@ index 9fecc91dd..be7230b26 100644
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -4867,6 +5892,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4867,6 +5901,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -3708,6 +3717,108 @@ index 851473b13..01baf2d22 100644
  google = [
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so packagers (Nix, Homebrew) ship them with
+diff --git a/skills/research/llm-wiki/SKILL.md b/skills/research/llm-wiki/SKILL.md
+index 7dc708c9a..7c41cd53a 100644
+--- a/skills/research/llm-wiki/SKILL.md
++++ b/skills/research/llm-wiki/SKILL.md
+@@ -37,11 +37,17 @@ Use this skill when the user:
+ 
+ **Location:** Set via `WIKI_PATH` environment variable (e.g. in `${HERMES_HOME:-~/.hermes}/.env`).
+ 
+-If unset, defaults to `~/wiki`.
++If unset, Hermes defaults to `${HERMES_HOME:-$HOME/.hermes}/wiki`. In a standard
++installation this is `~/.hermes/wiki`.
+ 
+-```bash
+-WIKI="${WIKI_PATH:-$HOME/wiki}"
+-```
++Resolve the root in this order: an explicitly configured `WIKI_PATH`, then
++`HERMES_HOME/wiki`, then `~/.hermes/wiki`. Do not create a shell variable just
++to call the file tools.
++
++**Sandboxed Feishu groups:** use `read_file` and `search_files` directly, and pass
++an explicit `path` under `~/.hermes/wiki` on every call. Never use `terminal` to
++discover or query the wiki, never omit `search_files.path`, never use `~/wiki`,
++and never pass shell variables such as `$WIKI` literally as tool arguments.
+ 
+ The wiki is just a directory of markdown files — open it in Obsidian, VS Code, or
+ any editor. No database, no special tooling required.
+@@ -77,14 +83,16 @@ When the user has an existing wiki, **always orient yourself before doing anythi
+ ② **Read `index.md`** — learn what pages exist and their summaries.
+ ③ **Scan recent `log.md`** — read the last 20-30 entries to understand recent activity.
+ 
+-```bash
+-WIKI="${WIKI_PATH:-$HOME/wiki}"
+-# Orientation reads at session start
+-read_file "$WIKI/SCHEMA.md"
+-read_file "$WIKI/index.md"
+-read_file "$WIKI/log.md" offset=<last 30 lines>
++```text
++# Direct tool calls at session start (standard Hermes installation)
++read_file(path="~/.hermes/wiki/SCHEMA.md")
++read_file(path="~/.hermes/wiki/index.md")
++read_file(path="~/.hermes/wiki/log.md", offset=<last 30 lines>)
+ ```
+ 
++If `WIKI_PATH` is explicitly configured, replace `~/.hermes/wiki` above with its
++resolved absolute value. Do not pass `$WIKI_PATH` literally to a file tool.
++
+ Only after orientation should you ingest, query, or lint. This prevents:
+ - Creating duplicate pages for entities that already exist
+ - Missing cross-references to existing content
+@@ -98,7 +106,7 @@ at hand before creating anything new.
+ 
+ When the user asks to create or start a wiki:
+ 
+-1. Determine the wiki path (from `$WIKI_PATH` env var, or ask the user; default `~/wiki`)
++1. Determine the wiki path (from `$WIKI_PATH`, or default to the active `HERMES_HOME/wiki`)
+ 2. Create the directory structure above
+ 3. Ask the user what domain the wiki covers — be specific
+ 4. Write `SCHEMA.md` customized to the domain (see template below)
+@@ -369,18 +377,18 @@ wiki = "<WIKI_PATH>"
+ 
+ ### Searching
+ 
+-```bash
++```text
+ # Find pages by content
+-search_files "transformer" path="$WIKI" file_glob="*.md"
++search_files(pattern="transformer", path="~/.hermes/wiki", file_glob="*.md")
+ 
+ # Find pages by filename
+-search_files "*.md" target="files" path="$WIKI"
++search_files(pattern="*.md", target="files", path="~/.hermes/wiki")
+ 
+ # Find pages by tag
+-search_files "tags:.*alignment" path="$WIKI" file_glob="*.md"
++search_files(pattern="tags:.*alignment", path="~/.hermes/wiki", file_glob="*.md")
+ 
+ # Recent activity
+-read_file "$WIKI/log.md" offset=<last 20 lines>
++read_file(path="~/.hermes/wiki/log.md", offset=<last 20 lines>)
+ ```
+ 
+ ### Bulk Ingest
+@@ -435,8 +443,8 @@ ob login --email <email> --password '<password>'
+ # Create a remote vault for the wiki
+ ob sync-create-remote --name "LLM Wiki"
+ 
+-# Connect the wiki directory to the vault
+-cd ~/wiki
++# Connect the configured wiki directory to the vault
++cd "${WIKI_PATH:-${HERMES_HOME:-$HOME/.hermes}/wiki}"
+ ob sync-setup --vault "<vault-id>"
+ 
+ # Initial sync
+@@ -471,7 +479,7 @@ systemctl --user enable --now obsidian-wiki-sync
+ sudo loginctl enable-linger $USER
+ ```
+ 
+-This lets the agent write to `~/wiki` on a server while you browse the same
++This lets the agent write to the configured wiki directory on a server while you browse the same
+ vault in Obsidian on your laptop/phone — changes appear within seconds.
+ 
+ ## Pitfalls
 diff --git a/tests/agent/test_image_routing.py b/tests/agent/test_image_routing.py
 index 671e6aaa1..2c1804e4e 100644
 --- a/tests/agent/test_image_routing.py
@@ -5101,7 +5212,7 @@ index 0d63659bc..b3da5457a 100644
      """_get_chat_lock is LRU-bounded so _chat_locks cannot grow unbounded."""
  
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
-index 04705bf19..774dee7f2 100644
+index 04705bf19..fb29c827a 100644
 --- a/tests/gateway/test_feishu_bot_admission.py
 +++ b/tests/gateway/test_feishu_bot_admission.py
 @@ -3,6 +3,7 @@
@@ -5248,7 +5359,7 @@ index 04705bf19..774dee7f2 100644
  # --- Hydration -------------------------------------------------------------
  
  
-@@ -802,3 +913,153 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
+@@ -802,3 +913,162 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
      assert captured.get("sender_id") is sender.sender_id
      assert captured.get("is_bot") is True
      assert captured.get("message_id") == "om_bot_ok"
@@ -5401,6 +5512,15 @@ index 04705bf19..774dee7f2 100644
 +    assert "[Feishu assistant mode]" not in text
 +    assert "Do not open with a self-introduction" in text
 +    assert "我是琛哥的赛博小助手「Gödel」，琛哥可能在忙，我先帮你看看。" not in text
++    assert "llm-wiki first" in text
++    assert "read_file/search_files" in text
++    assert "explicit path under ~/.hermes/wiki" in text
++    assert "never omit search_files.path" in text
++    assert "never substitute ~/wiki" in text
++    assert "never use terminal" in text
++    assert "terminal denial does not mean wiki access is unavailable" in text
++    assert "recent channel history claims the wiki is unavailable" in text
++    assert "retry with the explicit allowed path" in text
 +    assert "帮我总结一下刚才的问题" in text
 diff --git a/tests/gateway/test_feishu_bot_auth_bypass.py b/tests/gateway/test_feishu_bot_auth_bypass.py
 index 3cd3a854a..d3d52ee2f 100644

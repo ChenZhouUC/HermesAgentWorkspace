@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-07-11
+updated: 2026-07-13
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,47 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-07-13] daily | Living knowledge update and conservative graph audit
+
+### update | Text protocol and multimodal input knowledge
+
+- Trigger: 用户要求把活体文档作为 updated knowledge wiki 深入更新，并重新审计整个 wiki；连接原则是“没有明确关系就不要建立连接”，且 Meta 文件不得进入知识图谱。
+- Actions:
+  - 深度更新 `_living/AI-Infrastructure/Text-Format-Protocol-for-LLMs.md`，按 source、transport、prompt、output/execution 分层整理 Markdown、JSON/Schema、YAML、XML、表格格式、Unicode、RAG、结构化输出与安全边界。
+  - 深度更新 `_living/AI-Infrastructure/LMM-Input-Mechanics.md`，补充媒体预处理、编码器、连接器、序列/特征轴拼接、cross-attention、位置机制、计量与 Agent 有序 IR 的数学解释。
+  - 同步重写 `concepts/markdown-llm-protocol.md` 与 `concepts/lmm-input-mechanics.md`，删除“所有模态必然归一为同一 Token 序列”“Markdown 相邻必然改善注意力”等过度绝对的旧抽象。
+  - 规范 `_living/AI-Infrastructure/Model-Context-Protocol.md` 的中文引号间距，不改变代码块和引用内容。
+
+### audit | Whole-wiki relation review
+
+- Scope: 复核 63 个 Markdown 文件、40 个 Active Layer 2 节点及其正文连接；精确区分 Meta 文件 `SCHEMA.md` 与知识节点 `concepts/schema-as-handoff-contract.md`。
+- Actions:
+  - 确认 `SCHEMA.md`、`index.md`、`log.md` 没有实际图谱边；Meta 页面继续只使用纯文本和代码路径。
+  - 保留能够明确说明实现、依赖、输入输出、抽象或选型关系的正文连接；不为独立节点补连接，也不追求双向率或全图连通率。
+  - 将 `entities/spacesight.md` 的页尾链接清单改为故障诊断与方案设计的明确关系说明，并收敛 `entities/trajex.md` 的重复目标链接。
+  - 移除 living 文档中唯一会形成源层图边的本地 Markdown 文档链接，改用代码路径。
+- Boundary: 未新增、删除、归档或重命名节点；未改变 Obsidian 配置。语义关系仍按人工审查执行，不把不可机械判断的“关系强度”塞入 lint。
+- Verification: `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json` 均通过 18 项检查；四份更新后的 living/concept 文档通过 Pandoc + MathJax 解析，`git diff --check` 通过；未发现活动的本地 `.md` Markdown 图边或页尾裸 wikilink 清单。
+
+### tooling | Enforce zero-degree Meta pages
+
+- Trigger: 用户明确要求 `SCHEMA.md`、`index.md`、`log.md` 三个 Meta 文档不建立任何 Wiki 文档边，并询问 schema 与 lint 是否能够强制执行。
+- Schema: 将 Meta 隔离收紧为本地文档图上的零度约束，即三个文件均满足 `in-degree = out-degree = 0`；同时覆盖 wikilink 与标准 Markdown 本地文档 link/embed，允许外部 URL、同页 anchor、纯文本和代码示例。
+- Lint: 扩展第 15 项检查，除现有 wikilink 双向校验外，新增标准 Markdown inline link、image/embed 和 reference-definition 的本地 `.md` 目标解析，并检查 Meta 出边和全库 Meta 入边。
+- Verification: `python3 -m py_compile scripts/wiki_lint.py`、文本模式 lint、JSON 模式 lint 与 `git diff --check` 均通过；四类 Meta 边 issue 数组全部为空。临时故障注入进一步确认 Meta Markdown 出边和非 Meta 页面指向 `log.md` 的入边都会被对应检查捕获。
+
+### schema | Evidence-gated linking audit
+
+- Trigger: 用户要求整体审计并精简 `SCHEMA.md`，将“没有显著证据不要关联”设为知识图谱建边原则。
+- Corrections:
+  - 删除“每页至少 2 条出链”的软目标，明确节点允许零入边、零出边，连通率、反链对称和页尾 Related 清单均不能作为建边理由。
+  - 建立 `Evidence-Gated Linking`：每条边必须同时具备明确关系谓词和可追溯证据，并列出可接受证据与不充分信号。
+  - 调和“完整流程留在 Layer 1”与“可复用 query SOP 可提炼”的类型冲突；把 200 行拆分规则改为触发评估，而非机械拆页。
+  - 修正“较新研究通常覆盖旧研究”为证据质量、方法可靠性和版本适用性优先；收紧 `contradictions` 的使用条件。
+  - 将 living 溯源规则的适用范围从仅点名 Concepts/Entities 修正为全部四类 Active Layer 2 页面。
+- Lint boundary: 证据强度、关系谓词和适用范围属于语义判断，按 Lint Co-evolution Policy 保持人工审查；现有 lint 已负责断链、目标层级、Meta 隔离等可机械条件，本轮不新增启发式“证据评分”。
+- Verification: `python3 scripts/wiki_lint.py` 与 JSON 模式均通过 18 项检查，`SCHEMA.md` 通过 Pandoc + MathJax 解析，`git diff --check` 通过；SCHEMA 与 lint 的检查项数量和标签集合保持一致。
 
 ## [2026-07-11] daily | Wiki graph structure audit
 
