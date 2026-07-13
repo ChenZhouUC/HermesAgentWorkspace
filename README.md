@@ -68,7 +68,7 @@
 | `memories/USER.md`           | 用户画像（偏好、时区、语言等）                           |
 | `my-skills/`                 | 自定义 Skills（随主仓库入库）                            |
 | `plugins/`                   | 用户插件（每个子目录 = 一个插件，随主仓库入库）          |
-| `cron/jobs.json`             | Cron 任务定义（入库；运行输出和锁文件不入库）            |
+| `cron/jobs.json`             | Cron live store（定义与运行状态混合；本地保留、不入库）  |
 | `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用）         |
 | `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）               |
 | `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）                 |
@@ -105,7 +105,7 @@
 │   └── PATCHES.md         # 补丁详细记录（问题 / 根因 / 修复方案）
 ├── hermes-update.sh       # 一键更新脚本（入库）
 ├── cron/
-│   └── jobs.json          # Cron 任务定义（入库；output/lock/ticker 运行时文件忽略）
+│   └── jobs.json          # Cron live store（不入库；用 hermes backup/import 迁移）
 ├── logs/                  # 日志（.gitignore 排除）
 ├── sessions/              # 会话历史（.gitignore 排除）
 └── state.db               # 内部状态数据库（.gitignore 排除）
@@ -1293,6 +1293,8 @@ hermes cron run JOB_ID       # 立即执行一次
 ```
 
 > Cron 任务由 Gateway 服务调度，**Gateway 必须运行**才能执行定时任务。
+
+`~/.hermes/cron/jobs.json` 是 Hermes 持续读写的 live store，不是稳定的声明式配置：除任务定义外还包含 `last_run_at`、`next_run_at`、执行状态、投递错误和 claim 等运行字段，因此本仓库将它保留在本机并通过 `.gitignore` 排除。需要迁移或备份 Cron 任务时使用 `hermes backup --quick` / `hermes backup` 和 `hermes import`，不要依赖 Git 同步该文件。
 
 ---
 

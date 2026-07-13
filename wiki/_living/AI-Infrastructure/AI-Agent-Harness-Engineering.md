@@ -2,8 +2,6 @@
 title: AI Agent Harness Engineering
 created: 2026-06-02
 updated: 2026-06-03
-review-date: 2026-09-01
-sources: [arxiv, langgraph, autogen, mcp, anthropic, openai]
 ---
 
 > **关于代码示例**：本文档中的代码示例基于 2026 年 6 月的主流框架版本（LangGraph 0.2+, AutoGen 0.3+, Anthropic Claude 3.5）。框架 API 可能随版本更新而变化，实际使用时请参考官方文档。代码仅供架构理解参考，非生产级实现。

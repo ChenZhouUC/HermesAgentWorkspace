@@ -3,8 +3,23 @@ hermes-agent/
 
 # ── 密钥和凭据 ──────────────────────────────────────────────────
 .env
+.env.*
+!.env.example
 credentials/
 db_workspace/
+.anthropic_oauth.json
+credentials.json
+google_client_secret.json
+google_token.json
+google_oauth_pending.json
+slack_tokens.json
+honcho.json
+mem0.json
+.brv-cli/
+*.pem
+*.ppk
+*.p12
+*.pfx
 
 # ── 运行时状态 ──────────────────────────────────────────────────
 state.db
@@ -16,6 +31,15 @@ kanban.db-wal
 verification_evidence.db
 verification_evidence.db-shm
 verification_evidence.db-wal
+projects.db
+projects.db-shm
+projects.db-wal
+response_store.db
+response_store.db-shm
+response_store.db-wal
+memory_store.db
+memory_store.db-shm
+memory_store.db-wal
 gateway.pid
 gateway_state.json
 auth.lock
@@ -26,6 +50,7 @@ people.draft.yaml
 people.merged.yaml
 people.yaml.bak*
 processes.json
+cron/jobs.json
 .update_check
 .tick.lock
 .hermes_history
@@ -33,6 +58,29 @@ processes.json
 .restart_last_processed.json
 .restart_pending.json
 gateway/restart_loop.json
+.restart_notify.json
+.update_exit_code
+.update_output.txt
+.update_pending.json
+.update_pending.claimed.json
+.update_prompt.json
+.update_response
+.codex_gpt55_autoraise_notice
+.container-mode
+.gateway-launchd-unsupported
+.install_method
+.managed
+active_profile
+channel_aliases.json
+feishu_comment_pairing.json
+pairing/
+profiles/
+kanban/
+gateway.json
+gateway_voice_mode.json
+google_chat_thread_counts.json
+modal_snapshots.json
+singularity_snapshots.json
 
 # ── 密钥缓存（含明文 API key，绝对不入库）─────────────────────────
 auth.json
@@ -40,12 +88,31 @@ auth.json
 # ── 运行时缓存 ──────────────────────────────────────────────────
 __pycache__/
 *.pyc
+*.pyo
 models_dev_cache.json
 ollama_cloud_models_cache.json
+provider_models_cache.json
+context_length_cache.yaml
+desktop-build-stamp.json
+models_cache.json
+sticker_cache.json
 .skills_prompt_snapshot.json
 cache/
 image_cache/
 audio_cache/
+video_cache/
+document_cache/
+temp_video_files/
+temp_vision_images/
+browser_recordings/
+browser_screenshots/
+chrome-debug/
+screenshots/
+moa-traces/
+pastes/
+session-exports/
+spawn-trees/
+backups/
 state-snapshots/
 
 # ── 日志和会话 ──────────────────────────────────────────────────
@@ -56,6 +123,40 @@ cron/ticker_heartbeat
 cron/ticker_last_success
 cron/*.lock
 sandboxes/
+
+# ── Python / 测试 / 覆盖率缓存 ───────────────────────────────────
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+
+# ── 本地开发工具与依赖 ───────────────────────────────────────────
+node_modules/
+.npm/
+.pnpm-store/
+.claude/settings.local.json
+.codex/
+.cursor/
+.gemini/
+.zed/
+.mcp.json
+opencode.json
+.idea/
+.vscode/
+*~
+*.swp
+*.swo
+*.tmp
+*.bak
+*.orig
+*.rej
 
 # ── 官方 Skills Hub 包（171MB，按需重装）─────────────────────────
 skills/
@@ -72,6 +173,12 @@ platforms/
 # ── 二进制文件 ──────────────────────────────────────────────────
 bin/
 
+# ── 旧版/重复生成物 ──────────────────────────────────────────────
+# 当前唯一补全入口是 completions/_hermes，由 hermes-update.sh 维护。
+completions/hermes.zsh
+hermes_backup_*.zip
+hermes-backup-*.zip
+
 # ── macOS ──────────────────────────────────────────────────────
 .DS_Store
 *.lock
@@ -85,3 +192,4 @@ wiki/.obsidian/workspace.json
 wiki/.obsidian/workspace-mobile.json
 wiki/.obsidian/graph.json
 wiki/.obsidian/core-plugins-galore.json
+wiki/.obsidian/plugins/obsidian-git/obsidian_askpass.sh
