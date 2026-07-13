@@ -152,12 +152,14 @@ PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
     "pyproject.toml"
+    "uv.lock"
     "tools/lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
     "website/docs/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
     "gateway/config.py"
     "plugins/platforms/feishu/adapter.py"
+    "gateway/platforms/base.py"
     "gateway/run.py"
     "gateway/session.py"
     "gateway/session_context.py"
@@ -172,10 +174,13 @@ PATCHED_FILES=(
     "tools/feishu_doc_tool.py"
     "tests/tools/test_feishu_tools.py"
     "tools/file_operations.py"
+    "tools/read_extract.py"
     "tests/tools/test_file_operations.py"
+    "tests/tools/test_read_extract.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
     "tests/gateway/test_feishu.py"
+    "tests/gateway/test_document_context_note.py"
     "tests/gateway/test_feishu_bot_admission.py"
     "tests/gateway/test_feishu_bot_auth_bypass.py"
     "tests/gateway/test_session.py"
@@ -371,20 +376,20 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-15] Feishu 群聊 @ 触发时回看并附上同发送者最近图片/文件
+### [PATCH-15] Feishu 群聊附件回看、Drive 文件链接下载与常见文档自动读取
 
-| 字段     | 内容                                                                  |
-| -------- | --------------------------------------------------------------------- |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_feishu.py` |
-| **状态** | 🟡 未上游合并                                                         |
+| 字段     | 内容                                                                                                                                                                                                                                                                                |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/platforms/base.py`, `gateway/run.py`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock`, `tests/gateway/test_feishu.py`, `tests/gateway/test_document_context_note.py`, `tests/tools/test_read_extract.py` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                       |
 
-**问题**：飞书群聊 `require_mention: true` 下，图片/文件消息身上挂不了 @，用户「发图」是一条独立消息、「@机器人 看看这个」是另一条纯文本消息。图片消息在 `_admit()` 处因 `trigger_kind="none"` 被判 `trigger_mention_missing` 丢弃，从不进入处理；机器人被那条纯文本触发时手里只有 `channel_context` 里的 `[图片]` 文字占位符，看不到像素（日志无任何 `Image routing` 记录）。结果群里「读不了图/表格/文件」，沙箱其实没拦图——真因在送达层。
+**问题**：飞书群聊 `require_mention: true` 下，图片/文件消息身上挂不了 @，用户「发图」是一条独立消息、「@机器人 看看这个」是另一条纯文本消息。图片消息在 `_admit()` 处因 `trigger_kind="none"` 被判 `trigger_mention_missing` 丢弃，从不进入处理；机器人被那条纯文本触发时手里只有 `channel_context` 里的占位符，看不到真实资源。此外，`https://.../file/TOKEN` 是正文链接而非 IM 附件，引用这类消息时原回填链路没有 `file_key` 可下载。即使用户已放开权限、Drive 下载成功，PDF/DOCX 等二进制仍只收到路径提示；群聊安全沙箱又禁止模型临时执行 `pdftotext`/Python，于是表现为「可以下载但无法读取」。
 
-**修复**：在 `_process_inbound_message` 拿到 `reply_to_message_id` 之后、构造 `MessageEvent` 之前，新增一个内聚回看块：当 `_history_backfill` 开启、是 group/forum/channel、`trigger_kind == "bot"`、本条无 `media_urls`、非 COMMAND 时，回看同一发送者最近 `_FEISHU_BACKFILL_WINDOW_SECONDS=120` 秒内的 image/file/media 消息并把资源附到当轮。新增 `_backfill_sender_attachments`/`_collect_sender_attachments`（复用 `_build_list_message_request` + `im.v1.message.list`，按 `item.sender.id ∈ {open_id,user_id,union_id}` 判同发送者，`normalize_feishu_message` + `_download_feishu_message_resources` 下载，上限 `MAX_ATTACH_MSGS=3`/`MAX_TOTAL_FILES=6`，整体 `asyncio.wait_for` 8s 兜底）、`_backfill_reply_attachments`/`_collect_reply_attachments`（覆盖「引用图片消息 + @」子场景，`_fetch_message_text` 只取文字会丢 media；引用消息先 `normalize_feishu_message`，只要含 `image_keys` 或 `media_refs` 就直接取资源，因此也覆盖飞书 `post` 富文本中「文字 + 图片」的内嵌图片）、`_mark_attachment_backfilled`（有界 LRU `_backfilled_attachment_ids`，cap 1024，防多轮 @ 窗口重叠重复附图）。触发消息保持 `TEXT` → 走文本队列、不进 media 批处理，与被丢弃的图片消息天然互斥不重复；全程 try/except + 超时静默降级，绝不阻塞纯文本回复。下游无需改：`media_urls` 非空 → `gateway/run.py` 自动判 native 把像素附给主模型。
+**修复**：保留原有 `_backfill_sender_attachments` / `_backfill_reply_attachments` / `_mark_attachment_backfilled` 回看与有界去重，在 `_process_inbound_message` 额外扫描当前正文和 `reply_to_text` 中最多 3 个飞书/Lark `/file/<token>`，用租户身份调用 `drive.v1.file.download`，限制单文件 100 MiB，按响应文件名/MIME 缓存后统一加入 `media_urls`。图片、音视频继续进入原生媒体路由；常见文档进入新可信抽取层：扩展 `tools/read_extract.py` 支持 PDF（`pypdf==6.14.2`，兼容已有 PyMuPDF）、HTML/HTM（去 script/style 等主动内容）、PPTX、ODT，加上游已有 IPYNB/DOCX/XLSX；`gateway/run.py` 在送模型前用 `asyncio.to_thread` 自动抽取，每文件 20k、每轮合计 40k 字符，保留首尾并明确附件是“不可信参考数据”。加密/扫描型 PDF 或损坏文件不会假装成功，而是保留原文件路径并提示 OCR/document vision fallback。`.html/.htm/.odt/.ipynb` 同步加入平台文档类型表；`pyproject.toml`、lazy deps 与 `uv.lock` 固定 PDF 依赖，避免更新/重启后缺解析器。
 
-**验证**：Step 8b grep `plugins/platforms/feishu/adapter.py` 中存在 `_backfill_sender_attachments`、`_backfill_reply_attachments`、`_mark_attachment_backfilled`、`_FEISHU_BACKFILL_WINDOW_SECONDS`、`_backfilled_attachment_ids`、`normalized.image_keys or normalized.media_refs`，并 grep `tests/gateway/test_feishu.py` 中存在 `test_backfill_reply_attachments_downloads_post_images`。真机：群里发截图后 2 分钟内 @机器人，`logs/agent.log` 出现 `Image routing: native ...` 且能描述图片；引用旧图 + @ 能读到被引用图；引用飞书 `post` 富文本里的旧图 + @ 能读到内嵌图；不发图直接 @ 纯文本正常回复（回看静默降级无报错）；连续两次 @ 同一旧图不重复下载。
+**验证**：Step 8b 在原 PATCH-15 sentinel 外检查 `_download_feishu_drive_file`、`_FEISHU_DRIVE_FILE_URL_RE`、`_extract_inbound_document`、`_extract_pdf`、`_extract_html_file`、`pypdf==6.14.2` 及 `TestFeishuDriveFileLinks` / `TestCommonDocumentExtraction`。定向测试覆盖 `/file/` token 提取、去重/数量上限、Drive 下载失败静默降级、MIME/文件名缓存；PDF 实际文本抽取和页边界、HTML 主动内容剔除、PPTX 顺序、ODT 段落、入站抽取不依赖 terminal、附件提示注入边界。2026-07-13 实测 `SpaceSight 救命稻草` 所引 PDF 已从相同 `/file/` 链接成功下载（4,053,317 bytes）；本补丁用可信解析器直接抽出正文，不再触发群沙箱的 terminal 拒绝。
 
-**上游吸收判断**：若上游为「附件与 @mention 分属两条消息」场景原生提供回看/拼接机制（或允许图片消息直接触发），可归档本补丁。
+**上游吸收判断**：只有上游同时提供「附件与 @mention 分属两条消息」回看、Drive `/file/` 文本链接下载，以及入站 PDF/HTML/Office 文档可信自动抽取时，才可整体归档；若只吸收其中一层，应拆分后保留其余能力。
 
 ---
 

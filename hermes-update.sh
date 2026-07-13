@@ -59,6 +59,7 @@ PATCHED_FILES=(
     "tools/skill_manager_tool.py"
     "tests/tools/test_skill_manager_tool.py"
     "pyproject.toml"
+    "uv.lock"
     "tools/lazy_deps.py"
     "tests/tools/test_lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
@@ -67,6 +68,7 @@ PATCHED_FILES=(
     "gateway/config.py"
     "gateway/display_config.py"
     "plugins/platforms/feishu/adapter.py"
+    "gateway/platforms/base.py"
     "gateway/run.py"
     "gateway/session.py"
     "gateway/session_context.py"
@@ -83,11 +85,14 @@ PATCHED_FILES=(
     "tools/feishu_doc_tool.py"
     "tests/tools/test_feishu_tools.py"
     "tools/file_operations.py"
+    "tools/read_extract.py"
     "tests/tools/test_file_operations.py"
+    "tests/tools/test_read_extract.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
     "tests/gateway/test_display_config.py"
     "tests/gateway/test_feishu.py"
+    "tests/gateway/test_document_context_note.py"
     "tests/gateway/test_feishu_bot_admission.py"
     "tests/gateway/test_feishu_bot_auth_bypass.py"
     "tests/gateway/test_session.py"
@@ -899,7 +904,8 @@ fi
 # PATCH-15: Feishu group @-mention attachment backfill. When a bare @mention
 # arrives in a group, the adapter looks back over the same sender's recent
 # image/file messages (un-mentionable, _admit-dropped) and stitches them onto
-# the turn so the model can actually see them. Source lives in adapter.py.
+# the turn. It also resolves quoted /file/ links through Drive and extracts
+# PDF/HTML/Office/OpenDocument text before sandboxed group agents see it.
 if [[ -f "${FEISHU_PY}" ]]; then
     if grep -q 'def _backfill_sender_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
@@ -907,12 +913,20 @@ if [[ -f "${FEISHU_PY}" ]]; then
         grep -q '_FEISHU_BACKFILL_WINDOW_SECONDS' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_backfilled_attachment_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'normalized.image_keys or normalized.media_refs' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null; then
-        ok "Feishu attachment backfill patch: active (bare @mention and quoted post images stitched)"
+        grep -q 'def _download_feishu_drive_file' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_FEISHU_DRIVE_FILE_URL_RE' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _extract_inbound_document' "${HERMES_AGENT}/gateway/run.py" 2>/dev/null &&
+        grep -q 'def _extract_pdf' "${HERMES_AGENT}/tools/read_extract.py" 2>/dev/null &&
+        grep -q 'def _extract_html_file' "${HERMES_AGENT}/tools/read_extract.py" 2>/dev/null &&
+        grep -q 'pypdf==6.14.2' "${HERMES_AGENT}/pyproject.toml" 2>/dev/null &&
+        grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'class TestFeishuDriveFileLinks' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'class TestCommonDocumentExtraction' "${HERMES_AGENT}/tests/tools/test_read_extract.py" 2>/dev/null; then
+        ok "Feishu attachment patch: active (backfill + /file/ download + common-document extraction)"
         _FEISHU_BACKFILL_PATCH_OK=true
     else
-        warn "Feishu attachment backfill patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-15] Feishu attachment backfill"
+        warn "Feishu attachment/reader patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-15] Feishu attachments and common-document reader"
     fi
 else
     warn "Could not locate Feishu adapter — skipping PATCH-15 check"

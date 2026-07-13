@@ -219,7 +219,7 @@ To merge large Markdown content into an existing document with perfect native fo
 
 - 电子表格：`venv/bin/python scripts/read_sheet.py <sheets_url> [range]`(默认 `A1:Z300`)
 - 多维表格：`venv/bin/python scripts/read_bitable.py <base_url> [table_id] [max_records]`
-- 文件附件：`venv/bin/python scripts/download_feishu_file.py <file_url>` → 打印落地路径 (默认 `~/.hermes/tmp/`,在群沙箱读根内)→ `read_file(path)` 抽取 `.docx/.xlsx`
+- 文件附件：优先使用统一入口 `read_feishu_url.py`；它会下载并直接抽取 PDF、HTML/HTM、DOCX、XLSX、PPTX、ODT、IPYNB 和常见纯文本，无需在群沙箱里追加 terminal 命令。图片/视频 `/file/` 链接由 Feishu 网关原生媒体路由处理。`download_feishu_file.py` 只作为需要原始落地路径时的低层入口。
 
 **已知限制**:docx 内嵌的表格/图片仍渲染为占位符 (块抽取器的固有限制);**独立**的电子表格/多维表格才渲染为完整 markdown 表。图片/截图走原生 vision(被 @ 时网关自动附图),不需要脚本。
 
@@ -245,7 +245,7 @@ If the user has already granted permission but the API is slow to sync, wait a m
 
 ## 📎 Downloading File Attachments (Excel, PDF, etc.)
 
-Links in the form `https://whales.feishu.cn/file/TOKEN` are file attachments, not docs. `feishu_doc_read` and docx scripts **will not work** on these. **Easiest path**: `venv/bin/python scripts/download_feishu_file.py <file_url>` downloads to `~/.hermes/tmp/` (correct extension inferred) and prints the path; then `read_file(path)` auto-extracts `.docx/.xlsx`. Manual fallback — use the `drive/v1/files/:token/download` endpoint to download raw binary, then:
+Links in the form `https://whales.feishu.cn/file/TOKEN` are file attachments, not docs. `feishu_doc_read` and docx scripts **will not work** on these. **Easiest path**: run the unified `venv/bin/python scripts/read_feishu_url.py "<file_url>"`; it downloads to `~/.hermes/tmp/` and immediately extracts common text/document formats, including PDF and HTML. In Feishu chat, quoting a `/file/` link and @-mentioning the bot is also handled by the gateway. Manual fallback — use `download_feishu_file.py` or the `drive/v1/files/:token/download` endpoint to download raw binary, then:
 
 - For `.xlsx`: rename with `.xlsx` extension and use `read_file` (auto-extracts to text)
 - For other types: inspect `Content-Type` header and handle accordingly

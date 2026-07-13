@@ -15,11 +15,30 @@ NOTE: docx-embedded tables/images render as placeholders (a known limitation of
 the block extractor). Standalone 电子表格/多维表格 render as full markdown tables.
 """
 
+import os
 import sys
+from pathlib import Path
 
 import feishu_common as fc
 
 _KINDS = ("docx", "docs", "wiki", "sheets", "base", "file")
+_MAX_EXTRACTED_CHARS = 40_000
+_PLAIN_TEXT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".csv",
+    ".log",
+    ".json",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".py",
+    ".sh",
+    ".ts",
+}
 
 
 def detect_kind(url):
@@ -62,6 +81,43 @@ def resolve_wiki(wiki_token):
     return node.get("obj_type"), node.get("obj_token")
 
 
+def _bounded_text(text, max_chars=_MAX_EXTRACTED_CHARS):
+    if len(text) <= max_chars:
+        return text
+    marker = "\n\n[... 文件内容过长，已截断；原文件路径见上方 ...]\n\n"
+    remaining = max_chars - len(marker)
+    head = max(0, remaining * 3 // 4)
+    return text[:head].rstrip() + marker + text[-(remaining - head) :].lstrip()
+
+
+def _read_downloaded_file(path):
+    """Extract a downloaded Drive file without relying on agent terminal tools."""
+    path = str(path)
+    repo = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "hermes-agent"
+    if repo.is_dir() and str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+
+    ext = Path(path).suffix.lower()
+    if ext in _PLAIN_TEXT_EXTENSIONS:
+        try:
+            content = Path(path).read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            content = Path(path).read_text(encoding="utf-8", errors="replace")
+        return _bounded_text(content)
+
+    try:
+        from tools.read_extract import ExtractionError, extract_document_text, is_extractable_document
+    except ImportError as exc:
+        return f"(文件已下载，但通用文档解析器不可用: {exc})"
+
+    if not is_extractable_document(path):
+        return f"(文件已下载；类型 {ext or '未知'} 暂无文本抽取器。图片/视频链接应由飞书网关原生媒体链路读取。)"
+    try:
+        return _bounded_text(extract_document_text(path))
+    except ExtractionError as exc:
+        return f"(文件已下载，但无法抽取文本: {exc})"
+
+
 def read_url(url):
     url = (url or "").strip()
     kind = detect_kind(url)
@@ -94,7 +150,8 @@ def read_url(url):
         from download_feishu_file import download_file
 
         path = download_file(url)
-        return f'文件已下载到: {path}\n用 read_file 抽取内容(.docx/.xlsx 自动转文本): read_file("{path}")'
+        content = _read_downloaded_file(path)
+        return f"文件已下载到: {path}\n\n{content}"
     return f"(无法识别的飞书链接类型: {url}\n支持: /docx /docs /wiki /sheets /base /file)"
 
 
