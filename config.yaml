@@ -1,29 +1,11 @@
 model:
   provider: vertex
   default: google/gemini-3.1-pro-preview
-session_reset:
-  mode: none
-group_sessions_per_user: false
-vertex:
-  project_id: wh-gemini-1
-  region: global
 fallback_providers:
   - provider: vertex-fallback
     model: google/gemini-3.1-pro-preview
 toolsets:
   - hermes-cli
-platform_toolsets:
-  feishu_group:
-    - web
-    - vision_tools
-    - clarify
-    - feishu_doc
-    - skills_readonly
-    - file_readonly
-    - terminal
-platform_toolset_options:
-  feishu_group:
-    recover_platform_tools: false
 agent:
   max_turns: 90
   gateway_timeout: 1800
@@ -35,6 +17,7 @@ agent:
   environment_probe: true
   environment_hint: ''
   coding_context: auto
+  verify_on_stop: false
   gateway_timeout_warning: 900
   clarify_timeout: 600
   gateway_notify_interval: 600
@@ -42,7 +25,6 @@ agent:
   image_input_mode: auto
   disabled_toolsets: []
   reasoning_effort: high
-  verify_on_stop: false
 terminal:
   backend: local
   modal_mode: auto
@@ -122,6 +104,17 @@ compression:
   protect_first_n: 3
   abort_on_summary_failure: false
   codex_gpt55_autoraise: true
+kanban:
+  dispatch_in_gateway: true
+  dispatch_interval_seconds: 60
+  failure_limit: 2
+  worker_log_rotate_bytes: 2097152
+  worker_log_backup_count: 1
+  orchestrator_profile: ''
+  default_assignee: ''
+  auto_decompose: true
+  auto_decompose_per_tick: 3
+  dispatch_stale_timeout_seconds: 14400
 prompt_caching:
   cache_ttl: 5m
 openrouter:
@@ -275,6 +268,10 @@ display:
   tool_progress_grouping: accumulate
   ephemeral_system_ttl: 0
   platforms:
+    telegram:
+      streaming: true
+    discord:
+      streaming: false
     feishu:
       tool_progress: new
       streaming: false
@@ -283,16 +280,12 @@ display:
       busy_ack_detail: false
       thinking_progress: false
     feishu_group:
-      tool_progress: off
+      tool_progress: false
       streaming: false
       interim_assistant_messages: false
       long_running_notifications: false
       busy_ack_detail: false
       thinking_progress: false
-    telegram:
-      streaming: true
-    discord:
-      streaming: false
   runtime_footer:
     enabled: false
     fields:
@@ -400,16 +393,16 @@ goals:
 skills:
   external_dirs:
     - ~/.hermes/my-skills
-  platform_allowed:
-    feishu_group:
-      - llm-wiki
-      - feishu-docs
-      - feishu-people-search
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
   guard_agent_created: false
   write_approval: false
+  platform_allowed:
+    feishu_group:
+      - llm-wiki
+      - feishu-docs
+      - feishu-people-search
 curator:
   enabled: true
   interval_hours: 168
@@ -426,27 +419,6 @@ slack:
   require_mention: true
   free_response_channels: ''
   allowed_channels: ''
-feishu:
-  require_mention: true
-  default_group_policy: open
-  mention_triggers:
-    - bot
-    - assistant_users
-  assistant_user_ids:
-    - ou_33eeacfbd0c0559b7b734f83503719ab
-    - 5397e1a2
-  assistant_identity_label: 琛哥的赛博助手「Gödel」
-  assistant_identity_throttle_messages: 20
-  assistant_identity_throttle_seconds: 600
-  history_backfill: true
-  history_backfill_limit: 30
-  history_backfill_seconds: 1800
-  history_backfill_max_chars: 6000
-  bare_mention_intent: true
-  group_rules:
-    '*':
-      policy: open
-      require_mention: true
 discord:
   require_mention: true
   free_response_channels: ''
@@ -511,17 +483,6 @@ security:
 cron:
   wrap_response: true
   script_timeout_seconds: 900
-kanban:
-  dispatch_in_gateway: true
-  dispatch_interval_seconds: 60
-  failure_limit: 2
-  worker_log_rotate_bytes: 2097152
-  worker_log_backup_count: 1
-  orchestrator_profile: ''
-  default_assignee: ''
-  auto_decompose: true
-  auto_decompose_per_tick: 3
-  dispatch_stale_timeout_seconds: 14400
 code_execution:
   mode: project
 tools:
@@ -593,15 +554,51 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
+vertex:
+  project_id: wh-gemini-1
+  region: global
 _config_version: 33
+session_reset:
+  mode: none
+group_sessions_per_user: false
+platform_toolsets:
+  feishu_group:
+    - web
+    - vision_tools
+    - clarify
+    - feishu_doc
+    - skills_readonly
+    - file_readonly
+    - terminal
+platform_toolset_options:
+  feishu_group:
+    recover_platform_tools: false
+feishu:
+  require_mention: true
+  default_group_policy: open
+  mention_triggers:
+    - bot
+    - assistant_users
+  assistant_user_ids:
+    - ou_33eeacfbd0c0559b7b734f83503719ab
+    - 5397e1a2
+  assistant_identity_label: 琛哥的赛博助手「Gödel」
+  assistant_identity_throttle_messages: 20
+  assistant_identity_throttle_seconds: 600
+  history_backfill: true
+  history_backfill_limit: 30
+  history_backfill_seconds: 1800
+  history_backfill_max_chars: 6000
+  bare_mention_intent: true
+  group_rules:
+    '*':
+      policy: open
+      require_mention: true
 smart_model_routing:
   enabled: false
   max_simple_chars: 160
   max_simple_words: 28
   cheap_model: {}
-# Effective fallback chain = fallback_providers ++ fallback_model (deduped):
-#   1) vertex-fallback / google/gemini-3.1-pro-preview  (2nd Vertex account, VERTEX_FALLBACK_* in .env)
-#   2) alibaba / qwen3.6-plus                            (last-resort tail if both Google accounts are rate-limited)
 fallback_model:
   provider: alibaba
   model: qwen3.6-plus
