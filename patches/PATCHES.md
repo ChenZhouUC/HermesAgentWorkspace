@@ -154,11 +154,14 @@ PATCHED_FILES=(
     "pyproject.toml"
     "uv.lock"
     "tools/lazy_deps.py"
+    "tests/tools/test_lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
     "website/docs/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
     "gateway/config.py"
+    "gateway/display_config.py"
     "plugins/platforms/feishu/adapter.py"
+    "skills/research/llm-wiki/SKILL.md"
     "gateway/platforms/base.py"
     "gateway/run.py"
     "gateway/session.py"
@@ -168,6 +171,8 @@ PATCHED_FILES=(
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
+    "tools/approval.py"
+    "tests/tools/test_approval.py"
     "tools/skills_tool.py"
     "tests/tools/test_skills_tool.py"
     "toolsets.py"
@@ -179,6 +184,7 @@ PATCHED_FILES=(
     "tests/tools/test_read_extract.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
+    "tests/gateway/test_display_config.py"
     "tests/gateway/test_feishu.py"
     "tests/gateway/test_document_context_note.py"
     "tests/gateway/test_feishu_bot_admission.py"
@@ -202,11 +208,16 @@ PATCHED_FILES=(
 )
 ```
 
+> 以上为 `hermes-update.sh` 中数组的快照（56 文件，2026-07-13 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+
 ### 手动恢复
 
 ```bash
 cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
-# 若有冲突：git apply --reject && 手动解决 .rej，再重跑 hermes-update.sh
+# 若有冲突（推荐）：git apply --3way 留下 <<<<<<< 标记逐处解决（多为"并存"型冲突），
+#   然后 git add <冲突文件> && git reset 清索引，再重跑 hermes-update.sh 走完整验证
+#   （2026-07-13 轮实测流程；注意 git apply 输出别接 head 截断，SIGPIPE 会中断 apply）
+# 或：git apply --reject && 手动解决 .rej，再重跑 hermes-update.sh
 
 # 若 patch 文件自身已被 conflict marker 污染，可先恢复入库版本
 cd ~/.hermes && git restore --source=HEAD -- patches/local-patches.diff
@@ -217,17 +228,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.18.2 (upstream `main` `7acaff5e`，2026-07-11)
+## 当前版本：v0.18.2 (upstream `main` `bd740f20`，2026-07-13)
 
 **活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19 / PATCH-20 / PATCH-21（共 16 条）。
 
-**最近一次升级（v0.18.2 main 滚动，+118 commits，basis `79f12748` → `7acaff5e`）要点**：
+**最近一次升级（v0.18.2 main 滚动，+163 commits，basis `7acaff5e` → `bd740f20`）要点**：
 
-- 上游主线：Config/Agent 鲁棒性——CLI、Gateway、STT/TTS、Web、toolsets 对 null / scalar 配置统一 fail-safe（`bdecf0ab` / `46613071` / `50c66b2f` / `89371216` / `56932657` / `07271a6f`），tool-call 参数与 registry result contract 加固（`5e50f18b` / `f8361d29`）；Gateway/Cron/Memory——SessionStore 阻塞 I/O 全部移出 event loop、收敛 async boundary 与 save/reset races（`24c2a401` / `08e9dcf1` / `9d38a230` / `b3f77f5c` / `b196ce80`），cron profile store / webhook runtime 隔离、活跃 one-shot 与 claim heartbeat 防误清（`ec0227b4` / `f82c7139` / `9b72995a` / `dabae386`），holographic SQLite 连接按真实 DB 共享（`b5226caf` / `a8010466`）；Feishu——Channel signaling SDK 与 group @mention UA tag 落地，`lark-oapi` 升至 1.6.8（`949e4cb7` / `651e632b`）；Desktop/Dashboard/TUI——Hermes Cloud 登录发现、soft gateway switch、vibe hearts、chat zoom / draft / async session context 修复，以及 dashboard 粘贴/拖入图片（`c101207b` / `b3bde1fb` / `422d9da9` / `301acc9e` / `2afa92c7` / `7acaff5e`），TUI slash worker 支持 profile-local MCP（`623165a6`）；Providers/Tools/Security——custom catalog probe policy、Nous Portal 路由与共享 token 恢复（`5f00f36b` / `0629caac` / `3aeaf375` / `ca651354` / `0e67c723`），Windows MSYS path、web_extract 输入/顺序/短结果边界与确定性 tool-output risk（`3f8b2200` / `7ae9faec` / `459cf340` / `c2a40b2d` / `b9b463f3`）。
-- patch apply：首轮 `git apply` / zero-context / 3-way 整体失败，逐文件确认仅 `pyproject.toml`、`tools/lazy_deps.py` 与 `tests/gateway/test_feishu.py` 因 Feishu SDK 版本及测试插入点漂移需 rebase；其余 46 文件可直接/带 offset 应用。锚点包括 `gateway/config.py 1211→1228`、`gateway/run.py` 多段 `+1/+5/+20/+29/+30`、`gateway/session.py +1`、`adapter.py 4861→4867`、`test_config.py 1029→1088`、`test_feishu.py 414→483`、`test_skills_config.py +28`；PATCH-1 另补齐“external dir 尚不存在也应创建”的真实回归。升级后新增 PATCH-21，以 `mautrix` identity anchor 阻断核心 aiohttp 对未启用 Matrix 的误激活，并把 `tests/tools/test_lazy_deps.py` 纳入监管。最终 50 files **clean apply**，PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20/21 sentinel、PATCH-2/4/5 upstream guards 与 sandbox plugin verify 全 OK；无新退役。
-- 依赖：release / editable 版本维持 `0.18.2 (2026.7.7.2)`；active lazy backend `platform.feishu` 随上游刷新到 `lark-oapi 1.6.8`，本地 `python-socks 2.8.1` 保留；npm root/ui-tui/web 重装并 rebuild web UI，`npm audit` no vulnerabilities；Skills mirror 首跑 `+0/~0/-4`。升级后 PATCH-21 让从未启用的 Matrix 不再进入 refresh，真实 active backend 15 项全部 current；PATCH-6 用临时、版本钉死、仅限 Hermes update 的 npm policy 覆盖 `agent-browser/esbuild/fsevents/unicode-animations`，实跑 root + ui-tui/web `npm ci` 无 blocked warning 且运行产物正常；本轮 `uv` 未触发 python-path fallback。
-- 已知摩擦：首次回贴冲突按新上游锚点保守重放；`FEISHU_TEST_PY` 在 PATCH-12 检查前未赋值导致的 `set -u` 中止已修复。Matrix/python-olm 重复失败与 npm 四项 allowScripts 重复提示均已分别由 PATCH-21 / PATCH-6 规避；npm policy 使用精确版本 pin，上游若升级这些可执行脚本包会重新提示并要求复核，这是刻意保留的供应链安全 gate，不视为回归。最终完整 update exit 0、无 Recommended actions。
-- 配置漂移：最终 `hermes doctor` 显示 `Config version up to date (v33)`、`All checks passed`；Gateway plist matches current install，launchd PID `61895` 已重启加载 patched modules；仅保留未登录 auth provider、未配置 optional tool/API key、Skills Hub 未初始化等可选提示。
+- 上游主线：安全/Providers——catalog probe 凭据全面加固：跨 host redirect 剥离 credential header、比较完整 origin、单次 redirect 凭据策略、保留已安装 urllib/opener hooks（`a061788d4` / `61e3bd67d` / `5415b7765` / `6e75ba7fa` / `27a1042b1` / `d83cd6f7c`），credential pool 按 provider 划界并拒绝空 lease（`4a4a0c2fc` / `5d524d042`），Copilot Responses replay 策略在 dispatch 层强制（`b9146a47b` / `bce17bf6a`）；Approval——smart approvals 成为默认（#62661 `62a76bd3d`），verifier 临时脚本清理豁免（`0c8bcd339`）、smart verdict observer hooks（`b03c94dbe`）、owner override 只作用单次操作（`d48bf743f`）、gateway 超时对齐（`c5e841ab0`）；Gateway/Cron——cron LLM 调用改为 inline 化解 gateway 死锁（#62151 `5c5dd6b7e` / `d00c15c0c` / `47c91e4c3`），`@` context reference 展开 AttributeError 修复 + runtime context budget/profile 作用域（`4df6e6280` / `265ac7d81` / `37a942650`），authenticated runtime readiness（`f9728af5e` / `6142203bd`）；Compaction/Codex——anti-thrash guard 按真实 usage/threshold 生效（`32f30d2a4` / `d17244562` / `7f9485707`），codex 手动/原生 compaction usage 修复（`8121dbb16` / `ec6982fbc`）；模型/CLI——reasoning 新增 max/ultra effort（#62650 `7550c594c`），Fireworks AI 成为 preferred provider（`c97d9a4c0` / `31152ae10`），model picker 以配置 provider 为权威并 session-scoped（`8041be795` / `ce5c1f9f7` / `938c2622f`），mid-session 切模型分模型计 token（`cb7f6bbb2`），resume 恢复 cwd 与 sessions workspace 过滤（`b5f0e451c` / `0c4aed249`）；Kanban——Done 卡 final_result 呈现与可操作化、goal_mode `-Q` 修复、durable artifact handoff（`deae8e3b4` / `98b456294` / `80b58ec71` / `8030b01a2`）；Desktop/Dashboard/TUI/Web——session import（`b51d365ef` / `ac705b52c`）、WSL 路径桥接（`88fbc8825` / `3c7b9f2e9`）、Fallback Models 结构化编辑器（`21781d54e`）、boot-failure 恢复与 remote reauth（`c1c74d751` / `f3af066b8`）、clarify Q&A 常驻 transcript（`9e7fe2dd0`）、TUI 自定义 skill bundle 走 agent turn（`964ecef40`）；Skills——bundle 绑定精确文件与来源 provenance（`51382ac24` / `c36f6b725`）；Telegram flood fallback 恢复（`4aa499ff9`）；API run transport 与 stream 生命周期分离（`8f18fa104` / `1da89a5f3`）；Windows 原生盘符路径改写为 bash 安全形式（`d1ad9a0f5` / `f2fcf89c1`）。
+- patch apply：首轮脚本 3-way 整体失败并回滚，仅两处真实冲突：`gateway/run.py`（PATCH-13 `_with_current_author_prefix` 插入点与上游新增 `_prepare_profile_scoped_inbound_message_text` 同位，`10861→10886`）与 `hermes_cli/doctor.py`（PATCH-18 `"vertex"` slug 豁免与上游新增 `"fireworks"` 条目同集合撞行，`873→879`）；均按"并存"手工合并（上游新方法/新条目保留 + 本地补丁行保留），作者前缀调用点在 `_prepare_inbound_message_text` 内部未受上游 profile-scoped wrapper 影响。重跑脚本后 56 files **clean apply**，PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20/21 sentinel、PATCH-2/3/4/5 upstream guards 与 sandbox plugin verify 全 OK；无新退役。功能回归：21 个 patch 相关测试文件 **1707 passed / 1 failed**——唯一失败 `test_approval.py::TestDetectDangerousRm::test_nonrecursive_verification_artifact_cleanup_is_not_dangerous` 为上游 `0c8bcd339` 自带测试在 macOS 的自身 bug（`_is_verification_artifact_cleanup` 对 temp_dir 做 `realpath` 得 `/private/tmp` 而 operand 保留 `/tmp`，恒不相等），裸上游同样失败，与本地 patch 无关。
+- 依赖：上游 `pyproject.toml` 无依赖变更，editable 维持 `0.18.2 (2026.7.7.2)` 重建；npm root/ui-tui/web 重装并 rebuild web UI（vite 8.1.0），`npm audit` no vulnerabilities；Skills mirror 首跑 `+0/~0/-4`（清理镜像孤儿）、二跑 `+0/~1/-1`，patched llm-wiki 已回同步且 manifest re-baselined；lazy backend 16 项中 15 项 current，`platform.matrix` 因 python-olm 构建失败刷新未成，保留既装版本（非阻塞）。
+- 已知摩擦：① 首轮 update 期间补丁处于还原态，PATCH-21 锚点不生效，Matrix 又进了 refresh 名单并因 python-olm 构建失败报 ⚠ ——属升级窗口内的固有时序，补丁回贴后恢复；② `package-lock.json` 在 npm audit fix 后 dirty（esbuild 平台条目的 `"peer": true` 标记被 npm 归一化移除，无版本变化），照旧留在内层工作树不提交；③ 上游 verifier temp cleanup 豁免（`0c8bcd339`）在 macOS 上失效（见上），行为等同该修复落地前（清理命令仍走审批），无安全回归，待上游修复；④ 本轮 `uv` 未触发 python-path fallback。
+- 配置漂移：最终 `hermes doctor` 显示 `Config version up to date (v33)`、`All checks passed`（首轮补丁缺位时报的 2 条 vertex provider/slug 问题即 PATCH-18 缺位症状，回贴后消失）；Gateway plist matches current install，launchd PID `68827` 已重启加载 patched modules；仅保留未登录 auth provider、未配置 optional tool/API key、Skills Hub 未初始化等可选提示。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
