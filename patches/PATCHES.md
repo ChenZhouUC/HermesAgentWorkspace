@@ -20,12 +20,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表                                            | 管理方式                                                                                                                                                                                                                           |
-| -------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20/21 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
-| **工程外补丁** | PATCH-3                                         | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
-| **运行时补丁** | PATCH-6                                         | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
-| **已上游合并** | PATCH-2/3/4/5/8                                 | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
+| 类型           | 代表                                               | 管理方式                                                                                                                                                                                                                           |
+| -------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20/21/22 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
+| **工程外补丁** | PATCH-3                                            | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
+| **运行时补丁** | PATCH-6                                            | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
+| **已上游合并** | PATCH-2/3/4/5/8                                    | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -73,7 +73,8 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-18: grep doctor Vertex provider/profile/env hints + google model slug regression test
   │   ├─ PATCH-19: grep get_vertex_fallback_config/apply_global_project_override + vertex-fallback in auth.py + has_vertex_fallback_credentials + name="vertex-fallback" + fallback regression test
   │   ├─ PATCH-20: grep _known_provider_model_supports_vision + vertex-fallback + decide_video_input_mode + _pending_native_video_paths_by_session (run.py) + gemini-3.1-pro-preview / video data-url routing regression tests
-  │   └─ PATCH-21: grep Matrix lazy-feature identity anchor + shared-aiohttp regression test
+  │   ├─ PATCH-21: grep Matrix lazy-feature identity anchor + shared-aiohttp regression test
+  │   └─ PATCH-22: grep apply_history_retention/_retention_turn_starts (replay_cleanup.py) + _history_retention_limits_for_source (run.py) + retention 回归测试
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -205,10 +206,13 @@ PATCHED_FILES=(
     "agent/auxiliary_client.py"
     "agent/image_routing.py"
     "tests/agent/test_image_routing.py"
+    "agent/replay_cleanup.py"
+    "tests/agent/test_replay_cleanup.py"
+    "tests/gateway/test_stale_confirmation_expiry.py"
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（56 文件，2026-07-13 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（59 文件，2026-07-14 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
 
 ### 手动恢复
 
@@ -230,7 +234,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 ## 当前版本：v0.18.2 (upstream `main` `bd740f20`，2026-07-13)
 
-**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19 / PATCH-20 / PATCH-21（共 16 条）。
+**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19 / PATCH-20 / PATCH-21 / PATCH-22（共 17 条）。
 
 **最近一次升级（v0.18.2 main 滚动，+163 commits，basis `7acaff5e` → `bd740f20`）要点**：
 
@@ -377,11 +381,11 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `gateway/session.py`, `gateway/run.py`, `gateway/stream_consumer.py`, `tests/gateway/test_session.py`, `tests/gateway/test_stream_consumer_silence.py`（配套数据文件 `~/.hermes/people.yaml` gitignore、`~/.hermes/groups.yaml` 入库，均非 PATCHED_FILES） |
 | **状态** | 🟡 未上游合并（本地个性化功能，不预期被上游吸收）                                                                                                                                                                                                          |
 
-**问题**：（人物层）群聊/私聊里 agent 只能拿到发送者的 open_id 与显示名，不知道对方的岗位、背景、沟通风格，也无法按"琛哥对此人的态度"调整语气与风险意识。这类主观标注（喜好、立场、应对基调）官方通讯录 API 永远不会提供，必须由用户自维护。（群聊层）同一个 bot 在不同飞书群面对不同人群，却共用同一套语气与自我介绍口径，无法针对性表达「这个群我主要能帮你做什么」，也不知道应在自我介绍里告知群成员哪段提示性服务 / 接客时间；且当群聊任务因沙箱拦截工具 / 缺权限 / 缺凭证而效果打折时，模型容易把受限当作已完成、对深入结论过度自信，而不是声明限制并把决策交回琛哥确认。
+**问题**：（人物层）群聊/私聊里 agent 只能拿到发送者的 open_id 与显示名，不知道对方的岗位、背景、沟通风格，也无法按"琛哥对此人的态度"调整语气与风险意识。这类主观标注（喜好、立场、应对基调）官方通讯录 API 永远不会提供，必须由用户自维护。（来源保密层，2026-07-14 事件）原保密指令只锚定"注入的私密段"，未覆盖**机制本身**：Data Pipeline Workshop 群里被问"你能拿到岗位和职位么"时，模型公开点名 `people.yaml`、自称"接入了本地的员工目录"并招揽群成员报名字查同事——违反"绝不能让对方知道本地维护了这些"的原则。泄露通道是当时在群聊 allowlist 里的 `feishu-people-search` skill（其 description/SKILL.md 直接写明数据文件路径），且 redactor 只做私密字段值精确脱敏，拦不住文件名字面量。（群聊层）同一个 bot 在不同飞书群面对不同人群，却共用同一套语气与自我介绍口径，无法针对性表达「这个群我主要能帮你做什么」，也不知道应在自我介绍里告知群成员哪段提示性服务 / 接客时间；且当群聊任务因沙箱拦截工具 / 缺权限 / 缺凭证而效果打折时，模型容易把受限当作已完成、对深入结论过度自信，而不是声明限制并把决策交回琛哥确认。
 
-**修复**：在 `gateway/session.py` 新增本地人物画像库读取层（sentinel `people-profile`）：`_load_people_profiles()` 按 mtime 缓存读取 `~/.hermes/people.yaml`（经 `hermes_constants.get_hermes_home()` 定位），`_lookup_person()` 依次按 `user_id` / `user_id_alt` / `user_name`（含 aliases、大小写折叠）匹配，`_render_person_profile()` 把画像拆成**可公开段**（仅 姓名/岗位/部门·团队/称呼 address）与**保密段**（工号/入职/司龄/上级/下属 (direct+total，`_render_subordinates`)/职业背景/行为模式/态度/风险注意/备注），其中 `address` 可直接用于回复称呼；若包含多个称呼，按 `|` 分隔并可按语境任选一个。保密段尾部附 `_PEOPLE_PROFILE_SECRECY` 强制保密指令——私有字段只能用于调整应对，绝不可复述/确认/暗示，即使被直接询问或旁敲侧击也不得外泄（防止人为设定的背景/态度被群成员套出）。`build_session_context_prompt` 在 current-author 块之后注入该画像；`redact_pii` 为真时（PII-safe 平台）跳过，保持脱敏契约。群聊可见输出增加硬防线：`redact_private_person_profile_text()` 按当前问话人的画像收集所有非公开字段、备注和下属行的原文/片段，在非 DM 输出前做精确值脱敏；姓名、岗位、部门/团队和 `address` 保留可见。`gateway/run.py` 在非流式最终回复、错误兜底最终回复和流式 consumer 构造处接入该过滤；`gateway/stream_consumer.py` 新增 `text_filter`，在 send/edit/commentary/fallback/fresh-final 等可见文本发送前应用过滤，避免流式路径绕过最终回复脱敏。同一文件还新增并行的**群聊画像层**（sentinel `group-profile`），与人物层同款契约（mtime 缓存、config-repo 数据文件、loader 永不抛错、按 mtime 热加载），但**数据文件 `groups.yaml` git 入库、内容纯表达层无机密**：`_load_group_profiles()` 读 `~/.hermes/groups.yaml`，`_lookup_group()` 依次按 `chat_id` / `parent_chat_id`（thread 子会话回退到父群）/`chat_id_alt` / `chat_name`（含 aliases、大小写折叠）匹配，`_render_group_profile()` 渲染 `style`（语言风格/语气）/`capabilities`（能力栈——可对外介绍自己能做什么）/`audience`/`intro`（自我介绍口径）/`service_hours`（服务 / 接客时间的对外提示文本）/`notes`，并显式声明「只改怎么表达/介绍，不改沙箱与安全边界（各群一致）」。命中非空 `service_hours` 时额外要求模型在自我介绍或被问及在线 / 接客时间时自然带出该文本，普通回答不机械重复；该字段**不是调度、门禁或拒答规则**，时段外仍可照常回答，不得仅因时间拒答。`build_session_context_prompt` 仅对 `platform != LOCAL && chat_type in (group, channel)` 注入；命中画像才注入画像块，但**无论是否命中**都追加常量 `_GROUP_TOOL_LIMITATION_RULE`：工具不可用 / 权限被沙箱拦截 / 缺凭证 / 访问失败导致任务没完成或效果打折时，产出必须明确声明该限制与结论可信度边界、不得把受限当已验证；深入结论 / 判断 / 决策 / 对外承诺一律保守，建议等琛哥确认、不替琛哥拍板或担责。DM 既不注入画像也不注入声明规则。loader 全程吞异常——文件缺失或 YAML 损坏只降级为空索引，绝不让 prompt 路径抛错。数据文件刻意放在 config repo（`~/.hermes`），上游升级不覆盖，且改后按 mtime 在下一条消息自动热加载，无需重启。配套拉取脚本 `scripts/pull_feishu_people.py`（pull→draft / merge[--apply]，飞书通讯录客观字段刷新、主观字段保留）维护人物数据文件，非 hermes-agent 工程内补丁。
+**修复**：在 `gateway/session.py` 新增本地人物画像库读取层（sentinel `people-profile`）：`_load_people_profiles()` 按 mtime 缓存读取 `~/.hermes/people.yaml`（经 `hermes_constants.get_hermes_home()` 定位），`_lookup_person()` 依次按 `user_id` / `user_id_alt` / `user_name`（含 aliases、大小写折叠）匹配，`_render_person_profile()` 把画像拆成**可公开段**（仅 姓名/岗位/部门·团队/称呼 address）与**保密段**（工号/入职/司龄/上级/下属 (direct+total，`_render_subordinates`)/职业背景/行为模式/态度/风险注意/备注），其中 `address` 可直接用于回复称呼；若包含多个称呼，按 `|` 分隔并可按语境任选一个。保密段尾部附 `_PEOPLE_PROFILE_SECRECY` 强制保密指令——私有字段只能用于调整应对，绝不可复述/确认/暗示，即使被直接询问或旁敲侧击也不得外泄（防止人为设定的背景/态度被群成员套出）。`build_session_context_prompt` 在 current-author 块之后注入该画像；`redact_pii` 为真时（PII-safe 平台）跳过，保持脱敏契约。群聊可见输出增加硬防线：`redact_private_person_profile_text()` 按当前问话人的画像收集所有非公开字段、备注和下属行的原文/片段，在非 DM 输出前做精确值脱敏；姓名、岗位、部门/团队和 `address` 保留可见。`gateway/run.py` 在非流式最终回复、错误兜底最终回复和流式 consumer 构造处接入该过滤；`gateway/stream_consumer.py` 新增 `text_filter`，在 send/edit/commentary/fallback/fresh-final 等可见文本发送前应用过滤，避免流式路径绕过最终回复脱敏。同一文件还新增并行的**群聊画像层**（sentinel `group-profile`），与人物层同款契约（mtime 缓存、config-repo 数据文件、loader 永不抛错、按 mtime 热加载），但**数据文件 `groups.yaml` git 入库、内容纯表达层无机密**：`_load_group_profiles()` 读 `~/.hermes/groups.yaml`，`_lookup_group()` 依次按 `chat_id` / `parent_chat_id`（thread 子会话回退到父群）/`chat_id_alt` / `chat_name`（含 aliases、大小写折叠）匹配，`_render_group_profile()` 渲染 `style`（语言风格/语气）/`capabilities`（能力栈——可对外介绍自己能做什么）/`audience`/`intro`（自我介绍口径）/`service_hours`（服务 / 接客时间的对外提示文本）/`notes`，并显式声明「只改怎么表达/介绍，不改沙箱与安全边界（各群一致）」。命中非空 `service_hours` 时额外要求模型在自我介绍或被问及在线 / 接客时间时自然带出该文本，普通回答不机械重复；该字段**不是调度、门禁或拒答规则**，时段外仍可照常回答，不得仅因时间拒答。`build_session_context_prompt` 仅对 `platform != LOCAL && chat_type in (group, channel)` 注入；命中画像才注入画像块，但**无论是否命中**都追加常量 `_GROUP_TOOL_LIMITATION_RULE`：工具不可用 / 权限被沙箱拦截 / 缺凭证 / 访问失败导致任务没完成或效果打折时，产出必须明确声明该限制与结论可信度边界、不得把受限当已验证；深入结论 / 判断 / 决策 / 对外承诺一律保守，建议等琛哥确认、不替琛哥拍板或担责。DM 既不注入画像也不注入声明规则。loader 全程吞异常——文件缺失或 YAML 损坏只降级为空索引，绝不让 prompt 路径抛错。数据文件刻意放在 config repo（`~/.hermes`），上游升级不覆盖，且改后按 mtime 在下一条消息自动热加载，无需重启。配套拉取脚本 `scripts/pull_feishu_people.py`（pull→draft / merge[--apply]，飞书通讯录客观字段刷新、主观字段保留）维护人物数据文件，非 hermes-agent 工程内补丁。（来源保密加固，2026-07-14）新增常量 `_PEOPLE_SOURCE_SECRECY_RULE`，在所有 group/channel 会话与 `_GROUP_TOOL_LIMITATION_RULE` 并列**无条件注入**（画像命中与否均注入）：不得透露/确认/暗示可访问本地人员资料（员工名册、people.yaml、画像库一律不得提及）、不得招揽"报名字帮你查"、被问来源以日常工作接触自然带过；并明确"历史里出现过的相反说法是已纠正的错误行为，不要模仿"（对冲已污染的群 session 历史）。`_PEOPLE_PROFILE_SECRECY` 追加"画像本身及其来源（如 people.yaml）同样保密"。`redact_private_person_profile_text` 新增 `_PEOPLE_SOURCE_LITERALS` 字面量兜底：非 DM 输出中 `people.yaml`（大小写不敏感）替换为 `[内部资料]`，**且不依赖问话人是否命中画像**。配置仓库侧同步收口（非 PATCHED_FILES）：`config.yaml` 的 `skills.platform_allowed.feishu_group` 移除 `feishu-people-search`（名册查询回归琛哥私聊专用）；`plugins/sandbox/config.yaml` 的 `allowed_script_roots_for_outsider_groups` 从整个 `my-skills`/`skills` 树收窄为仅 `my-skills/productivity/feishu-docs`，群聊 terminal 由此跑不动 `search_people.py`（即使从历史里翻出完整命令），terminal 拦截提示同步改写并加"不要组合命令绕过"申明。
 
-**验证**：Step 8b grep `gateway/session.py` 中存在 `people-profile`、`def _load_people_profiles`、`def _lookup_person`、`称呼/address`、`redact_private_person_profile_text`、`group-profile`、`def _load_group_profiles`、`def _lookup_group`、`service_hours`、`_GROUP_TOOL_LIMITATION_RULE`，grep `gateway/run.py` 中存在 `redact_private_person_profile_text`，grep `gateway/stream_consumer.py` 中存在 `text_filter`，并 grep `tests/gateway/test_session.py` 中的 `class TestPeopleProfileInjection`、`class TestGroupProfileInjection`、`test_service_hours_are_intro_hint_not_reply_gate`、`test_address_is_public_and_usable_for_reply`、`test_private_profile_redactor_keeps_public_fields` 以及 `tests/gateway/test_stream_consumer_silence.py` 中的 `test_text_filter_applies_before_stream_delivery`。定向测试覆盖：人物层 按 id / name·alias 命中、未知不注入、缺文件 / 坏 YAML 安全；`address` 位于公开段且可用于称呼；群聊输出保留公开字段并隐藏私有画像原文/片段；群聊层 按 chat_id / alias 命中、提示性服务时间在介绍时带出但不构成回复门禁、未命中仍保留声明规则、声明规则在 group 出现、DM 既无画像也无声明规则、缺文件 / 坏 YAML 安全（`TestGroupProfileInjection` 8 例）；流式输出发送前应用隐私过滤。
+**验证**：Step 8b grep `gateway/session.py` 中存在 `people-profile`、`def _load_people_profiles`、`def _lookup_person`、`称呼/address`、`redact_private_person_profile_text`、`group-profile`、`def _load_group_profiles`、`def _lookup_group`、`service_hours`、`_GROUP_TOOL_LIMITATION_RULE`、`_PEOPLE_SOURCE_SECRECY_RULE`、`_PEOPLE_SOURCE_LITERALS`，grep `gateway/run.py` 中存在 `redact_private_person_profile_text`，grep `gateway/stream_consumer.py` 中存在 `text_filter`，并 grep `tests/gateway/test_session.py` 中的 `class TestPeopleProfileInjection`、`class TestGroupProfileInjection`、`test_service_hours_are_intro_hint_not_reply_gate`、`test_address_is_public_and_usable_for_reply`、`test_private_profile_redactor_keeps_public_fields`、`test_people_source_secrecy_rule_present_for_group`、`test_redactor_hides_roster_file_name_even_without_profile_match` 以及 `tests/gateway/test_stream_consumer_silence.py` 中的 `test_text_filter_applies_before_stream_delivery`。定向测试覆盖：来源保密规则在群聊无条件注入（含未命中画像的陌生群）且 DM 不注入、画像保密段覆盖来源与文件名、redactor 在问话人无画像时也把 `People.YAML` 字面量（大小写不敏感）脱敏为 `[内部资料]`（`test_session.py` 130 passed）；sandbox 侧 `plugins/sandbox/test_sandbox.py` 新增 `test_group_terminal_scripts_outside_allowlisted_skill_dir_are_rejected`：脚本根收窄后 feishu-docs 脚本放行、同树 `feishu-people-search/scripts/search_people.py` 被拒（11 passed）。原有覆盖：人物层 按 id / name·alias 命中、未知不注入、缺文件 / 坏 YAML 安全；`address` 位于公开段且可用于称呼；群聊输出保留公开字段并隐藏私有画像原文/片段；群聊层 按 chat_id / alias 命中、提示性服务时间在介绍时带出但不构成回复门禁、未命中仍保留声明规则、声明规则在 group 出现、DM 既无画像也无声明规则、缺文件 / 坏 YAML 安全（`TestGroupProfileInjection` 8 例）；流式输出发送前应用隐私过滤。
 
 **上游吸收判断**：该功能依赖用户私有/本地数据文件与个人化标注（态度、群人设），属本地个性化增强，不预期被上游合并；若上游引入等价的 per-sender / per-group profile 注入机制可重新评估归档。
 
@@ -518,6 +522,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：新增两条回归：仅 `aiohttp` 存在时 `platform.matrix` 不 active，`mautrix` 存在时仍 active；`tests/tools/test_lazy_deps.py` 66 passed。真实 venv 调用 `active_features()` / `refresh_active_features()` 均不再包含 `platform.matrix`，其余 15 个既有 active backend 全部保持 `current`。`hermes-update.sh` Step 8b grep anchor 与回归测试名，并将 PATCH-21 纳入 patch refresh gate。
 
 **上游吸收判断**：若上游用持久化 activation ledger 记录真正启用过的 lazy feature，或为 Matrix/其他含核心共享依赖的 feature 引入等价 identity anchor，即可归档本补丁。
+
+---
+
+### [PATCH-22] 群聊回放历史保留窗（时间窗 + 条数，视图级）
+
+| 字段     | 内容                                                                                                                                                                                                                    |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/replay_cleanup.py`, `gateway/run.py`, `tests/agent/test_replay_cleanup.py`, `tests/gateway/test_stale_confirmation_expiry.py`（配置键 `gateway.history_retention` 在 `~/.hermes/config.yaml`，非 PATCHED_FILES） |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                           |
+
+**问题**（2026-07-14 复盘 SpaceSight Tech Sharing Group 历史污染）：共享群 session 每轮把**全量** transcript 回放给模型（`load_transcript` → `_build_gateway_agent_history`），唯一的历史收敛机制是按 token 触发的 hygiene/压缩——大上下文模型（Gemini 3.1 Pro）上 94 条消息远够不到 85% 阈值，从不触发；且压缩是摘要不是丢弃。结果是 7 月 10 日 随消息入库的一次性 `[Feishu assistant mode]` 指令块 + 模型照做的范例，在 7 月 14 日 第三方 @bot（零注入分支）轮次里仍然整段可见，模型据此模式补全出「我是琛哥的赛博小助手…琛哥可能在忙」的代答口吻。缺一个与 token 无关的、按**墙钟时间和条数**的回放上界。
+
+**修复**：`agent/replay_cleanup.py` 新增 `apply_history_retention(history, now, max_age_seconds, max_messages)`（sentinel `history-retention`）：视图级过滤——state.db 完整保留（审计 / `/resume` / 搜索不受影响），只裁剪发给模型的回放。语义：切点只落在**轮边界**（普通 user 行，`_retention_turn_starts`），绝不切断 assistant(tool_calls)→tool 配对；时间窗按整轮的开头 user 行 `timestamp` 判断，无时间戳的行视为"新"（兼容旧转录与内存脚手架，防止配置误伤成批丢历史）；条数上限向轮边界**向上取整**；最新一轮无论多旧/多长永远保留；两个限制同时配置取更严格的切点；无 user 行的退化历史原样返回。`gateway/run.py` 新增 `_history_retention_limits_for_source()`：从 `gateway.history_retention.<platform-key>` 读取限额，platform-key 复用工具/skill 配置同款 chat-scope 拆分（飞书群=`feishu_group`、私聊=`feishu`），未配置或值非法一律 fail-open 返回 None。注入点在 `_run_agent_inner` 的 cached-agent 守卫（`_select_cached_agent_history`）**之后**，单点同时覆盖「盘上转录」与「内存活转录」两条路径。本机 `config.yaml` 配置 `feishu_group: {max_age_seconds: 21600, max_messages: 30}`（6 小时 / 30 条），私聊与 CLI 不配置、行为不变。
+
+**验证**：Step 8b grep `agent/replay_cleanup.py` 中存在 `def apply_history_retention`、`def _retention_turn_starts`，grep `gateway/run.py` 中存在 `_history_retention_limits_for_source`、`_apply_history_retention`，并 grep `tests/agent/test_replay_cleanup.py` 中的 `test_retention_never_splits_tool_call_blocks`、`test_retention_newest_turn_always_kept_even_if_too_old` 与 `tests/gateway/test_stale_confirmation_expiry.py` 中的 `test_retention_feishu_dm_not_covered_by_group_key`。定向测试覆盖：时间窗丢整轮、条数向轮边界取整、tool-call 块不被切断、最新一轮超龄/超量仍保留、无时间戳视为新、时间 + 条数组合取更严、未配置/畸形配置 fail-open、DM 不受群键影响（`test_replay_cleanup.py` 21 passed + `test_stale_confirmation_expiry.py` 15 passed；周边 `test_session.py` + `test_feishu.py` 361 passed）。
+
+**上游吸收判断**：若上游为 gateway 回放历史提供原生的时间窗/条数保留配置（或给共享群 session 引入等价的 per-platform replay 上界机制），可归档本补丁。
 
 ---
 

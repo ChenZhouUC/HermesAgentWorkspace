@@ -43,6 +43,24 @@ def test_group_terminal_rejects_new_or_compound_code(tmp_path, monkeypatch):
     )
 
 
+def test_group_terminal_scripts_outside_allowlisted_skill_dir_are_rejected(tmp_path, monkeypatch):
+    # Real config narrows script roots to specific skill dirs (feishu-docs);
+    # a sibling skill's script (e.g. feishu-people-search/search_people.py)
+    # must NOT run in groups even though it exists under the same my-skills tree.
+    my_skills = tmp_path / "my-skills" / "productivity"
+    docs_scripts = my_skills / "feishu-docs" / "scripts"
+    people_scripts = my_skills / "feishu-people-search" / "scripts"
+    docs_scripts.mkdir(parents=True)
+    people_scripts.mkdir(parents=True)
+    (docs_scripts / "create_doc.py").write_text("print('ok')\n", encoding="utf-8")
+    (people_scripts / "search_people.py").write_text("print('ok')\n", encoding="utf-8")
+
+    monkeypatch.setattr(sandbox, "_GROUP_ALLOWED_SCRIPT_ROOTS", ((my_skills / "feishu-docs").resolve(),))
+
+    assert sandbox._terminal_allowed_for_group({"command": f"python {docs_scripts / 'create_doc.py'} --title T"})
+    assert not sandbox._terminal_allowed_for_group({"command": f"python {people_scripts / 'search_people.py'} 张三"})
+
+
 def test_group_terminal_allows_download_into_configured_root(tmp_path, monkeypatch):
     download_root = tmp_path / "downloads"
     download_root.mkdir()

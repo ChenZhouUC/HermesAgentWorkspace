@@ -112,6 +112,9 @@ PATCHED_FILES=(
     "agent/auxiliary_client.py"
     "agent/image_routing.py"
     "tests/agent/test_image_routing.py"
+    "agent/replay_cleanup.py"
+    "tests/agent/test_replay_cleanup.py"
+    "tests/gateway/test_stale_confirmation_expiry.py"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -650,6 +653,7 @@ _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _VERTEX_FALLBACK_PATCH_OK=false
 _VERTEX_VISION_ROUTING_PATCH_OK=false
+_HISTORY_RETENTION_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -893,13 +897,17 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q 'def _lookup_group' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'service_hours' "${SESSION_PY}" 2>/dev/null &&
         grep -q '_GROUP_TOOL_LIMITATION_RULE' "${SESSION_PY}" 2>/dev/null &&
+        grep -q '_PEOPLE_SOURCE_SECRECY_RULE' "${SESSION_PY}" 2>/dev/null &&
+        grep -q '_PEOPLE_SOURCE_LITERALS' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'test_address_is_public_and_usable_for_reply' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_private_profile_redactor_keeps_public_fields' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_people_source_secrecy_rule_present_for_group' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_redactor_hides_roster_file_name_even_without_profile_match' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'class TestPeopleProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'class TestGroupProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_service_hours_are_intro_hint_not_reply_gate' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_text_filter_applies_before_stream_delivery' "${STREAM_CONSUMER_TEST_PY}" 2>/dev/null; then
-        ok "People/group profile patch: active (people.yaml + groups.yaml lookup, service-hours intro hint, address public, private-profile redaction, group disclosure rule)"
+        ok "People/group profile patch: active (people.yaml + groups.yaml lookup, service-hours intro hint, address public, private-profile redaction, group disclosure rule, roster-source secrecy)"
         _PEOPLE_PROFILE_PATCH_OK=true
     else
         warn "People/group profile patch inactive or partial"
@@ -1054,11 +1062,38 @@ else
     warn "Could not locate image routing files — skipping PATCH-20 check"
 fi
 
+# PATCH-22: replay-history retention window (time + count) for shared group
+# sessions. Bounds what the MODEL sees per turn (view-level; state.db keeps
+# the full transcript) so days-old injected instruction blocks stop steering
+# later turns. Config: gateway.history_retention.<platform-key> in config.yaml.
+REPLAY_CLEANUP_PY="${HERMES_AGENT}/agent/replay_cleanup.py"
+REPLAY_CLEANUP_TEST_PY="${HERMES_AGENT}/tests/agent/test_replay_cleanup.py"
+HISTORY_RETENTION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_stale_confirmation_expiry.py"
+GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
+if [[ -f "${REPLAY_CLEANUP_PY}" && -f "${REPLAY_CLEANUP_TEST_PY}" && -f "${GATEWAY_RUN_PY}" ]]; then
+    if grep -q 'def apply_history_retention' "${REPLAY_CLEANUP_PY}" 2>/dev/null &&
+        grep -q 'def _retention_turn_starts' "${REPLAY_CLEANUP_PY}" 2>/dev/null &&
+        grep -q '_history_retention_limits_for_source' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '_apply_history_retention' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'test_retention_never_splits_tool_call_blocks' "${REPLAY_CLEANUP_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_retention_newest_turn_always_kept_even_if_too_old' "${REPLAY_CLEANUP_TEST_PY}" 2>/dev/null &&
+        [[ -f "${HISTORY_RETENTION_TEST_PY}" ]] &&
+        grep -q 'test_retention_feishu_dm_not_covered_by_group_key' "${HISTORY_RETENTION_TEST_PY}" 2>/dev/null; then
+        ok "History retention patch: active (per-platform time+count replay window, turn-boundary safe)"
+        _HISTORY_RETENTION_PATCH_OK=true
+    else
+        warn "History retention patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-22] replay-history retention window"
+    fi
+else
+    warn "Could not locate replay cleanup files — skipping PATCH-22 check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_LAZY_ACTIVE_ANCHOR_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_VISION_ROUTING_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_LAZY_ACTIVE_ANCHOR_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_VISION_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

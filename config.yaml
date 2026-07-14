@@ -11,11 +11,11 @@ agent:
   gateway_timeout: 1800
   restart_drain_timeout: 900
   api_max_retries: 3
-  service_tier: ''
+  service_tier: ""
   tool_use_enforcement: auto
   task_completion_guidance: true
   environment_probe: true
-  environment_hint: ''
+  environment_hint: ""
   coding_context: auto
   verify_on_stop: false
   gateway_timeout_warning: 900
@@ -51,8 +51,8 @@ terminal:
   vercel_runtime: node24
 web:
   backend: tavily
-  search_backend: ''
-  extract_backend: ''
+  search_backend: ""
+  extract_backend: ""
 browser:
   inactivity_timeout: 120
   command_timeout: 30
@@ -60,13 +60,13 @@ browser:
   allow_private_urls: true
   engine: auto
   auto_local_for_private_urls: true
-  cdp_url: ''
+  cdp_url: ""
   dialog_policy: must_respond
   dialog_timeout_s: 300
   camofox:
     managed_persistence: false
-    user_id: ''
-    session_key: ''
+    user_id: ""
+    session_key: ""
     adopt_existing_tab: false
     rewrite_loopback_urls: false
     loopback_host_alias: host.docker.internal
@@ -110,8 +110,8 @@ kanban:
   failure_limit: 2
   worker_log_rotate_bytes: 2097152
   worker_log_backup_count: 1
-  orchestrator_profile: ''
-  default_assignee: ''
+  orchestrator_profile: ""
+  default_assignee: ""
   auto_decompose: true
   auto_decompose_per_tick: 3
   dispatch_stale_timeout_seconds: 14400
@@ -122,111 +122,111 @@ openrouter:
   response_cache_ttl: 300
   min_coding_score: 0.65
 bedrock:
-  region: ''
+  region: ""
   discovery:
     enabled: true
     provider_filter: []
     refresh_interval: 3600
   guardrail:
-    guardrail_identifier: ''
-    guardrail_version: ''
+    guardrail_identifier: ""
+    guardrail_version: ""
     stream_processing_mode: async
     trace: disabled
 auxiliary:
   vision:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 120
     download_timeout: 30
   web_extract:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 360
   compression:
     provider: alibaba
     model: qwen3.6-plus
-    base_url: ''
-    api_key: ''
+    base_url: ""
+    api_key: ""
     timeout: 120
     extra_body:
       enable_thinking: true
   skills_hub:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 30
   approval:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 30
   mcp:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 30
   title_generation:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 30
   tts_audio_tags:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 30
   triage_specifier:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 120
   kanban_decomposer:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 180
   profile_describer:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 60
   curator:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 600
   monitor:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 60
   session_search:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 30
     extra_body: {}
     max_concurrency: 3
   flush_memories:
     provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    model: ""
+    base_url: ""
+    api_key: ""
     timeout: 30
     extra_body: {}
 display:
@@ -244,7 +244,7 @@ display:
   tui_agents_nudge: true
   bell_on_complete: false
   show_reasoning: false
-  memory_notifications: 'on'
+  memory_notifications: "on"
   streaming: true
   timestamps: false
   final_response_markdown: strip
@@ -297,15 +297,15 @@ dashboard:
   theme: mono
   show_token_analytics: false
   oauth:
-    client_id: ''
-    portal_url: ''
+    client_id: ""
+    portal_url: ""
   basic_auth:
-    username: ''
-    password_hash: ''
-    password: ''
-    secret: ''
+    username: ""
+    password_hash: ""
+    password: ""
+    secret: ""
     session_ttl_seconds: 0
-  public_url: ''
+  public_url: ""
 privacy:
   redact_pii: false
 tts:
@@ -322,7 +322,7 @@ tts:
     model: gemini-2.5-flash-preview-tts
     voice: Kore
     audio_tags: false
-    persona_prompt_file: ''
+    persona_prompt_file: ""
   xai:
     voice_id: eve
     language: en
@@ -332,8 +332,8 @@ tts:
     model: voxtral-mini-tts-2603
     voice_id: c69964a6-ab8b-4f8a-9465-ec0925096ec8
   neutts:
-    ref_audio: ''
-    ref_text: ''
+    ref_audio: ""
+    ref_text: ""
     model: neuphonic/neutts-air-q4-gguf
     device: cpu
   piper:
@@ -343,14 +343,14 @@ stt:
   provider: local
   local:
     model: base
-    language: ''
+    language: ""
   openai:
     model: whisper-1
   mistral:
     model: voxtral-mini-latest
   elevenlabs:
     model_id: scribe_v2
-    language_code: ''
+    language_code: ""
     tag_audio_events: false
     diarize: false
 voice:
@@ -361,7 +361,7 @@ voice:
   silence_threshold: 200
   silence_duration: 3.0
 human_delay:
-  mode: 'off'
+  mode: "off"
   min_ms: 800
   max_ms: 2500
 context:
@@ -372,13 +372,13 @@ memory:
   write_approval: false
   memory_char_limit: 2200
   user_char_limit: 1375
-  provider: ''
+  provider: ""
 delegation:
-  model: ''
-  provider: ''
-  base_url: ''
-  api_key: ''
-  api_mode: ''
+  model: ""
+  provider: ""
+  base_url: ""
+  api_key: ""
+  api_mode: ""
   inherit_mcp_toolsets: true
   max_iterations: 50
   child_timeout_seconds: 600
@@ -387,7 +387,7 @@ delegation:
   max_spawn_depth: 1
   orchestrator_enabled: true
   subagent_auto_approve: false
-prefill_messages_file: ''
+prefill_messages_file: ""
 goals:
   max_turns: 20
 skills:
@@ -402,7 +402,6 @@ skills:
     feishu_group:
       - llm-wiki
       - feishu-docs
-      - feishu-people-search
 curator:
   enabled: true
   interval_hours: 168
@@ -414,28 +413,28 @@ curator:
   backup:
     enabled: true
     keep: 5
-timezone: ''
+timezone: ""
 slack:
   require_mention: true
-  free_response_channels: ''
-  allowed_channels: ''
+  free_response_channels: ""
+  allowed_channels: ""
 discord:
   require_mention: true
-  free_response_channels: ''
-  allowed_channels: ''
+  free_response_channels: ""
+  allowed_channels: ""
   auto_thread: true
   thread_require_mention: false
   history_backfill: true
   history_backfill_limit: 50
   reactions: true
-  dm_role_auth_guild: ''
-  server_actions: ''
+  dm_role_auth_guild: ""
+  server_actions: ""
   allow_any_attachment: false
   max_attachment_bytes: 33554432
   voice_fx:
     enabled: false
     ambient_enabled: true
-    ambient_path: ''
+    ambient_path: ""
     ambient_gain: 0.18
     duck_gain: 0.06
     speech_gain: 1.0
@@ -448,17 +447,17 @@ discord:
       - On it.
 telegram:
   reactions: false
-  allowed_chats: ''
+  allowed_chats: ""
   extra:
     rich_messages: true
 mattermost:
   require_mention: true
-  free_response_channels: ''
-  allowed_channels: ''
+  free_response_channels: ""
+  allowed_channels: ""
 matrix:
   require_mention: true
-  free_response_rooms: ''
-  allowed_rooms: ''
+  free_response_rooms: ""
+  allowed_rooms: ""
 approvals:
   mode: manual
   timeout: 60
@@ -505,6 +504,10 @@ model_catalog:
 network:
   force_ipv4: false
 gateway:
+  history_retention:
+    feishu_group:
+      max_age_seconds: 21600
+      max_messages: 30
   message_timestamps:
     enabled: false
   strict: false
@@ -516,7 +519,7 @@ streaming:
   transport: edit
   edit_interval: 1.0
   buffer_threshold: 40
-  cursor: ' ▉'
+  cursor: " ▉"
   fresh_final_after_seconds: 60.0
 sessions:
   auto_prune: false
@@ -546,11 +549,11 @@ secrets:
   bitwarden:
     enabled: false
     access_token_env: BWS_ACCESS_TOKEN
-    project_id: ''
+    project_id: ""
     cache_ttl_seconds: 300
     override_existing: true
     auto_install: true
-    server_url: ''
+    server_url: ""
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
@@ -591,7 +594,7 @@ feishu:
   history_backfill_max_chars: 6000
   bare_mention_intent: true
   group_rules:
-    '*':
+    "*":
       policy: open
       require_mention: true
 smart_model_routing:
