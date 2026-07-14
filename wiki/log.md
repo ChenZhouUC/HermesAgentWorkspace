@@ -47,6 +47,14 @@ confidence: high
 - Boundary: 未把每篇 living 原材料一对一拆成节点；Hermes/RuView 部署命令、产品专属配置、完整 FAQ 和 benchmark 明细表继续保留在 Layer 1。其余长文档已有内聚的 Layer 2 摘要，不因篇幅或“孤立观感”重复拆页；本轮未改 Schema 或 lint 规则。
 - Verification: 变更后的 20/20 篇 `_living` 文档均在 Active Layer 2 frontmatter 中有至少一个来源引用；`python3 scripts/wiki_lint.py` 与 JSON 模式均通过全部 18 项检查，6 个新增或更新的知识节点通过 Pandoc 解析，`git diff --check` 通过。
 
+### source | Gödel's Proof reading guide
+
+- Trigger: 用户正在阅读《Gödel's Proof》，希望在 `_living/TCS-and-Math/` 下新增一份沿用现有 living wiki 行文的知识介绍与阅读笔记。
+- Actions: 新增 `_living/TCS-and-Math/Godels-Proof-Reading-Notes.md`，从形式系统、元数学、哥德尔编号与对角化出发，梳理两条不完备性定理的证明骨架、适用条件、历史版本差异、常见误读、TCS 联系与递进阅读路径。
+- Incidental repair: 全库 lint 暴露 `concepts/llm-benchmark-methodology.md` 的表格 wikilink alias 被 Markdown 列分隔符拆开，导致目标带尾随空格；将其改为语义等价的无 alias 链接，不改变页面主张。
+- Boundary: 主体变更是新增 Layer 1 原材料；未向 living 文档加入语义 frontmatter 或图谱链接，未自动提炼新 Layer 2 节点，也未改动 `index.md`、Schema、lint 或 Obsidian 配置。附带的 Layer 2 修改仅修复既有链接语法。
+- Verification: 新文档通过 Pandoc + MathJax 解析；`python3 scripts/wiki_lint.py` 与 `git diff --check` 均通过。
+
 ## [2026-07-13] daily | Living knowledge update and conservative graph audit
 
 ### update | Text protocol and multimodal input knowledge

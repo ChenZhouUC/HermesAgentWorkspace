@@ -14,12 +14,12 @@ LLM benchmark 方法论的核心不是寻找一个“总分”，而是明确被
 
 ## 先定义被测对象
 
-| 层级                         | 包含内容                                                    | 分数可以说明什么                                               |
-| ---------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------- |
-| **Model-only**               | 固定 prompt、无外部工具、一次生成                           | 特定 snapshot 在固定协议下的模型表现                           |
-| **Model + inference policy** | [[chain-of-thought                                          | CoT]]、reasoning effort、self-consistency、best-of-N、verifier | 模型与推理预算的组合能力 |
-| **Agent system**             | scaffold、工具、浏览器/终端、memory、重试、上下文和停止策略 | 完整系统的任务成功率，而非底模裸能力                           |
-| **Product experience**       | 系统提示、路由、多模型协作、搜索索引、缓存和安全策略        | 产品栈在特定用户流程中的综合表现                               |
+| 层级                         | 包含内容                                                                             | 分数可以说明什么                     |
+| ---------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------ |
+| **Model-only**               | 固定 prompt、无外部工具、一次生成                                                    | 特定 snapshot 在固定协议下的模型表现 |
+| **Model + inference policy** | [[chain-of-thought]]（CoT）、reasoning effort、self-consistency、best-of-N、verifier | 模型与推理预算的组合能力             |
+| **Agent system**             | scaffold、工具、浏览器/终端、memory、重试、上下文和停止策略                          | 完整系统的任务成功率，而非底模裸能力 |
+| **Product experience**       | 系统提示、路由、多模型协作、搜索索引、缓存和安全策略                                 | 产品栈在特定用户流程中的综合表现     |
 
 因此，一条可比较结果至少要绑定模型 snapshot、benchmark version、prompt、推理预算和 harness。Agent、GUI、软件工程和研究任务应明确标成“系统 + 模型”结果。
 
