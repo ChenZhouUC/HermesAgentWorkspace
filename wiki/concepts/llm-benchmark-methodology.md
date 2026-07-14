@@ -1,7 +1,7 @@
 ---
 title: LLM Benchmark Methodology
 created: 2026-05-14
-updated: 2026-07-11
+updated: 2026-07-14
 type: concept
 tags: [benchmark, llm]
 sources: [_living/AI-Infrastructure/LLM-Benchmarks.md]
@@ -10,59 +10,73 @@ confidence: medium
 
 # LLM Benchmark Methodology
 
-大模型基准测试的系统性方法学。**跑分极易波动**，本页分数仅作 2026-04 左右的阶段性参考，正式选型须以各基准官网、论文与最新模型报告为准。
+LLM benchmark 方法论的核心不是寻找一个“总分”，而是明确被测对象、固定评测协议，并把质量、稳定性、资源消耗与适用范围一起报告。同一个模型名在不同 prompt、推理预算、工具、scaffold 或执行环境下可以得到明显不同的结果。^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
 
-## 评测方法学原语 (Evaluation Primitives)
+## 先定义被测对象
 
-理解基准，关键不在分数本身，而在**怎么测**——同一模型在不同评测协议下分数可差很多：
+| 层级                         | 包含内容                                                    | 分数可以说明什么                                               |
+| ---------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------- |
+| **Model-only**               | 固定 prompt、无外部工具、一次生成                           | 特定 snapshot 在固定协议下的模型表现                           |
+| **Model + inference policy** | [[chain-of-thought                                          | CoT]]、reasoning effort、self-consistency、best-of-N、verifier | 模型与推理预算的组合能力 |
+| **Agent system**             | scaffold、工具、浏览器/终端、memory、重试、上下文和停止策略 | 完整系统的任务成功率，而非底模裸能力                           |
+| **Product experience**       | 系统提示、路由、多模型协作、搜索索引、缓存和安全策略        | 产品栈在特定用户流程中的综合表现                               |
 
-- **Shot 设置**：0-shot / few-shot（如 MMLU 常用 5-shot，GSM8K 常用 8-shot CoT，BBH 用 3-shot CoT）。是否允许 [[chain-of-thought|思维链]] 对推理类基准影响极大。
-- **打分方式**：
-  - _选项 token 概率_：选择题对各选项 token 概率取 argmax（MMLU、C-Eval）。
-  - _Exact Match / 答案抽取_：自由回答题抽取最终数字或标准式（GSM8K、MATH）。
-  - _Pass@k + 沙盒执行_：代码题在沙盒跑单元测试（HumanEval、SWE-bench）。
-  - _LLM-as-a-Judge_：开放式问答无标准答案，由裁判模型 1-10 打分（AlignBench）。
-- **数据污染与动态基准**：静态基准易被「刷榜」/训练集污染；LiveCodeBench 等只收模型训练截止日之后的新题以降污染。^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
+因此，一条可比较结果至少要绑定模型 snapshot、benchmark version、prompt、推理预算和 harness。Agent、GUI、软件工程和研究任务应明确标成“系统 + 模型”结果。
 
-## 基准分类法 (Taxonomy by Capability)
+## 指标语义不能混用
 
-### 综合知识与逻辑推理
+| 指标                      | 回答的问题                  | 常见陷阱                                  |
+| ------------------------- | --------------------------- | ----------------------------------------- |
+| Accuracy / Exact Match    | 固定答案是否正确            | 答案抽取和格式规则会改变结果              |
+| Pass@1                    | 一次采样是否通过全部测试    | 温度、timeout 与测试覆盖度未固定          |
+| Pass@k                    | k 个候选里是否至少一个成功  | 只衡量 coverage，不代表系统能选中正确候选 |
+| Pass^k                    | 同一任务连续 k 次是否都成功 | 衡量可靠性，不能与 Pass@k 互换            |
+| % Resolved / Task Success | Agent 最终是否完成任务      | 高度依赖环境、工具和 scaffold             |
+| LLM-as-a-Judge            | 开放式输出是否符合 rubric   | judge 版本、位置、长度与风格偏差          |
+| Pairwise Win Rate         | 相对对手池的偏好胜率        | 对手池、抽样与 tie 处理会改变结果         |
+| Calibration Error         | 置信度是否匹配真实正确率    | 高 accuracy 不自动意味着校准良好          |
 
-- **MMLU**：57 学科、约 14,049 测试题、4 选项；行业通用基线，前沿模型已挤在 88-90%，区分度下降。
-- **MMLU-Pro**：10 选项强化版，减记忆题、增推理，常配 CoT；前沿约 75-80%。
-- **GPQA**：博士级生物/物理/化学、448 题（Diamond 198），强反搜索性、常用 0-shot CoT；前沿约 70-75%。
-- **ARC-c**、**AGIEval**（高考/司法考/SAT）、**BBH**（23 个高难推理任务，3-shot CoT）。^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
+推理模型尤其需要固定或报告 [[reasoning-effort-control|reasoning effort]]、thinking token、采样次数与 verifier；否则是在比较不同 [[test-time-compute-scaling|test-time compute]] 档位，而不只是模型差异。^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
 
-### 数学
+## 最小报告契约
 
-- **GSM8K**：小学应用题、8-shot CoT、Exact Match；前沿 96-98%，已近饱和。
-- **MATH / MATH-500**：竞赛级数学，MATH-500 为常用精简集；前沿约 95-97%。
+一份可复核的 benchmark 记录至少应包含：
 
-### 代码
+1. **模型**：完整 snapshot/checkpoint、provider、量化和 serving 版本。
+2. **数据**：benchmark 名称、release/version、split、过滤条件和评测日期。
+3. **提示**：system/developer prompt、shot 设置、CoT 与答案格式。
+4. **推理**：effort/budget/mode、temperature、top-p、最大输出、采样或投票次数。
+5. **工具与 scaffold**：工具清单、检索源、框架、最大步数、重试和上下文策略。
+6. **执行环境**：harness commit、容器或 VM、依赖、CPU/GPU、网络和 timeout。
+7. **评分器**：判分脚本与版本；使用 judge 时还要记录 judge snapshot、prompt 和重跑规则。
+8. **统计**：有效样本数、独立 run 数、均值/方差或置信区间。
+9. **资源**：输入、输出和 reasoning token，wall-clock latency、工具调用数与成本。
+10. **污染状态**：训练 cutoff，以及数据是否为 public、live、held-out 或 private split。
 
-- **HumanEval / MBPP**：函数级补全、Pass@1；前沿约 92-94%，区分度趋弱。
-- **SWE-bench**：真实 GitHub Issue 修复（完整 2,294 / Verified 500），含金量高；前沿约 50-60%。
-- **LiveCodeBench**：动态更新的算法竞赛题，抗污染；Pass@1 约 45-60% 波动。
+缺少这些字段时，结果可以用于线索发现，但不应进入严格横向排名。
 
-### 中文特化
+## 结果证据状态
 
-- **C-Eval / CMMLU**：中文多学科选择题（13,948 / 11,528 题）；头部约 90-93%。
-- **AlignBench**（THUDM）：中文对话与价值观对齐，LLM-as-Judge 满分 10 分；头部约 8.5-9.0。
+- **官方榜**：benchmark 维护方在明确协议下维护的当前榜单；动态榜必须绑定快照日期。
+- **独立复测**：第三方用统一 harness 重跑多个模型，并公开复现实验口径。
+- **历史结果**：榜单已停止更新的最后公开结果，只用于理解历史难度或回归。
+- **无统一榜**：没有持续、同协议、可核验的当前排名；不能从不同厂商模型卡中挑最大值拼成 SOTA。
 
-### 超长上下文
+协议不同的结果不应只因 benchmark 同名而放进同一排序。
 
-- **NIAH（大海捞针）**：长文档插入无关事实做检索，直观但易被专门优化。
-- **RULER**（NVIDIA）：13 个任务含多跳追踪/信息聚合，比 NIAH 更难；128k 上下文前沿约 90-95%。
+## 能力地图与当前社区声望
 
-### 工具调用与智能体
+选择 benchmark 时应先按能力建立组合，而不是让单个经典榜单代表所有能力。常见能力面包括知识与科学推理、数学、代码与软件工程、事实性与检索、指令遵循、多语言、长上下文、多模态、工具/Web/GUI Agent、真实工作和安全稳健性。
 
-- **BFCL**：Function Calling 正确性（2,000+ 用例，AST 或真实 API 验证）；前沿约 90-93%。
-- **WebArena**：沙盒浏览器 812 个真实网页任务，评估 Agent 闭环操作；前沿仅约 35-45%，是当前的难关。^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
+以下每一个能力类别中均包含“当前社区声望”字段，用于提示 benchmark 在当前社区中的采用与引用频率：★★★ 表示经常被引用，★★ 表示普通、偶尔被引用，★ 表示已经过时、曾经被使用。该字段不代表题目难度或技术质量。
 
-## 厂商基准偏好
+声望是随时间变化的采用信号，不是永久属性。高声望基准可能已饱和或受污染；低声望历史基准仍可能适合回归，但不应承担前沿区分任务。
 
-基准选择本身带有叙事性——各家挑能展示自身强项的榜单：OpenAI 偏 GPQA/MATH-500/SWE-bench；Anthropic 偏 SWE-bench/GPQA/WebArena；Google 主打 NIAH 等长上下文；DeepSeek 重 LiveCodeBench/MATH/MMLU-Pro；Moonshot(Kimi) 重 NIAH/AlignBench；Qwen 用 MMLU-Pro/SWE-bench/C-Eval；Mistral/xAI 偏 MMLU/MATH。^[[[_living/AI-Infrastructure/LLM-Benchmarks|LLM-Benchmarks]]]
+## 组合与维护原则
 
-## 方法学新挑战：推理模型的「思考预算」
-
-推理模型引入了早期评测没有的混淆变量：分数取决于模型被允许「想多久」，因此评测必须**固定或报告推理预算**才有可比性，否则就是拿不同算力档位的结果横向比。详见 [[test-time-compute-scaling]] 与 [[reasoning-effort-control]]。理论侧关于「多步推理为何必要」的边界分析见 [[llm-computational-complexity]]。
+- 每个关键能力至少使用两个机制不同的公开基准，并保留贴近真实用户分布的 private blind set。
+- 公开静态集适合回归；live、held-out 或版本化榜单更适合当前区分，但必须记录快照和有效分母。
+- 饱和或污染不会让经典基准完全失效，只会把它从“前沿排名”降为“历史锚点或回归门禁”。
+- 选择题、开放生成、可执行测试、任务成功率和人工偏好分别测量不同东西，不能压成无解释的平均总分。
+- 同时报告质量、Pass^k 稳定性、延迟、token/工具成本和失败类型；安全评测则应报告 harmful compliance、over-refusal、正常 utility 与攻击预算的 Pareto 面。
+- 新 benchmark 只有在来源、题数、评分器、版本和可比结果都能说清时才进入主组合；没有可信统一榜时明确留空，不猜数字。

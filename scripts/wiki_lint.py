@@ -12,6 +12,7 @@ import json
 import re
 import sys
 from collections import Counter
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -40,6 +41,7 @@ META_SLUGS_CASEFOLD = {slug.casefold() for slug in META_SLUGS}
 ACTIVE_FILENAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 LIVING_TOPIC_DIR_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+){1,2}$")
 LIVING_SEMANTIC_FIELDS = {"type", "tags", "concepts", "links", "aliases", "category"}
+LAYER1_SOURCE_PREFIXES = ("_living/", "raw/")
 
 ALLOWED_TAGS = {
     "edge-inference",
@@ -135,6 +137,8 @@ CHECKS = (
             "empty_tags",
             "invalid_tags",
             "empty_sources",
+            "invalid_source_entries",
+            "invalid_source_scope",
             "missing_source_files",
             "invalid_confidence",
             "invalid_contradictions",
@@ -146,12 +150,18 @@ CHECKS = (
     ),
     (
         "Active Layer 2 wikilinks target only active graph nodes",
-        ("non_active_wikilinks",),
+        (
+            "non_active_wikilinks",
+            "invalid_living_provenance_format",
+            "invalid_raw_provenance_format",
+            "missing_provenance_files",
+        ),
     ),
     (
         "index.md registers every active node exactly once in the right section",
         (
             "unindexed_active",
+            "invalid_index_entries",
             "duplicate_index_entries",
             "wrong_index_section",
         ),
@@ -212,6 +222,7 @@ CHECKS = (
             "index_case_mismatch",
             "source_case_mismatch",
             "contradiction_case_mismatch",
+            "provenance_case_mismatch",
         ),
     ),
 )
@@ -225,13 +236,233 @@ MARKDOWN_REFERENCE_DEFINITION_RE = re.compile(
     r"^\s{0,3}\[[^\]\n]+\]:\s*(?:<([^>\n]+)>|([^\s]+))",
     re.M,
 )
-LIVING_PROVENANCE_RE = re.compile(r"\^\[\[\[_living/[^\]]+\]\]\]")
+LIVING_PROVENANCE_RE = re.compile(r"\^\[\[\[(_living/[^\]|#\]\n]+)(?:#[^\]\n]+)?(?:\|[^\]\n]+)?\]\]\]")
+LOOSE_LIVING_PROVENANCE_RE = re.compile(
+    r"\^\s*\[\s*\[\[\s*(_living/[^\]|#\]\s]+)(?:#[^\]\n]+)?(?:\|[^\]\n]+)?\]\]\s*\]"
+)
+RAW_PROVENANCE_RE = re.compile(r"\^\[(raw/[^\]\s]+)\]")
+LOOSE_RAW_PROVENANCE_RE = re.compile(r"\^\s*\[\s*(raw/[^\]\s]+)\s*\]")
 TOTAL_PAGES_RE = re.compile(r"Total pages:\s*(\d+)")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 LOG_DAILY_HEADING_RE = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\] daily \| .+$")
 LOG_HEADING_DATE_RE = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\] ")
 SCHEMA_TAG_TAXONOMY_RE = re.compile(r"## Tag Taxonomy .*?(?=\n## |\Z)", re.S)
 SCHEMA_VALIDATION_RE = re.compile(r"## Validation Invariants .*?(?=\n### |\n## |\Z)", re.S)
+
+ISSUE_GUIDANCE = {
+    "zero_byte_active": {
+        "rule": "Active Layer 2 must not contain empty Markdown nodes.",
+        "fix": "Fill the node with valid frontmatter/body or delete the ghost file and update index/log if needed.",
+    },
+    "invalid_active_filenames": {
+        "rule": "Active Layer 2 filenames must be lowercase kebab-case.",
+        "fix": "Rename the file and update wikilinks, contradictions, index.md, and log.md.",
+    },
+    "root_floating_nodes": {
+        "rule": "The wiki root may only contain Meta pages.",
+        "fix": "Move the file into an allowed layer or delete it if it is a ghost node.",
+    },
+    "duplicate_slugs": {
+        "rule": "Active Layer 2 slugs must be globally unique across the wiki.",
+        "fix": "Rename one node and update every reference to the old slug.",
+    },
+    "missing_meta_pages": {
+        "rule": "SCHEMA.md, index.md, and log.md are required Meta pages.",
+        "fix": "Restore the missing Meta page with valid frontmatter.",
+    },
+    "missing_meta_frontmatter": {
+        "rule": "Meta pages must start with YAML frontmatter.",
+        "fix": "Add the standard summary frontmatter block to the Meta page.",
+    },
+    "missing_frontmatter": {
+        "rule": "Active Layer 2 pages must start with YAML frontmatter.",
+        "fix": "Add frontmatter with title, created, updated, type, tags, sources, and confidence.",
+    },
+    "missing_fields": {
+        "rule": "Active Layer 2 frontmatter must include all required fields.",
+        "fix": "Add the missing fields listed in the issue value.",
+    },
+    "type_dir_mismatch": {
+        "rule": "frontmatter type must match the containing active directory.",
+        "fix": "Change type or move the file so entities/concepts/comparisons/queries align with entity/concept/comparison/query.",
+    },
+    "invalid_dates": {
+        "rule": "created and updated must be real YYYY-MM-DD calendar dates.",
+        "fix": "Replace the invalid value with an ISO date such as 2026-07-14.",
+    },
+    "empty_tags": {
+        "rule": "Active Layer 2 tags must be a non-empty list.",
+        "fix": "Add at least one registered taxonomy tag.",
+    },
+    "invalid_tags": {
+        "rule": "Active Layer 2 tags must be registered in SCHEMA.md Tag Taxonomy.",
+        "fix": "Use an existing tag or update SCHEMA.md and ALLOWED_TAGS together.",
+    },
+    "empty_sources": {
+        "rule": "Active Layer 2 sources must be a non-empty list.",
+        "fix": "Add at least one _living/... or raw/... source path.",
+    },
+    "invalid_source_entries": {
+        "rule": "Active Layer 2 sources entries must be non-empty strings.",
+        "fix": "Replace malformed entries with local source paths.",
+    },
+    "invalid_source_scope": {
+        "rule": "Active Layer 2 sources must point to Layer 1 local sources only.",
+        "fix": "Use _living/... for private living docs or raw/... for public versioned references; do not put URLs directly here.",
+    },
+    "missing_source_files": {
+        "rule": "Local source paths in Active Layer 2 frontmatter must exist.",
+        "fix": "Correct the path, create/import the source, or remove stale provenance.",
+    },
+    "source_case_mismatch": {
+        "rule": "Local source paths must match filesystem case exactly.",
+        "fix": "Replace the path with the exact path shown in the issue value.",
+    },
+    "invalid_confidence": {
+        "rule": "confidence must be high, medium, or low.",
+        "fix": "Normalize the confidence value.",
+    },
+    "invalid_contradictions": {
+        "rule": "contradictions entries must resolve to active Layer 2 slugs.",
+        "fix": "Replace stale slugs, remove invalid contradictions, or create the missing active node intentionally.",
+    },
+    "contradiction_case_mismatch": {
+        "rule": "contradictions slugs must match active slug case exactly.",
+        "fix": "Use the exact slug shown in the issue value.",
+    },
+    "broken_links_active": {
+        "rule": "Active Layer 2 wikilinks must resolve to existing pages.",
+        "fix": "Fix the target slug/path, create the target node, or remove the wikilink.",
+    },
+    "link_case_mismatch": {
+        "rule": "Wikilink targets must match existing page case exactly.",
+        "fix": "Use the exact target shown in the issue value.",
+    },
+    "non_active_wikilinks": {
+        "rule": "Active semantic wikilinks may only target active graph nodes.",
+        "fix": "Use a provenance footnote for _living/raw sources, plain text for Meta pages, or remove archive links.",
+    },
+    "invalid_living_provenance_format": {
+        "rule": "Living provenance must use compact syntax with no spaces: ^[[[_living/path|alias]]].",
+        "fix": "Remove spaces between ^[, [[, ]], and ], and keep the target under _living/.",
+    },
+    "invalid_raw_provenance_format": {
+        "rule": "Raw provenance must use compact syntax: ^[raw/path.md].",
+        "fix": "Remove spaces inside the raw provenance marker and keep the target under raw/.",
+    },
+    "missing_provenance_files": {
+        "rule": "Provenance markers must point to existing Layer 1 source files.",
+        "fix": "Correct the provenance path, import the source, or remove stale provenance.",
+    },
+    "provenance_case_mismatch": {
+        "rule": "Provenance marker paths must match filesystem case exactly.",
+        "fix": "Replace the marker target with the exact path shown in the issue value.",
+    },
+    "unindexed_active": {
+        "rule": "Every active node must be registered exactly once in index.md.",
+        "fix": "Add one index entry in the section matching the node directory.",
+    },
+    "invalid_index_entries": {
+        "rule": "index.md active entries must start with a code path such as `concepts/slug.md`.",
+        "fix": "Rewrite the malformed bullet using the required code-path format.",
+    },
+    "stale_index_entries": {
+        "rule": "index.md must not register missing, archived, or non-active nodes.",
+        "fix": "Remove stale entries or update them to the current active slug.",
+    },
+    "index_case_mismatch": {
+        "rule": "index.md entries must match active slug case exactly.",
+        "fix": "Use the exact slug shown in the issue value.",
+    },
+    "duplicate_index_entries": {
+        "rule": "Each active node must appear exactly once in index.md.",
+        "fix": "Remove duplicate index entries.",
+    },
+    "wrong_index_section": {
+        "rule": "index.md entries must be in the section matching their directory.",
+        "fix": "Move the entry or correct its code path directory.",
+    },
+    "index_count_mismatch": {
+        "rule": "index.md Total pages must equal the registered active node count.",
+        "fix": "Update Total pages after fixing index entries.",
+    },
+    "living_wikilinks": {
+        "rule": "_living sources must not contain graph wikilinks.",
+        "fix": "Replace wikilinks with plain text or code paths inside _living.",
+    },
+    "living_semantic_frontmatter": {
+        "rule": "_living sources must not contain semantic graph frontmatter.",
+        "fix": "Remove type, tags, concepts, links, aliases, or category from _living frontmatter.",
+    },
+    "invalid_living_topic_dirs": {
+        "rule": "_living top-level topic directories must be 2-3 word kebab-case names.",
+        "fix": "Rename the top-level topic directory and update source/provenance paths.",
+    },
+    "invalid_log_headings": {
+        "rule": "log.md top-level entries must use ## [YYYY-MM-DD] daily | subject.",
+        "fix": "Normalize the heading or merge it into the daily entry for that date.",
+    },
+    "duplicate_log_dates": {
+        "rule": "log.md should keep one top-level daily entry per date.",
+        "fix": "Merge duplicate date headings into one daily entry with subsections.",
+    },
+    "meta_graph_wikilinks": {
+        "rule": "Meta pages must have no outbound wikilinks.",
+        "fix": "Replace Meta-page wikilinks with plain text or code paths.",
+    },
+    "meta_graph_markdown_links": {
+        "rule": "Meta pages must have no outbound local Markdown document links.",
+        "fix": "Replace local Markdown links with plain text or code paths.",
+    },
+    "meta_graph_inbound_wikilinks": {
+        "rule": "No wiki page may wikilink to Meta pages.",
+        "fix": "Replace inbound Meta wikilinks with plain text or code paths.",
+    },
+    "meta_graph_inbound_markdown_links": {
+        "rule": "No wiki page may link to Meta pages with local Markdown links.",
+        "fix": "Replace inbound Meta Markdown links with plain text or code paths.",
+    },
+    "obsidian_missing_community_plugins": {
+        "rule": "Obsidian community-plugins.json must exist when .obsidian exists.",
+        "fix": "Restore the enabled plugin list or remove stale plugin directories intentionally.",
+    },
+    "obsidian_invalid_community_plugins": {
+        "rule": "community-plugins.json must be a JSON array of plugin id strings.",
+        "fix": "Fix the JSON syntax and value shape.",
+    },
+    "obsidian_enabled_missing_plugin_dirs": {
+        "rule": "Every enabled Obsidian plugin must have a local plugin directory.",
+        "fix": "Install the plugin directory or remove the stale id from community-plugins.json.",
+    },
+    "obsidian_missing_plugin_manifests": {
+        "rule": "Every local Obsidian plugin directory must include manifest.json.",
+        "fix": "Restore manifest.json or remove the incomplete plugin directory.",
+    },
+    "obsidian_invalid_plugin_manifests": {
+        "rule": "Obsidian plugin manifest.json files must be valid JSON.",
+        "fix": "Fix the manifest JSON syntax.",
+    },
+    "obsidian_manifest_id_mismatch": {
+        "rule": "Plugin manifest id must match its directory name.",
+        "fix": "Rename the directory or correct manifest id.",
+    },
+    "obsidian_unenabled_plugin_dirs": {
+        "rule": "Local Obsidian plugin directories must be enabled or removed.",
+        "fix": "Add the plugin id to community-plugins.json or remove the unused directory.",
+    },
+    "schema_tags_missing_from_lint": {
+        "rule": "SCHEMA.md Tag Taxonomy and ALLOWED_TAGS must stay aligned.",
+        "fix": "Add missing taxonomy tags to ALLOWED_TAGS.",
+    },
+    "schema_tags_extra_in_lint": {
+        "rule": "ALLOWED_TAGS must not contain tags absent from SCHEMA.md.",
+        "fix": "Remove stale fallback tags or register them in SCHEMA.md.",
+    },
+    "schema_validation_check_count_mismatch": {
+        "rule": "SCHEMA.md Validation Invariants count must match CHECKS count.",
+        "fix": "Update CHECKS or SCHEMA.md so the check count stays aligned.",
+    },
+}
 
 
 def strip_code(text: str) -> str:
@@ -242,7 +473,35 @@ def strip_code(text: str) -> str:
 
 def strip_non_graph_markup(text: str) -> str:
     """Remove markup that contains brackets but is not a graph edge."""
-    return LIVING_PROVENANCE_RE.sub("", strip_code(text))
+    return LOOSE_LIVING_PROVENANCE_RE.sub("", strip_code(text))
+
+
+def strip_inline_code(line: str) -> str:
+    return re.sub(r"`[^`]*`", "", line)
+
+
+def non_code_lines(text: str) -> list[tuple[int, str]]:
+    """Return line-numbered text outside fenced and inline code spans."""
+    lines: list[tuple[int, str]] = []
+    in_fence = False
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        lines.append((line_number, strip_inline_code(line)))
+    return lines
+
+
+def is_valid_iso_date(value: Any) -> bool:
+    if not isinstance(value, str) or not DATE_RE.match(value):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 def parse_frontmatter(text: str) -> dict[str, Any] | None:
@@ -407,6 +666,70 @@ def resolve_casefold_path(path: Path) -> Path | None:
     return current
 
 
+def resolve_existing_reference(
+    root: Path,
+    reference: str,
+    *,
+    allow_markdown_extension_fallback: bool = False,
+) -> tuple[str | None, str | None]:
+    """Resolve a local wiki reference with exact case, then casefold fallback.
+
+    Returns (exact_relative_path, casefold_relative_path). Exactly one value is
+    non-None when the reference exists; both are None when it is missing.
+    """
+    reference_path = Path(reference)
+    if reference_path.is_absolute() or ".." in reference_path.parts:
+        return None, None
+
+    candidates = [reference]
+    if allow_markdown_extension_fallback and not reference.endswith(".md"):
+        candidates.append(f"{reference}.md")
+
+    for candidate in candidates:
+        exact_path = exact_existing_path(root / candidate)
+        if exact_path and exact_path.is_file():
+            return relative(exact_path, root), None
+
+    for candidate in candidates:
+        casefold_path = resolve_casefold_path(root / candidate)
+        if casefold_path and casefold_path.is_file():
+            return None, relative(casefold_path, root)
+
+    return None, None
+
+
+def resolve_wikilink_target(
+    target: str,
+    root: Path,
+    slug_index: dict[str, list[str]],
+    casefold_slug_index: dict[str, list[str]],
+) -> dict[str, Any]:
+    """Resolve an Obsidian wikilink target.
+
+    Path-qualified wikilinks must resolve by exact path. Pathless wikilinks
+    resolve by slug, matching Obsidian's title-based addressing.
+    """
+    normalized = target.replace("\\", "/")
+    if "/" in normalized:
+        reference = normalized if normalized.endswith(".md") else f"{normalized}.md"
+        exact_path, casefold_path = resolve_existing_reference(root, reference)
+        if exact_path:
+            return {"status": "ok", "slug": Path(exact_path).stem, "paths": [exact_path]}
+        if casefold_path:
+            return {"status": "case_mismatch", "slug": Path(casefold_path).stem, "paths": [casefold_path]}
+        return {"status": "missing", "slug": Path(normalized).stem, "paths": []}
+
+    slug = Path(target).name
+    if slug in slug_index:
+        return {"status": "ok", "slug": slug, "paths": slug_index[slug]}
+
+    case_matches = casefold_slug_index.get(slug.casefold(), [])
+    if case_matches:
+        return {"status": "case_mismatch", "slug": slug, "paths": case_matches}
+
+    return {"status": "missing", "slug": slug, "paths": []}
+
+
 def parse_schema_tags(root: Path) -> set[str]:
     schema_path = root / "SCHEMA.md"
     if not schema_path.exists():
@@ -431,11 +754,12 @@ def count_schema_validation_items(schema_text: str) -> int:
     return len(re.findall(r"^\d+\.\s+", match.group(0), flags=re.M))
 
 
-def parse_index_entries(index_text: str) -> list[tuple[str, str | None, str]]:
+def parse_index_entries(index_text: str) -> tuple[list[tuple[str, str | None, str]], list[dict[str, Any]]]:
     entries: list[tuple[str, str | None, str]] = []
+    invalid_entries: list[dict[str, Any]] = []
     current_dir: str | None = None
 
-    for line in index_text.splitlines():
+    for line_number, line in enumerate(index_text.splitlines(), start=1):
         if line.startswith("## "):
             heading = line[3:].split("(", 1)[0].strip()
             current_dir = INDEX_SECTIONS.get(heading)
@@ -444,8 +768,17 @@ def parse_index_entries(index_text: str) -> list[tuple[str, str | None, str]]:
         if match:
             path_dir, slug = match.groups()
             entries.append((slug, current_dir, path_dir))
+        elif current_dir and line.startswith("- "):
+            invalid_entries.append(
+                {
+                    "line": line_number,
+                    "section": current_dir,
+                    "text": line,
+                    "expected": "- `entities|concepts|comparisons|queries/slug.md` - summary",
+                }
+            )
 
-    return entries
+    return entries, invalid_entries
 
 
 def load_json(path: Path) -> Any:
@@ -588,6 +921,63 @@ def validate_schema_lint_alignment(root: Path, issues: dict[str, list[Any]]) -> 
         issues["schema_validation_check_count_mismatch"].append({"schema": validation_count, "wiki_lint": len(CHECKS)})
 
 
+def validate_provenance_markers(root: Path, path: Path, text: str, issues: dict[str, list[Any]]) -> None:
+    rel = relative(path, root)
+
+    for line_number, line in non_code_lines(text):
+        for match in LOOSE_LIVING_PROVENANCE_RE.finditer(line):
+            marker = match.group(0)
+            source = match.group(1)
+            if not LIVING_PROVENANCE_RE.fullmatch(marker):
+                issues["invalid_living_provenance_format"].append(
+                    {
+                        "path": rel,
+                        "line": line_number,
+                        "marker": marker,
+                        "expected": "^[[[_living/path/to/source|alias]]]",
+                    }
+                )
+                continue
+
+            exact_path, casefold_path = resolve_existing_reference(
+                root,
+                source,
+                allow_markdown_extension_fallback=True,
+            )
+            if exact_path:
+                continue
+            if casefold_path:
+                issues["provenance_case_mismatch"].append(
+                    {"path": rel, "line": line_number, "target": source, "actual": casefold_path}
+                )
+            else:
+                issues["missing_provenance_files"].append({"path": rel, "line": line_number, "target": source})
+
+        for match in LOOSE_RAW_PROVENANCE_RE.finditer(line):
+            marker = match.group(0)
+            source = match.group(1)
+            if not RAW_PROVENANCE_RE.fullmatch(marker):
+                issues["invalid_raw_provenance_format"].append(
+                    {
+                        "path": rel,
+                        "line": line_number,
+                        "marker": marker,
+                        "expected": "^[raw/path/to/source.md]",
+                    }
+                )
+                continue
+
+            exact_path, casefold_path = resolve_existing_reference(root, source)
+            if exact_path:
+                continue
+            if casefold_path:
+                issues["provenance_case_mismatch"].append(
+                    {"path": rel, "line": line_number, "target": source, "actual": casefold_path}
+                )
+            else:
+                issues["missing_provenance_files"].append({"path": rel, "line": line_number, "target": source})
+
+
 def validate(root: Path) -> dict[str, list[Any]]:
     issues: dict[str, list[Any]] = {
         "zero_byte_active": [],
@@ -603,6 +993,8 @@ def validate(root: Path) -> dict[str, list[Any]]:
         "empty_tags": [],
         "invalid_tags": [],
         "empty_sources": [],
+        "invalid_source_entries": [],
+        "invalid_source_scope": [],
         "invalid_confidence": [],
         "invalid_contradictions": [],
         "contradiction_case_mismatch": [],
@@ -611,7 +1003,12 @@ def validate(root: Path) -> dict[str, list[Any]]:
         "broken_links_active": [],
         "link_case_mismatch": [],
         "non_active_wikilinks": [],
+        "invalid_living_provenance_format": [],
+        "invalid_raw_provenance_format": [],
+        "missing_provenance_files": [],
+        "provenance_case_mismatch": [],
         "unindexed_active": [],
+        "invalid_index_entries": [],
         "stale_index_entries": [],
         "index_case_mismatch": [],
         "duplicate_index_entries": [],
@@ -686,7 +1083,7 @@ def validate(root: Path) -> dict[str, list[Any]]:
 
         for key in ("created", "updated"):
             value = frontmatter.get(key)
-            if not isinstance(value, str) or not DATE_RE.match(value):
+            if not is_valid_iso_date(value):
                 issues["invalid_dates"].append([rel, key, value])
 
         tags = frontmatter.get("tags") if isinstance(frontmatter.get("tags"), list) else []
@@ -702,16 +1099,22 @@ def validate(root: Path) -> dict[str, list[Any]]:
         else:
             missing_sources: list[str] = []
             for source in sources:
-                if re.match(r"https?://", source):
+                if not isinstance(source, str) or not source:
+                    issues["invalid_source_entries"].append([rel, source])
                     continue
-                source_path = root / source
-                exact_source_path = exact_existing_path(source_path)
-                if exact_source_path is None:
-                    casefold_source_path = resolve_casefold_path(source_path)
-                    if casefold_source_path and casefold_source_path.exists():
-                        issues["source_case_mismatch"].append([rel, source, relative(casefold_source_path, root)])
-                        continue
-                    missing_sources.append(source)
+
+                if not source.startswith(LAYER1_SOURCE_PREFIXES):
+                    issues["invalid_source_scope"].append(
+                        {"path": rel, "source": source, "expected_prefixes": list(LAYER1_SOURCE_PREFIXES)}
+                    )
+                    continue
+
+                exact_source_path, casefold_source_path = resolve_existing_reference(root, source)
+                if not exact_source_path:
+                    if casefold_source_path:
+                        issues["source_case_mismatch"].append([rel, source, casefold_source_path])
+                    else:
+                        missing_sources.append(source)
             if missing_sources:
                 issues["missing_source_files"].append([rel, missing_sources])
 
@@ -740,21 +1143,24 @@ def validate(root: Path) -> dict[str, list[Any]]:
                 issues["invalid_contradictions"].append([rel, invalid_contradictions])
 
         for target in extract_links(text):
-            slug = Path(target).name
-            if slug not in slug_index:
-                case_matches = casefold_slug_index.get(slug.casefold(), [])
-                if case_matches:
-                    issues["link_case_mismatch"].append([rel, target, case_matches])
-                    continue
+            resolved = resolve_wikilink_target(target, root, slug_index, casefold_slug_index)
+            slug = resolved["slug"]
+            if resolved["status"] == "missing":
                 issues["broken_links_active"].append([rel, target])
                 continue
+            if resolved["status"] == "case_mismatch":
+                issues["link_case_mismatch"].append([rel, target, resolved["paths"]])
+                continue
             if slug not in active_slugs:
-                issues["non_active_wikilinks"].append([rel, target, slug_index[slug]])
+                issues["non_active_wikilinks"].append([rel, target, resolved["paths"]])
+
+        validate_provenance_markers(root, path, text, issues)
 
     index_path = root / "index.md"
     if index_path.exists():
         index_text = index_path.read_text()
-        index_entries = parse_index_entries(index_text)
+        index_entries, invalid_index_entries = parse_index_entries(index_text)
+        issues["invalid_index_entries"].extend(invalid_index_entries)
         index_links = [slug for slug, _section_dir, _path_dir in index_entries]
 
         counts = Counter(index_links)
@@ -823,6 +1229,12 @@ def issue_count(issues: dict[str, list[Any]], keys: tuple[str, ...]) -> int:
     return sum(len(issues.get(key, [])) for key in keys)
 
 
+def format_issue_value(value: Any) -> str:
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
 def print_text_report(issues: dict[str, list[Any]]) -> None:
     print("wiki_lint: checks")
     for index, (label, keys) in enumerate(CHECKS, start=1):
@@ -837,8 +1249,12 @@ def print_text_report(issues: dict[str, list[Any]]) -> None:
             if not values:
                 continue
             print(f"\n{name}:")
+            guidance = ISSUE_GUIDANCE.get(name)
+            if guidance:
+                print(f"  rule: {guidance['rule']}")
+                print(f"  fix: {guidance['fix']}")
             for value in values:
-                print(f"  - {value}")
+                print(f"  - {format_issue_value(value)}")
         print("\nwiki_lint: FAILED")
     else:
         print("wiki_lint: OK")

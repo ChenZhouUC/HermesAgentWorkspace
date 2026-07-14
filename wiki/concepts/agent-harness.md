@@ -1,10 +1,13 @@
 ---
 title: AI Agent Harness
 created: 2026-06-03
-updated: 2026-07-11
+updated: 2026-07-14
 type: concept
 tags: [agent, orchestration, harness, architecture]
-sources: [_living/AI-Infrastructure/AI-Agent-Harness-Engineering.md]
+sources:
+  - _living/AI-Infrastructure/AI-Agent-Harness-Engineering.md
+  - _living/AI-Infrastructure/Model-Context-Protocol.md
+  - _living/AI-Applications/Hermes-Agent-macOS-Ops.md
 confidence: high
 ---
 
@@ -78,13 +81,15 @@ Harness 是"底座/运行时"，与"框架"有细微差异：
 
 ## 实现案例
 
-本仓库的 [[hermes-agent]]（及其前代 [[openclaw]]）是典型的 Harness 实现：
+本仓库的 [[hermes-agent]]（及其前代 [[openclaw]]）是典型的 Harness 实现：^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
 
 - **编排层**：事件驱动 + 连续对话调度（[[agent-mid-turn-input-modes]]）
 - **上下文层**：技能库（skills）+ 记忆系统（memories）+ 工作区
-- **沙盒层**：通过 MCP (Model Context Protocol) 隔离工具调用
+- **沙盒层**：通过独立执行环境、权限控制和资源配额隔离工具副作用；MCP 本身不提供沙盒
 - **HITL 层**：飞书 Bot 交互界面，支持实时干预
-- **协议层**：Markdown 作为人机交互载体
+- **协议层**：通过 [[model-context-protocol|MCP]] 接入外部 tools/resources/prompts，并以 Markdown 等格式承载模型可见内容
+
+这里的协议接入与执行隔离是两个不同职责：MCP 统一 Host 与能力提供方之间的接口，Host/Harness 仍需自行实施授权、沙盒和审计。^[[[_living/AI-Infrastructure/Model-Context-Protocol|Model-Context-Protocol]]]
 
 ## 工程原则
 

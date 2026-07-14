@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-07-13
+updated: 2026-07-14
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,39 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-07-14] daily | Wiki lint schema alignment and repair feedback
+
+### tooling | Schema-backed lint hardening
+
+- Trigger: 用户要求按最容易实现、效率最高的方式，让 `scripts/wiki_lint.py` 尽可能符合 `SCHEMA.md` 的设计，并让 lint 失败时能直接反馈问题，便于 Agent 针对性修复和维护。
+- Actions:
+  - 将 Active Layer 2 `sources` 收紧为 Layer 1 本地来源：只允许 `_living/...` 或 `raw/...`，不再接受直接 HTTP URL 作为 frontmatter source。
+  - 新增 living/raw provenance marker 校验：检查紧凑脚注格式、目标文件存在性与路径大小写；living 溯源允许省略 `.md` 后缀以兼容现有写法。
+  - 修正 path-qualified wikilink 解析：带目录的 `[[path/to/node]]` 必须按真实路径解析，避免只取 basename 导致跨层或错误路径误通过。
+  - 将 `index.md` 中 active section 下格式错误的 bullet 记录为 `invalid_index_entries`，避免 malformed entry 被静默忽略。
+  - 将日期校验从正则升级为真实 ISO calendar date 校验。
+  - 为 lint issue 增加 rule/fix 提示，并将失败详情中的 list/dict 值输出为 JSON 字符串，方便 Agent 直接定位和修复。
+- Boundary: 未改变 `SCHEMA.md` 的 18 项 Validation Invariants 数量；新增规则挂载到现有检查项下。未尝试把 Evidence-Gated Linking 的证据强度、关系谓词等语义判断机械化。
+- Verification: `python3 -m py_compile scripts/wiki_lint.py`、`python3 scripts/wiki_lint.py`、`python3 scripts/wiki_lint.py --json` 与 `git diff --check` 均通过。
+
+### audit | Layer 1 ingest completeness and semantic repair
+
+- Trigger: 用户要求充分理解 Schema 后重新审计整个 Wiki，重点确认 `_living` 文档是否被完整、正确且按页面阈值 ingest，避免既遗漏稳定知识对象，也避免把原材料机械包装成 Layer 2 页面。
+- Scope: 逐一阅读并建立 20 篇 `_living` 文档与变更前 40 个 Active Layer 2 节点的来源覆盖矩阵，同时复核节点类型、抽象层级、正文证据和现有关系语义。
+- Findings:
+  - 变更前 19/20 篇 living 文档已被至少一个节点引用；`Model-Context-Protocol.md` 是唯一完全未覆盖、同时又满足“可独立定义的具名协议实体”阈值的来源。
+  - RuView 已有实体入口，但原节点只概述产品能力，未提炼可跨产品复用的 WiFi CSI 感知方法；该方法在采集、校准、物理特征、任务推断和硬件可观测性上具备独立研究边界。
+  - `llm-benchmark-methodology.md` 仍停留在旧能力分类、阶段性分数和厂商偏好，未 ingest 当前来源中的被测对象层级、指标语义、最小报告契约、结果状态与“当前社区声望”。
+  - `agent-harness.md` 把 MCP 描述为沙盒隔离机制；MCP 只标准化能力接入，授权、执行隔离与审计仍属于 Host/Harness 责任。
+- Actions:
+  - 新建 `entities/model-context-protocol.md`，提炼 Host/Client/Server、Tools/Resources/Prompts、传输版本边界及安全责任。
+  - 新建 `concepts/wifi-csi-sensing.md`，分离通用 CSI 感知链与 RuView 产品实现，并明确 RSSI、非相干多节点和同步阵列的能力边界。
+  - 重写 `concepts/llm-benchmark-methodology.md`，移除易过期的分数快照与厂商叙事，改为可复用的评测对象、协议、证据状态、组合和维护方法。
+  - 同步收紧 `entities/ruview.md` 的产品边界与置信度，修正 `concepts/agent-harness.md` 的 MCP/沙盒混淆，并在 `entities/hermes-agent.md` 建立有来源支持的 MCP 接入关系。
+  - 更新 `index.md`，Active Layer 2 节点由 40 增至 42，新增节点均按类型和 slug 字母序唯一注册。
+- Boundary: 未把每篇 living 原材料一对一拆成节点；Hermes/RuView 部署命令、产品专属配置、完整 FAQ 和 benchmark 明细表继续保留在 Layer 1。其余长文档已有内聚的 Layer 2 摘要，不因篇幅或“孤立观感”重复拆页；本轮未改 Schema 或 lint 规则。
+- Verification: 变更后的 20/20 篇 `_living` 文档均在 Active Layer 2 frontmatter 中有至少一个来源引用；`python3 scripts/wiki_lint.py` 与 JSON 模式均通过全部 18 项检查，6 个新增或更新的知识节点通过 Pandoc 解析，`git diff --check` 通过。
 
 ## [2026-07-13] daily | Living knowledge update and conservative graph audit
 

@@ -1,224 +1,261 @@
 ---
 title: LLM Benchmarks
 created: 2026-05-14
-updated: 2026-05-15
+updated: 2026-07-14
 ---
 
-# AI 大模型 Benchmark 系统性调研报告
+# 大模型 Benchmark 大全：版本口径、题数、计分与榜单快查
 
-本文整理常见大模型基准测试的定位、测试方式和厂商使用偏好。模型跑分变化很快，文中的分数和厂商倾向只适合作为 2026-04 左右的阶段性参考；如用于正式选型，应以各基准官网、论文和最新模型报告为准。
+本文整理文本大模型、推理模型、多模态模型和 agent 系统常用的公开基准，内容以 **2026-07-14** 为快照。目标是提供选型与自建评测时可快速查询的基准地图，而不是把一个总分当成模型能力的完整结论。
 
-## 一、综合知识与逻辑推理
+本文同时维护题数、计分方式和“当前最高可比公开结果”。这里的“最高”只指本次能从官方榜、benchmark 作者或可复核的标准化评测中确认、且协议相同的结果；它不是跨 prompt、推理预算、工具或 scaffold 的绝对模型排名。没有可信统一榜单时会明确写“无统一榜”，不会从厂商模型卡中挑一个最大值冒充 SOTA。
 
-### 1. MMLU (Massive Multitask Language Understanding)
+这是一份覆盖主流能力维度和重要历史锚点的**精选大全**，不是收录每篇论文数据集的无边界清单。新增基准应至少满足一项：行业高频引用、填补独立能力维度、具有活跃且版本化的榜单，或能显著贴近真实工作。范围聚焦语言 / 多模态理解、推理、代码、事实性、安全和 agent；ASR / TTS、图像 / 视频生成、embedding / reranking、训练效率与推理硬件吞吐属于独立评测体系，不在本文主表内。
 
-- 维护者 / 提供方：Dan Hendrycks 等学术研究者。
-- 测试能力：覆盖 57 个学科的综合知识与语言理解能力。
-- 题目数量：约 15,908 题，测试集常取 14,049 题。
-- 题目类型：4 选项单选题，涵盖 STEM、人文、社科等学科。
-- 测试方式：通常采用 5-shot 或 0-shot，通过计算模型输出选项 token 的概率分布判定准确率。
-- 厂商使用：行业通用基准，OpenAI、Google、Anthropic、Meta、Mistral 及国内主流厂商都经常引用。
-- 分数参考：满分 100%。截至本文整理时，前沿模型大多集中在 88-90% 左右。
+## 一、先确定评测对象：模型还是系统
 
-### 2. MMLU-Pro
+同一个“模型名”可以对应完全不同的被测对象：
 
-- 维护者 / 提供方：TIGER-AI-Lab 等。
-- 测试能力：MMLU 的强化版，增加推理难度，减少单纯记忆型题目。
-- 题目数量：约 12,000+ 题。
-- 题目类型：10 选项单选题，随机猜测概率更低。
-- 测试方式：通常结合 CoT（思维链）推理，强化多步逻辑能力评估。
-- 厂商使用：Qwen、DeepSeek、GLM 等新模型报告较常引用。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 75-80% 区间。
+- **Model-only**：固定 prompt、无外部工具、一次生成，例如 MMLU、GPQA、HumanEval。
+- **Model + inference policy**：加入 CoT、reasoning effort、self-consistency、best-of-N 或 verifier。此时分数同时衡量模型和推理预算。
+- **Agent system**：还包含 scaffold、工具描述、浏览器 / 终端环境、上下文压缩、重试、memory 和停止策略，例如 SWE-bench、WebArena、Terminal-Bench。
+- **Product experience**：包含系统提示、路由、多模型协作、搜索索引、缓存和安全策略，通常不能只归因于底层模型。
 
-### 3. GPQA (Google-Proof Q&A)
+因此，“模型 A 在 benchmark X 上是 80%”至少缺少模型 snapshot、benchmark version、prompt、预算和 harness 五项信息。
 
-- 维护者 / 提供方：纽约大学（NYU）、Anthropic 等。
-- 测试能力：博士级专业知识与推理能力，涵盖生物、物理、化学。
-- 题目数量：448 题，其中 Diamond 子集 198 题。
-- 题目类型：4 选项单选题。
-- 测试方式：题目设计强调专业性和反搜索性，常采用 0-shot CoT 测试。
-- 厂商使用：Anthropic、OpenAI、DeepSeek 等常用来展示前沿科学推理能力。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 70-75% 区间。
+## 二、读分数前必须固定的口径
 
-### 4. ARC-c (AI2 Reasoning Challenge - Challenge Set)
+### 2.1 常见指标不是一回事
 
-- 维护者 / 提供方：Allen Institute for AI (AI2)。
-- 测试能力：小学到初中级别自然科学常识和推理。
-- 题目数量：ARC 全集 7,787 题，Challenge 挑战集 2,590 题。
-- 题目类型：单项选择题。
-- 测试方式：从原始题库中提取简单算法不易猜对的题目，评估基础科学常识推理。
-- 厂商使用：常作为轻量级模型和通用模型的基础智力基线。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 96-97% 区间。
+| 指标                      | 典型基准                     | 主要含义与陷阱                                                            |
+| ------------------------- | ---------------------------- | ------------------------------------------------------------------------- |
+| Accuracy / Exact Match    | MMLU、GPQA、GSM8K            | 对固定答案直接判分；答案抽取规则仍会影响结果                              |
+| Pass@1                    | HumanEval、LiveCodeBench     | 一次采样通过全部测试的比例；温度、timeout 和测试覆盖度很重要              |
+| Pass@k                    | 代码 / 数学多采样            | k 个候选中至少一个成功的概率，衡量 coverage；不代表系统能识别哪个候选正确 |
+| Pass^k                    | τ 系列、可靠性评测           | 同一任务连续 k 次都成功的比例，比平均成功率更强调稳定性                   |
+| % Resolved / Task Success | SWE-bench、WebArena、OSWorld | agent 最终是否完成任务；高度依赖 scaffold、环境和工具                     |
+| LLM-as-a-Judge            | AlignBench、开放问答         | 可覆盖开放式质量，但受 judge 版本、位置 / 长度 / 风格偏差和 rubric 影响   |
+| Pairwise Win Rate         | LMArena、GDPval              | 相对比较而非绝对正确率；对手池、抽样和 tie 处理会改变结果                 |
+| Calibration Error         | HLE、BrowseComp              | 置信度是否与真实正确率匹配；不能由 accuracy 代替                          |
 
-### 5. AGIEval
+### 2.2 公平比较的最小报告字段
 
-- 维护者 / 提供方：微软等研究者。
-- 测试能力：人类考试相关任务，如高考、司法考试、SAT 等。
-- 题目数量：约 8,062 题。
-- 题目类型：单选题、多选题、填空题混合。
-- 测试方式：题目来源于高标准真实考试，支持 zero-shot 或 few-shot。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 80-85%+ 区间。
+1. **模型**：完整 snapshot / checkpoint、provider、量化和 serving 版本。
+2. **数据**：benchmark 名称、版本 / release、split、过滤条件、评测日期。
+3. **提示**：system / developer prompt、0-shot / few-shot、CoT、答案格式。
+4. **推理**：effort / thinking budget / mode、temperature、top-p、最大输出、采样或投票次数。
+5. **工具与 scaffold**：可用工具、检索源、agent 框架、最大步数、重试和上下文策略。
+6. **执行环境**：harness commit、容器 / VM、依赖、CPU / GPU、网络、timeout。
+7. **评分器**：exact-match 脚本、测试版本、judge 模型 snapshot、judge prompt 和重跑规则。
+8. **统计**：样本数、独立 run 数、均值 / 方差或置信区间；小数据集不能只给一个点估计。
+9. **资源**：输入 / 输出 / reasoning token、wall-clock latency、工具调用数和成本。
+10. **污染状态**：训练 cutoff、数据是否公开、是否为 live / held-out / private split。
 
-### 6. BBH (BIG-Bench Hard)
+### 2.3 本文成绩列的状态
 
-- 维护者 / 提供方：Google 等学术界联合。
-- 测试能力：23 个高难度推理任务，关注早期模型表现不佳的任务类型。
-- 题目数量：6,511 题。
-- 题目类型：多项选择题与自由文本回答。
-- 测试方式：从 BIG-Bench 中挑选困难任务，如布尔逻辑、导航规划等，通常使用 3-shot CoT。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 90-92% 区间。
+- **官方榜**：benchmark 维护方的当前榜单；动态榜均绑定本页快照日期。
+- **独立复测**：评测方用统一 harness 重跑多个模型，协议写在结果旁。
+- **历史结果**：官方最后一次发布，但榜单已停止更新；只用于理解难度，不称为 2026 SOTA。
+- **无统一榜**：不存在可持续、同协议、可核验的当前排名；厂商自报值不强行拼接。
+- Agent、GUI、软件工程和研究任务的成绩均按“**系统 + 模型**”记录，不写成底模裸能力。
 
-## 二、数学能力
+下文详表中的“发布时间”优先记录 benchmark、数据集或当前列示版本的首次公开时间：有明确版本号或家族成员时分别标注首版与当前版本；一手来源只能支持到月或年时不补猜具体日期。“维护组织”记录官方仓库、数据或榜单的当前责任方；静态且不再维护的历史基准则标记原始团队，第三方持续运营的榜单会同时写创建方与现行维护方。
 
-### 1. GSM8K (Grade School Math 8K)
+## 三、能力地图
 
-- 维护者 / 提供方：OpenAI。
-- 测试能力：小学级别数学应用题。
-- 题目数量：约 8,500 题。
-- 题目类型：自由回答，主要是计算题。
-- 测试方式：要求模型生成解题步骤并给出最终数字，通常用 Exact Match 提取最终答案；常见设置是 8-shot CoT。
-- 厂商使用：通用数学能力基线。由于许多现代模型分数已很高，区分度逐渐下降。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 96-98% 区间。
+| 类别                   | 核心问题                                      | 优先使用的当前基准                                                  | 主要历史 / 回归锚点                     |
+| ---------------------- | --------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------- |
+| 知识、科学与通用推理   | 闭卷知识、多步科学推理、抽象归纳              | GPQA Diamond、HLE、FrontierScience、ARC-AGI-2/3                     | MMLU、ARC-C、AGIEval、BBH               |
+| 数学与形式推理         | 算术、竞赛数学、前沿数学、形式证明            | FrontierMath v2、AIME 年度集、OlympiadBench                         | GSM8K、MATH、MATH-500、miniF2F          |
+| 代码、软件与研究工程   | 函数生成、竞赛编程、仓库修复、终端和研究复现  | LiveCodeBench、SWE-bench、Terminal-Bench、PaperBench                | HumanEval、MBPP、DS-1000                |
+| 事实性、检索与研究     | 闭卷事实、grounding、浏览、多跳检索和研究报告 | FACTS、SimpleQA Verified、BrowseComp、DeepResearch Bench Next、GAIA | SimpleQA、TruthfulQA、FRAMES            |
+| 指令遵循与对话质量     | 格式约束、多轮记忆、开放式偏好                | IFEval、MultiChallenge、LMArena                                     | MT-Bench、AlpacaEval 2、Arena-Hard-Auto |
+| 中文与多语言           | 中文知识、跨语言推理、文化与表达              | MMLU-ProX、自建中文 blind set                                       | C-Eval、CMMLU、MGSM、AlignBench         |
+| 长上下文               | 召回、跨段聚合、长文推理和有效窗口            | RULER、LongBench v2、HELMET                                         | NIAH                                    |
+| 多模态                 | 专业视觉推理、视觉数学、视频、OCR / 文档      | MMMU-Pro、MathVista、Video-MME、OCRBench v2、MDPBench               | MMMU                                    |
+| 工具、Web 与 GUI Agent | 函数调用、业务工具、网页和桌面操作            | BFCL V4、τ³、OSWorld-Verified、MCPMark Verified                     | WebArena、ToolSandbox                   |
+| 真实工作与长周期自主性 | 专业交付物、跨应用协作、可完成任务时长        | GDPval、TheAgentCompany、METR Time Horizon                          | RE-Bench                                |
+| 安全、对齐与稳健性     | 有害服从、过度拒答、越狱、危险知识、偏见      | HarmBench + XSTest、AgentDojo                                       | StrongREJECT、JailbreakBench、WMDP、BBQ |
 
-### 2. MATH / MATH-500
+以下每一个能力类别中均包含“当前社区声望”字段，用于提示 benchmark 在当前社区中的采用与引用频率：★★★ 表示经常被引用，★★ 表示普通、偶尔被引用，★ 表示已经过时、曾经被使用。该字段不代表题目难度或技术质量。
 
-- 维护者 / 提供方：UC Berkeley Dan Hendrycks 团队等。
-- 测试能力：高中到大学级别数学竞赛题。
-- 题目数量：原集 12,500 题；MATH-500 是常用精简评测集。
-- 题目类型：自由回答，覆盖代数、几何、数论等。
-- 测试方式：要求输出标准数学答案，常用 Exact Match 或答案抽取评测。
-- 厂商使用：DeepSeek、OpenAI、xAI、GLM、Qwen 等经常引用，用于展示数学推理能力。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 95-97% 区间。
+## 四、知识、科学与通用推理
 
-## 三、代码与编程能力
+| 名称                                                            | 发布时间   | 维护组织                                      | 主要测什么                               | 题数 / 规模                                                | 计分方式                                                       | 当前最高可比公开结果（截至 2026-07-14）                                                                          | 当前社区声望 |
+| --------------------------------------------------------------- | ---------- | --------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------ |
+| [MMLU](https://github.com/hendrycks/test)                       | 2020-09-07 | Dan Hendrycks / UC Berkeley（原始团队，静态） | 57 学科的闭卷知识与理解；现主要作回归    | 正式 test **14,042**                                       | 传统协议为 5-shot、4 选项 accuracy                             | **无统一榜**：原作者不维护现代模型排名，conditional-likelihood、生成式与 CoT 协议不可混排                        | ★★           |
+| [MMLU-Pro](https://github.com/TIGER-AI-Lab/MMLU-Pro)            | 2024-06-03 | TIGER AI Lab（University of Waterloo）        | 更难的 14 领域知识推理，10 选项降低猜测  | 原始发布 12,032；当前完整输出有效分母 12,020               | 论文主协议为 5-shot CoT accuracy                               | **无统一榜**：官方 mini-table 停在 2024；仓库中的后续输出也未形成持续统一排名                                    | ★★★          |
+| [GPQA Diamond](https://epoch.ai/benchmarks/gpqa-diamond)        | 2023-11-20 | GPQA 原始团队；Epoch AI（现行复测）           | 生物、物理、化学专家级闭卷推理           | GPQA 448；Diamond 198                                      | 随机答案顺序后的 4 选项 accuracy；应给置信区间                 | **独立复测**：GPT-5.4 Pro `xhigh` **94.6%**，Epoch task v1.0.6                                                   | ★★★          |
+| [ARC-Challenge](https://allenai.org/data/arc)                   | 2018-03-14 | Allen Institute for AI（AI2）                 | 小学至初中科学问答；历史基础线           | ARC 7,787；Challenge 2,590                                 | 4 选项 test accuracy                                           | **无持续官方榜**：公开多年且前沿模型接近饱和                                                                     | ★            |
+| [AGIEval v1.1](https://github.com/ruixiangcui/AGIEval)          | 2023-04-13 | Microsoft Research / AGIEval 原始团队（静态） | 中英文考试、法律和资格类任务             | 7,066 独立样本；20 任务                                    | 18 个 MCQ accuracy + 2 个 cloze 答案匹配                       | **历史结果**：GPT-4o few-shot all **69.0**；官方表停在 2024                                                      | ★            |
+| [BIG-Bench Hard](https://github.com/suzgunmirac/BIG-Bench-Hard) | 2022-10-17 | Stanford / Google Research 原始团队（静态）   | BIG-bench 中需要多步推理的困难任务       | 23 任务族；27 配置、6,511 样本                             | 经典 3-shot CoT exact match，再做 task macro average           | **无持续官方榜**；原论文 Codex `code-davinci-002` **73.9%** 仅为历史 baseline                                    | ★            |
+| [LiveBench](https://github.com/LiveBench/LiveBench)             | 2024-06-27 | LiveBench Team（Abacus.AI / NYU 等）          | 6 类、18 个可自动评分任务，强调较新数据  | 18 tasks；规模随 release                                   | 各任务客观评分后做类别 / 总分聚合                              | **公开固定快照**：2024-11-25 全公开集 Gemini 2.5 Pro exp **82.35**；后续 release 必须另写版本                    | ★★           |
+| [SimpleBench](https://simple-bench.com/)                        | 2024-10-20 | SimpleBench Team / AI Explained               | 人类觉得简单、前沿模型仍易错的常识推理   | 213 道 6 选项题                                            | 每题跑 5 次，报告 AVG@5                                        | **官方榜**：Claude Fable **81.9%**；人类基线 83.7%                                                               | ★★           |
+| [Humanity's Last Exam](https://lastexam.ai/)                    | 2025-01-24 | Center for AI Safety / Scale AI               | 多学科专家级闭合题，含少量多模态         | static 2,500；Rolling 随 snapshot 变化                     | accuracy + calibration error；短答案由固定 judge 判分          | **官方 static 榜**：Gemini 3 Pro **38.3%**，calibration error 57.2%；数据定稿 2025-04-03。Rolling 无免登录统一榜 | ★★★          |
+| [FrontierScience](https://openai.com/index/frontierscience/)    | 2025-12    | OpenAI                                        | 奥赛科学短答案与 PhD 研究子任务          | 完整集 700+；公开 gold 160（100 + 60）                     | Olympiad accuracy；Research rubric 0-10，至少 7 算成功         | **官方初始评测**：GPT-5.2 `xhigh` 为 Olympiad **77%**、Research **25%**；非滚动榜                                | ★★           |
+| [ARC-AGI-2](https://arcprize.org/leaderboard)                   | 2025-03-24 | ARC Prize Foundation                          | 少样本抽象网格规则归纳                   | 1,360:1,000 train + 三个 120 eval split                   | 一个任务全部 test grid exact match 才成功；每个 input 2 trials | **官方 Verified semi-private**：GPT-5.6 Sol `max` **92.5%**，2026-07-09，$1.44/task                              | ★★★          |
+| [ARC-AGI-3](https://arcprize.org/arc-agi/3)                     | 2026-03-25 | ARC Prize Foundation                          | 无自然语言说明的交互式目标发现与世界模型 | 135 environments：25 public + 55 semi-private + 55 private | RHAE：相对人类 action efficiency 加权聚合，不是普通 accuracy   | **官方 Verified semi-private**：GPT-5.6 Sol `max` **7.78% RHAE**，2026-07-09；系统成本 $25,064.11                | ★★           |
 
-### 1. HumanEval & MBPP
+## 五、数学与形式推理
 
-- 维护者 / 提供方：OpenAI（HumanEval）/ Google（MBPP）。
-- 测试能力：函数级代码补全能力。
-- 题目数量：HumanEval 164 题；MBPP 974 题。
-- 题目类型：给定函数签名和注释，要求写出完整函数体。
-- 测试方式：使用 Pass@1 或 Pass@k，通过执行沙盒中的单元测试判定。
-- 现状：主流模型得分较高，已难以充分反映真实软件工程能力。
-- 分数参考：满分 100%（Pass@1）。截至本文整理时，前沿模型约在 92-94% 区间。
+数学结果必须同时报告代码执行、证明器、搜索、多数投票、verifier 与采样预算。AIME 不能只写一个年份不明的“AIME 分数”。
 
-### 2. SWE-bench
+| 名称                                                                               | 发布时间                       | 维护组织                                     | 主要测什么                                | 题数 / 规模                      | 计分方式                                            | 当前最高可比公开结果（截至 2026-07-14）                                                       | 当前社区声望 |
+| ---------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------- | ----------------------------------------- | -------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------ |
+| [GSM8K](https://github.com/openai/grade-school-math)                               | 2021-10-27                     | OpenAI（静态）                               | 小学数学文字题；基础算术回归              | 7,473 train + 1,319 test         | 抽取 final numeric answer，exact match              | **无统一榜**：公开多年且已饱和，不宜从模型卡挑 99.x 作为权威 SOTA                             | ★            |
+| [MATH](https://github.com/hendrycks/math)                                          | 2021-03-05                     | Dan Hendrycks / UC Berkeley 原始团队（静态） | 竞赛数学，覆盖 7 主题、5 难度             | 12,500:7,500 train + 5,000 test | 归一化 / 数学等价后的 answer accuracy               | **无统一榜**：symbolic normalization、LLM equality judge、工具与采样口径差异大                | ★            |
+| [MATH-500](https://github.com/openai/simple-evals)                                 | 2023-05-31                     | OpenAI                                       | MATH 的 500 题 IID 子集；常用于快速回归   | 500                              | `simple-evals` 用 equality checker；应写采样次数    | **历史结果**：官方最后表列 o3-high **98.1%**；该表混有 full MATH 与 MATH-500，不能称全局 SOTA | ★★           |
+| [AIME](https://artofproblemsolving.com/wiki/index.php/AIME_Problems_and_Solutions) | 1983（年度竞赛起点）           | Mathematical Association of America（MAA）   | 按年度变化的美国数学竞赛短答案            | 每年 AIME I 15 + AIME II 15      | 000-999 整数 exact match；必须写年份和 I / II       | **无跨年度统一榜**：不同年份、污染状态和多采样预算不可合并                                    | ★★★          |
+| [OlympiadBench](https://github.com/OpenBMB/OlympiadBench)                          | 2024-02-21                     | OpenBMB / 清华大学                           | 中英双语、多模态数学与物理奥赛题          | 8,476                            | 开放题自动答案匹配；证明题需单列人工 / judge 评估   | **历史官方表**：GPT-4o full average **25.89%**；榜单停在 2024                                 | ★★           |
+| [FrontierMath v2](https://epoch.ai/frontiermath/tiers-1-4)                         | 首版 2024-11-07；v2 2026-06-12 | Epoch AI                                     | 私有前沿数学，区分 Tiers 1-4              | 338；官方 private 285 + 41       | 可核验答案 accuracy；官方协议允许 Python 与长程迭代 | **官方榜**：Tiers 1-3 GPT-5.6 Sol `max` **89.12%**；Tier 4 Claude Fable 5 `max` **87.80%**    | ★★★          |
+| [miniF2F](https://github.com/openai/miniF2F)                                       | 2021-08-31                     | OpenAI 仓库 / 原始作者团队（静态）           | Lean、Isabelle、Metamath 等形式化数学证明 | 488:244 valid + 244 test        | 证明由 theorem prover kernel 验证的 success rate    | **无持续统一榜**：proof assistant、库版本、搜索预算和自动化策略必须固定                       | ★★           |
 
-- 维护者 / 提供方：普林斯顿大学、芝加哥大学等。
-- 测试能力：真实软件工程 bug 修复能力。
-- 题目数量：完整版 2,294 题；Verified 子集 500 题。
-- 题目类型：真实 GitHub 仓库 Issue 修复。
-- 测试方式：模型进入真实代码库环境，根据 Issue 描述检索代码、定位 bug、生成补丁，并通过官方单元测试验证。
-- 厂商使用：含金量较高，Anthropic、OpenAI、DeepSeek、Qwen、Meta、xAI 等都关注该基准。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 50-60% 区间，Qwen 2.5 Coder 等开源模型约可达 40-50%。
+## 六、代码、软件工程、终端与研究工程
 
-### 3. LiveCodeBench
+### 6.1 函数级、数据科学与竞赛编程
 
-- 维护者 / 提供方：学术界联合维护。
-- 测试能力：算法编程能力与训练后新题泛化能力。
-- 题目数量：动态更新，每月发布新题。
-- 题目类型：LeetCode、AtCoder 等平台算法竞赛题。
-- 测试方式：收集模型训练截止日期之后产生的新题，降低刷榜和数据污染风险。
-- 厂商使用：DeepSeek、Qwen 等常用来展示代码泛化能力。
-- 分数参考：满分 100%。因题目持续变化，截至本文整理时，前沿模型 Pass@1 大约在 45-60% 区间波动。
+| 名称                                                                         | 发布时间                                    | 维护组织                                              | 主要测什么                               | 题数 / 规模                              | 计分方式                                                    | 当前最高可比公开结果（截至 2026-07-14）                                               | 当前社区声望 |
+| ---------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------- | ---------------------------------------- | ---------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------ |
+| [HumanEval / HumanEval+](https://evalplus.github.io/leaderboard.html)        | HumanEval 2021-07-07；HumanEval+ 2023-05-03 | OpenAI / EvalPlus Team                                | Python 函数补全；`+` 版增加隐藏测试      | 164；HumanEval+ 同任务、测试约扩充 80 倍 | 执行测试的 pass@k                                           | **无活跃前沿榜**：EvalPlus 表停在 2024；适合作回归，不固化 2026 最佳                  | ★★           |
+| [MBPP / MBPP+](https://evalplus.github.io/leaderboard.html)                  | MBPP 2021-08-16；MBPP+ 2023-11-24           | Google Research / EvalPlus Team                       | 自然语言到初级 Python 程序               | 原集 974、标准 test 500；当前 MBPP+ 378  | 执行测试的 pass@k                                           | **无活跃前沿榜**：任务公开且榜单未覆盖当前模型                                        | ★            |
+| [DS-1000](https://github.com/xlang-ai/DS-1000)                               | 2022-11-18                                  | XLANG Lab                                             | 7 个 Python 数据科学库的真实代码问题     | 1,000                                    | execution check 与可选 string check 均通过才算成功          | **无持续榜**；官方可复现历史 Codex-002 baseline **38.8%**                             | ★            |
+| [BigCodeBench](https://github.com/bigcode-project/bigcodebench)              | 2024-06-18                                  | BigCode Project（Hugging Face / ServiceNow Research） | 复杂指令、多库和多函数调用的实用编程     | Full 1,140；Hard 148                     | executable tests 的 pass@k；需固定 instruct / complete 模式 | **官方动态榜存在但本次无法可靠冻结当前表**；不猜榜首                                  | ★★           |
+| [LiveCodeBench release_v6](https://livecodebench.github.io/leaderboard.html) | 首版 2024-03-12；v6 2025-04-21              | LiveCodeBench Team（UC Berkeley / MIT / Cornell）     | 按发布日期隔离的竞赛编程与代码推理       | 1,055；题目日期 2023-05 至 2025-04       | 代码生成 pass@1 / pass@5；官方默认 n=10、temperature=0.2    | **官方固定 release**：o4-mini `high` **87.3 pass@1**；不得与 lite 或其他 release 混排 | ★★★          |
+| [Aider Polyglot](https://aider.chat/docs/leaderboards/)                      | 2024-12-21                                  | Aider / Aider-AI                                      | Aider scaffold 在 6 种语言中编辑真实代码 | 225 个 Exercism tasks                    | 正确解决率；另报 edit-format 正确率与成本                   | **官方页面**：Aider + GPT-5 `high` **88.0%**，2025-08-23；这是系统分，非裸模型 pass@1 | ★★           |
 
-## 四、中文特化能力
+### 6.2 仓库修复、终端与研究任务
 
-### 1. C-Eval & CMMLU
+| 名称                                                                              | 发布时间                             | 维护组织                                                        | 主要测什么                          | 题数 / 规模                                                          | 计分方式                                                           | 当前最高可比公开结果（截至 2026-07-14）                                                                                                             | 当前社区声望 |
+| --------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| [SWE-bench 官方系列](https://www.swebench.com/)                                   | 首版 2023-10-10；Verified 2024-08-13 | SWE-bench Team（Princeton / Stanford）；OpenAI（Verified 合作） | 真实 GitHub issue 的代码 patch      | Full 2,294；Verified 500；Lite 300；Multilingual 300；Multimodal 517 | FAIL_TO_PASS 全过且不破坏 PASS_TO_PASS，报 `% Resolved`            | **官方系统榜**：Full Sonar Agent + Claude 4.5 Opus **52.62%**；Verified 两个 Claude 4.5 Opus 系统并列 **79.2%**。必须写 subset / scaffold / retries | ★★★          |
+| [SWE-bench-Live](https://swe-bench-live.github.io/)                               | 2025-05-29                           | Microsoft Research / SWE-bench-Live Team                        | 动态仓库修复，独立于 Princeton 系列 | Python Full 1,319；Lite 300；Verified 500；MultiLang 743             | resolved / 当次有效分母；动态集必须写 snapshot                     | **官方榜**：Lite AMI Agent + Claude 4.6 Opus **63.0%**；Full OpenHands + Claude 3.7 Sonnet **19.26%**。MultiLang 无单一 aggregate 榜首              | ★★           |
+| [SWE-bench Pro](https://scale.com/blog/swe-bench-pro)                             | 2025-09-19                           | Scale Research / Scale AI                                       | 更复杂、较难泄漏的仓库级任务        | public / held-out / private 规模与可见性不同                         | 同 split、同 harness 下的 `% Resolved`                             | **无可确认统一榜首**：不可与 Princeton SWE-bench 或不同可见性 split 合并                                                                            | ★★           |
+| [SWE-Lancer](https://github.com/openai/preparedness/tree/main/project/swelancer)  | 2025-02-17                           | OpenAI Preparedness → OpenAI Frontier Evals                     | 真实 freelance 工程与管理判断       | Full 1,488；Diamond 502；当前离线开源 IC 子集 198                    | IC 用 E2E tests；Manager 匹配中标方案；报 pass@1、美元与 earn rate | **历史官方结果**：Claude 3.5 Sonnet Diamond **36.1%**，赚得 $208k / $500.8k；无持续榜                                                               | ★★           |
+| [Terminal-Bench 2.0](https://www.tbench.ai/leaderboard/terminal-bench/2.0)        | 首版 2025-05-19；2.0 2025-11-07      | Terminal-Bench（Stanford / Laude）；Harbor Framework Team       | 容器内长程终端任务                  | 89                                                                   | Harbor 测试脚本每 rollout 0/1；标准榜聚合 5 runs                   | **最高 verified**：Codex CLI + GPT-5.5 **82.25%**，2026-04-23；未验证最高 84.72% 不作标准榜首                                                       | ★★★          |
+| [SciCode](https://github.com/scicode-bench/SciCode)                               | 2024-07-18                           | SciCode Team（UIUC / Argonne）                                  | 科学研究代码生成                    | 80 main problems、338 subproblems；16 子领域                         | main resolve rate 与 subproblem resolve rate 分开报告              | **官方最后表**：o1-preview **7.7% main / 28.5% subproblem**；更新停在 2025-02                                                                       | ★★           |
+| [MLE-bench](https://github.com/openai/mle-bench)                                  | 2024-10-09                           | OpenAI                                                          | Kaggle 机器学习竞赛端到端 agent     | 75 competitions                                                      | Any Medal rate，至少 3 seeds；严格绑定 agent、时限与算力           | **官方表**：Famou-Agent 2.0 + Gemini 3 Pro Preview **64.44 ± 1.18% All**，24h；榜单自 2026-04-24 暂停受理                                           | ★★           |
+| [PaperBench](https://github.com/openai/preparedness/tree/main/project/paperbench) | 2025-04-02                           | OpenAI Preparedness → OpenAI Frontier Evals                     | 从零复现 ICML 2024 论文             | 20 篇 Spotlight / Oral                                               | rollout、fresh-container reproduction、分层 rubric 加权得分        | **历史官方结果**：IterativeAgent + o1-high，36h，**26.0 ± 0.3%**，3 runs；Code-Dev 43.4% 是另一子评测                                               | ★★           |
 
-- 测试能力：中文综合知识与多学科理解能力。
-- 题目数量：C-Eval 13,948 题；CMMLU 11,528 题。
-- 题目类型：中文 4 选项单选题，覆盖文理科和中国本土文化。
-- 测试方式：类似 MMLU，采用 5-shot 或 0-shot 计算选项 token 概率。
-- 厂商使用：百川、智谱、阿里通义、MiniMax 等国产模型报告常引用。
-- 分数参考：满分 100%。截至本文整理时，头部模型约在 90-93% 区间。
+## 七、事实性、grounding、检索与深度研究
 
-### 2. AlignBench
+| 名称                                                                    | 发布时间   | 维护组织                                | 主要测什么                                                   | 题数 / 规模                                                                        | 计分方式                                                                                   | 当前最高可比公开结果（截至 2026-07-14）                                                                                         | 当前社区声望 |
+| ----------------------------------------------------------------------- | ---------- | --------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| [SimpleQA](https://github.com/openai/simple-evals#benchmark-results)    | 2024-11-07 | OpenAI                                  | 闭卷短答案事实性与是否放弃                                   | 4,326                                                                              | grader 标 correct / incorrect / not attempted；主分 correct accuracy                       | **历史官方表**：GPT-4.5 Preview **62.5%**；`simple-evals` 2025-07 后停更                                                        | ★★           |
+| [SimpleQA Verified](https://epoch.ai/benchmarks/simple-qa-verified)     | 2025-09-09 | Google Research / Google DeepMind       | 人工复核后的短事实题                                         | 1,000                                                                              | Google 原指标为 overall correct 与 attempted-correct 的 F1；Epoch 另报 plain accuracy      | **独立复测 accuracy**：Gemini 3.1 Pro Preview **77.3%**，task v1.0.3；不可写成 Google F1                                        | ★★           |
+| [FACTS Benchmark Suite](https://www.kaggle.com/benchmarks/google/facts) | 2025-12-11 | Google；Kaggle（公开榜）                | parametric facts、grounding、search 和 multimodal factuality | public 3,513 + private 3,716 = 7,229                                               | 四子项 public/private accuracy 后做不加权平均                                              | **官方 v1 榜**：GPT-5.5 **71.19% FACTS Score**，榜单更新 2026-07-08                                                             | ★★           |
+| [TruthfulQA](https://github.com/sylinrl/TruthfulQA)                     | 2021-09-08 | Stephanie Lin 等原始团队（静态）        | 模型是否复述常见误解与错误信念                               | 817 questions、38 categories                                                       | generation 的 truth × informativeness；另有 MC1 / MC2                                      | **无持续统一榜**：judge、prompt 与 MC / generation 协议不可混排                                                                 | ★            |
+| [FRAMES](https://huggingface.co/datasets/google/frames-benchmark)       | 2024-09-19 | Google DeepMind                         | 多跳网页检索、时间过滤和数值推理                             | 824                                                                                | 最终答案 accuracy；应同时审计证据链与引用                                                  | **无持续官方榜**：仅报最终答案会漏掉引用覆盖和来源质量                                                                          | ★★           |
+| [BrowseComp](https://arxiv.org/abs/2504.12516)                          | 2025-04-16 | OpenAI                                  | 难以通过浅层搜索回答的网页问题                               | 1,266                                                                              | 固定 Exact Answer + Confidence；LLM grader accuracy，另报 calibration error                | **历史论文单次结果**：OpenAI Deep Research **51.5%**；作者披露系统接受过定向训练，不能当通用裸模分                              | ★★★          |
+| [Deep Research Bench（FutureSearch）](https://drb.futuresearch.ai/#drb) | 2025-05-06 | FutureSearch                            | 在冻结网页库中做可复现的开放式研究与证据搜集                 | 当前 dashboard 169 instances；论文初版为 8 tasks、89 instances；每题 10K-100K 网页 | 按任务用 binary、recall、F1 或 normalized error；先做 task-category average 再聚合         | **官方 live dashboard**：ReAct + Claude Opus 4.6 `high` **0.5531**，最后更新 2026-06-10                                         | ★★           |
+| [DeepResearch Bench Next](https://deepresearchbench.github.io/)         | 2026-01-13 | 中国科学技术大学 / Metastone Technology | 多步在线研究与完整报告的信息召回、分析和表达                 | 132 research tasks、9,430 条 expert rubrics、22 领域                               | 细粒度 binary rubric pass rate；InfoRecall / Analysis / Presentation 分列，TotalScore 加权 | **官方 v2 表**：OpenAI o3 Deep Research **45.40% TotalScore**；同条件下 InfoRecall 39.98%、Analysis 49.85%、Presentation 89.16% | ★★           |
+| [GAIA](https://huggingface.co/gaia-benchmark)                           | 2023-11-21 | Meta FAIR / Hugging Face                | 需要浏览、文件处理、计算和多工具协作的问题                   | 466:166 annotated dev + 300 hidden test；3 levels                                 | quasi-exact match，按 level 与 overall 报告                                                | **官方榜存在，但本次未能可靠冻结当前榜首**；旧论文 GPT-4 + plugins 不是 2026 SOTA                                               | ★★★          |
 
-- 维护者 / 提供方：清华大学（THUDM）。
-- 测试能力：中文对话能力与价值观对齐。
-- 题目数量：683 题。
-- 题目类型：开放式问答，涵盖基本语言、高级理解、开放指令遵循等。
-- 测试方式：不设标准答案，采用 LLM-as-a-Judge 给输出打 1-10 分。
-- 厂商使用：Kimi、GLM 等常用于展示中文对话体验。
-- 分数参考：满分 10 分。截至本文整理时，头部模型约在 8.5-9.0 分区间。
+## 八、指令遵循、多轮对话与开放式偏好
 
-## 五、超长上下文能力
+| 名称                                                                                                | 发布时间   | 维护组织                  | 主要测什么                               | 题数 / 规模                       | 计分方式                                                  | 当前最高可比公开结果（截至 2026-07-14）                                                                                        | 当前社区声望 |
+| --------------------------------------------------------------------------------------------------- | ---------- | ------------------------- | ---------------------------------------- | --------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------ |
+| [IFEval](https://github.com/google-research/google-research/tree/master/instruction_following_eval) | 2023-11-14 | Google Research           | 可程序验证的格式、关键词、长度等约束     | 541 prompts、25 instruction types | prompt / instruction level × strict / loose 四个 accuracy | **无持续榜**；论文 GPT-4 prompt-strict **76.89%**、instruction-strict **83.57%** 仅为历史基线                                  | ★★★          |
+| [MultiChallenge](https://github.com/ekwinox117/multi-challenge)                                     | 2025-01-29 | Scale AI                  | 多轮指令保持、推断记忆、版本化编辑和自洽 | 273 conversations；最多 10 turns  | 每实例 binary rubric + LLM judge，报告平均 accuracy       | **历史论文结果**：Claude 3.5 Sonnet **41.4%**；无持续榜                                                                        | ★★           |
+| [MT-Bench](https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge)                         | 2023-06-09 | LMSYS Org（历史维护）     | 8 类开放式多轮聊天质量                   | 80 questions × 2 turns            | 固定 LLM judge 1-10 分；需写 judge 与 prompt              | **无持续当前榜**：作为 2023 历史对话回归，judge 已老化                                                                         | ★            |
+| [Arena-Hard-Auto v2](https://github.com/lmarena/arena-hard-auto)                                    | 2025-04-23 | LMArena                   | 从真实用户对战中筛出的困难与创意 prompt  | 500 hard + 250 creative           | 相对 baseline 的 pairwise win rate，可做 style control    | **官方最后表**：o3-2025-04-16 hard/style-control **85.9%**；未覆盖 2026 前沿模型                                               | ★★           |
+| [AlpacaEval 2](https://github.com/tatsu-lab/alpaca_eval)                                            | 2024-01-03 | Stanford CRFM / Tatsu Lab | 单轮指令回答的自动 pairwise 偏好         | 805                               | 对 GPT-4 Turbo baseline 的 length-controlled win rate     | **无可信当前榜首**：官方榜已停更且可被长度 / 风格与提交策略博弈                                                                | ★            |
+| [LMArena](https://arena.ai/leaderboard)                                                             | 2023-05    | LMArena（原 LMSYS Org）   | 匿名真实用户的开放式模型偏好             | live votes；分母持续变化          | Bradley-Terry rating、置信区间与 style-control rank       | **官方 live 快照**：Claude Fable 5 style-control rating **1505.27 ± 8**，7,252 votes、rank range 1-7；仅代表 2026-07-14 对战池 | ★★★          |
 
-### 1. NIAH (Needle In A Haystack)
+## 九、中文与多语言
 
-- 题目类型：文档 QA / 信息提取。
-- 测试方式：将一句无关事实随机插入长文档不同深度位置，让模型检索并回答；结果通常表现为网格图。
-- 厂商使用：Kimi、Claude、Gemini、GLM、MiniMax 等主打长文本模型常引用。
-- 分数参考：满分 100%。该测试对模型长上下文召回能力有直观展示，但容易被专门优化，需结合更复杂任务评估。
+| 名称                                                              | 发布时间                         | 维护组织                             | 主要测什么                                | 题数 / 规模                                       | 计分方式                                                  | 当前最高可比公开结果（截至 2026-07-14）                                                        | 当前社区声望 |
+| ----------------------------------------------------------------- | -------------------------------- | ------------------------------------ | ----------------------------------------- | ------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------ |
+| [C-Eval](https://github.com/SJTU-LIT/ceval)                       | 2023-05-15                       | SJTU-LIT / 上海交通大学              | 中文 52 学科知识考试                      | 13,948                                            | 4 选项 0-shot / 5-shot accuracy                           | **无可信当前榜**：test labels 已于 2025-07-27 公开；官方历史 GPT-4 5-shot **68.7%**            | ★            |
+| [CMMLU](https://github.com/haonan-li/CMMLU)                       | 2023-06-15                       | MBZUAI / LibrAI 主导原始团队（静态） | 67 个中文主题，含中国文化、法规和生活知识 | 11,528                                            | 4 选项 0-shot / 5-shot average accuracy                   | **官方最后表**：5-shot Lingzhi-72B-chat **90.26%**；0-shot Spark 4.0 **90.97%**，榜单停在 2024 | ★            |
+| [MMLU-ProX](https://github.com/weihao1115/MMLU-ProX)              | 2025-03-13                       | 东京大学主导的 MMLU-ProX Team        | MMLU-Pro 的 29 语言平行知识推理           | 每语言 11,829；实际评测 11,759；Lite 每语言评 588 | 10 选项、论文主协议 5-shot CoT accuracy，做语言平均       | **历史论文结果**：DeepSeek-R1 29-language average **75.2%**；无持续榜                          | ★★           |
+| [MGSM](https://github.com/google-research/url-nlp/tree/main/mgsm) | 2022-10-06                       | Google Research                      | 相同数学题在多语言中的 CoT 泛化           | 250 平行题 × 10 种非英语语言，另附 English        | final numeric exact match，需按语言单列再做 macro average | **无持续统一榜**：翻译方向、prompt 语言与 CoT 语言会改变结果                                   | ★★           |
+| [AlignBench v1.1](https://github.com/THUDM/AlignBench)            | 首版 2023-11-30；v1.1 2024-06-15 | THUDM / 清华大学；智谱 AI            | 8 类真实中文用户查询与对齐质量            | 683                                               | GPT-4-0613 规则校准 judge，1-10 分均值                    | **历史官方榜**：GPT-4o **8.38 / 10**，冻结于 2024-06；不代表 2026 排名                         | ★            |
 
-### 2. RULER
+中文选型仍需自建 blind set，覆盖简繁体、方言 / 中英混输、中文写作、事实时效、拒答边界、行业术语、中文多轮对话和本地工具调用；选择题高分不能替代这些维度。
 
-- 维护者 / 提供方：NVIDIA 及联合学者。
-- 测试能力：比 NIAH 更复杂的长文本理解，包含多针检索、信息提取、聚合计算等任务。
-- 题目类型：长文本上下文理解基准。
-- 测试方式：包含多跳追踪（Multi-hop）、信息聚合等 13 个任务，防止模型只记住位置而不理解长文逻辑。
-- 厂商使用：DeepSeek、Qwen 等长文本技术报告较常引用。
-- 分数参考：满分 100%。截至本文整理时，前沿模型在 128k 上下文中约可达 90-95%。
+## 十、长上下文
 
-## 六、工具调用与智能体能力
+| 名称                                                                             | 发布时间                       | 维护组织                                  | 主要测什么                                                            | 题数 / 规模                                           | 计分方式                                                 | 当前最高可比公开结果（截至 2026-07-14）                                                           | 当前社区声望 |
+| -------------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------ |
+| [Needle in a Haystack v2](https://github.com/gkamradt/LLMTest_NeedleInAHaystack) | 首版 2023-11-10；v2 2026-05-29 | Greg Kamradt                              | 不同位置和长度下的单 / 多 needle 召回                                 | 无固定题数；由 length × depth × seeds × task 配置生成 | exact match 或 fractional retrieval，常画热力图          | **不存在合法单一榜首**：必须绑定 haystack、needle、grid、tokenizer、seed 与模型配置               | ★★           |
+| [RULER](https://github.com/NVIDIA/RULER)                                         | 2024-04-09                     | NVIDIA Research                           | 检索、多跳追踪、聚合和 QA 的合成长上下文套件                          | v1 为 4 类、13 task configs；v2 尚无正式表            | 按 task 与 4K-128K 长度报 accuracy，再做平均             | **官方 v1 最后表**：Jamba-1.5-Large average **96.0%**；带作者报告标记，v2 无榜                    | ★★★          |
+| [LongBench v2](https://longbench2.github.io/#leaderboard)                        | 2024-12-19                     | THUDM / 清华大学                          | 真实长文档、多文档、对话、代码和结构化数据推理                        | 503 个 4 选项任务；8K-2M words                        | full-context accuracy；direct、CoT、no-context、RAG 分开 | **官方最后表**：Gemini 2.5 Pro CoT **63.3%**；MiniMax-Text-01 direct **52.9%**，榜单停在 2025-08  | ★★★          |
+| [HELMET](https://princeton-nlp.github.io/HELMET/)                                | 2024-10-03                     | Princeton Language & Intelligence / Intel | 7 类应用导向长上下文任务，覆盖 recall、RAG、ICL、引用、重排、QA、摘要 | 7 类；样本数随任务与 context-length 配置              | 各任务专属指标标准化后平均；常报 8K-128K                 | **官方 128K 最后表**：公开表最高 GPT-4o-08 **64.8 average**；结果集未覆盖当前模型，不称 2026 SOTA | ★★           |
 
-### 1. BFCL (Berkeley Function Calling Leaderboard)
+标称 context window 不等于有效上下文。至少应把纯召回、跨段聚合、多跳推理、长程指令保持、代码 / 表格理解、延迟和成本分别报告。
 
-- 测试能力：评估模型是否能准确解析用户意图并生成正确 API JSON 调用。
-- 题目数量：2,000+ 测试用例。
-- 测试方式：测试模型在单轮或多轮对话中输出 API 参数的正确性，通过 AST 分析或真实 API 执行验证。
-- 厂商使用：OpenAI、DeepSeek、GLM、Mistral 等都常强调 Function Calling 表现。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 90-93% 区间。
+## 十一、多模态、视频、OCR 与文档
 
-### 2. WebArena
+| 名称                                                                        | 发布时间   | 维护组织                                         | 主要测什么                                          | 题数 / 规模                                        | 计分方式                                               | 当前最高可比公开结果（截至 2026-07-14）                                                           | 当前社区声望 |
+| --------------------------------------------------------------------------- | ---------- | ------------------------------------------------ | --------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ------------ |
+| [MMMU](https://github.com/MMMU-Benchmark/MMMU)                              | 2023-11-27 | MMMU Benchmark Team（OSU / Waterloo 等）         | 30 个大学专业、183 子领域的视觉知识推理             | 11,550:150 dev + 900 val + 10,500 test            | 多选 / 短答案 accuracy；val 与已公开答案的 test 不混排 | **官方 val 榜**：GPT-5.1 **85.4%**；test labels 已公开，当前比较优先 val / private protocol       | ★★★          |
+| [MMMU-Pro](https://arxiv.org/abs/2409.02813)                                | 2024-09-04 | MMMU Benchmark Team                              | 过滤文本捷径、扩为 10 选项，并增加 vision-only 模式 | 1,730 底层题；standard + vision 共 3,460 instances | original / vision accuracy 分开，并报告 overall        | **官方榜**：Chance Vision 1.5 **86.9% overall**；original **87.6%**、vision **86.1%**，2026-07-01 | ★★★          |
+| [MathVista](https://mathvista.github.io/)                                   | 2023-10-03 | MathVista Team（UCLA / UW / Microsoft Research） | 图表、几何、科学图像中的视觉数学推理                | 6,141：testmini 1,000 + private test 5,141         | answer accuracy；数值与选择题按官方 parser             | **官方 testmini**：DreamPRM + o4-mini **85.2%**，2025-06-04；这是系统 + 模型                      | ★★★          |
+| [Video-MME](https://video-mme.github.io/home_page.html#leaderboard)         | 2024-05-31 | Video-MME Team（南京大学牵头）                   | 短、中、长视频的时序与多模态理解                    | 900 videos、2,700 QA；744 有字幕                   | MCQ accuracy，按时长及有 / 无字幕分列                  | **官方最后表**：video-SALMONN 2+ 无字幕 **79.7%**、有字幕 **81.6%**，2025-09-28                   | ★★★          |
+| [OCRBench v2](https://99franklin.github.io/ocrbench_v2/)                    | 2024-12-31 | MultimodalOCR Team（HUST）                       | 双语视觉文字定位、识别、解析、计算与推理            | 10,000 人工复核 QA；31 场景                        | 8 类任务分数平均，English / Chinese 榜分开             | **官方 2026-06 English 榜**：KDL Frontier **68.1 average**                                        | ★★           |
+| [MDPBench](https://github.com/Yuliang-Liu/MultimodalOCR/tree/main/MDPBench) | 2026-04-01 | MultimodalOCR Team（HUST）                       | 多语言数字 / 拍照文档解析                           | 3,400 文档图像、17 语言；public / private split    | CDM 文档解析分数，按语言、脚本与拍摄条件汇总           | **官方初始表**：Gemini 3 Pro Preview public All **86.4**、private **89.8**，2026-04 release       | ★★           |
 
-- 测试能力：浏览器环境中的复杂任务执行能力。
-- 题目数量：812 个真实网页任务。
-- 题目类型：电商、论坛等网页环境任务。
-- 测试方式：提供完整沙盒浏览器环境，模型输出点击、输入、滚动等动作指令完成闭环任务。
-- 厂商使用：常用于评估 Agent 真实网页操作能力，Claude 等模型报告较常引用。
-- 分数参考：满分 100%。截至本文整理时，前沿模型约在 35-45% 区间。
+## 十二、工具调用、Web / GUI 与业务 Agent
 
-## 七、厂商常用基准偏好
+| 名称                                                                    | 发布时间   | 维护组织                        | 主要测什么                                                   | 题数 / 规模                                                                                                                       | 计分方式                                                               | 当前最高可比公开结果（截至 2026-07-14）                                                                                                                          | 当前社区声望 |
+| ----------------------------------------------------------------------- | ---------- | ------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| [BFCL V4](https://gorilla.cs.berkeley.edu/leaderboard.html#leaderboard) | 2025-07-17 | Gorilla / UC Berkeley           | function calling、agentic web search、memory 与格式稳健性    | commit `f7cf735` 有 4,696 个 base JSON cases；按 backend / protocol 展开约 5,106 次计分，另有 5,200 个不进 Overall 的 format 变体 | AST、execution、state、task-result 分项；Overall 为子类别不加权平均    | **官方榜同 commit**：Claude Opus 4.5 FC **77.47% Overall**                                                                                                       | ★★★          |
+| [τ³-bench v1.0](https://taubench.com/)                                  | 2026-03-18 | Sierra Research                 | airline、retail、telecom、banking knowledge 的多轮工具业务   | text 375；voice 278；knowledge 另含 698 docs                                                                                      | domain reward；报 pass^1 至 pass^4，overall 为域均值                   | **官方 text 榜**：GLM-5.2 max **75.56% pass^1 / 63.58% pass^4**，4 trials；user simulator 同为 GLM-5.2                                                           | ★★           |
+| [ToolSandbox](https://github.com/apple/ToolSandbox)                     | 2024-08-08 | Apple Machine Learning Research | 有状态、多轮、信息不足和违规工具调用                         | 1,032 cases、34 tools                                                                                                             | Milestone DAG 最大轨迹相似度；触发 Minefield 整题归零                  | **历史论文结果**：GPT-4o-2024-05-13 **73.0 average**；无持续榜                                                                                                   | ★            |
+| [WebArena v0.2.0](https://github.com/web-arena-x/webarena)              | 2023-10-24 | WebArena Team（CMU）            | 自托管电商、论坛、GitLab、地图等网页任务                     | 812                                                                                                                               | 最终状态 / URL / 文本 evaluator 的 binary task success                 | **官方表**：WebTactix + DeepSeek v3.2 **74.3%**，2026-02；human 78.24%                                                                                           | ★★★          |
+| [VisualWebArena](https://github.com/web-arena-x/visualwebarena)         | 2024-01-25 | WebArena Team（CMU）            | 需要视觉理解的真实网页操作                                   | 910、3 站点                                                                                                                       | 最终环境状态 binary success                                            | **官方最后表**：Gemini 2.5 Flash + SGV，SoM input，**54.0%**；human 88.7%                                                                                        | ★★           |
+| [OSWorld-Verified](https://os-world.github.io/#benchmark)               | 2025-07-28 | XLANG Lab                       | 跨真实桌面应用的 computer-use                                | 原始 369；标准榜通常排除 8 个 Drive 任务后评 361                                                                                  | execution-based task success；绑定 OS、action、observation、steps      | **官方总榜**：Pointer Agent + Opus 4.7 **83.64%**，100 steps、额外 coding action；严格 E2E 无该动作最高 Holo3 **82.56%**                                         | ★★★          |
+| [OSWorld-MCP](https://osworld-mcp.github.io/)                           | 2025-10-28 | X-PLUG / Alibaba                | 桌面任务中何时使用 MCP 工具                                  | 361:250 tool-beneficial + 111 non-beneficial；158 tools                                                                          | Task Accuracy、Tool Invocation Rate、成功任务 Average Completion Steps | **统一 prompt 主口径**：Agent-S2.5 **49.5 Acc**，50 steps、3 runs；Claude 4.5 Sonnet 同为 49.5 但仅 1 run。Kimi-K2.5 的 56.6 使用 specific prompt、1 run，不混排 | ★★           |
+| [MCPMark Verified](https://github.com/eval-sys/mcpmark)                 | 2026-06-12 | eval-sys                        | Notion、GitHub、Filesystem、Postgres、Playwright 的 MCP 任务 | **127 standard**；另有 50 easy smoke tasks，不并入标准分母                                                                        | verifier binary success；支持 pass@k、pass^k、avg@k                    | **官方榜**：GPT-5.5 `xhigh` + 默认 MCPMarkAgent **92.9% Pass@1**；环境版本 pinned                                                                                | ★★           |
 
-- OpenAI：常用 GPQA、MATH-500、SWE-bench 展示科学推理、数学和工程能力。
-- Anthropic：常用 SWE-bench、GPQA、WebArena 展示编码和 Agent 能力。
-- Google：常展示 NIAH 等长上下文相关基准。
-- DeepSeek：重视 LiveCodeBench、MATH、MMLU-Pro 等代码与数学基准。
-- Kimi / Moonshot：重视 NIAH、AlignBench 等长文本和中文对话基准。
-- Qwen / 通义千问：常用 MMLU-Pro、SWE-bench、C-Eval / CMMLU 等展示开源与中文能力。
-- 智谱 AI：常用 AlignBench、C-Eval、MMLU 等展示中文综合能力与对齐体验。
-- 百川智能：常引用中文和垂直领域 Benchmark。
-- MiniMax：常强调多模态、语音和拟人化交互相关评测。
-- Mistral AI：常通过 MMLU 等开源基准展示参数效率和 MoE 架构能力。
-- xAI：偏好 MATH、MMLU 及自建实时数据相关基准。
+## 十三、真实工作、专业交付与长周期自主性
 
-## 八、核心大模型厂商与代表作
+| 名称                                                                | 发布时间   | 维护组织                               | 主要测什么                                          | 题数 / 规模                | 计分方式                                                            | 当前最高可比公开结果（截至 2026-07-14）                                                                        | 当前社区声望 |
+| ------------------------------------------------------------------- | ---------- | -------------------------------------- | --------------------------------------------------- | -------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------ |
+| [GDPval](https://epoch.ai/benchmarks/gdpval)                        | 2025-09    | OpenAI（创建）；Epoch AI（现行公开榜） | 44 个高数字化职业的文档、表格和演示等交付物         | 1,320 tasks、9 个经济部门  | 领域专家盲评模型与人类交付物，报 win 与 win+tie rate                | **公开榜**：GPT-5.2 **49.7% win / 70.86% win+tie**；属于产品 / 系统交付物比较                                  | ★★★          |
+| [TheAgentCompany v1.0](https://the-agent-company.com/#/leaderboard) | 2024-12-18 | TheAgentCompany Team（CMU / Duke）     | 跨 GitLab、Plane、ownCloud、RocketChat 的公司工作流 | 175                        | Full 要全部 checkpoints 通过；Partial = 0.5 × progress + 0.5 × Full | **最高 verified**：TTE-MatrixAgent + DeepSeek-V3.2 **42.86% resolved / 52.40% partial**；未验证总榜最高 46.29% | ★★           |
+| [METR Time Horizon 1.1](https://metr.org/time-horizons/)            | 2026-01-29 | METR                                   | Agent 能以给定可靠度完成多长的人类任务              | 228 tasks；31 个需人类 8h+ | logistic fit 估计 50% / 80% 成功对应的人类完成时长，不是 wall time  | **官方公开模型**：Claude Opus 4.6 的 p50 **718.8 min（约 12.0h）**、p80 69.9 min；预览模型另列且 >16h 区间不稳 | ★★★          |
+| [RE-Bench](https://github.com/METR/RE-Bench)                        | 2024-11-22 | METR                                   | 与人类专家对比的前沿 AI R&D 研究工程                | 7 个长程环境               | 固定 2h / 8h / 32h 预算下的任务专属连续得分，相对 human baseline    | **无单一持续榜首**：任务量小且不同预算、scaffold、算力不可折成裸模型 accuracy                                  | ★★           |
 
-### 8.1 国内厂商
+## 十四、安全、对齐、偏见与 Agent 稳健性
 
-- 智谱 AI (Zhipu AI)：代表作 GLM-4 与 GLM-4V，开源 ChatGLM 系列在端侧部署和学术界有较高知名度。
-- 深度求索 (DeepSeek)：代表作 DeepSeek-V2 / V3 / R1，主打性价比、开源 MoE 架构、代码与数学推理。
-- 阿里通义 (Qwen)：代表作 Qwen 2.5 系列，覆盖小参数到大参数开源模型，是国内应用广泛的开源底座之一。
-- 月之暗面 (Moonshot AI)：代表作 Kimi，主打长文本处理、文档解析和长链条逻辑。
-- 百川智能 (Baichuan AI)：代表作 Baichuan 3，关注中文语境理解和垂直行业应用。
-- 稀宇科技 (MiniMax)：代表作 abab6.5，在语音、多模态和角色交互场景中较活跃。
+安全基准通常是 attack × model × defense 矩阵，而且“高分”方向可能相反。应同时看有害服从、过度拒答和正常任务 utility，不能给一个脱离威胁模型的“最安全模型冠军”。
 
-### 8.2 国际厂商
+| 名称                                                               | 发布时间   | 维护组织                                            | 主要测什么                                                         | 题数 / 规模                                                                   | 计分方式                                                               | 当前最高可比公开结果（截至 2026-07-14）                                                           | 当前社区声望 |
+| ------------------------------------------------------------------ | ---------- | --------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------ |
+| [HarmBench](https://github.com/centerforaisafety/HarmBench)        | 2024-02-06 | Center for AI Safety                                | 标准、版权、上下文和多模态有害行为                                 | 510 behaviors：200 standard + 100 copyright + 100 contextual + 110 multimodal | classifier 判 attack success rate，形成 attack × target / defense 矩阵 | **无单一榜首**：攻击方 ASR 越高、被测防御方 ASR 越低，方向相反                                    | ★★★          |
+| [StrongREJECT](https://github.com/dsbowen/strong_reject)           | 2024-02-15 | CHAI / UC Berkeley                                  | 6 类 forbidden prompts 与 jailbreak 质量                           | 313；另有 small 60                                                            | rubric LLM 或微调 evaluator 输出 0-1 harmfulness                       | **无单一模型冠军**：用于比较 jailbreak 与防御组合，evaluator 版本必须固定                         | ★★           |
+| [JailbreakBench](https://github.com/JailbreakBench/jailbreakbench) | 2024-03-28 | JailbreakBench Team（UPenn / ETH / EPFL / Sony AI） | 稳定复现攻击、目标模型和防御的越狱矩阵                             | 100 harmful + 100 对应 benign behaviors                                       | harmful ASR、benign refusal / utility 与查询成本                       | **无单一榜首**：官方榜是 attack / defense artifact 排名，不是裸模型安全总分                       | ★★           |
+| [XSTest](https://github.com/paul-rottger/exaggerated-safety)       | 2023-08-02 | Bocconi / Oxford / Stanford 原始团队（静态）        | 危险请求拒答与无害请求过度拒答                                     | 450:250 safe + 200 unsafe                                                    | full / partial refusal，safe 与 unsafe 分开                            | **无持续榜**；论文 GPT-4 safe full-refusal **6.4%**、unsafe full-refusal **97.5%** 仅为历史平衡点 | ★★           |
+| [WMDP](https://github.com/centerforaisafety/wmdp)                  | 2024-03-05 | Center for AI Safety                                | 生物、网络与化学危险知识及 unlearning                              | 3,668 MCQ                                                                     | 分领域 accuracy，并同时报告普通能力保留                                | **无单一“最高”**：能力评测希望高，unlearning 希望低；必须与 utility 成对看                        | ★★           |
+| [BBQ](https://github.com/nyu-mll/BBQ)                              | 2021-10-15 | NYU MLL                                             | 9 类社会偏见在歧义 / 消歧上下文中的表现                            | 58,492                                                                        | disambiguated accuracy + ambiguous bias score                          | **无持续官方榜**：准确率与偏见分必须成对报告，不能只优化一个总分                                  | ★            |
+| [AgentDojo](https://agentdojo.spylab.ai/results/)                  | 2024-06-19 | ETH Zurich / Invariant Labs                         | 有状态工具 agent 的 prompt injection 与 utility-security trade-off | 97 utility tasks、629 security test cases、74 tools                           | benign utility、under-attack utility 与 targeted ASR                   | **官方明确说明结果页不是 leaderboard**：组合覆盖不完整，不能公平选出单一冠军                      | ★★           |
 
-- OpenAI：代表作 GPT-4o / o1，在多模态实时交互和推理模型方向影响力较大。
-- Anthropic：代表作 Claude 3.5 Sonnet / Opus，重视 AI 安全和代码能力。
-- Google：代表作 Gemini 1.5 Pro / 2.0，重视长上下文和原生多模态能力。
-- Meta：代表作 Llama 3 系列，是开源大模型生态的重要参与者。
-- Mistral AI：代表作 Mistral / Mixtral，以高效模型结构和开源模型闻名。
-- xAI：代表作 Grok-2 / 3，强调实时数据能力和开放权重策略。
+## 十五、按选型目标组合基准
 
-## 参考文献
+| 目标能力         | 建议最小组合                                                                                 | 不应单独依赖                               |
+| ---------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| 通识 / 专业知识  | MMLU-Pro 回归 + GPQA Diamond + HLE / FrontierScience                                         | 已饱和的 MMLU 单分数                       |
+| 高难数学         | MATH 回归 + 当年 AIME + FrontierMath v2                                                      | GSM8K 或未注明年份的 AIME                  |
+| 抽象归纳         | ARC-AGI-2；交互系统再加 ARC-AGI-3                                                            | 知识选择题代替抽象推理                     |
+| 代码生成         | LiveCodeBench 固定 release + BigCodeBench + HumanEval+ 回归                                  | 只报 HumanEval                             |
+| 软件工程 agent   | SWE-bench Verified + Live + Terminal-Bench；研究型再加 PaperBench                            | 把底模与 scaffold 成绩混为一谈             |
+| 事实与检索       | FACTS + SimpleQA Verified + BrowseComp / GAIA + DeepResearch Bench Next + 自建时效 blind set | 把 browsing accuracy 当引用与研究报告质量  |
+| 指令与聊天       | IFEval + MultiChallenge + LMArena snapshot + 自建多轮集                                      | 单一 LLM judge 榜单                        |
+| 长上下文         | NIAH 诊断 + RULER + LongBench v2 / HELMET                                                    | 一张 single-needle 全绿热力图              |
+| 中文与多语言     | C-Eval / CMMLU 回归 + MMLU-ProX / MGSM + 自建中文生成任务                                    | 公开选择题或过时中文 judge 榜              |
+| 多模态           | MMMU-Pro + MathVista + OCRBench v2；视频再加 Video-MME                                       | 只测图片描述或 OCR 单项                    |
+| 工具与业务 agent | BFCL V4 + τ³ + MCPMark；GUI / Web 加 OSWorld-Verified / WebArena                             | 只测 JSON 格式正确性                       |
+| 专业工作与自主性 | GDPval + TheAgentCompany + METR Time Horizon                                                 | 把 clean task 的时长外推为所有岗位自动化率 |
+| 安全与稳健性     | HarmBench + XSTest + AgentDojo + 领域私有 red-team set                                       | 单一 refusal rate 或单一 jailbreak ASR     |
 
-1. Hendrycks, Dan, et al. "Measuring Massive Multitask Language Understanding." arXiv preprint arXiv:2009.03300 (2020).
-2. Chen, Mark, et al. "Evaluating Large Language Models Trained on Code." arXiv preprint arXiv:2107.03374 (2021).
-3. Cobbe, Karl, et al. "Training Verifiers to Solve Math Word Problems." arXiv preprint arXiv:2110.14168 (2021).
-4. Huang, Yuzhen, et al. "C-Eval: A Multi-Level Multi-Discipline Chinese Evaluation Suite for Foundation Models." arXiv preprint arXiv:2305.08322 (2023).
-5. Zhong, Wanjun, et al. "AGIEval: A Human-Centric Benchmark for Evaluating Foundation Models." arXiv preprint arXiv:2304.06364 (2023).
-6. Suzgun, Mirac, et al. "Challenging BIG-Bench Tasks and Whether Chain-of-Thought Can Solve Them." arXiv preprint arXiv:2210.09261 (2022).
+## 十六、维护原则
+
+1. **先固定版本再记录分数**：rolling / live benchmark 必须写 snapshot、数据截止日期和有效分母。
+2. **动态榜只保存可复核快照**：记录模型 snapshot、entry / scaffold、榜单日期、step limit、run 数、预算和验证状态。
+3. **经典基准保留但降级为回归**：饱和和污染不会让它完全无用，只会改变解释范围。
+4. **没有统一榜就明确留空**：不同 prompt、工具、推理预算或厂商自报值不拼成虚假排行榜。
+5. **同时看质量、稳定性和资源**：高 effort / best-of-N 的最高分不能替代成本约束下的 pass^k、延迟和成功率。
+6. **安全评测报告 Pareto 面而非单一总分**：至少同时报告 harmful compliance、over-refusal、正常 utility 和攻击预算。
+7. **为真实产品保留私有 blind set**：公开 benchmark 负责外部锚点，自建集负责用户分布、最新数据、中文场景、引用质量、隐私和回归门禁。
+8. **每次审计都检查缺口**：新基准只有在来源、题数、评分器、版本和可比结果均能说清时才进入主表；否则先放入候选清单，不猜数字。

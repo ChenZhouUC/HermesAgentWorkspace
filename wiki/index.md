@@ -1,7 +1,7 @@
 ---
 title: Wiki Index
 created: 2026-05-14
-updated: 2026-07-13
+updated: 2026-07-14
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个代码路径 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last structural update: 2026-07-11 | Total pages: 40
+> Last structural update: 2026-07-14 | Total pages: 42
 > (Content updates tracked in individual page frontmatter)
 > 结构规范参见 `SCHEMA.md`；操作追踪参见 `log.md`。Meta 页面使用纯文本路径，避免进入语义图谱。
 
@@ -35,9 +35,10 @@ Registry Rules
 - `entities/edge-sophon.md` - 算能 (Sophgo) 边缘 TPU 盒子系列
 - `entities/hermes-agent.md` - 多模态 Agent 端到端框架，包含 macOS 核心网关与 Fallback 机制
 - `entities/hidalgo.md` - ReID 顶层项目与计算层服务：特征数据 → 行人 ID + 角色 + 轨迹
+- `entities/model-context-protocol.md` - 连接 AI Host 与外部 tools、resources、prompts 的开放协议
 - `entities/obsidian.md` - 本地 Markdown 知识库与双链图谱工具
 - `entities/openclaw.md` - 早期的智能体前代框架（现已被 Hermes 继承并自动迁移）
-- `entities/ruview.md` - 基于 WiFi CSI 的穿墙无感知检测平台
+- `entities/ruview.md` - 将 WiFi CSI 转换为人体感知结果的应用平台
 - `entities/spacesight.md` - 线下门店与展陈场景的视觉智能产品线
 - `entities/trajex.md` - ReID 感知层服务：边缘轨迹 + 图像 → 特征数据 + 角色标签
 
@@ -51,7 +52,7 @@ Registry Rules
 - `concepts/graph-centrality.md` - 网络中心性算法及其在知识图谱分析中的应用
 - `concepts/graph-rag.md` - 以实体关系图、路径和社区摘要增强 RAG 的检索架构
 - `concepts/hybrid-search-rrf.md` - BM25、向量检索、图遍历等多路召回的排名融合方法
-- `concepts/llm-benchmark-methodology.md` - AI 大模型基准测试系统调研
+- `concepts/llm-benchmark-methodology.md` - LLM 评测对象、指标协议、证据状态与基准组合方法
 - `concepts/llm-computational-complexity.md` - 大语言模型在 TCS 领域的计算复杂性与严格下界
 - `concepts/llm-wiki.md` - 由 LLM 维护 Markdown 页面、索引和 schema 的轻量知识库架构
 - `concepts/lmm-input-mechanics.md` - 多模态内容从媒体预处理、编码器与连接器到序列拼接或 cross-attention 的输入机制
@@ -67,6 +68,7 @@ Registry Rules
 - `concepts/set-theory.md` - 集合论基础、公理体系与异见理论
 - `concepts/test-time-compute-scaling.md` - 推理时计算扩展范式与推理模型的 RL 训练实现
 - `concepts/traditional-knowledge-graph.md` - 大模型爆发前的符号主义知识图谱架构（KG）及三元组原理
+- `concepts/wifi-csi-sensing.md` - 从子载波级 WiFi CSI 到存在、活动、定位和生命体征推断的感知方法
 - `concepts/wikilinks.md` - Wikilinks 与内联脚注等 Markdown 扩展语法机制
 
 ## Comparisons (横向对比表)
