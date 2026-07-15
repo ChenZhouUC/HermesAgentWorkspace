@@ -562,7 +562,8 @@ vertex:
   region: global
 _config_version: 33
 session_reset:
-  mode: none
+  mode: idle
+  idle_minutes: 1440
 group_sessions_per_user: false
 platform_toolsets:
   feishu_group:
