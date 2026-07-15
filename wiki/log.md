@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-07-14
+updated: 2026-07-15
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,19 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-07-15] daily | SpaceSight Q&A conservative reinjection
+
+### ingest | Existing-node-only SpaceSight Q&A sync
+
+- Trigger: 用户要求充分理解 `SCHEMA.md` 后重新注入更新过的 `SpaceSight-QA-List.md`，并明确认为先前提取略散；QA 中内容不足时不新建 entity、concept、comparison 或 query，只按 schema 与现有节点建立有证据的连接。
+- Actions:
+  - 未新增任何 Layer 2 节点；将产品别名、客流产品形态、相机功能边界、开放场景取舍、Agent / VLM 能力和生成式视频职责边界集中回注到 `entities/spacesight.md`。
+  - 复核后删除 `queries/design-spacesight-nonstandard-traffic-plan.md`：其内容高度依附 SpaceSight 产品配置，核心边界已由产品实体承载，剩余交付细节继续留在 Layer 1，不再维护重复 query；同步清理实体引用与 index 登记，Active Layer 2 节点数由 42 调整为 41。
+  - 保留并更新 `queries/diagnose-spacesight-traffic-count-mismatch.md`，标题收敛为“如何验证并排查 SpaceSight 客流数据偏差”：把客户人工统计、既有设备或第三方系统结果视为待验证观测值，先用原始视频建立独立基准，再定位 SpaceSight 的事件抽取、ReID 与后处理层。
+  - 仅保留有明确输入输出、实现或问题到 SOP 谓词的现有连接；带宽估算、远距小目标、车牌方案、Whale Analytics 操作、API 联系方式等继续留在 Layer 1，不机械拆页。
+- Boundary: 未改写用户维护的 `_living/Whale-SpaceSight/SpaceSight-QA-List.md`，未修改 `SCHEMA.md`、lint 规则或 Obsidian 配置；index 仅因删除 active query 做生命周期要求的同步注销。本次不是 schema/lint 共演进，也不触发 Obsidian carrier gate。
+- Verification: `python3 scripts/wiki_lint.py` 全部 18 项检查通过；两个更新节点均通过 Pandoc GFM 解析，`git diff --check` 通过；删除节点只在当日操作记录和历史日志中以纯文本路径保留，不再存在 active 图谱引用或 index 登记。
 
 ## [2026-07-14] daily | Wiki lint schema alignment and repair feedback
 

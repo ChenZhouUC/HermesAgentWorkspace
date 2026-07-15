@@ -1,7 +1,7 @@
 ---
 title: Wiki Index
 created: 2026-05-14
-updated: 2026-07-14
+updated: 2026-07-15
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个代码路径 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last structural update: 2026-07-14 | Total pages: 42
+> Last structural update: 2026-07-15 | Total pages: 41
 > (Content updates tracked in individual page frontmatter)
 > 结构规范参见 `SCHEMA.md`；操作追踪参见 `log.md`。Meta 页面使用纯文本路径，避免进入语义图谱。
 
@@ -78,6 +78,5 @@ Registry Rules
 
 ## Queries (深度问答/探索存档)
 
-- `queries/design-spacesight-nonstandard-traffic-plan.md` - 如何设计 SpaceSight 非标店内客流方案
-- `queries/diagnose-spacesight-traffic-count-mismatch.md` - 如何排查 SpaceSight 出入口客流人数偏差
+- `queries/diagnose-spacesight-traffic-count-mismatch.md` - 如何先验证客户基准，再分层排查 SpaceSight 客流数据偏差
 - `queries/how-to-roll-out-a-new-reid-model.md` - 如何把一个新的 ReID 特征模型安全上线到生产（影子部署 + 灰度切换 + 回滚 SOP）

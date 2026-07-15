@@ -150,6 +150,7 @@ node_modules/
 opencode.json
 .idea/
 .vscode/
+.serena/
 *~
 *.swp
 *.swo
