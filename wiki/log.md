@@ -14,7 +14,7 @@ confidence: high
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
 
-## [2026-07-15] daily | SpaceSight Q&A conservative reinjection
+## [2026-07-15] daily | SpaceSight knowledge maintenance
 
 ### ingest | Existing-node-only SpaceSight Q&A sync
 
@@ -26,6 +26,17 @@ confidence: high
   - 仅保留有明确输入输出、实现或问题到 SOP 谓词的现有连接；带宽估算、远距小目标、车牌方案、Whale Analytics 操作、API 联系方式等继续留在 Layer 1，不机械拆页。
 - Boundary: 未改写用户维护的 `_living/Whale-SpaceSight/SpaceSight-QA-List.md`，未修改 `SCHEMA.md`、lint 规则或 Obsidian 配置；index 仅因删除 active query 做生命周期要求的同步注销。本次不是 schema/lint 共演进，也不触发 Obsidian carrier gate。
 - Verification: `python3 scripts/wiki_lint.py` 全部 18 项检查通过；两个更新节点均通过 Pandoc GFM 解析，`git diff --check` 通过；删除节点只在当日操作记录和历史日志中以纯文本路径保留，不再存在 active 图谱引用或 index 登记。
+
+### ingest | Edge compute platform semantic normalization
+
+- Trigger: 用户升级 `_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md` 后要求审计相关 ingest，并授权按审计结论优化 Layer 2。
+- Actions:
+  - 收敛 `entities/edge-rk3576.md` 与 `entities/edge-sophon.md`：明确 RK3576、CV186AH、BM1688、BM1684X 是 SoC / TPU 平台而非完整盒子 SKU；将表格改为稳定的平台规格，移除单台实机 OS、驱动、内存可见量和无功耗实测支撑的定性评价。
+  - 新建 `concepts/edge-ai-deployment-stack.md`，提炼整机、SoC、BSP、编译器 / Runtime、目标模型产物、视频处理链和模型包契约。
+  - 新建 `comparisons/rk3576-vs-sophon-edge-platforms.md`，按工具链、算力、视频口径、模型产物、核心 trade-off 和适用场景比较 RK3576、CV186AH、BM1688、BM1684X，并保留 CV186AH / BM1688“同后端但不可推导同 die 或可解锁”的证据边界。
+  - 更新 `index.md` 的实体摘要与新节点登记，Active Layer 2 节点数由 41 调整为 43。
+- Boundary: 登录凭据、内网地址、单次温度 / 负载 / 磁盘 / ION 状态和实机巡检命令继续只保留在 Layer 1；未新增 Linaro 或单芯片薄节点，未创建尚缺跨设备样本的资源审计 query；未修改 `SCHEMA.md`、lint 规则或 Obsidian 配置。
+- Verification: `python3 scripts/wiki_lint.py` 全部 18 项检查通过；两个更新实体与两个新增节点均通过 Pandoc GFM 解析；`git diff --check` 通过。
 
 ## [2026-07-14] daily | Wiki lint schema alignment and repair feedback
 
