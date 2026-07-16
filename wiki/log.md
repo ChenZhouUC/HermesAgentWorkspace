@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-07-15
+updated: 2026-07-16
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,21 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-07-16] daily | Edge box memory model clarification
+
+### source + ingest | Unified-memory terminology and accounting
+
+- Trigger: 用户希望理解独立显卡服务器的系统内存 / 显存与 SoC 盒子内存的区别、`free -h` 小于标称容量的原因，并要求给 SoC 等英文简称标注全称。
+- Actions:
+  - 2026-07-16 对 RK3576、算能 7.2T 和算能 32T 做只读复核，读取 `/proc/meminfo` 与启动内存日志，确认 `free -h total` 对应 `MemTotal`，CMA 包含在 `MemTotal` 中；算能盒子的大额差值主要来自 Linux 普通内存之外的 NPU / VPP / VPU 固定池。
+  - 扩写 `_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md` 的口径与术语：新增独立 VRAM 与 SoC 共享 DRAM 对照、标称容量 / `MemTotal` / `MemAvailable` 三层口径、三台实机精确对账表、`free -h` 字段解释和英文简称速查；同步修正实机参数表中会把 reserved 与 CMA 重复相加的旧写法。
+  - 根据用户的理解补充一句话口径：盒子标称内存是 CPU、GPU、NPU / TPU 和视频模块共享的板载物理总池；可以粗略类比“CPU 内存 + GPU 显存”，但不是多块独立内存相加，也不代表全部容量都可由 CPU 进程使用。
+  - 更新 `concepts/edge-ai-deployment-stack.md`，提炼 SoC 统一物理内存、Linux `MemTotal`、CMA 和固定硬件池的可复用关系，明确 ION heap 只能类比逻辑显存池，通常不是独立显存芯片。
+  - 增量 ingest 审计确认两个硬件实体无需重复承载通用内存原理，也不满足新建独立薄节点的必要性；在 `comparisons/rk3576-vs-sophon-edge-platforms.md` 补充选型口径，明确标称内存属于整机 SKU 的 SoC 共享总池，比较容量时需同时看标称值、`MemTotal` 和固定预留。
+  - 在实测巡检命令中增加 `/proc/meminfo` 精确字段读取；该命令已在三台设备实际执行。
+- Boundary: 未修改盒子配置；当前 `MemAvailable` 等动态值不固化为平台参数；没有把 ION、BMCV、Arm、芯片型号等无通行逐字母展开的名称强行制造成伪全称；未修改 `SCHEMA.md`、lint、index 或 Obsidian 配置。
+- Verification: 三台设备均成功执行 `free -k`、`free --version` 和精确 `/proc/meminfo` 字段读取；确认 RK3576 的 procps-ng 4.0.2 与两台算能旧版 `free` 对 `used` 使用不同公式，文档只保留跨版本成立的解释。`python3 scripts/wiki_lint.py` 全部 18 项通过；更新后的 living、concept 与 log 均通过 Pandoc GFM 解析；`git diff --check` 通过。
 
 ## [2026-07-15] daily | SpaceSight knowledge maintenance
 

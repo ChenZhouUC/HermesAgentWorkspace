@@ -1,7 +1,7 @@
 ---
 title: Edge Compute Boxes RK3576 Sophon
 created: 2026-05-14
-updated: 2026-07-15
+updated: 2026-07-16
 ---
 
 # AI 边缘计算盒子：RK3576 与算能系列
@@ -9,15 +9,116 @@ updated: 2026-07-15
 本文记录三台内网边缘计算盒子的登录方式、硬件与系统参数、AI Hub 平台背景知识、已实测巡检命令，以及 2026-07-15 的只读审计结果。
 
 > [!note]
-> 容量、温度、负载、利用率和剩余空间均为 2026-07-15 约 21:00（Asia/Shanghai）的单次采样，会随运行状态变化。芯片算力和视频能力为厂商标称值；主板、系统、内存、分区、频率和运行状态为实机值。
+> 初次实机审计时间为 2026-07-15 约 21:00（Asia/Shanghai）；内存口径于 2026-07-16 只读复核。温度、负载、利用率、当前可用内存和剩余空间会随运行状态变化。芯片算力和视频能力为厂商标称值；主板、系统、内存、分区、频率和运行状态为实机值。
 
 ## 1. 口径与术语
 
-- TOPS (Tera Operations Per Second)：每秒一万亿次操作。本文中的 6T、7.2T、32T 均指对应芯片的标称 INT8 峰值算力。
-- NPU / TPU：瑞芯微（Rockchip）通常称 NPU，算能（SOPHGO）通常称 TPU。
-- 标称物理内存：盒子配置或芯片平台的内存容量；OS 可见内存：Linux 经硬件预留后能由普通进程使用的内存。
-- ION / CMA：边缘 SoC 为 NPU、VPU、VPP 和连续物理内存预留的内存池。`free -h` 不会显示这些预留池，因此不能只靠它判断物理内存规格。
-- OverlayFS：算能盒子的 `/` 使用 overlay，`df -hT` 中 `/media/root-ro`、`/media/root-rw` 和 `/` 不是三份独立存储，判断可写空间时以 overlay `/`、`/data` 和底层块设备为主。
+### 1.1 服务器的内存/显存与盒子的内存有什么不同
+
+> [!tip] 一句话理解
+> **本文这些盒子的“标称内存”，本质上是整颗 SoC 可共同使用的板载总物理内存。** 可以先粗略理解为“CPU 内存 + GPU 显存”，但更完整的说法还要包括 NPU / TPU 和视频模块使用的内存；它不是几块独立内存相加，而是 CPU、GPU、NPU / TPU、VPU / VPP 等模块共享同一组 DDR，再由系统划分用途。
+
+带独立显卡的传统服务器通常有两套物理内存：
+
+- 系统内存：主板上的 DRAM（Dynamic Random-Access Memory，动态随机存取存储器），主要由 CPU（Central Processing Unit，中央处理器）和操作系统管理；`free -h` 查看的是这一侧。
+- 独立显存：显卡上的 VRAM（Video Random-Access Memory，视频随机存取存储器），主要由 GPU（Graphics Processing Unit，图形处理器）使用；通常由显卡厂商工具查看，不计入 `free -h`。
+- CPU 与独立 GPU 之间通常需要通过 PCIe（Peripheral Component Interconnect Express，高速串行计算机扩展总线）和 DMA（Direct Memory Access，直接内存访问）搬运或映射数据。
+
+本文三台盒子采用 SoC（System on Chip，片上系统）：CPU、NPU（Neural Processing Unit，神经网络处理器）/ TPU（Tensor Processing Unit，张量处理器）、GPU 和视频模块集成在同一平台上，物理上主要使用板载的同一组 DDR（Double Data Rate，双倍数据速率）内存，而不是再给加速器焊一组独立 GDDR 显存。因此，盒子标称 4 GB 或 16 GB 时，说的是这组**共享总池**的容量，不是“CPU 独占 4/16 GB，另外再送一份 GPU/NPU 显存”。**物理内存统一，不代表软件上所有容量都能由 CPU 进程自由使用。** 启动时仍会把同一组 DRAM 划成不同用途：
+
+```text
+标称 DRAM：CPU + GPU + NPU/TPU + 视频模块共享的物理总池
+├── 固件、启动链、设备寄存器映射等系统预留
+├── NPU / TPU / VPU / VPP 等固定硬件池（部分平台存在）
+└── Linux MemTotal（也就是 free -h 的 total）
+    ├── 普通 Linux 页面：进程、内核、文件缓存等
+    └── CMA 连续内存区：仍在 Linux 管理范围内，按需借给设备
+```
+
+因此，算能盒子的 NPU heap 可以类比“逻辑上的加速器显存池”，但它通常仍来自同一组板载 DRAM，不是独立显存芯片。本文实机中，RK3576 没有观察到像算能盒子那样巨大的固定 NPU heap；两台算能盒子则为 NPU、VPP 和 VPU 提前切出了较大的专用区域。
+
+ION 是 Android/Linux 多媒体内存分配器的名称，不是另一种物理内存，也没有需要强行展开的通行英文全称。一个 ION heap 可以基于固定 carveout（预切区域）或 CMA 等底层内存建立；是否计入 `MemTotal` 要看该 heap 的具体实现和设备树配置。
+
+### 1.2 为什么 `free -h` 小于标称内存
+
+要区分三层容量：
+
+1. **标称容量**：采购或整机规格中的 4 GB、16 GB，描述 CPU、GPU、NPU / TPU 和视频模块共享的板载物理内存总档位，不是 CPU 可独占的容量。
+2. **Linux 可管理容量**：`/proc/meminfo` 的 `MemTotal`，也是 `free -h` 的 `total`。它已经扣除了 Linux 普通页分配器无法使用的固件和固定硬件预留，但包含 CMA。
+3. **当前可分配容量**：`MemAvailable`，也是 `free -h` 的 `available`。它会随进程和缓存变化，是判断“现在还能启动多大应用”更有用的字段。
+
+`free -h` 的常见列含义如下：
+
+| 列           | 含义                                     | 阅读方式                                                                                                                                                            |
+| ------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `total`      | Linux `MemTotal`                         | 不是整机标称 DRAM，也不包含完全排除在 Linux 普通内存之外的硬件池                                                                                                    |
+| `used`       | 由 `free` 根据其他字段计算的派生值       | 新版常按 `total - available`，两台旧版算能实机按 `total - free - buff/cache`；不要跨版本硬套公式，也不要当作所有进程 RSS（Resident Set Size，常驻内存集）的简单求和 |
+| `free`       | 当前完全未使用的页面                     | Linux 会主动把空闲内存用于缓存，所以该值低不一定有问题                                                                                                              |
+| `buff/cache` | 块设备缓冲和文件页缓存等                 | 很多页面在应用需要时可回收                                                                                                                                          |
+| `available`  | 内核估计无需 swap 即可供新应用使用的容量 | 日常判断内存余量时优先看这一列                                                                                                                                      |
+| `swap`       | Swap Space，交换空间                     | 本文三台实机均为 0；内存压力下没有磁盘交换缓冲                                                                                                                      |
+
+CMA（Contiguous Memory Allocator，连续内存分配器）为需要连续物理页的设备准备内存。它由 Linux 管理，空闲 CMA 页面在满足迁移条件时仍可被普通可移动页面利用；因此本文把 `CmaTotal` 标成“包含在 `MemTotal` 中”，不再将其和固定 `reserved-memory` 重复相加。设备树中的 `reserved-memory` 则可能完全不进入 Linux 普通页分配器，NPU / TPU、视频和固件常从这里获得固定池。
+
+单位也会造成视觉差异：`GB` / `MB` 是十进制单位，`GiB`（gibibyte，吉比字节）/ `MiB`（mebibyte，兆比字节）是二进制单位，`1 GiB = 1024 MiB = 2^30 bytes`。`free -h` 会自动选择二进制量级并四舍五入，例如精确的 1.151 GiB 会显示成约 1.2 GiB。判断差额时应读取 `/proc/meminfo` 的精确 KiB（kibibyte，千比字节）值，而不是反向计算表格中的一位小数。
+
+### 1.3 三台实机的内存如何对账
+
+以下 `MemTotal` 和 CMA 数字于 2026-07-16 复核；当前 `MemAvailable` 会动态变化，不放入固定对账表。
+
+| 设备      | 标称内存 | 内核启动口径总量             | Linux `MemTotal` / `free -h total`                 | Linux 之外的主要固定用途                                               | CMA（已包含在 `MemTotal`） |
+| --------- | -------- | ---------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------- |
+| RK3576    | 4 GB 档  | 4,175,872 KiB，约 3.98 GiB   | 3,990,508 KiB，约 3.81 GiB；`free -h` 显示 3.8 GiB | 约 181 MiB 的总量差额来自启动期和设备预留；未观察到巨大的固定 NPU heap | 48 MiB                     |
+| 算能 7.2T | 4 GB 档  | 3,670,016 KiB，约 3.50 GiB   | 1,206,904 KiB，约 1.15 GiB；`free -h` 显示 1.2 GiB | NPU 768 MiB + VPP 1.5 GiB，另有固件和其他预留                          | 124 MiB                    |
+| 算能 32T  | 16 GB 档 | 16,055,040 KiB，约 15.31 GiB | 6,427,708 KiB，约 6.13 GiB；`free -h` 显示 6.1 GiB | NPU 约 3.86 GiB + VPP 3 GiB + VPU 2 GiB，另有固件和其他预留            | 128 MiB                    |
+
+所以“32T 标称 16 GB，但 `free -h` 只有 6.1 GiB”并不表示约 10 GB 被普通进程吃掉，也不等于内存条损坏；大部分差额在启动阶段已经划给 TPU/NPU 和视频模块，Linux 普通进程从一开始就看不到。反过来，`bm-smi` 或 ION debugfs 中的 `allocated` 表示专用池内部当前已经分出去的部分，不能再和 `free -h used` 相加后称为整机总使用量，否则容易重复或混合不同口径。
+
+### 1.4 英文简称速查
+
+| 简称                      | 英文全称或官方名称                                                                      | 中文和本文语境                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| AI                        | Artificial Intelligence                                                                 | 人工智能                                                                        |
+| Arm / AArch64             | Arm architecture / AArch64 execution state                                              | Arm 是处理器架构与品牌名；AArch64 是 Arm 架构的 64 位执行状态，不建议按字母硬拆 |
+| SoC                       | System on Chip                                                                          | 片上系统，把 CPU、加速器和多媒体/外设控制器集成到一个芯片平台                   |
+| CPU / GPU                 | Central Processing Unit / Graphics Processing Unit                                      | 中央处理器 / 图形处理器                                                         |
+| NPU / TPU                 | Neural Processing Unit / Tensor Processing Unit                                         | 神经网络处理器 / 张量处理器                                                     |
+| RAM / DRAM / VRAM         | Random-Access Memory / Dynamic RAM / Video RAM                                          | 随机存取存储器 / 动态内存 / 显存                                                |
+| DDR / GDDR                | Double Data Rate / Graphics Double Data Rate                                            | 常见系统内存接口 / 面向图形和加速器的内存接口                                   |
+| KiB / MiB / GiB           | kibibyte / mebibyte / gibibyte                                                          | 二进制容量单位，分别为 2^10 / 2^20 / 2^30 bytes                                 |
+| ASIC                      | Application-Specific Integrated Circuit                                                 | 专用集成电路；设备树中的 `ASIC` 是芯片实现类型，不是整机型号                    |
+| CMA / DMA                 | Contiguous Memory Allocator / Direct Memory Access                                      | 连续内存分配器 / 直接内存访问                                                   |
+| ION                       | ION memory allocator                                                                    | Android/Linux 多媒体内存分配器的官方名称，没有通行的逐字母全称                  |
+| ISP                       | Image Signal Processor                                                                  | 图像信号处理器，处理摄像头 sensor 原始图像                                      |
+| VPU / JPU                 | Video Processing Unit / JPEG Processing Unit                                            | 视频处理单元 / JPEG 处理单元                                                    |
+| VPP                       | Video Post-Processing                                                                   | 视频后处理，常做缩放、裁剪和色彩空间转换                                        |
+| RGA                       | Raster Graphic Acceleration Unit                                                        | Rockchip 的二维图形加速单元                                                     |
+| BMCV                      | BMCV library                                                                            | 算能计算机视觉加速库的官方名称，没有稳定的逐字母展开                            |
+| OS / BSP                  | Operating System / Board Support Package                                                | 操作系统 / 板级支持包                                                           |
+| SDK / API                 | Software Development Kit / Application Programming Interface                            | 软件开发工具包 / 应用程序编程接口                                               |
+| RKNN / RKNPU              | Rockchip Neural Network / Rockchip Neural Processing Unit                               | Rockchip 模型格式与部署工具链 / NPU 硬件及驱动体系                              |
+| MLIR                      | Multi-Level Intermediate Representation                                                 | 多层中间表示；TPU-MLIR 基于它完成模型编译                                       |
+| ONNX                      | Open Neural Network Exchange                                                            | 开放神经网络交换格式                                                            |
+| RTSP / NVR                | Real-Time Streaming Protocol / Network Video Recorder                                   | 实时流协议 / 网络视频录像机                                                     |
+| PCIe / USB / SATA         | Peripheral Component Interconnect Express / Universal Serial Bus / Serial ATA           | 高速扩展总线 / 通用串行总线 / 存储设备接口                                      |
+| GMAC                      | Gigabit Media Access Controller                                                         | 千兆以太网媒体访问控制器                                                        |
+| eMMC                      | embedded MultiMediaCard                                                                 | 嵌入式闪存存储；它是磁盘，不是运行内存                                          |
+| SSH / TCP                 | Secure Shell / Transmission Control Protocol                                            | 安全远程登录协议 / 传输控制协议                                                 |
+| SKU / BOM                 | Stock Keeping Unit / Bill of Materials                                                  | 库存量单位（具体可售配置）/ 物料清单                                            |
+| TOPS / TFLOPS             | Tera Operations Per Second / Tera Floating-Point Operations Per Second                  | 每秒万亿次操作 / 每秒万亿次浮点操作                                             |
+| INT8 / FP16 / BF16 / FP32 | 8-bit Integer / 16-bit Floating Point / Brain Floating Point 16 / 32-bit Floating Point | 常见整数或浮点数据精度                                                          |
+| RSS                       | Resident Set Size                                                                       | 进程当前驻留在物理内存中的页面总量                                              |
+| NCHW / NHWC               | Number, Channel, Height, Width / Number, Height, Width, Channel                         | 神经网络张量的两种常见维度排列                                                  |
+| RGB / BGR                 | Red, Green, Blue / Blue, Green, Red                                                     | 图像颜色通道顺序                                                                |
+| NMS                       | Non-Maximum Suppression                                                                 | 非极大值抑制，目标检测常见后处理                                                |
+| LLM / VLM                 | Large Language Model / Vision-Language Model                                            | 大语言模型 / 视觉语言模型                                                       |
+
+`CV186AH`、`BM1688`、`BM1684X`、`RK3576` 和 Cortex-A53 / A72 是产品或核心型号，不是需要逐字母展开的通用术语；Linaro、SOPHGO、CVITEK 也是组织或品牌名。
+
+### 1.5 其他容易混淆的口径
+
+- TOPS（Tera Operations Per Second，每秒万亿次操作）：本文中的 6T、7.2T、16T、32T 均指对应芯片的标称 INT8 峰值算力。
+- OverlayFS（Overlay Filesystem，叠加文件系统）：算能盒子的 `/` 使用 overlay，`df -hT` 中 `/media/root-ro`、`/media/root-rw` 和 `/` 不是三份独立存储，判断可写空间时以 overlay `/`、`/data` 和底层块设备为主。
 - CV186AH / BM1688:7.2T 实机的 `bm-smi` 标识为 `CV186AH-SOC`，设备树 `model` 却返回 `Sophon. BM1688 ASIC. ARM64.`。这是同一台设备在不同固件接口中的识别差异，不应仅凭其中一个字符串推断成另一款芯片。
 
 ## 2. 登录信息
@@ -49,50 +150,50 @@ ssh -J linaro@192.168.110.79 whale@10.108.30.177
 
 ### 3.1 RK3576 盒子
 
-| 维度            | 实机参数                                                                                                                     |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 主机 / 主板     | hostname `linaro-alip`；`Hugsun RK3576 EDGE V10 Board`                                                                       |
-| OS / 内核       | Debian 12 (bookworm)；Linux `6.1.99`，构建日期 2025-04-17                                                                    |
-| CPU             | AArch64 八核：4× Cortex-A53，最高 2.016 GHz；4× Cortex-A72，最高 2.208 GHz；`ondemand` governor                              |
-| AI 加速         | RK3576 NPU，厂商标称 6 TOPS INT8；实机 RKNPU 驱动 `0.9.8`；双 NPU core 负载接口                                              |
-| NPU 频率        | 300–950 MHz，`rknpu_ondemand` governor；采样时 950 MHz                                                                       |
-| 内存            | 标称 4 GB；`free -h` 可见 3.8 GiB；内核启动日志显示 `3933228K/4175872K available`，约 189 MiB reserved + 48 MiB CMA；无 swap |
-| 存储            | 32 GB eMMC，`lsblk` 实际 29.1 GiB；`/` 14 GiB，使用 83%；`/userdata` 14.8 GiB，使用 69%；`/oem` 128 MiB                      |
-| 网络接口        | `end0`：`10.108.30.82/24`，UP；`end1` DOWN；`wlan0` / `wlan1` DORMANT                                                        |
-| 温度 / 负载快照 | SoC / CPU / DDR / NPU / GPU 约 36–38°C；NPU Core0 约 21–26%，Core1 0%                                                        |
-| 主要能力        | 官方标称支持多种高速接口、三路异显、8K30 解码和 4K60 H.264 能力，适合边缘视觉推理与多媒体处理                                |
+| 维度            | 实机参数                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 主机 / 主板     | hostname `linaro-alip`；`Hugsun RK3576 EDGE V10 Board`                                                                  |
+| OS / 内核       | Debian 12 (bookworm)；Linux `6.1.99`，构建日期 2025-04-17                                                               |
+| CPU             | AArch64 八核：4× Cortex-A53，最高 2.016 GHz；4× Cortex-A72，最高 2.208 GHz；`ondemand` governor                         |
+| AI 加速         | RK3576 NPU，厂商标称 6 TOPS INT8；实机 RKNPU 驱动 `0.9.8`；双 NPU core 负载接口                                         |
+| NPU 频率        | 300–950 MHz，`rknpu_ondemand` governor；采样时 950 MHz                                                                  |
+| 内存            | 标称 4 GB 档；`MemTotal` 3,990,508 KiB（约 3.81 GiB），`free -h` 显示 3.8 GiB；CMA 48 MiB，已包含在 `MemTotal`；无 swap |
+| 存储            | 32 GB eMMC，`lsblk` 实际 29.1 GiB；`/` 14 GiB，使用 83%；`/userdata` 14.8 GiB，使用 69%；`/oem` 128 MiB                 |
+| 网络接口        | `end0`：`10.108.30.82/24`，UP；`end1` DOWN；`wlan0` / `wlan1` DORMANT                                                   |
+| 温度 / 负载快照 | SoC / CPU / DDR / NPU / GPU 约 36–38°C；NPU Core0 约 21–26%，Core1 0%                                                   |
+| 主要能力        | 官方标称支持多种高速接口、三路异显、8K30 解码和 4K60 H.264 能力，适合边缘视觉推理与多媒体处理                           |
 
 ### 3.2 算能 7.2T 盒子
 
-| 维度            | 实机参数                                                                                                       |
-| --------------- | -------------------------------------------------------------------------------------------------------------- |
-| 主机 / 芯片识别 | hostname `sophon`；设备树为 `Sophon. BM1688 ASIC. ARM64.`；`bm-smi` 为 `CV186AH-SOC`                           |
-| OS / 内核       | Ubuntu 20.04 LTS；Linux `5.10.4-tag-`，构建日期 2024-08-01                                                     |
-| CPU             | AArch64，6× Cortex-A53；实机 `lscpu` 未提供可核实的 CPU 频率                                                   |
-| AI 加速         | CV186AH，厂商标称 7.2 TOPS INT8；支持 INT4 / INT8 / FP16 / BF16 / FP32 混合精度                                |
-| 视频能力        | 厂商标称 8 路高清视频智能分析；16×1080P@30 H.264/H.265 硬解码；10×1080P@30 硬编码；JPEG 1080P 编解码各 480 fps |
-| 内存            | 标称 4 GB；`free -h` 可见 1.2 GiB；内核可寻址约 3.5 GiB，其中约 2.36 GiB reserved + 124 MiB CMA；无 swap       |
-| 硬件预留池      | NPU 768 MiB，采样时约 149.5 MiB allocated；VPP 1.5 GiB，采样时约 387.7 MiB allocated                           |
-| 存储            | 32 GB eMMC，实际 29.1 GiB；overlay `/` 8.7 GiB，使用 60%；`/data` 16.8 GiB，使用 64%                           |
-| 网络接口        | `eth0`：`10.108.30.177/24`，1 Gbps / Full Duplex / Link Up；`eth1` DOWN                                        |
-| SDK / 驱动      | `/opt/sophon/libsophon-0.4.9`；SDK / Driver `0.4.9`                                                            |
-| 温度 / 负载快照 | SoC 约 48.9°C；`bm-smi` 显示 TPU Active、采样时 900 MHz；load average 约 6.1–6.3（6 核）                       |
+| 维度            | 实机参数                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 主机 / 芯片识别 | hostname `sophon`；设备树为 `Sophon. BM1688 ASIC. ARM64.`；`bm-smi` 为 `CV186AH-SOC`                                     |
+| OS / 内核       | Ubuntu 20.04 LTS；Linux `5.10.4-tag-`，构建日期 2024-08-01                                                               |
+| CPU             | AArch64，6× Cortex-A53；实机 `lscpu` 未提供可核实的 CPU 频率                                                             |
+| AI 加速         | CV186AH，厂商标称 7.2 TOPS INT8；支持 INT4 / INT8 / FP16 / BF16 / FP32 混合精度                                          |
+| 视频能力        | 厂商标称 8 路高清视频智能分析；16×1080P@30 H.264/H.265 硬解码；10×1080P@30 硬编码；JPEG 1080P 编解码各 480 fps           |
+| 内存            | 标称 4 GB 档；`MemTotal` 1,206,904 KiB（约 1.15 GiB），`free -h` 显示 1.2 GiB；CMA 124 MiB，已包含在 `MemTotal`；无 swap |
+| 硬件预留池      | NPU 768 MiB，采样时约 149.5 MiB allocated；VPP 1.5 GiB，采样时约 387.7 MiB allocated                                     |
+| 存储            | 32 GB eMMC，实际 29.1 GiB；overlay `/` 8.7 GiB，使用 60%；`/data` 16.8 GiB，使用 64%                                     |
+| 网络接口        | `eth0`：`10.108.30.177/24`，1 Gbps / Full Duplex / Link Up；`eth1` DOWN                                                  |
+| SDK / 驱动      | `/opt/sophon/libsophon-0.4.9`；SDK / Driver `0.4.9`                                                                      |
+| 温度 / 负载快照 | SoC 约 48.9°C；`bm-smi` 显示 TPU Active、采样时 900 MHz；load average 约 6.1–6.3（6 核）                                 |
 
 ### 3.3 算能 32T 盒子
 
-| 维度            | 实机参数                                                                                                                     |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 主机 / 芯片识别 | hostname `bm1684`；`bm-smi` 为 `1684X-SOC`；该固件无可用的 `/proc/device-tree/model`                                         |
-| OS / 内核       | Ubuntu 20.04 LTS；Linux `5.4.217-bm1684-g3d94d8648f81`，构建日期 2024-04-03                                                  |
-| CPU             | AArch64，8× Cortex-A53，1.15–2.30 GHz；8 核均为 `performance` governor                                                       |
-| AI 加速         | BM1684X，厂商标称 32 TOPS INT8 / 16 TFLOPS FP16、BF16 / 2 TFLOPS FP32                                                        |
-| 视频能力        | 厂商标称 32 路高清视频智能分析；32 路高清硬解码；12 路高清硬编码                                                             |
-| 内存            | 标称 16 GB；`free -h` 可见 6.1 GiB；启动日志显示 `6289236K/16055040K available`，约 9.19 GiB reserved + 128 MiB CMA；无 swap |
-| 硬件预留池      | NPU 约 3.86 GiB，采样时 100% allocated；VPP 3 GiB，约 627.5 MiB allocated；VPU 2 GiB，约 229.9 MiB allocated                 |
-| 存储            | 64 GB eMMC，实际 58.3 GiB；overlay `/` 16 GiB，使用 59%；`/data` 34.6 GiB，使用 99%，仅余约 353 MiB；`/opt` 2 GiB，使用 16%  |
-| 网络接口        | `eth0`：`192.168.110.79/24`，1 Gbps / Full Duplex / Link Up；`eth1` / `wlan0` DOWN                                           |
-| SDK / 驱动      | `/opt/sophon/libsophon-0.4.9`；Lib / Driver `0.4.9 LTS`                                                                      |
-| 温度 / 负载快照 | SoC 约 81°C，Board 约 60°C；内核 thermal cooling 状态持续切换；`bm-smi` 采样时 TPU Active、约 712 MHz                        |
+| 维度            | 实机参数                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 主机 / 芯片识别 | hostname `bm1684`；`bm-smi` 为 `1684X-SOC`；该固件无可用的 `/proc/device-tree/model`                                        |
+| OS / 内核       | Ubuntu 20.04 LTS；Linux `5.4.217-bm1684-g3d94d8648f81`，构建日期 2024-04-03                                                 |
+| CPU             | AArch64，8× Cortex-A53，1.15–2.30 GHz；8 核均为 `performance` governor                                                      |
+| AI 加速         | BM1684X，厂商标称 32 TOPS INT8 / 16 TFLOPS FP16、BF16 / 2 TFLOPS FP32                                                       |
+| 视频能力        | 厂商标称 32 路高清视频智能分析；32 路高清硬解码；12 路高清硬编码                                                            |
+| 内存            | 标称 16 GB 档；`MemTotal` 6,427,708 KiB（约 6.13 GiB），`free -h` 显示 6.1 GiB；CMA 128 MiB，已包含在 `MemTotal`；无 swap   |
+| 硬件预留池      | NPU 约 3.86 GiB，采样时 100% allocated；VPP 3 GiB，约 627.5 MiB allocated；VPU 2 GiB，约 229.9 MiB allocated                |
+| 存储            | 64 GB eMMC，实际 58.3 GiB；overlay `/` 16 GiB，使用 59%；`/data` 34.6 GiB，使用 99%，仅余约 353 MiB；`/opt` 2 GiB，使用 16% |
+| 网络接口        | `eth0`：`192.168.110.79/24`，1 Gbps / Full Duplex / Link Up；`eth1` / `wlan0` DOWN                                          |
+| SDK / 驱动      | `/opt/sophon/libsophon-0.4.9`；Lib / Driver `0.4.9 LTS`                                                                     |
+| 温度 / 负载快照 | SoC 约 81°C，Board 约 60°C；内核 thermal cooling 状态持续切换；`bm-smi` 采样时 TPU Active、约 712 MHz                       |
 
 ## 4. AI Hub 平台与芯片背景知识（非实测）
 
@@ -242,6 +343,14 @@ df -hT
 ip -brief addr
 ```
 
+区分 Linux 可管理总量、当前可用量、缓存、CMA 和 swap 时，使用以下已在三台设备复核的命令。`free -h` 适合快速阅读，`/proc/meminfo` 适合精确对账：
+
+```bash
+free -h
+grep -E '^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SReclaimable|Shmem|CmaTotal|CmaFree|SwapTotal|SwapFree):' \
+  /proc/meminfo
+```
+
 RK3576 和 7.2T 可用以下命令读取主板字符串；32T 当前固件没有该节点：
 
 ```bash
@@ -374,3 +483,8 @@ sudo journalctl -k -b --no-pager \
 - SOPHGO TPU-MLIR 架构频率参数。Accessed July 15, 2026. https://github.com/sophgo/tpu-mlir/blob/master/include/tpu_mlir/Backend/Arch.h
 - SOPHGO libsophon 官方仓库。Accessed July 15, 2026. https://github.com/sophgo/libsophon
 - 三台内网设备的只读实机采样与命令验证，2026-07-15。
+- Linux Kernel `/proc/meminfo` 字段说明。Accessed July 16, 2026. https://docs.kernel.org/filesystems/proc.html
+- Linux Kernel CMA 配置说明与 DebugFS 接口。Accessed July 16, 2026. https://github.com/torvalds/linux/blob/master/mm/Kconfig ; https://docs.kernel.org/admin-guide/mm/cma_debugfs.html
+- Devicetree Specification `/reserved-memory`。Accessed July 16, 2026. https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#reserved-memory-node
+- procps-ng `free(1)` 官方手册。Accessed July 16, 2026. https://gitlab.com/procps-ng/procps/-/raw/master/man/free.1
+- 三台内网设备的内存口径只读复核，2026-07-16。

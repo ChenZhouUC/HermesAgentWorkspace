@@ -1,7 +1,7 @@
 ---
 title: RK3576 vs SOPHGO Edge Platforms
 created: 2026-07-15
-updated: 2026-07-15
+updated: 2026-07-16
 type: comparison
 tags: [comparison, edge-inference, edge-computing, rk3576, sophgo]
 sources: [_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md]
@@ -24,6 +24,8 @@ confidence: high
 | 平台倾向       | 通用计算、多媒体和中等规模 NPU 推理集成            | 低功耗、8 路级视觉分析             | 16 路级视觉分析和更高 TPU 吞吐     | 高推理密度、完整浮点能力和部分边缘 LLM              |
 
 表中 TOPS 和视频路数均为厂商标称，不等于业务模型在实际盒子上的稳定吞吐。真实路数还取决于 [[edge-ai-deployment-stack|部署栈]]中的视频解码、预处理、内存带宽、模型输入、后处理和散热预算。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
+
+表中没有直接比较“4 GB / 16 GB 内存”，因为这是整机 SKU 属性，不是 SoC 型号的固定容量。本文涉及的盒子通常由 CPU、GPU、NPU / TPU 和视频模块共享同一组板载 DDR：标称内存是这组物理总池，不是 CPU 独占容量，也不是标称容量之外另有一份 GPU / NPU 显存。实际选型必须同时核对整机标称容量、Linux `MemTotal` 和固定硬件预留池；不能只用 `free -h total` 比较两款盒子的物理内存大小。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
 
 ## 核心 Trade-offs
 

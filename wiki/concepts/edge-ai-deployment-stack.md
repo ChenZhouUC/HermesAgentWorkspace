@@ -1,7 +1,7 @@
 ---
 title: Edge AI Deployment Stack
 created: 2026-07-15
-updated: 2026-07-15
+updated: 2026-07-16
 type: concept
 tags: [edge-inference, edge-computing, architecture, pipeline]
 sources: [_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md]
@@ -10,7 +10,7 @@ confidence: high
 
 # Edge AI Deployment Stack
 
-边缘 AI 部署栈是把训练模型变成可在 AI Box 上稳定运行的完整软硬件链路。AI Hub / AI Box 是整机，SoC 只是其中一个计算层；芯片名称不能替代主板、BSP、Runtime、模型产物和应用契约的资产信息。[[edge-rk3576|RK3576]] 与 [[edge-sophon|SOPHGO 边缘 SoC]]分别提供了 Rockchip NPU 和 SOPHGO TPU 的平台实现。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
+边缘 AI 部署栈是把训练模型变成可在 AI Box 上稳定运行的完整软硬件链路。AI Hub / AI Box 是整机，SoC（System on Chip，片上系统）只是其中一个计算层；芯片名称不能替代主板、BSP（Board Support Package，板级支持包）、Runtime（运行时）、模型产物和应用契约的资产信息。[[edge-rk3576|RK3576]] 与 [[edge-sophon|SOPHGO 边缘 SoC]]分别提供了 Rockchip NPU（Neural Processing Unit，神经网络处理器）和 SOPHGO TPU（Tensor Processing Unit，张量处理器）的平台实现。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
 
 ## 分层结构
 
@@ -24,6 +24,16 @@ confidence: high
 | AI 应用          | 视频接入、预处理、推理、后处理和业务输出 | 输入契约、前后处理、资源预算与验收指标  |
 
 这套分层避免把“使用 Linaro 用户”“设备树出现某 ASIC 字符串”或“芯片支持某接口”误当成整机身份和交付能力。资产盘点应分别记录整机、SoC、BSP、Runtime 和模型目标。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
+
+## SoC 盒子的内存模型
+
+独立显卡服务器通常把 CPU 系统 DRAM（Dynamic Random-Access Memory，动态随机存取存储器）和 GPU VRAM（Video Random-Access Memory，显存）做成两套物理内存；`free -h` 只统计 Linux 系统内存。RK3576、CV186AH、BM1688 和 BM1684X 这类 SoC 盒子的标称内存则是 CPU、GPU、NPU / TPU 和视频模块共享的板载 DDR（Double Data Rate，双倍数据速率）物理总池。可以把它粗略理解成服务器的“CPU 内存 + GPU 显存”，但盒子没有把这两部分做成独立内存；系统会在同一个总池中划分以下软件用途：
+
+- Linux `MemTotal`：普通进程、内核和缓存能够参与管理的范围，也是 `free -h total`。
+- CMA（Contiguous Memory Allocator，连续内存分配器）：包含在 `MemTotal` 内，为需要连续物理页的设备服务，空闲时仍可承载可移动页面。
+- 固定 `reserved-memory` / ION heap：可由 NPU、TPU、VPU（Video Processing Unit，视频处理单元）和 VPP（Video Post-Processing，视频后处理）使用；完全预切出的部分不进入 Linux 普通内存，因而不出现在 `free -h`。
+
+所以算能 NPU heap 可以类比“逻辑显存池”，但它通常来自标称内存所代表的同一组板载 DRAM，而不是标称容量之外的另一组独立显存芯片。不能把 `free -h used` 与 ION `allocated` 机械相加，也不能把 `free -h total` 当作整机焊接的全部 DRAM。日常判断 Linux 应用余量优先看动态的 `MemAvailable`；盘点整机容量则要同时记录标称内存、启动日志、`MemTotal`、CMA 和各硬件预留池。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
 
 ## 模型编译与运行边界
 
