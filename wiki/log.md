@@ -29,6 +29,13 @@ confidence: high
 - Boundary: 未修改盒子配置；当前 `MemAvailable` 等动态值不固化为平台参数；没有把 ION、BMCV、Arm、芯片型号等无通行逐字母展开的名称强行制造成伪全称；未修改 `SCHEMA.md`、lint、index 或 Obsidian 配置。
 - Verification: 三台设备均成功执行 `free -k`、`free --version` 和精确 `/proc/meminfo` 字段读取；确认 RK3576 的 procps-ng 4.0.2 与两台算能旧版 `free` 对 `used` 使用不同公式，文档只保留跨版本成立的解释。`python3 scripts/wiki_lint.py` 全部 18 项通过；更新后的 living、concept 与 log 均通过 Pandoc GFM 解析；`git diff --check` 通过。
 
+### incremental ingest | SpaceSight validation-video access
+
+- Trigger: `_living/Whale-SpaceSight/SpaceSight-QA-List.md` 的客流异常排查 SOP 新增 Stardust 数据验证工具入口、当前产品覆盖范围、租户白名单与云资源预算约束，用户要求按审查结论同步 ingest。
+- Actions: 将新增信息回注到现有 `queries/diagnose-spacesight-traffic-count-mismatch.md` 的视频基准步骤，明确它是获取验证视频的操作入口，并区分工具覆盖边界与 SpaceSight 客流产品能力边界；同步更新 living source 与 query 的 `updated` 日期。
+- Boundary: 未新建 Stardust 工具实体，未修改 SpaceSight 产品实体、index、SCHEMA、lint 或 Obsidian 配置。
+- Verification: `python3 scripts/wiki_lint.py` 全部 18 项通过；`git diff --check` 通过。
+
 ## [2026-07-15] daily | SpaceSight knowledge maintenance
 
 ### ingest | Existing-node-only SpaceSight Q&A sync

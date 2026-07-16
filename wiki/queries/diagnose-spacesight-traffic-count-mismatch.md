@@ -1,7 +1,7 @@
 ---
 title: 如何验证并排查 SpaceSight 客流数据偏差
 created: 2026-07-01
-updated: 2026-07-15
+updated: 2026-07-16
 type: query
 tags: [spacesight, computer-vision, reid, ops]
 sources:
@@ -47,6 +47,8 @@ confidence: high
 - 高峰时段；
 - 低峰时段；
 - 出入口容易被遮挡或过店干扰的时段。
+
+验证视频可通过 [Stardust 数据验证工具](https://stardust.meetwhale.com/iot/data/verify)下载，并选择与排查对象一致的客流产品。当前工具只支持全店客流和出入口客流；这是工具的覆盖边界，不代表 SpaceSight 只提供这两种客流产品。新租户需要联系 SpaceSight 产研团队开启白名单。下载、存储和播放视频都会消耗云资源预算，应围绕上述抽样窗口按需使用。
 
 由能够理解已对齐口径的人独立观看原始视频，逐事件标注进店、出店、过店、员工和无法判断的样本；必要时采用双人独立标注加争议复核。这个逐事件标注集才是当前抽样窗口的验证基准。
 
