@@ -148,7 +148,7 @@ auxiliary:
     timeout: 360
   compression:
     provider: alibaba
-    model: qwen3.6-plus
+    model: qwen3.7-plus
     base_url: ""
     api_key: ""
     timeout: 120
@@ -606,7 +606,7 @@ smart_model_routing:
   cheap_model: {}
 fallback_model:
   provider: alibaba
-  model: qwen3.6-plus
+  model: qwen3.7-plus
 plugins:
   enabled:
     - sandbox
