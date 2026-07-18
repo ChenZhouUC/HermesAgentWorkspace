@@ -122,6 +122,7 @@ cron/output/
 cron/ticker_heartbeat
 cron/ticker_last_success
 cron/*.lock
+cron/executions.db*
 sandboxes/
 
 # ── Python / 测试 / 覆盖率缓存 ───────────────────────────────────

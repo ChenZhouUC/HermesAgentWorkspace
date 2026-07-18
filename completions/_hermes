@@ -149,10 +149,12 @@ _hermes() {
                     'check:Check for missing/outdated config'
                     'edit:Open config file in editor'
                     'env-path:Print .env file path'
+                    'get:Print a resolved configuration value'
                     'migrate:Update config with new options'
                     'path:Print config file path'
                     'set:Set a configuration value'
                     'show:Show current configuration'
+                    'unset:Remove a configuration value'
                     )
                     _describe 'config command' config_cmds
                     ;;
@@ -166,6 +168,7 @@ _hermes() {
                     'remove:Remove a scheduled job'
                     'resume:Resume a paused job'
                     'run:Run a job on the next scheduler tick'
+                    'runs:Show durable execution attempts'
                     'status:Check if cron scheduler is running'
                     'tick:Run due jobs once and exit'
                     )
@@ -257,6 +260,9 @@ _hermes() {
                     'archive:Archive one or more tasks'
                     'assign:Assign or reassign a task'
                     'assignees:List known profiles + per-profile task counts (union of ~/.h'
+                    'attach:Attach a local file to a task'
+                    'attach-rm:Delete an attachment by id'
+                    'attachments:List a tasks attachments'
                     'block:Mark one or more tasks blocked'
                     'boards:Manage kanban boards (one board per project / workstream)'
                     'claim:Atomically claim a ready task (prints resolved workspace pat'
@@ -288,7 +294,7 @@ _hermes() {
                     'stats:Per-status + per-assignee counts + oldest-ready age'
                     'swarm:Create a Kanban Swarm v1 graph (parallel workers → verifier '
                     'tail:Follow a tasks event stream'
-                    'unblock:Return one or more blocked/scheduled tasks to ready'
+                    'unblock:Return blocked/scheduled tasks to ready, or todo while paren'
                     'unlink:Remove a parent->child dependency'
                     'watch:Live-stream task_events to the terminal (Ctrl+C to exit)'
                     )
