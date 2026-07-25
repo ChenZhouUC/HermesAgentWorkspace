@@ -284,7 +284,7 @@ rm -f ~/Library/LaunchAgents/ai.hermes.vertex-refresh.plist \
 
 ```bash
 launchctl list | grep -Ei 'hermes|vertex|feishu|gateway' || true
-ps -axo pid=,ppid=,stat=,command= | grep -Ei 'hermes|vertex_wake|feishu|gateway|bot_feishu' | grep -v grep || true
+ps -axo pid=,ppid=,stat=,command= | grep -Ei 'hermes|vertex_wake|feishu|gateway' | grep -v grep || true
 ```
 
 如果仍看到残留进程，先记录 PID，再按 PID 停止：

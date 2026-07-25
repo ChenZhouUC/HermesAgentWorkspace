@@ -86,7 +86,7 @@ patch 回贴 + 依赖自愈后，用 `venv/bin/python -m pytest -q` 批量跑 `P
 cd ~/.hermes && grep -rln -E "<OLD_SHA>|<OLD_DATE>" \
   --include="*.md" --include="*.sh" --include="*.py" \
   --include="*.yaml" --include="*.yml" --include="*.toml" . 2>/dev/null | \
-  grep -v -E "^\./(hermes-agent|tmp|sessions|logs|state-snapshots|memories|\.git|skills|bot_feishu|cron|db_workspace|completions/_hermes)"
+  grep -v -E "^\./(hermes-agent|tmp|sessions|logs|state-snapshots|memories|\.git|skills|cron|db_workspace|completions/_hermes)"
 ```
 
 对每个命中文件，按下表决定改不改：
