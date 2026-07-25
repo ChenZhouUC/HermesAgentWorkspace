@@ -98,12 +98,15 @@ tool_loop_guardrails:
 compression:
   enabled: true
   threshold: 0.7
+  threshold_tokens: 150000
   target_ratio: 0.2
   protect_last_n: 20
   hygiene_hard_message_limit: 400
   protect_first_n: 3
   abort_on_summary_failure: false
   codex_gpt55_autoraise: true
+  proactive_prune_tokens: 48000
+  idle_compact_after_seconds: 1800
 kanban:
   dispatch_in_gateway: true
   dispatch_interval_seconds: 60
@@ -527,13 +530,15 @@ sessions:
   vacuum_after_prune: true
   min_interval_hours: 24
   write_json_snapshots: false
+  auto_archive: true
+  auto_archive_days: 14
 onboarding:
   seen:
     busy_input_prompt: true
     openclaw_residue_cleanup: true
   profile_build: ask
 updates:
-  pre_update_backup: false
+  pre_update_backup: quick
   backup_keep: 5
   non_interactive_local_changes: stash
 lsp:
