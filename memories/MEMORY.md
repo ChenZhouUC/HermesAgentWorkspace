@@ -13,3 +13,5 @@ AI identity (3 gens): Gen 1 '小聪明蛋' (toy); Gen 2 '木马牛' (tool); Gen 
 User hardware: Mac M5. No iOS. iTerm2. Match user's input language and explicit language requests.
 §
 SpaceSight (Whale Tech SaaS): Product Leader. Focus: UE, agent orchestration. Tech: PTZ, Sophon (算能) AI edge boxes, Edge-Cloud, VLM Copilot. Building AI device management platform (evaluating Sparkplug B/MQTT). Baselines: 100RMB/stream/yr, 2hr deploy. Ops: 'Video truth' over customer claims; internal FDE COACH testing only. Debug: Edge ALGO -> ReID -> Airflow. POC: '奕镜' V5 (auto retail, new car delivery without plates, farewell detection).
+§
+Default location for all generated scripts, code, documents, and temporary files is ~/.hermes/tmp/ unless explicitly specified otherwise.
