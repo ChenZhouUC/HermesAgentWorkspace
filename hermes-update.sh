@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.19.0 / main 46c7a407, `hermes completion zsh` already emits the
+# As of v0.19.0 / main 760112ad, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -115,6 +115,7 @@ PATCHED_FILES=(
     "agent/replay_cleanup.py"
     "tests/agent/test_replay_cleanup.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
+    "native/fts5_cjk/build.sh"
 )
 
 # ── Colour helpers (auto-disable outside a TTY) ───────────────────────────────
@@ -654,6 +655,8 @@ _VERTEX_DOCTOR_PATCH_OK=false
 _VERTEX_FALLBACK_PATCH_OK=false
 _VERTEX_VISION_ROUTING_PATCH_OK=false
 _HISTORY_RETENTION_PATCH_OK=false
+_APPROVAL_TEMP_CLEANUP_PATCH_OK=false
+_FTS5_CJK_BUILD_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -949,16 +952,19 @@ else
 fi
 
 # PATCH-16: Feishu outbound markdown full render. post/md cannot render ATX
-# headings (`## h`) or block quotes (`> q`), and GFM tables blank the whole
-# message; _build_outbound_payload promotes headings/quotes via
-# _promote_block_markdown and converts tables to bullets via
-# convert_table_to_bullets. Source + test live in adapter.py /
+# headings (`## h`) or block quotes (`> q`), and its CommonMark flanking
+# rules reject `**` spans with punctuation just inside + a word char just
+# outside (`到**“x”**的`); _build_outbound_payload promotes headings/quotes
+# via _promote_block_markdown and rewrites flanking-invalid strong spans via
+# _fix_strong_flanking. The former table→bullets sub-branch was retired
+# 2026-07-25 after real-client verification of native GFM table rendering
+# (upstream #52786). Source + test live in adapter.py /
 # tests/gateway/test_feishu.py.
 if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
     if grep -q 'def _promote_block_markdown' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'convert_table_to_bullets' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'test_build_outbound_payload_table_converts_to_bullets_and_posts' "${FEISHU_TEST_PY}" 2>/dev/null; then
-        ok "Feishu markdown render patch: active (ATX heading/quote promoted, GFM table → bullets)"
+        grep -q 'def _fix_strong_flanking' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_promote_block_markdown_fixes_strong_flanking' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "Feishu markdown render patch: active (ATX heading/quote promoted, strong flanking fixed)"
         _FEISHU_MARKDOWN_PATCH_OK=true
     else
         warn "Feishu markdown render patch inactive or partial"
@@ -1089,11 +1095,59 @@ else
     warn "Could not locate replay cleanup files — skipping PATCH-22 check"
 fi
 
+# PATCH-23: approval temp-cleanup exemption on Darwin. Upstream 0c8bcd339's
+# _is_verification_artifact_cleanup realpath()s the temp dir but not the
+# operand, so on Darwin (/tmp -> /private/tmp, /var/folders ->
+# /private/var/folders) the runtime's own `rm -f` verify-artifact cleanup
+# never matches and always walks the approval flow. The patch accepts the
+# raw spelling only for the exact /private system alias; any other
+# symlinked temp dir stays non-exempt (fail-closed). Retire when upstream
+# normalizes both sides of the comparison.
+if [[ -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
+    if grep -q 'f"/private{raw_temp_dir}"' "${APPROVAL_PY}" 2>/dev/null &&
+        grep -q 'allowed_spellings' "${APPROVAL_PY}" 2>/dev/null &&
+        grep -q 'test_darwin_private_alias_accepts_raw_temp_spelling' "${APPROVAL_TEST_PY}" 2>/dev/null; then
+        ok "Approval temp-cleanup Darwin alias patch: active (raw /private-alias spelling exempt, other symlinks fail-closed)"
+        _APPROVAL_TEMP_CLEANUP_PATCH_OK=true
+    else
+        warn "Approval temp-cleanup Darwin alias patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-23] approval temp-cleanup Darwin alias"
+    fi
+else
+    warn "Could not locate approval files — skipping temp-cleanup patch check"
+fi
+
+# PATCH-24: fts5_cjk extension build on Darwin. Upstream build.sh (PR #65544)
+# links with bare `gcc -shared`, which macOS rejects (unresolved sqlite3_*
+# symbols), and Apple's SDK sqlite3ext.h leaves several sqlite3_* calls as
+# direct symbol references — against the uv-managed CPython (static SQLite,
+# no exported sqlite3_* symbols) the loaded extension segfaults. The patch
+# forces the vendored amalgamation headers + `-undefined dynamic_lookup` on
+# Darwin. The built artifact lives at ~/.hermes/lib/libfts5_cjk.so and
+# survives updates; rebuild only needed when upstream changes fts5_cjk.c.
+FTS5_CJK_BUILD_SH="${HERMES_AGENT}/native/fts5_cjk/build.sh"
+if [[ -f "${FTS5_CJK_BUILD_SH}" ]]; then
+    if grep -q 'dynamic_lookup' "${FTS5_CJK_BUILD_SH}" 2>/dev/null &&
+        grep -q 'Ivendor' "${FTS5_CJK_BUILD_SH}" 2>/dev/null; then
+        if [[ -f "${HERMES_HOME}/lib/libfts5_cjk.so" ]]; then
+            ok "fts5_cjk Darwin build patch: active (vendored headers + dynamic_lookup; extension installed)"
+        else
+            ok "fts5_cjk Darwin build patch: active (extension not built — run native/fts5_cjk/build.sh to enable CJK search index)"
+        fi
+        _FTS5_CJK_BUILD_PATCH_OK=true
+    else
+        warn "fts5_cjk Darwin build patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-24] fts5_cjk Darwin build"
+    fi
+else
+    warn "Could not locate native/fts5_cjk/build.sh — skipping fts5_cjk build patch check"
+fi
+
 # -- 8c. Refresh saved diff only after full verification -----------------------
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_LAZY_ACTIVE_ANCHOR_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_VISION_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_LAZY_ACTIVE_ANCHOR_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_VISION_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

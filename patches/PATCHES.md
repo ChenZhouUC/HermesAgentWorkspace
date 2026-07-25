@@ -20,12 +20,12 @@
 
 两类补丁走不同管道：
 
-| 类型           | 代表                                               | 管理方式                                                                                                                                                                                                                           |
-| -------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20/21/22 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
-| **工程外补丁** | PATCH-3                                            | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
-| **运行时补丁** | PATCH-6                                            | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
-| **已上游合并** | PATCH-2/3/4/5/8                                    | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
+| 类型           | 代表                                                     | 管理方式                                                                                                                                                                                                                           |
+| -------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁** | PATCH-1/7/9/10/11/12/13/14/15/16/17/18/19/20/21/22/23/24 | 统一 diff (`local-patches.diff`) + `PATCHED_FILES` 数组 + 行为化验证                                                                                                                                                               |
+| **工程外补丁** | PATCH-3                                                  | `hermes-update.sh` Step 7 用 inline Python 检测坏格式后就地重写；上游修复后自动跳过                                                                                                                                                |
+| **运行时补丁** | PATCH-6                                                  | `npm audit fix`，仅作用于 `node_modules/`（gitignored），每次 update 后重新执行                                                                                                                                                    |
+| **已上游合并** | PATCH-2/3/4/5/8                                          | PATCH-5 于 v0.10.0 合并；PATCH-8 于 v0.11.0 合并；PATCH-4 于 v0.11.x 通过上游 commit `5b5a53a1` 合并；PATCH-3 于 v0.13.0 通过上游 commit `fe61d95b4` 合并；PATCH-2 于 v0.18.0 通过上游 commit `6b21a935a` 合并；本地冗余代码已移除 |
 
 ### 更新生命周期（关键步骤）
 
@@ -69,13 +69,15 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-13: grep current-author prompt + Feishu trigger/batching regression tests
   │   ├─ PATCH-14: grep people-profile/_load_people_profiles/_lookup_person + group-profile/_load_group_profiles/_lookup_group/service_hours/_GROUP_TOOL_LIMITATION_RULE + TestPeopleProfileInjection/TestGroupProfileInjection/service-hours regression
   │   ├─ PATCH-15: grep _backfill_sender_attachments/_backfill_reply_attachments/_mark_attachment_backfilled + _FEISHU_BACKFILL_WINDOW_SECONDS/_backfilled_attachment_ids in adapter.py
-  │   ├─ PATCH-16: grep _promote_block_markdown + convert_table_to_bullets (adapter.py) + outbound-payload table 回归测试 (test_feishu.py)
+  │   ├─ PATCH-16: grep _promote_block_markdown + _fix_strong_flanking (adapter.py) + flanking 回归测试 (test_feishu.py)
   │   ├─ PATCH-17: grep Vertex include_thoughts=false + single-level {"google":…} + hidden-thoughts regression test
   │   ├─ PATCH-18: grep doctor Vertex provider/profile/env hints + google model slug regression test
   │   ├─ PATCH-19: grep get_vertex_fallback_config/apply_global_project_override + vertex-fallback in auth.py + has_vertex_fallback_credentials + name="vertex-fallback" + fallback regression test
   │   ├─ PATCH-20: grep _known_provider_model_supports_vision + vertex-fallback + decide_video_input_mode + _pending_native_video_paths_by_session (run.py) + gemini-3.1-pro-preview / video data-url routing regression tests
   │   ├─ PATCH-21: grep Matrix lazy-feature identity anchor + shared-aiohttp regression test
-  │   └─ PATCH-22: grep apply_history_retention/_retention_turn_starts (replay_cleanup.py) + _history_retention_limits_for_source (run.py) + retention 回归测试
+  │   ├─ PATCH-22: grep apply_history_retention/_retention_turn_starts (replay_cleanup.py) + _history_retention_limits_for_source (run.py) + retention 回归测试
+  │   ├─ PATCH-23: grep f"/private{raw_temp_dir}"/allowed_spellings (approval.py) + test_darwin_private_alias_accepts_raw_temp_spelling (test_approval.py)
+  │   └─ PATCH-24: grep dynamic_lookup + Ivendor (native/fts5_cjk/build.sh) + ~/.hermes/lib/libfts5_cjk.so 存在性提示
   │
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
@@ -213,7 +215,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（59 文件，2026-07-24 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（59 文件，2026-07-25 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
 
 ### 手动恢复
 
@@ -233,17 +235,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.19.0 (upstream `main` `46c7a407`，2026-07-24)
+## 当前版本：v0.19.0 (upstream `main` `760112ad`，2026-07-25)
 
-**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19 / PATCH-20 / PATCH-21 / PATCH-22（共 17 条）。
+**活跃补丁**：PATCH-1 / PATCH-6 / PATCH-7 / PATCH-9 / PATCH-10 / PATCH-11 / PATCH-12 / PATCH-13 / PATCH-14 / PATCH-15 / PATCH-16 / PATCH-17 / PATCH-18 / PATCH-19 / PATCH-20 / PATCH-21 / PATCH-22 / PATCH-23 / PATCH-24（共 19 条）。
 
-**最近一次升级（v0.18.2 → v0.19.0，+1451 commits，basis `c48d5341` → `46c7a407`）要点**：
+**最近一次升级（v0.19.0 → v0.19.0，+279 commits，basis `46c7a407` → `760112ad`）要点**：
 
-- 上游主线（1451 commits，间隔 6 天，历轮最大跨度；含 release bump v0.19.0 (2026.7.20) `3ef6bbd20`，无 CHANGELOG 正文）：**飞书**——长 markdown 分块发送全程保持 post（`9403b4f8b`）、GFM 表格改经 post/md 原生渲染不再降级（`a66063098` / `ae22a03ef`，即本轮 PATCH-16 冲突来源）；**Vertex/Gemini**——vertex 原生登记进 PROVIDER_REGISTRY/overlays 并进 /model 选择器（`3ea35d671` / `df051c17c`，PATCH-18/19 的部分前提被吸收），gemini-native 跨 provider tool_call 补发 thoughtSignature 哨兵（`8d119832b`）、MoA 聚合保留 thought_signature（`f65d105cb`）、max_tokens 正确透传（`4ee74fa5d`）；**安全**——SSRF 三连：入站文件 URL 校验 / DNS 固定 / CDN 白名单（`2e08b778a` / `42626da1c` / `8e4b5d877`，含本轮新增 connect-time rebind 测试），线程上下文回填提示注入消毒（`1d7db1ba1`），技能沙箱不再挂载主凭据库（`c8882c141`），子代理转录脱敏凭据（`183712ab8`），API_SERVER_KEY 强度无法验证即拒绝（`683059feb`）；**模型**——新增 Claude Sonnet 5（`e2561466c`）、Kimi K3 1M 上下文（`495d4acec`），Bedrock Claude 4.x 1M + Converse prompt caching（`c02466d5e` / `4dccfcd9b`）；**行为变化**：/model /reasoning 默认改会话级作用域（`8b6fde3a3` / `dc0dbc938`）、provider 可 enabled:false 隐藏（`7de06f700`）、/compact 更名 /compress（`27a4e9280`）；**压缩**——保留最近 N 条用户消息（`a9c868225`）、threshold_tokens 绝对阈值 + 空闲触发（`e5078e315` / `72056faf8`）、CJK token 预算修正（`3f33a1c5a`）；**State/SQLite**——FTS5 新增 CJK 二元分词器，中文会话搜索可用（`b10952e9c`，schema v23 `9acc4b47f`），WAL-reset 缺陷版本拒用 WAL（`953cbc030`），损坏 REINDEX 自修复（`899513145`）；**Gateway**——最终回复持久化投递账本（`5854aad8b`）、会话级 turn lease 防跨轮并发（`19527db73`）、launchd respawn 风暴断路器（`d92095474`）、typing 状态文案可配置（`dc0c778b2`）；**平台**——Slack 工作区会话隔离 / clarify 按钮 / streaming 默认关（`06be0e69b` / `95aad9229` / `805c22c83`），Telegram 群鉴权回退 + 重连看门狗（`45fce38b9` / `c2cb37532`），Discord 启动回填漏消息（`303949acd`）；**Cron**——外部 provider 直跑状态对账（`ef6ce56ca`）、in_channel 投递清除继承 thread_id（`7337a9d99`）、jobs.json 容忍 BOM（`51e1fb8fb`）；**MCP/Secrets**——故障 stdio server 与桥隔离 + 永久失败停靠（`2c3aa3f7b` / `3e6b43776`），config.yaml 支持 `${env:VAR}` SecretRef 与 command 密钥源（`8d811f5c4` / `3d5dd8efa`）；**CLI/更新器**——**breaking**：移除 brew 与 pip/PyPI 安装通道（`d84e11af4`），更新失败 venv 自愈（`de602b729`）、autostash 容错（`fdd3943cb`）；**扩展点**——context-engine 新增 select_context/on_turn_complete 插件钩子（`dec464c35` / `bb9ef9d72`）、子代理可用 execute_code（`295e20358`）。
-- patch apply：首轮脚本整体 apply 失败并按设计回滚；手工 `git apply --3way` 后 54 files clean、**五个文件真实冲突**（历轮最多）：① `gateway/run.py` ×3——正文层消息文本块（PATCH-13 区域）吸收上游 STT 待转写文本解析 `_gateway_pending_stt_text`、按补丁语义去除死代码化的 `_group_sessions_per_user`/`_thread_sessions_per_user`；作者前缀块吸收上游 Slack user-ID 后缀（#17916）、保留幂等 `_with_current_author_prefix`；`_decide_image_input_mode`（PATCH-20 区域）video 分派与上游新增 `requested_provider` 实参并存吸收；② `gateway/stream_consumer.py`——`_send_fallback_final` 与上游码栏闭合 `ensure_closed_code_fences` 撞行，先过滤后闭合并存（PATCH-14）；③ `plugins/platforms/feishu/adapter.py`——PATCH-16 表格分支与上游 #52786 表格直传 + `prefer_post` 新参撞行，保留转 bullets、吸收 prefer_post，上游新增表格直传测试断言与补丁语义矛盾、已适配进补丁；④⑤ `tests/agent/test_image_routing.py`、`tests/hermes_cli/test_vertex_provider.py`——纯并存（上游新增测试与补丁测试同插入点，双侧保留）。重跑脚本 59 files **clean apply**，全部 17 条活跃 sentinel、PATCH-2/3/4/5 upstream guards 与 sandbox plugin verify 全 OK；无新退役；`local-patches.diff` / `.local-patches.base` 已刷新且与内层实际 diff（排除 package-lock.json）逐字节一致。功能回归：23 个 patch 相关测试文件 **1885 passed / 1 failed**（上轮基准 1767/1，+118 为上游新增测试）——唯一失败仍是 `test_approval.py::TestDetectDangerousRm::test_nonrecursive_verification_artifact_cleanup_is_not_dangerous`，即上游 `0c8bcd339` 自带测试在 macOS 的 realpath 自身 bug，摩擦表在案，上游本轮未修。
-- 依赖：venv 仅 editable `hermes-agent 0.18.2 → 0.19.0` 重建（Resolved 95 packages，无第三方升降级）；lazy backend：`stt.faster_whisper` ↑refreshed、15 项 current、`platform.matrix` python-olm 构建失败保留既装版本（已知非阻塞）；`npm audit fix` exited 1（non-critical）+ `package-lock.json` dirty（已知 esbuild peer 归一化噪音，不提交）；Skills：内层 bundled sync `+3 new`（xlsx / pdf / docx）`/ ↑15 updated / −7 removed from manifest`，外层 mirror 首跑 `+4/~0/−38`（上游真实裁撤：jupyter-live-kernel、heartmula、audiocraft、segment-anything、powerpoint 脚本群、yuanbao 等；新增 autonomous-ai-agents 等），二/三跑 `+0/~1/−1` 已知 llm-wiki 振荡，patched llm-wiki 已回同步且 manifest re-baselined。
-- 已知摩擦：① 首轮补丁还原态固有时序（PATCH-21 锚点暂不生效、Matrix 重进 refresh 并报 ⚠，回贴后恢复）；② `package-lock.json` audit fix 后 dirty（照旧不提交）；③ `test_approval.py` macOS realpath 上游 bug 持续；④ **新增摩擦 row**：`test_feishu.py` 的 SSRF connect-time rebind 测试存在隔离问题——23 文件批量跑通过、单文件/单测跑失败，裸上游同样失败，与本地 patch 无关，回归统计以批量跑为准；⑤ 本轮 `uv` 未触发 python-path fallback；⑥ PATCH-16 表格分支与上游 #52786 出现语义分叉，真机验证飞书原生表格渲染后可撤该子分支（见 PATCH-16 节）；⑦ 上游 `3ea35d671` 原生登记 vertex 进 PROVIDER_REGISTRY，PATCH-18/19 的部分前提被吸收，但 vertex-fallback 专属机制上游仍无对应物，两补丁保持活跃。
-- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`、`All checks passed`（首轮补丁缺位时报的 model.default slug/provider 警告即 PATCH-18 缺位症状，回贴后消失）；Gateway plist matches current install，launchd PID `71468` 已重启加载 patched modules；credential-pool 的 `gemini (HTTP 400)` 连通性 ⚠ 升级前后一致，与 vertex 主链路无关（主模型真实调用正常）；其余为未登录 auth provider、未配置可选依赖等提示。
+- 上游主线（279 commits，间隔 1 天，release tag 维持 v0.19.0 (2026.7.20)，无新 release）：**运行时/State 防护**——managed SQLite runtime repair 落地（E-949 `17bf3c828` / `05a799e41`，检测 WAL-reset 缺陷版本即重建私有 Python runtime，**本轮实际触发、整体重建 venv**，见依赖节），state.db 零字节隔离 + 快照失败显式报错（`ed5e41ddd`）、跨进程 quarantine lock fail-closed（#68805 `6048696ed`）、备份捕获失败即跳过 prune（`fc99b549e`）、Windows 更新期 state.db 清零防护（#68474 `d68e043ba`）、大 state.db 下 `hermes update` 分钟级卡顿修复（`01232e8e2`）、checkpoints 孤儿清扫无人值守不自动删 + 删除清单绑定预览（`cd3f653b4` / `a373fab1c`）；**Windows/UTF-8 大扫除**——subprocess `text=True` 全库显式 encoding + 新增 linter 规则（#53428 `c89481db5` / `d4b867cf9` / `051217342`）、read_text/write_text 全站 UTF-8（`cf35fd6de` / `411a686de` 等）、.env utf-8-sig BOM 容忍（`0a6fda01e`）、OpenClaw 迁移脚本非 UTF-8 容错（`049af61d6`，PATCH 文件 openclaw_to_hermes.py 同文件吸收）；**Gateway 可靠性**——静默 event-loop 冻结检测/逃逸 + config 门控看门狗（`7af3a6fc7` / `9cd729684`）、断网 fatal 后 reconnect watcher 卡死（#70344 `83fe362e8`）、混合可重试启动失败保活（`eb2f5b572`）、deferred agent build 超 30s 首条消息不丢（#63078 `60c8fc629`）、三处 SQLite 连接泄漏收口（`d10d3d7b4`）、slash-worker 按需生成（`5aa3536b3`）；**Agent/模型**——静态 system prefix prompt caching 三连（`9fdadf0cd` / `fb1b89b09` / `18af81bb5`）、dropped tool-call 终结点恢复（`63954d508` / `923704c7c`）、tool call 完成后 agent 挂起修复（`182c09b80`）、共享 OpenAI client FD 回收腐坏 retire-not-close（`e51abb266` / `1608a4688`）、anthropic 空白 text block 过滤（`c55d780d4`）、GPT-5.5 家族 24h prompt_cache_retention（`339be2154`）、catalog 新增 anthropic/claude-opus-5（`306c9f766`）、compaction SUMMARY_PREFIX 世代冻结（`8204b2761`）；**安全**——url_safety 代理 DNS 委托加固、字面 IP fail-closed（`4a0b84ec0` / `931ca437f`）、credential pool 401 无界重试断路（`431d2a628`）+ stale-key 恢复环终止（`73c4b5a04`）、custom endpoint API key 改存 .env 不落 config.yaml（`8a2925f79` / `bd2dcfe9c`）、跨会话泄漏三处（`f2e32ceea` 终端共享快照 HERMES_SESSION_* / `062d26195` desktop 后台队列 / `d083d9dac` composer）、certifi cacert 缺失自修复（`98470ae33`）；**Desktop/TUI**——crash-survivable in-flight turn journal + 崩溃后 auto-continue（`8d8d1d61f` / `082bd1712`）、Webhooks 管理页（#69687 `d82dfb692`）、Cron Blueprints GUI（#70066 `0600ac2f7`）、会话 auto-archive + durable pin（`f16b80362`）、图片附件持久化系列（`d0f5ef704` 等）、阿拉伯语 RTL 三端（`a96f7c805` 等）；**Cron/多 profile**——cron workdir 按 job session 隔离（#69396 `91cf5448d`）、multiplex 逐 profile cron store tick（`6c98eb2d4`）、jobs.json root 重写保 ownership（`722bf5d51`）；**平台**——Telegram 冷启动 polling readiness 门控 + 连接挂起重试看门狗（`83e30e371` / #67498 `733830980`）、Discord relay 转发命令斜杠归一（`e0dfcf275`）；**飞书本轮无上游改动**；**Skills**——bundled/CLI/mlops skills 全面对齐现版 API（`55ef425d0` 等）、skill 目录名与 frontmatter name 对齐（`503da4e30`，本轮外层 mirror +10/−18 的来源）、技能描述 60 字符上限（`0a262b7db`）；**记忆/OpenViking**——openviking provider 刷新串行化/关闭时序/env 消毒系列、MEMORY.md 读改写竞态防清空（`0c4c8f95e` / `410877c7e`）、provider tools 尊重 disabled toolsets（`e9a7c1889`）；**ACP**——跨 provider 已认证模型清单（`33908ff9f`）、HERMES_ACP_SKIP_CONFIGURED_MCP 跳过 MCP 启动（`366242e47`）。
+- patch apply：脚本一次通过——59 files 经 **3-way merge** 全部回贴（"upstream changed same area"，无真实冲突、无回滚、无 conflict marker），全部 17 条活跃补丁验证、PATCH-2/3/4/5 upstream guards 与 sandbox plugin verify 全 OK；无新退役。锚点漂移示例：`gateway/run.py` 各 hunk 向后漂 +14～+185 行（上游同文件大量演进）、`gateway/config.py` 1536→1580、`agent/auxiliary_client.py` 5416→5429。本轮快照同时收录**用户当日 PATCH-16 演进**（升级前已在工作树）：表格转 bullets 子分支经真机验证原生渲染后退役、新增 `_fix_strong_flanking` 行内加粗 flanking 修复（详见 PATCH-16 节）。`local-patches.diff` / `.local-patches.base` 已刷新，内层 modified 与 `PATCHED_FILES` 逐一对应（仅多 package-lock.json 已知噪音）。功能回归：23 个 patch 相关测试文件 **1892 passed / 2 failed**（上轮基准 1885/1；总数 +8 为上游新增测试与 PATCH-16 用例净增 +3−1）——失败① 仍是 `test_approval.py::TestDetectDangerousRm::test_nonrecursive_verification_artifact_cleanup_is_not_dangerous`（上游 `0c8bcd339` realpath 自身 bug，本轮未修，摩擦表在案）；失败② `test_read_extract.py::TestCommonDocumentExtraction::test_pdf_text_and_page_boundary` 为 venv 重建丢 pypdf 的**环境缺口**（补丁代码与测试均未变、该测试为补丁自带且裸上游无此测试，**非补丁回归**，见依赖节）。（首轮回归在 venv 缺 pytest 下以 `pip install --target /tmp/... --no-deps` + `PYTHONPATH` 叠加方式运行，未改 venv。）**同日修复轮（经用户批准）**：依赖回装后失败② 转绿；失败① 由新增 **PATCH-23**（approval 清理豁免 Darwin `/private` 别名修复，见该节）转绿，sentinel / 8c gate / `local-patches.diff` 快照已同步；终态 venv 原生 pytest 全量 **1895 passed / 0 failed**（较首轮 +3 = 两例转绿 + PATCH-23 新增回归测试 1 例）。同日配置轮再增 **PATCH-24**（fts5_cjk 扩展 build.sh 的 Darwin 构建修复，见该节；CJK 二元分词搜索索引就此启用），随快照入库、活跃补丁共 19 条。
+- 依赖：**本轮最大事件**——`hermes update` 触发上游 E-949 runtime repair（venv 链接的 SQLite 3.51.0 命中 WAL-reset bug），**整体重建 venv**：Python 3.12.7→3.12.13、SQLite 3.51.0→**3.53.1**，95 个包按 uv.lock 重装（此前散装偏新的版本回到锁定 pin，如 protobuf 7.35→6.33.5、attrs 26.1→25.4，属回锁而非降级），旧 venv 停放 `venv.stale.runtime-1784971145-95570-240b8ddf`（上游提示等旧 Hermes 进程退净后可删）。**重建副作用：所有 uv.lock 之外的包丢失**——dev 工具链（pytest / pytest-asyncio / pytest-xdist / pytest-timeout / pytest-split / debugpy / ruff / ty）、feishu extra 中 PATCH-9/17 pin 的 **python-socks + pypdf**、文档栈（PyMuPDF / openpyxl / python-pptx / pandas / lxml / xlsxwriter）、STT 栈（faster-whisper / ctranslate2 / onnxruntime / tokenizers / huggingface_hub / av / sounddevice）、dingtalk 栈（alibabacloud-* / dingtalk-stream）、aiofiles / APScheduler / chinesecalendar 等；成因：lazy refresh 跑在补丁还原态、按**上游**依赖元组判定完整性 → feishu 被判 "current" 而补丁 pin 未回装（gateway 主链路不受影响：lark-oapi / pycryptodome 在，飞书 websocket 正常连接）。lazy refresh：discord / slack / teams ↑refreshed、8 项 current（还原态口径）、matrix 失败保留既装版本（python-olm 构建，已知非阻塞）。`npm audit fix` exited 1（non-critical）+ `package-lock.json` dirty（已知 esbuild peer 归一化噪音，不提交）。Skills：内层 bundled sync ↑22 updated；外层 mirror `+10/~0/−18`——上游 `503da4e30` skill 目录名与 frontmatter 对齐的真实改名增删，非 llm-wiki 振荡（本轮该振荡未出现），patched llm-wiki 已回同步且 manifest re-baselined。**同日回装（经用户批准）**：`refresh_active_features()` 回装 feishu 栈（python-socks / pypdf 等，feishu → refreshed、其余 current）；`uv pip --python venv/bin/python` 按旧 venv 精确 pin 回装 dev 工具链、文档栈、STT 栈与 APScheduler / chinesecalendar；agent-browser（package.json 声明依赖，audit fix 后自 node_modules 缺失）经根目录 `npm install` 恢复；残留 `.venv`（uv 旧项目环境，曾致回归误跑出 254 个假失败）与 `/tmp` pytest 叠加层已删除。
+- 已知摩擦：① **新增摩擦 row**：runtime repair 重建 venv 丢非锁定包（见依赖节；影响 PDF/Office 文档抽取、STT、dingtalk 与下轮 pytest 回归；首轮按保守原则未回装，同日经用户批准按 `hermes-update.md` 摩擦表路径回装完毕、回归转绿）；② Matrix lazy refresh 失败照旧（python-olm 构建，保留既装版本，回贴后 PATCH-21 锚点恢复）；③ `package-lock.json` audit fix 后 dirty 照旧（不提交）；④ `test_approval.py` macOS realpath 上游 bug（上游本轮未修）——同日新增 **PATCH-23** 本地修复、测试转绿，上游统一 realpath 后归档该补丁并删摩擦 row；⑤ 本轮 `uv` 未触发 `--python venv/bin/python` fallback（0 次）；⑥ `test_feishu.py` SSRF rebind 测试：23 文件批量跑通过，回归口径维持批量跑（PATCH-16 节另记 2026-07-25 单文件跑亦通过，隔离问题或已随上游演进缓解，下轮复核后再决定是否删 row）。
+- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`；升级前的 `SQLite 3.51.0 (WAL-reset bug)` ⚠ 已由 runtime repair 清除（现 3.53.1 ✓）；剩余 2 issue 为 web / ui-tui npm 高危（已知 arborist crash 待上游 lockfile bump，不阻塞）；`agent-browser not installed` 软 ⚠（audit fix 后 node_modules 缺失所致）同日经根目录 `npm install` 恢复为 ✓；Gateway plist matches current install，launchd PID `16041`（修复轮再次重启加载 PATCH-23，飞书 websocket 重连正常）；credential-pool 的 `gemini (HTTP 400)` 连通性 ⚠ 与上轮一致；其余为未登录 auth provider、可选依赖提示。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -416,17 +418,19 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_feishu.py` |
 | **状态** | 🟡 未上游合并                                                         |
 
-**问题**：飞书 post/md 元素能渲染行内标记（加粗 / 斜体 / 列表 / 链接 / 行内代码），但有两类格式无法渲染：①ATX 标题 `## heading` 与引用 `> quote` 以原始符号字面显示；②GFM 表格会导致整条消息在飞书客户端显示为空白，原有实现因此把含表格的回复整体降级为纯文本，连带列表、标题等可渲染格式也一并失效。
+**问题**：飞书 post/md 元素能渲染行内标记（加粗 / 斜体 / 列表 / 链接 / 行内代码），但有两类格式无法渲染：①ATX 标题 `## heading` 与引用 `> quote` 以原始符号字面显示；②（2026-07-25 新增）飞书 md 解析器严格执行 CommonMark emphasis flanking 规则——`**` 内侧是标点且外侧紧贴文字时加粗不成立（如 `到**“端云通信协议”**的`，中文引号与文字间无空格是 CJK 排版常态），星号原样显示。真机 A/B 实测确认：`到 **“x”** 的`（外侧空格）、`**x：**`（行边界）、`，**x**。`（外侧标点）、`****x****`（嵌套）均正常渲染，唯独"外侧贴字 + 内侧标点"失败；近 21 天 445 条出站消息中 84 条中招，遍布主会话与各群。
 
 **修复**：两处改动，均在 `_build_outbound_payload` 出站路径：
 
 1. **标题 / 引用**：新增 fence-aware 预处理器 `_promote_block_markdown(content)`，将 post/md 渲染不出的块级语法转成等价可渲染形式：`## heading` → `**heading**`，`> quote` → `▎ quote`；代码块内的 `#` / `>` 原样保留。
 
-2. **表格**：有 `_MARKDOWN_TABLE_RE` 检出时，先调 `convert_table_to_bullets()`（`gateway.platforms.helpers`）把 GFM 表格转成 `**行标题**` + `• 字段: 值` bullet 组，再走 post/md 路由。GFM 表格语法消失后不再触发空白消息 bug，同时列表 / 标题等恢复原生渲染。（2026-07-24 轮演进：上游 #52786 声称新版飞书客户端已能在 post/md 内原生渲染 GFM 表格，据此删除了自家的表格降级分支，并给 `_build_outbound_payload` 新增 `prefer_post` 关键字参数（#26841：长 markdown 分片后每片强制走 post，修首片纯散文被误判 text）。按"并存 + 吸收"合并：保留补丁的表格转 bullets（未在本部署客户端实测原生表格渲染前不撤），吸收 `prefer_post` 签名与调用方；上游随此行为新增的 `test_build_outbound_payload_uses_post_for_markdown_table` 断言表格原样直传，与补丁语义正面矛盾，已在补丁内适配为"post 类型 + 表格已转换、数据保留"。）
+2. **行内加粗 flanking**（2026-07-25）：`_promote_block_markdown` 逐行（跳过代码块与行内代码 span）调用 `_fix_strong_flanking`：按 CommonMark 规则（标点=Unicode P*/S* 类）检测无法 open/close 的 `**span**`，仅把违规一侧的边缘标点连续段移出标记（`到**“x”**的` → `到“**x**”的`），字符序列不变；全标点 span 无法挽救时去掉标记。刻意不做"对称搬移"——那会把与 span 中部配对的括号也拽出粗体，产生更差的观感。合法 span（外侧为空白/标点/行边界，或内侧为文字）一律不动；内容无变化时保持返回原对象（fast path 身份语义不变）。
 
-**验证**：Step 8b grep `adapter.py` 中存在 `def _promote_block_markdown`、`convert_table_to_bullets`；grep `test_feishu.py` 中存在 `test_build_outbound_payload_table_converts_to_bullets_and_posts`；`tests/gateway/test_feishu.py` 全量 240 passed（2026-07-24：另有 1 条失败为上游自身测试隔离问题 `test_download_remote_document_blocks_connect_time_rebind`，裸上游单跑同样失败、23 文件批量跑通过，与本补丁无关，摩擦表在案；上游新增表格直传测试已适配进补丁，见修复 ②）。
+**表格子分支（已退役 2026-07-25）**：旧版补丁曾在检出 GFM 表格时先调 `convert_table_to_bullets()` 转成 `**行标题**` + bullet 组，规避早年"含表格的 post/md 整条空白"的客户端 bug。上游 #52786（2026-07-24 轮吸收 `prefer_post` 时的冲突来源）声称新版客户端已原生渲染表格；2026-07-25 真机实测「含 GFM 表格的 post/md 消息」正常渲染（不空白、单元格加粗正常）后，按既定计划撤除该子分支：`_build_outbound_payload` 恢复上游表格直传原文，补丁自有测试 `test_build_outbound_payload_table_converts_to_bullets_and_posts` 删除，上游 `test_build_outbound_payload_uses_post_for_markdown_table` 恢复上游原断言（表格原样直传）。若老客户端再现空白表格，可从外层仓历史恢复该分支（见 git log patches/local-patches.diff）。
 
-**上游吸收判断**：若上游为飞书 post/md 原生补齐标题 / 引用渲染，或将回复改走 interactive card markdown 元素，可归档本补丁。表格分支已出现吸收信号（上游 #52786 断言原生表格渲染可用）：在真实飞书客户端实测「含 GFM 表格的 post/md 消息」不再空白后，可先撤表格转 bullets 子分支（标题/引用 promote 与 `prefer_post` 不受影响）。
+**验证**：Step 8b grep `adapter.py` 中存在 `def _promote_block_markdown`、`def _fix_strong_flanking`；grep `test_feishu.py` 中存在 `test_promote_block_markdown_fixes_strong_flanking`；`tests/gateway/test_feishu.py` 全量 237 passed（2026-07-25，含新增 3 条 flanking 用例；表格退役后恢复上游直传断言；SSRF rebind 测试本次单文件跑亦通过）。flanking 修复上线前经真机三轮 A/B：真实失败样例（`**“端云通信协议”**` 等）复现失败 → 修复后写法（`“**端云通信协议**”`）实测正常渲染；近 21 天语料重放确认 84/445 条会被改写且全部改写结果 flanking 合法。
+
+**上游吸收判断**：若上游为飞书 post/md 原生补齐标题 / 引用渲染，或将回复改走 interactive card markdown 元素，可归档本补丁的 promote 分支；flanking 分支（修复 ②）在上游对出站 markdown 做等价 flanking 归一化前保持活跃。表格转 bullets 子分支已于 2026-07-25 真机验证原生表格渲染后撤除（该部分现与上游 #52786 行为一致，见上文"表格子分支（已退役）"）。
 
 ---
 
@@ -540,6 +544,40 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `agent/replay_cleanup.py` 中存在 `def apply_history_retention`、`def _retention_turn_starts`，grep `gateway/run.py` 中存在 `_history_retention_limits_for_source`、`_apply_history_retention`，并 grep `tests/agent/test_replay_cleanup.py` 中的 `test_retention_never_splits_tool_call_blocks`、`test_retention_newest_turn_always_kept_even_if_too_old` 与 `tests/gateway/test_stale_confirmation_expiry.py` 中的 `test_retention_feishu_dm_not_covered_by_group_key`。定向测试覆盖：时间窗丢整轮、条数向轮边界取整、tool-call 块不被切断、最新一轮超龄/超量仍保留、无时间戳视为新、时间 + 条数组合取更严、未配置/畸形配置 fail-open、DM 不受群键影响（`test_replay_cleanup.py` 21 passed + `test_stale_confirmation_expiry.py` 15 passed；周边 `test_session.py` + `test_feishu.py` 361 passed）。
 
 **上游吸收判断**：若上游为 gateway 回放历史提供原生的时间窗/条数保留配置（或给共享群 session 引入等价的 per-platform replay 上界机制），可归档本补丁。
+
+---
+
+### [PATCH-23] tools/approval.py — verify-artifact 清理豁免在 Darwin 失效（realpath 不对称）
+
+| 字段     | 内容                                                |
+| -------- | --------------------------------------------------- |
+| **文件** | `tools/approval.py`, `tests/tools/test_approval.py` |
+| **状态** | 🟡 未上游合并                                       |
+
+**问题**：上游 `0c8bcd339` 的 `_is_verification_artifact_cleanup` 给 verify/ad-hoc 临时脚本的 `rm -f` 清理开豁免（不走审批），但实现只对 `tempfile.gettempdir()` 做 `realpath` 而不动 operand：Darwin 上 temp 路径全在 `/private` 别名后（`/tmp` → `/private/tmp`、`/var/folders/…` → `/private/var/folders/…`），运行时用 `gettempdir()` 原样拼出的清理命令**永远匹配不上**，豁免恒不生效、清理仍走审批（行为等同该修复落地前）；上游自带测试 `test_nonrecursive_verification_artifact_cleanup_is_not_dangerous` 在 macOS 恒失败（Linux CI 上 raw==canonical 测不出来）。同时上游另一测试 `test_symlinked_temp_dir_only_exempts_canonical_target` 锁定「一般 symlink temp 目录只豁免 canonical 拼写」，简单放开 raw 拼写会破坏该 fail-closed 语义。
+
+**修复**：`_is_verification_artifact_cleanup` 中 operand 的合法拼写从「仅 canonical」扩展为 `allowed_spellings` 列表：canonical 拼写恒可；**仅当** `realpath(gettempdir()) == "/private" + gettempdir()`（即 Darwin 的 `/private` 系统别名，逐字符前缀判定）时才追加 raw 拼写。其余 symlink 场景（用户自建链接等）不放行，保持 fail-closed；后续的 operand realpath 包含性检查与 `hermes-(verify|ad-hoc)-` basename 正则不变。Linux 上 `realpath == raw`，条件不触发，行为与上游逐字节等价。
+
+**验证**：Step 8b grep `tools/approval.py` 中存在 `f"/private{raw_temp_dir}"`、`allowed_spellings`，grep `tests/tools/test_approval.py` 中存在 `test_darwin_private_alias_accepts_raw_temp_spelling`。新增回归测试 `test_darwin_private_alias_accepts_raw_temp_spelling`（mock gettempdir + realpath 模拟 `/private` 别名，平台无关）：raw 与 canonical 拼写均豁免、`nested/..` 变体仍判危险；上游三件套全部转绿——`test_nonrecursive_verification_artifact_cleanup_is_not_dangerous`（macOS 上由恒败转过）、`test_symlinked_temp_dir_only_exempts_canonical_target`（fail-closed 语义保持）、`test_verification_cleanup_exemption_rejects_broader_deletions`（13 个越界变体全拒）。`tests/tools/test_approval.py` 全量 **314 passed**（2026-07-25，修复前 312 passed / 1 failed）。
+
+**上游吸收判断**：上游对比较两侧统一 realpath（或等价归一化）并使其自带测试在 Darwin 通过后，可归档本补丁；届时同步删除摩擦表中 `test_approval.py` realpath row。
+
+---
+
+### [PATCH-24] native/fts5_cjk/build.sh — CJK 搜索扩展在 Darwin 构建失败/加载崩溃
+
+| 字段     | 内容                       |
+| -------- | -------------------------- |
+| **文件** | `native/fts5_cjk/build.sh` |
+| **状态** | 🟡 未上游合并              |
+
+**问题**：上游 fts5_cjk 扩展（PR #65544，中文/CJK 二元分词索引，修 1-2 字中文词在会话搜索里退化为 LIKE 全表扫）的 `build.sh` 是 Linux 写法，Darwin 上两连败：① 裸 `gcc -shared` 链接被 ld 拒绝（SQLite loadable extension 的 `sqlite3_*` 符号应由宿主进程在加载时提供，macOS 需显式 `-undefined dynamic_lookup`）；② 即使加了 dynamic_lookup，Apple SDK 的 `sqlite3ext.h` 宏映射不全，7 个 `sqlite3_*` 调用（step/prepare_v2/bind_pointer/finalize/malloc/free/mprintf）落成直连符号——而 uv-managed CPython 的 SQLite 是静态编入且**不导出**任何 `sqlite3_*` 符号，直连符号绑空指针，`load_extension` 时**段错误**。
+
+**修复**：`build.sh` 增加 Darwin 分支：强制使用 vendored amalgamation 头（`-Ivendor`，使全部调用走 extension API 指针，`nm -u` 验证 0 个未定义 `sqlite3_*`）+ `-undefined dynamic_lookup` 链接。Linux 路径原逻辑不变。构建产物 `~/.hermes/lib/libfts5_cjk.so` 在仓库外，升级不受影响；仅上游改动 `fts5_cjk.c` 时需重跑 build.sh。
+
+**验证**：Step 8b grep `build.sh` 中存在 `dynamic_lookup`、`Ivendor`（并提示 `~/.hermes/lib/libfts5_cjk.so` 是否已构建）。端到端（2026-07-25）：`load_fts5_cjk_extension()` 返回 True；`:memory:` 建 `tokenize='cjk_unicode61'` FTS5 表后二字中文词 `项目` 索引命中；`hermes sessions optimize-storage` 回填生产索引。
+
+**上游吸收判断**：上游给 build.sh 加 Darwin 分支（或改用统一走 api 指针的构建方式）后，可归档本补丁。
 
 ---
 

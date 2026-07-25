@@ -45,6 +45,7 @@ _hermes() {
                 'desktop:Build and launch the native desktop app'
                 'doctor:Check configuration and dependencies'
                 'dump:Dump setup summary for support/debugging'
+                'egress:Manage the iron-proxy egress credential-injection firewall'
                 'fallback:Manage fallback providers (tried when the primary model fail'
                 'gateway:Messaging gateway management'
                 'hooks:Inspect and manage shell-script hooks'
@@ -207,6 +208,21 @@ _hermes() {
                     'share:Upload debug report to a paste service and print a shareable'
                     )
                     _describe 'debug command' debug_cmds
+                    ;;
+                egress)
+                    local -a egress_cmds
+                    egress_cmds=(
+                    'config:Print the generated proxy.yaml path'
+                    'disable:Turn off the proxy integration'
+                    'install:Download iron-proxy binary (v0.39.0)'
+                    'reload:Hot-reload the running daemons ruleset from proxy.yaml (mana'
+                    'restart:Restart the managed iron-proxy (stop if running, then start)'
+                    'setup:Interactive wizard: install + CA + mint tokens + write confi'
+                    'start:Start the managed iron-proxy'
+                    'status:Show proxy state and mappings'
+                    'stop:Stop the managed iron-proxy'
+                    )
+                    _describe 'egress command' egress_cmds
                     ;;
                 fallback)
                     local -a fallback_cmds
