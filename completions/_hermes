@@ -28,6 +28,7 @@ _hermes() {
             local -a subcmds
             subcmds=(
                 'acp:Run Hermes Agent as an ACP (Agent Client Protocol) server'
+                'approvals:Approval-prompt tools (mine history into allowlist proposals'
                 'auth:Manage pooled provider credentials'
                 'backup:Back up Hermes home directory to a zip file'
                 'bundles:Create, list, and manage skill bundles (aliases for multiple'
@@ -91,6 +92,13 @@ _hermes() {
             ;;
         args)
             case ${line[1]} in
+                approvals)
+                    local -a approvals_cmds
+                    approvals_cmds=(
+                    'suggest:Propose command_allowlist entries from past approvals'
+                    )
+                    _describe 'approvals command' approvals_cmds
+                    ;;
                 auth)
                     local -a auth_cmds
                     auth_cmds=(

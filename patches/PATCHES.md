@@ -80,7 +80,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-VERTEX-FALLBACK: 第二 Vertex 账号作为独立 fallback provider
   │   ├─ PATCH-VERTEX-IMAGE-ROUTING: Gemini 3.x 图片 native routing
   │   ├─ PATCH-VERTEX-VIDEO-ROUTING: Gemini 视频 native routing
-  │   ├─ PATCH-LAZY-ACTIVATION: lazy feature 使用身份锚点判断激活
+  │   ├─ PATCH-LAZY-ACTIVATION: 上游首项依赖身份锚点回归 sentinel（✅ 已归档）
   │   ├─ PATCH-HISTORY-RETENTION: 平台级回放时间窗/条数上界
   │   ├─ PATCH-APPROVAL-DARWIN-TMP: Darwin 临时路径别名归一化
   │   └─ PATCH-FTS5-CJK-DARWIN: Darwin CJK FTS 扩展构建/加载
@@ -169,7 +169,6 @@ PATCHED_FILES=(
     "pyproject.toml"
     "uv.lock"
     "tools/lazy_deps.py"
-    "tests/tools/test_lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
     "website/docs/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
@@ -227,7 +226,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（60 文件，2026-07-26 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（59 文件，2026-07-27 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
 
 ### 手动恢复
 
@@ -247,17 +246,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.19.0 (upstream `main` `eb527605`，2026-07-26)
+## 当前版本：v0.19.0 (upstream `main` `d71033a4`，2026-07-27)
 
-**活跃补丁**：当前共 24 个语义补丁。23 个工程内/运行时补丁由 Step 3/4/8 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁，由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方 Step 8b/8e 清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 23 个语义补丁。21 个工程内补丁由 Step 8b/8c 管理，`PATCH-NPM-DEPENDENCY-HYGIENE` 由 Step 3/4 管理，`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.19.0 → v0.19.0，+183 commits，basis `760112ad` → `eb527605`）要点**：
+**最近一次升级（v0.19.0 → v0.19.0，+274 commits，basis `eb527605` → `d71033a4`）要点**：
 
-- 上游主线（183 commits，间隔 1 天，release tag 维持 v0.19.0 (2026.7.20)，无新 release）：**Sessions/State 恢复与防护**——离线 state.db 恢复 + opt-in 部分恢复 + in-place repair 失败指向离线恢复（`a9b8128bc` / `508764d38` / `ec2a0f8c1`）、恢复期拒绝对 live DB 做快照（`a1c4d9995`）、零字节 byte-probe guard 原子化/路径修正/fail-closed（`fe431651c`）、raw DB 读审计收口 + tracking 泄漏（`95fb47785`）、不再自取消 live SQLite 的 POSIX 锁（`fbd5e5772`）、损坏 state_meta 报 loss 而非 absence + 快照 check/use 竞态关闭（`c8aa0c7a3` / `9657f6e34`）、缺失 session 重建而非删除已抢救消息（`d2e733e63`）、compression lock 崩溃持有者回收（`11c487e40`）；**managed-uv / E-949 跟进**——已装版本 ≥ 目标 patch 时不再重复 repair（`1161cc0b5`）、bare-minor 修复仍解析到缺陷版本时显式 patch 重试（`866cdce20`），本轮 runtime repair **未复发**；**Agent/模型**——cwd / runtime surface 变化时终结 stale prefix cache（`a2b0d6d8e` / `7a61b66da` / `cfd2a3822`）、compression 摘要调用全路径流式 + progress-aware 超时（`9de7dfe1c` / `32fd9d65c`）、aux 调用补上 OpenRouter/Portal sticky routing key（`1c0884516` / `f2f4df064`）、拒绝非流式请求的 provider 强制 streaming（`5121a2a20`）、aux/vision picker 统一 provider-inventory seam + custom provider + exhausted-pool 显示（`92549c9a6` / `f7001f968` / `9aefa4c61`）；**Relay 平台 Phase 1–4**——supported_ops 发现/身份字段/handoff 别名（#71300）、媒体收发对等（#71363）、原生审批/确认/澄清交互（#71404）、线程生命周期/语义改名/hello 命令清单（#71624）；**Skills/curator**——未知 curator ownership fail-closed（`9b909115f`）、autonomous write policy 一致化（#67140 `243a01d5d`）、`curator adopt` + 未纳管 skills 显示（`72de75c0a`）、bundled skills 误标 agent-created 修复（#64393 `b9fedab47`）、上游 skill 改名不再判为用户删除（`c537ae5f4`）、session 标题不再随 skill 命名 + `sessions retitle-skills`（`dcf5fc0ee` / `16042b0c4`）；**Gateway/worktree**——会话跟进其落定的 worktree（`0158569ee`）、终端会话 cwd 落库且只盖自己行（`3172b8739` / `ad81e3c16`）、已删 worktree 会话折叠回父 repo（`47c95130f`）；**Desktop（本轮改动最大头）**——多标签 / slash 目标会话绑定系列（`584b27449` / `428c909d2` 等）、流式性能（timer flush / 隐藏 tab 冻结 / 增量 reconcile）、reasoning effort 单一 owner（`43d1088ba` 系）、@session 链接 chips + 标题解析、memory tool 卡片化、model picker 权威对齐（`a135b278d`）；**TUI**——Apple Terminal dim fallback（`4c03d5bff`）、markdown 前景色锚定（`b8bf368b0`）、行中 slash 补全与 skill 引用样式（`530e7c0d4` / `07244c5ea`）；**Windows/WoA**——移除 WoA 仿真下撒谎的 GetNativeSystemInfo 探测（`c03a977a9`）、IsWow64Process2 HANDLE 截断致 ARM64 误拒（#71381 `fe3dd9106`）；**其他**——Telegram exec-approval 2×2 键盘布局恢复（`fecceec11`）、image_gen/codex 移除不支持的 tool_choice（#19505 `2bfe9fabb`）、`hermes -w` 启动 14s→1.8s（`776c43bef`）、ACP 会话 cwd 锁定（`cca2a2fc8` / `b6accee0d`）、computer_use cua-driver 子进程 atexit 收尾（`4e49af94b`）、测试基建：空收集不再看起来是绿 + WAL 能力门控（`35b1e5786` / `07e97d2f5`）；**飞书 adapter 与 bundled skills 本轮零上游改动**。
-- patch apply：脚本一次通过——60 files **clean apply**（无 3-way、无回滚、无 conflict marker），19 条当时活跃补丁行为化验证、归档补丁 upstream guards、PATCH-ZSH-COMPLETION-SYNTAX completion sentinel 与 sandbox plugin verify 全 OK；无新退役。上游触碰了 60 个补丁文件中的 8 个（`agent/auxiliary_client.py` +437 行、`gateway/run.py`、`gateway/platforms/base.py`、`hermes_cli/tools_config.py`、`tools/skill_manager_tool.py` ± test、`pyproject.toml`、`website/docs/user-guide/configuration.md`），仅行号漂移无区域冲突：`agent/auxiliary_client.py` 5429→5488、`gateway/run.py` 12105→12114 等。`local-patches.diff` / `.local-patches.base` 已刷新且与内层实际 diff **逐字节一致**，内层 modified 与 `PATCHED_FILES` 一一对应（仅多 package-lock.json 已知噪音）。功能回归：23 个 patch 测试文件 venv 原生 pytest 一次全绿 **1909 passed / 0 failed**（上轮基准 1895/0；+14 为上游新增测试，无补丁用例增删）。
-- 依赖：本轮**无 venv 重建**（E-949 未复发，见上游主线 managed-uv 节；venv 维持 Python 3.12.13 / SQLite 3.53.1），uv sync 95 包无升降级（仅 hermes-agent 本体重装）。lazy refresh：升级窗口内 ↑2 refreshed（stt.faster_whisper / tool.trace_upload）、15 current、matrix 失败保留既装版本（已知非阻塞）；补丁回贴后复跑 `refresh_active_features()` 17 项全部 current（matrix 不在 active 列表 = PATCH-LAZY-ACTIVATION 生效）。`npm audit fix` exited 1（non-critical）+ `package-lock.json` dirty（已知 esbuild peer 归一化噪音，不提交）；agent-browser 自 node_modules 缺失复现 → 根目录 `npm install` 恢复（常设授权，doctor 转 ✓）。Skills mirror `+0/~1/−13`：~1 为 llm-wiki 已知振荡（终态补丁版 + manifest re-baselined）；−13 为本地镜像内未跟踪孤儿文件被 rsync --delete 一次性清理（上游 `skills/` 本轮零改动；rsync 后镜像与内层 skills 树逐文件一致，`my-skills/` 不受影响）。无 `.venv` / `venv.stale.*` 残留。
-- 已知摩擦：① `uv` 未触发 `--python venv/bin/python` fallback（0 次）；② Matrix lazy refresh 升级窗口失败照旧（python-olm 构建，保留既装版本，回贴后恢复 current 口径）；③ `package-lock.json` audit fix 后 dirty 照旧（不提交）；④ E-949 runtime repair 未复发（上游本轮已修重复触发路径，摩擦表 row 保留观察）；⑤ agent-browser node_modules 缺失复现（audit fix 侧效应），当轮 `npm install` 恢复；⑥ `test_feishu.py` SSRF rebind 测试维持批量跑口径（本轮批量全绿）。
-- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`，无需 `--fix`；剩余 2 issue 为 web / ui-tui npm 高危（已知 arborist crash 待上游 lockfile bump，不阻塞）；Gateway plist matches current install、launchd 监管（升级中 PID 29658 → 13932，Step 8d 重启加载补丁模块，飞书 websocket 正常）；其余 ⚠ 为未登录 auth provider、可选依赖与系统依赖提示（与上轮一致）。
+- 上游主线（274 commits，间隔 1 天，release tag 维持 v0.19.0 (2026.7.20)，无新 release）：**安全 / 审批**——递归 `rm` 的 flags-after-operands 检测（`da26ff986`）、Docker/Podman daemon redirect 强制审批（`643770122`）、GitHub 凭据解析避免 scanner 误报（`9b97dea1e`）、出站 history 去除 URL userinfo（`a8c9ad0bc`）；**Gateway / Sessions / Delegation**——完整重建恢复校验（`cff60b205`）、prune 保留近期活跃会话（`a228b8150`）、reconnect watcher 生命周期修复（`4b039e954` / `bd7938fa0`）、delegated child 生命周期与 inline API 防 nested-pool wedge（`98fe6d0a8` / `ece050ac3`）、fallback backend identity 单一 owner（`39b596556`）；**依赖 / Update**——inactive lazy backend 改以首项依赖身份锚点（`2a55f3348`，完全吸收 `PATCH-LAZY-ACTIVATION`）、CVE pin 刷新（`623762f2f` / `a48251c3d`）、huggingface-hub 锁定收敛（`40dc36a84`）、macOS uv launcher 不再依赖 realpath（`47f579504`）；**Tools / Skills**——tiered tool disclosure + `tool_search`（`0986ac393` / `e869accc1`）、MCP include/exclude glob（`e7172ab1b`）、skill update 保留 source registry（`59482ea80`）、跨端 approvals 命令与 allowlist 建议（`f9cd57791` / `db90e3620`）；**Desktop / Web / TUI**——session switch/render churn 性能系列（`628ce5bb8` / `bbfe181a2`）、artifact live preview（`236b1b56c`）、quick-entry（`d6fdae674`）、dashboard route lazy-load（`2df57fe64`）、TUI OSC-10 前景色修复（`0b1ee22b9`）；**媒体 / 模型**——Discord MEDIA 视频投递与扩展名补齐（`8eb29a1bb` / `0ec1b9f7f`）、DeepSeek retired alias 迁移（`cc7c418b3`）、Gemini enum constraint 保真（`a751924c0`）。
+- patch apply / registry：首轮 bundle 整体 apply 因上游冲突按设计回滚；手工 3-way 将冲突收敛到 `tools/lazy_deps.py`、`tests/tools/test_lazy_deps.py`、`uv.lock`。核验 upstream `2a55f3348` 后确认 `PATCH-LAZY-ACTIVATION` 已完全吸收，删除其专用 map/test hunk、从 `PATCHED_FILES` 移除 lazy test，并把定义块移动到 Archive；其余 23 个活跃 PATCH 逐项裸 upstream 复核仍需保留。重跑后 59 files **clean apply**，21 个活跃工程内 gate、6 个 Archive sentinel、Step 7 completion sentinel 与 Step 8e sandbox verifier 全 OK。Step 3 七层闭环成立：59/59 文件有 diff、bundle 与 overlay 逐字节一致、正向 cached / 反向 worktree apply check 通过、base=`d71033a4`、index 干净、注册表/执行链唯一、外层插件未混入 bundle。功能回归按当前动态集合：23 files **1848 passed / 0 failed**；lazy upstream 回归改由 Archive sentinel 监管，不再计入本地 `PATCHED_FILES` 测试基准。锚点漂移 `eb527605` → `d71033a4`。
+- 依赖：本轮**无 venv 重建**；uv sync 将 `cryptography 46.0.7→48.0.1`、`python-multipart 0.0.27→0.0.32`、`starlette 1.0.1→1.3.1`，其余既有能力保持。补丁态 `refresh_active_features()` 17 项全部 current，Matrix 不在 active 列表；`pip check` 无破损。`npm audit fix` exited 1（non-critical）；bundle 外 `package-lock.json` 保留 bippy 排序以及 `dompurify 3.4.11→3.4.12`、`fast-uri 3.1.2→3.1.4`、`tar 7.5.17→7.5.21` 的传递依赖补丁升级，最终全仓 `npm audit` 仍为 25 high。根目录 `npm install` 恢复 `agent-browser 0.26.0` 与 Playwright Chromium，Doctor 转 ✓。Skills mirror 首轮 `+0/~0/−4`，闭环重跑 `+0/~1/−1`（llm-wiki 固定振荡，终态补丁版 + manifest re-baselined）。无 `.venv` / `venv.stale.*` 环境残留。
+- 已知摩擦：GitHub HTTPS fetch 首次触发 `LibreSSL SSL_ERROR_SYSCALL`，经 curl 与 SSH 443 双检后用进程级 URL rewrite 抓取同一官方仓库；上游 CLI 将等价 SSH URL 误判为 fork，已拒绝新增 remote、清理 `.skip_upstream_prompt` 并核对 `origin` 未变、`HEAD == origin/main`。补丁首轮真实冲突已按归档流程消解；`npm audit fix` 非零，实际 lock drift 已逐项记录并维持 bundle 外；`uv --python venv/bin/python` fallback 0 次，E-949 runtime repair 未复发。误触发的全仓 runner 在发现路径数组为空后已终止，全部子进程清零，最终统计仅采用随后显式 23 路径的正式回归。
+- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`，无需 `--fix`；仅余 web 8 high / ui-tui 7 high 构建工具 advisory（已知待上游 lockfile bump，不阻塞），未登录 provider、未配置可选工具不属于升级缺口。Gateway plist matches current install、launchd 监管 PID `56288`；sandbox verifier 对照同一 PID 通过，owner Feishu DM 保持 terminal/process/read/write/patch/code/skill-manage 完整工具面，群聊仍严格限制为 `group_cache` / `feishu_doc_manage` + 只读 file/skill 工具。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -601,23 +600,6 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-LAZY-ACTIVATION] lazy backend 激活锚点
-
-| 字段     | 内容                                                  |
-| -------- | ----------------------------------------------------- |
-| **文件** | `tools/lazy_deps.py`, `tests/tools/test_lazy_deps.py` |
-| **状态** | 🟡 未上游合并                                         |
-
-**问题**：`active_features()` 原先只要某个 lazy feature 的**任一**声明依赖已安装，就把它视为“用户曾启用”并在 `hermes update` 中刷新。`platform.matrix` 为安全钉住核心共享依赖 `aiohttp==3.14.1`，而 aiohttp 在所有正常 Hermes venv 中都存在，因此从未配置 Matrix 的机器也会被误判 active。刷新随即拉取 `mautrix[encryption] → python-olm 3.2.16`；该包没有现代 macOS arm64 wheel，内嵌 libolm 在 macOS 26.5.2 / Apple Clang 21 编译时报 `cannot assign to variable 'other_pos' with const-qualified type 'T *const'`，导致每次真正更新都重复显示 `platform.matrix failed to refresh`。
-
-**修复**：新增 `LAZY_FEATURE_ACTIVE_ANCHORS`，只为存在共享依赖误判的 Matrix 指定身份锚点 `mautrix`。其他 feature 仍保持上游“任一依赖存在即 active”的恢复语义；只有实际安装过 Matrix SDK 的环境才会进入 Matrix refresh。这里不伪装 `python-olm` 已满足、不移除 Matrix encryption，也不对 macOS 一刀切禁用，因此真实 Matrix 用户仍能看到依赖异常并选择 Linux/container 或维护自己的 native toolchain。
-
-**验证**：新增两条回归：仅 `aiohttp` 存在时 `platform.matrix` 不 active，`mautrix` 存在时仍 active；`tests/tools/test_lazy_deps.py` 66 passed。真实 venv 调用 `active_features()` / `refresh_active_features()` 均不再包含 `platform.matrix`，其余 15 个既有 active backend 全部保持 `current`。`hermes-update.sh` Step 8b grep anchor 与回归测试名，并将 `PATCH-LAZY-ACTIVATION` 纳入 patch refresh gate。
-
-**上游吸收判断**：若上游用持久化 activation ledger 记录真正启用过的 lazy feature，或为 Matrix/其他含核心共享依赖的 feature 引入等价 identity anchor，即可归档本补丁。
-
----
-
 ### [PATCH-HISTORY-RETENTION] 平台级回放历史保留窗
 
 | 字段     | 内容                                                                                                                                                                                                                    |
@@ -685,6 +667,26 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset 精确且固定脚本全部存在；通过真实 `discover_plugins()` + `_get_platform_tools()` 解析，断言 owner Feishu 仍含 terminal/process/read/write/patch/execute_code/skill_manage，群聊只含 `group_cache` / `feishu_doc_manage` 与只读工具；确认 hook 名、fire site、`ctx.register_tool()` 和 `/usr/bin/sandbox-exec`；运行 21 个插件回归，覆盖跨群隔离、路径穿越/symlink、无 terminal/直接写面、真实 owner ID 全量放行、固定 action/参数、argv 无 shell、凭据错误输出脱敏、50 MB 下载上限、真实进程沙箱外写拒绝、配置加载和工具注册；最后要求注册日志的 PID 与当前 gateway PID 一致、`active=True` 且包含两个结构化工具。verifier 缺失、不可执行、配置/toolset 漂移、测试失败或 runtime trace 不匹配都会设置升级 `FINAL_RC=1`。本补丁由外层 Git 保存，`hermes update` 不覆盖；`local-patches.diff` 只监管 `PATCHED_FILES` 中的工程内语义补丁，并必须与 `hermes-agent` 实际 diff（排除已知 `package-lock.json` 噪音）逐字节一致。
 
 **上游吸收判断**：如果上游原生提供按会话隔离的可写工作区、无 shell 的固定动作工具、子进程写范围沙箱和 owner-DM/group 独立工具面，可迁移到上游能力并归档本补丁；在此之前不得恢复群聊通用 terminal。
+
+---
+
+## Archive — PATCH-LAZY-ACTIVATION（上游 v0.19.0）
+
+### [PATCH-LAZY-ACTIVATION] lazy backend 激活锚点
+
+| 字段         | 内容                                                  |
+| ------------ | ----------------------------------------------------- |
+| **文件**     | `tools/lazy_deps.py`, `tests/tools/test_lazy_deps.py` |
+| **状态**     | ✅ 已上游合并（v0.19.0，commit `2a55f3348`）          |
+| **适用版本** | `2a55f3348` 之前需要本地 patch；之后由上游实现        |
+
+**问题**：`active_features()` 原先只要某个 lazy feature 的任一声明依赖已安装，就把它视为“用户曾启用”并在 `hermes update` 中刷新。核心共享依赖会误激活未配置的 Matrix，反复拉取当前 macOS arm64 无法构建的 `python-olm`。
+
+**修复**：上游 commit `2a55f3348` 将所有 lazy feature 的第一项声明依赖统一作为身份锚点；`platform.matrix` 第一项是 `mautrix[encryption]`，因此 `aiohttp`、`asyncpg` 等共享依赖不再造成误激活。该实现覆盖原本地专用 map，并对其他多依赖 feature 提供同一规则，本地源码 hunk 已删除。
+
+**验证**：上游 `test_shared_dependency_does_not_activate_feature` 覆盖仅共享依赖存在时 Matrix 不 active；`hermes-update.sh` Step 8b 保留“首项依赖探测 + 上游回归测试”sentinel，并继续纳入 8c 总闸门。`tests/tools/test_lazy_deps.py` 仍由上游测试集覆盖，但不再属于本地 `PATCHED_FILES`。
+
+**上游吸收判断**：已由 commit `2a55f3348` 完全吸收；若上游未来移除首项身份锚点或对应回归测试，Step 8b 必须阻断 bundle 刷新并重新评估补丁。
 
 ---
 

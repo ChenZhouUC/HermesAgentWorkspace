@@ -1,8 +1,8 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index 74ccd5781..13d3773f9 100644
+index 0165987d8..8f732c5a6 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
-@@ -5488,22 +5488,36 @@ def resolve_provider_client(
+@@ -5566,22 +5566,36 @@ def resolve_provider_client(
          # OAuth2 bearer token (NOT a static key). We build a standard OpenAI
          # client pointed at the runtime-computed Vertex base_url with a fresh
          # token; no custom SDK or message translation needed.
@@ -560,10 +560,10 @@ index 780fe761b..b9f2e2db3 100644
 +    )
 +    return agent_history[cut:]
 diff --git a/agent/skill_utils.py b/agent/skill_utils.py
-index df0f93331..1e4964c15 100644
+index eea78d6a0..f3b89ef0c 100644
 --- a/agent/skill_utils.py
 +++ b/agent/skill_utils.py
-@@ -366,6 +366,17 @@ def _load_raw_config() -> Dict[str, Any]:
+@@ -368,6 +368,17 @@ def _load_raw_config() -> Dict[str, Any]:
      return parsed
  
  
@@ -581,7 +581,7 @@ index df0f93331..1e4964c15 100644
  def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
      """Read disabled skill names from config.yaml.
  
-@@ -388,22 +399,55 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
+@@ -390,22 +401,55 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
      if not isinstance(skills_cfg, dict):
          return set()
  
@@ -644,7 +644,7 @@ index df0f93331..1e4964c15 100644
  def _normalize_string_set(values) -> Set[str]:
      if values is None:
          return set()
-@@ -703,6 +747,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+@@ -705,6 +749,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
      seen_keys: set = set()
  
      disabled = get_disabled_skill_names()
@@ -652,7 +652,7 @@ index df0f93331..1e4964c15 100644
      for skills_dir in get_all_skills_dirs():
          if not skills_dir.is_dir():
              continue
-@@ -714,6 +759,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+@@ -716,6 +761,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
                  continue
  
              skill_name = frontmatter.get("name") or skill_file.parent.name
@@ -793,10 +793,10 @@ index 6e425753f..911cc2935 100644
      """Fast check for whether Vertex credentials appear configured.
  
 diff --git a/gateway/authz_mixin.py b/gateway/authz_mixin.py
-index 45f7f32cf..0e9c10973 100644
+index be57b3f03..4f638ba08 100644
 --- a/gateway/authz_mixin.py
 +++ b/gateway/authz_mixin.py
-@@ -491,6 +491,7 @@ class GatewayAuthorizationMixin:
+@@ -501,6 +501,7 @@ class GatewayAuthorizationMixin:
          platform_group_chat_env_map = {
              Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_CHATS",
              Platform.QQBOT: "QQ_GROUP_ALLOWED_USERS",
@@ -856,7 +856,7 @@ index e58e6e82b..84c371bb6 100644
      # Tier 3 — no edit support, progress messages are permanent
      "signal":          _TIER_LOW,
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index 4f2c0e98f..8347a9115 100644
+index e55c91b4d..bbcb0ab35 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
 @@ -1377,6 +1377,8 @@ def _log_safe_path(path: str) -> str:
@@ -878,7 +878,7 @@ index 4f2c0e98f..8347a9115 100644
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index aac6a1925..327e834dd 100644
+index 37dfd9d92..810394e2a 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -84,6 +84,19 @@ _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
@@ -901,7 +901,7 @@ index aac6a1925..327e834dd 100644
  _TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
  
  _TELEGRAM_NOISY_STATUS_RE = re.compile(
-@@ -1297,6 +1310,7 @@ from agent.replay_cleanup import (  # noqa: E402
+@@ -1338,6 +1351,7 @@ from agent.replay_cleanup import (  # noqa: E402
      strip_dangling_tool_call_tail as _strip_dangling_tool_call_tail,
      strip_stale_dangerous_confirmations as _strip_stale_dangerous_confirmations,
      is_dangerous_confirmation as _is_dangerous_confirmation,
@@ -909,7 +909,7 @@ index aac6a1925..327e834dd 100644
  )
  
  
-@@ -2112,6 +2126,7 @@ from gateway.session import (
+@@ -2165,6 +2179,7 @@ from gateway.session import (
      build_session_key,
      is_shared_multi_user_session,
      neutralize_untrusted_inline_text,
@@ -917,7 +917,7 @@ index aac6a1925..327e834dd 100644
  )
  from gateway.delivery import (
      DeliveryRouter,
-@@ -2478,33 +2493,72 @@ def _build_media_placeholder(event) -> str:
+@@ -2531,33 +2546,72 @@ def _build_media_placeholder(event) -> str:
      return "\n".join(parts)
  
  
@@ -1003,7 +1003,7 @@ index aac6a1925..327e834dd 100644
  def _format_duration(seconds: float) -> str:
      total = int(round(seconds))
      if total < 0:
-@@ -2715,6 +2769,51 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2768,6 +2822,51 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -1055,7 +1055,7 @@ index aac6a1925..327e834dd 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -3454,6 +3553,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -3507,6 +3606,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # preserve the queue.
          self._queued_events: Dict[str, List[MessageEvent]] = {}
          self._pending_native_image_paths_by_session: Dict[str, List[str]] = {}
@@ -1063,7 +1063,7 @@ index aac6a1925..327e834dd 100644
          self._busy_ack_ts: Dict[str, float] = {}  # last busy-ack timestamp per session (debounce)
          self._session_run_generation: Dict[str, int] = {}
          # Startup restore gate: while restart-interrupted sessions are being
-@@ -6402,7 +6502,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -6455,7 +6555,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -1072,7 +1072,7 @@ index aac6a1925..327e834dd 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -12114,8 +12214,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12315,8 +12415,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -1089,7 +1089,7 @@ index aac6a1925..327e834dd 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -12379,27 +12485,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12582,27 +12688,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if _pending_stt_prepared
              else event.text
          ) or ""
@@ -1122,7 +1122,7 @@ index aac6a1925..327e834dd 100644
              # (mirrors the same field's treatment in
              # build_session_context_prompt via _format_untrusted_prompt_value).
              _safe_user_name = neutralize_untrusted_inline_text(source.user_name)
-@@ -12413,7 +12513,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12616,7 +12716,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  _safe_user_name = (
                      f"{_safe_user_name} | Slack user <@{source.user_id}>"
                  )
@@ -1131,7 +1131,7 @@ index aac6a1925..327e834dd 100644
  
          # Prepend channel context from history backfill (if any).  This
          # happens after sender-prefix so the prefix only applies to the
-@@ -12554,6 +12654,40 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12757,6 +12857,40 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  message_text = f"{_note}\n\n{message_text}"
  
@@ -1172,7 +1172,7 @@ index aac6a1925..327e834dd 100644
          if video_paths:
              from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
              for _vpath in video_paths:
-@@ -12577,7 +12711,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12780,7 +12914,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              import mimetypes as _mimetypes
              from tools.credential_files import to_agent_visible_cache_path
  
@@ -1181,7 +1181,7 @@ index aac6a1925..327e834dd 100644
              for i, path in enumerate(event.media_urls):
                  # Per-attachment document handling. Skip anything already routed
                  # as image / audio / video by the buckets above — only genuine
-@@ -12595,7 +12729,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12798,7 +12932,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  mtype = event.media_types[i] if i < len(event.media_types) else ""
                  if mtype in {"", "application/octet-stream"}:
                      _ext = os.path.splitext(path)[1].lower()
@@ -1190,7 +1190,7 @@ index aac6a1925..327e834dd 100644
                          mtype = "text/plain"
                      else:
                          guessed, _ = _mimetypes.guess_type(path)
-@@ -12617,8 +12751,43 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12820,8 +12954,43 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # cache directories are auto-mounted at /root/.hermes/cache/* by get_cache_directory_mounts().
                  agent_path = to_agent_visible_cache_path(path)
  
@@ -1236,7 +1236,7 @@ index aac6a1925..327e834dd 100644
  
          # Discord: surface the triggering message id per-turn on the user
          # message rather than in the cached system prompt. message_id changes
-@@ -12785,12 +12954,28 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12988,12 +13157,28 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              session_key=session_key,
          )
  
@@ -1265,7 +1265,7 @@ index aac6a1925..327e834dd 100644
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -14072,6 +14257,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14275,6 +14460,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -1274,7 +1274,7 @@ index aac6a1925..327e834dd 100644
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -14113,7 +14300,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14316,7 +14503,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -1283,7 +1283,7 @@ index aac6a1925..327e834dd 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -14174,7 +14361,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14377,7 +14564,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -1292,7 +1292,7 @@ index aac6a1925..327e834dd 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -15777,7 +15964,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15991,7 +16178,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -1301,15 +1301,15 @@ index aac6a1925..327e834dd 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -17426,6 +17613,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17640,6 +17827,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
 +            platform_config_key=_platform_config_key_for_source(context.source),
              chat_id=context.source.chat_id,
-             chat_name=context.source.chat_name or "",
-             thread_id=str(context.source.thread_id) if context.source.thread_id else "",
-@@ -17499,11 +17687,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             chat_type=(
+                 str(context.source.chat_type) if context.source.chat_type else ""
+@@ -17716,11 +17904,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -1325,7 +1325,7 @@ index aac6a1925..327e834dd 100644
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -17513,7 +17703,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17730,7 +17920,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          only the persisted default model.
          """
          try:
@@ -1334,7 +1334,7 @@ index aac6a1925..327e834dd 100644
              from agent.auxiliary_client import _read_main_model, _read_main_provider
              from hermes_cli.config import load_config
  
-@@ -17554,6 +17744,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17771,6 +17961,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not resolved_model:
                  resolved_model = _read_main_model()
  
@@ -1343,7 +1343,7 @@ index aac6a1925..327e834dd 100644
              return decide_image_input_mode(
                  resolved_provider,
                  resolved_model,
-@@ -19791,7 +19983,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20008,7 +20200,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -1352,7 +1352,7 @@ index aac6a1925..327e834dd 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -19849,6 +20041,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20066,6 +20258,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -1364,7 +1364,7 @@ index aac6a1925..327e834dd 100644
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -20197,7 +20394,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20414,7 +20611,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -1373,7 +1373,7 @@ index aac6a1925..327e834dd 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -21242,9 +21439,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21470,9 +21667,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # --session-key argv, a separate process) — so removing this in-process
              # gateway write does not affect any of them.
  
@@ -1386,7 +1386,7 @@ index aac6a1925..327e834dd 100644
              
              # Combine platform context, YAML channel_prompts hint for this chat,
              # channel_overrides system_prompt (or global ephemeral), and gateway
-@@ -21374,6 +21571,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21602,6 +21799,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                              on_before_finalize=_pause_typing_before_finalize,
                              initial_reply_to_id=event_message_id,
                              run_still_current=_run_still_current,
@@ -1398,7 +1398,7 @@ index aac6a1925..327e834dd 100644
                          )
                          if _want_stream_deltas:
                              def _stream_delta_cb(text: str) -> None:
-@@ -21950,7 +22152,22 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22179,7 +22381,22 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_history = _strip_stale_dangerous_confirmations(
                          _selected, now=time.time()
                      )
@@ -1422,7 +1422,7 @@ index aac6a1925..327e834dd 100644
              # Collect MEDIA paths already in history so we can exclude them
              # from the current turn's extraction. This is compression-safe:
              # even if the message list shrinks, we know which paths are old.
-@@ -22205,31 +22422,33 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22434,31 +22651,33 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              _approval_session_token = set_current_session_key(_approval_session_key)
              register_gateway_notify(_approval_session_key, _approval_notify_sync)
              try:
@@ -1464,7 +1464,7 @@ index aac6a1925..327e834dd 100644
                              _img_exc,
                          )
                          _run_message = message
-@@ -22391,6 +22610,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22620,6 +22839,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      result, final_response or "", history_len=len(agent_history),
                  )
                  final_response = _sanitize_gateway_final_response(source.platform, final_response)
@@ -1991,7 +1991,7 @@ index 89f418866..117034ff0 100644
      if context.source.platform == Platform.SLACK:
          # Inject the Slack capability note only when the agent actually has
 diff --git a/gateway/session_context.py b/gateway/session_context.py
-index a792726e4..edd4e6383 100644
+index cf227fac1..317c4dd43 100644
 --- a/gateway/session_context.py
 +++ b/gateway/session_context.py
 @@ -71,6 +71,7 @@ def session_context_engaged() -> bool:
@@ -2001,41 +2001,41 @@ index a792726e4..edd4e6383 100644
 +_SESSION_PLATFORM_CONFIG_KEY: ContextVar = ContextVar("HERMES_SESSION_PLATFORM_CONFIG_KEY", default=_UNSET)
  _SESSION_SOURCE: ContextVar = ContextVar("HERMES_SESSION_SOURCE", default=_UNSET)
  _SESSION_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
- _SESSION_CHAT_NAME: ContextVar = ContextVar("HERMES_SESSION_CHAT_NAME", default=_UNSET)
-@@ -121,6 +122,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
+ _SESSION_CHAT_TYPE: ContextVar = ContextVar("HERMES_SESSION_CHAT_TYPE", default=_UNSET)
+@@ -122,6 +123,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
  
  _VAR_MAP = {
      "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
 +    "HERMES_SESSION_PLATFORM_CONFIG_KEY": _SESSION_PLATFORM_CONFIG_KEY,
      "HERMES_SESSION_SOURCE": _SESSION_SOURCE,
      "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
-     "HERMES_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
-@@ -155,6 +157,7 @@ def set_current_session_id(session_id: str) -> None:
+     "HERMES_SESSION_CHAT_TYPE": _SESSION_CHAT_TYPE,
+@@ -157,6 +159,7 @@ def set_current_session_id(session_id: str) -> None:
  
  def set_session_vars(
      platform: str = "",
 +    platform_config_key: str = "",
      source: str = "",
      chat_id: str = "",
-     chat_name: str = "",
-@@ -191,6 +194,7 @@ def set_session_vars(
+     chat_type: str = "",
+@@ -194,6 +197,7 @@ def set_session_vars(
      _session_context_engaged = True
      tokens = [
          _SESSION_PLATFORM.set(platform),
 +        _SESSION_PLATFORM_CONFIG_KEY.set(platform_config_key or platform),
          _SESSION_SOURCE.set(source),
          _SESSION_CHAT_ID.set(chat_id),
-         _SESSION_CHAT_NAME.set(chat_name),
-@@ -226,6 +230,7 @@ def clear_session_vars(tokens: list) -> None:
+         _SESSION_CHAT_TYPE.set(chat_type),
+@@ -230,6 +234,7 @@ def clear_session_vars(tokens: list) -> None:
      """
      for var in (
          _SESSION_PLATFORM,
 +        _SESSION_PLATFORM_CONFIG_KEY,
          _SESSION_SOURCE,
          _SESSION_CHAT_ID,
-         _SESSION_CHAT_NAME,
+         _SESSION_CHAT_TYPE,
 diff --git a/gateway/stream_consumer.py b/gateway/stream_consumer.py
-index e60e91170..fc64797db 100644
+index 7d3e31cf1..0b167447b 100644
 --- a/gateway/stream_consumer.py
 +++ b/gateway/stream_consumer.py
 @@ -200,6 +200,7 @@ class GatewayStreamConsumer:
@@ -2067,7 +2067,7 @@ index e60e91170..fc64797db 100644
      async def run(self) -> None:
          """Async task that drains the queue and edits the platform message."""
          # Platform message length limit — leave room for cursor + formatting.
-@@ -1135,7 +1143,7 @@ class GatewayStreamConsumer:
+@@ -1138,7 +1146,7 @@ class GatewayStreamConsumer:
  
          Returns the message_id so callers can thread subsequent chunks.
          """
@@ -2076,7 +2076,7 @@ index e60e91170..fc64797db 100644
          if not text.strip():
              return reply_to_id
          try:
-@@ -1278,7 +1286,7 @@ class GatewayStreamConsumer:
+@@ -1281,7 +1289,7 @@ class GatewayStreamConsumer:
  
          Retries each chunk once on flood-control failures with a short delay.
          """
@@ -2085,7 +2085,7 @@ index e60e91170..fc64797db 100644
          # Ensure balanced code fences before computing continuation,
          # so the closing fence reaches the user even when the fallback
          # only delivers the tail after mid-stream edits failed.
-@@ -1653,7 +1661,7 @@ class GatewayStreamConsumer:
+@@ -1665,7 +1673,7 @@ class GatewayStreamConsumer:
          tail = self._accumulated
          if visible and tail.startswith(visible):
              tail = tail[len(visible):].lstrip()
@@ -2094,7 +2094,7 @@ index e60e91170..fc64797db 100644
          if not tail.strip():
              return
          try:
-@@ -1690,7 +1698,7 @@ class GatewayStreamConsumer:
+@@ -1702,7 +1710,7 @@ class GatewayStreamConsumer:
  
      async def _send_commentary(self, text: str) -> bool:
          """Send a completed interim assistant commentary message."""
@@ -2103,7 +2103,7 @@ index e60e91170..fc64797db 100644
          if not text.strip():
              return False
          try:
-@@ -1835,7 +1843,7 @@ class GatewayStreamConsumer:
+@@ -1854,7 +1862,7 @@ class GatewayStreamConsumer:
          try:
              result = await self.adapter.send(
                  chat_id=self.chat_id,
@@ -2112,7 +2112,7 @@ index e60e91170..fc64797db 100644
                  metadata=self._metadata_for_send(final=True),
              )
          except Exception as e:
-@@ -2071,7 +2079,7 @@ class GatewayStreamConsumer:
+@@ -2090,7 +2098,7 @@ class GatewayStreamConsumer:
                      # Edit existing message
                      result = await self._edit_message(
                          message_id=self._message_id,
@@ -2121,7 +2121,7 @@ index e60e91170..fc64797db 100644
                          finalize=finalize,
                      )
                      if result.success:
-@@ -2222,7 +2230,7 @@ class GatewayStreamConsumer:
+@@ -2241,7 +2249,7 @@ class GatewayStreamConsumer:
                  # so it lands in the correct topic/thread.
                  result = await self.adapter.send(
                      chat_id=self.chat_id,
@@ -2131,7 +2131,7 @@ index e60e91170..fc64797db 100644
                      metadata=self._metadata_for_send(
                          final=finalize,
 diff --git a/hermes_cli/auth.py b/hermes_cli/auth.py
-index 0400e7678..9c327562e 100644
+index 98b354715..129d326bf 100644
 --- a/hermes_cli/auth.py
 +++ b/hermes_cli/auth.py
 @@ -490,6 +490,24 @@ except Exception:
@@ -2160,10 +2160,10 @@ index 0400e7678..9c327562e 100644
  # Anthropic Key Helper
  # =============================================================================
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 7c89e75ad..84e787cbc 100644
+index 9fd241630..a3f71b8fe 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -54,6 +54,9 @@ _PROVIDER_ENV_HINTS = (
+@@ -60,6 +60,9 @@ _PROVIDER_ENV_HINTS = (
      "OPENCODE_GO_API_KEY",
      "XIAOMI_API_KEY",
      "TOKENHUB_API_KEY",
@@ -2173,7 +2173,7 @@ index 7c89e75ad..84e787cbc 100644
  )
  
  
-@@ -957,6 +960,10 @@ def run_doctor(args):
+@@ -978,6 +981,10 @@ def run_doctor(args):
                  _compatible_custom_providers = None
                  _normalize_catalog_provider = None
                  _resolve_provider_full = None
@@ -2184,7 +2184,7 @@ index 7c89e75ad..84e787cbc 100644
  
              custom_providers = []
              if _compatible_custom_providers is not None:
-@@ -980,8 +987,20 @@ def run_doctor(args):
+@@ -1001,8 +1008,20 @@ def run_doctor(args):
                  if name:
                      known_providers.add("custom:" + name.lower().replace(" ", "-"))
  
@@ -2205,7 +2205,7 @@ index 7c89e75ad..84e787cbc 100644
              if _normalize_catalog_provider is not None:
                  for known_provider in known_providers:
                      try:
-@@ -1001,16 +1020,18 @@ def run_doctor(args):
+@@ -1022,16 +1041,18 @@ def run_doctor(args):
                  except Exception:
                      runtime_provider = provider
  
@@ -2227,7 +2227,7 @@ index 7c89e75ad..84e787cbc 100644
  
              if provider and provider != "auto":
                  if catalog_provider is None or (
-@@ -1033,8 +1054,11 @@ def run_doctor(args):
+@@ -1054,8 +1075,11 @@ def run_doctor(args):
              # Vendor/model slugs are valid on aggregator-style providers and on any custom
              # provider — bare "custom" or a named "custom:<name>" that fronts an OpenAI-compatible
              # aggregator (e.g. custom:hpc-ai serving deepseek/deepseek-v4-flash) requires the prefix.
@@ -2241,7 +2241,7 @@ index 7c89e75ad..84e787cbc 100644
              providers_accepting_vendor_slugs = {
                  "openrouter",
                  "auto",
-@@ -1052,16 +1076,18 @@ def run_doctor(args):
+@@ -1073,16 +1097,18 @@ def run_doctor(args):
                  # is exclusively ``vendor/model`` slugs (Qwen/Qwen3.5-…,
                  # meta-llama/Llama-3-…, anthropic/claude-opus-4-7, …).
                  "deepinfra",
@@ -2266,10 +2266,10 @@ index 7c89e75ad..84e787cbc 100644
              ):
                  check_warn(
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index ace4dc3a7..b3e7ce281 100644
+index 1d3f6899f..33e6287f7 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -1882,38 +1882,49 @@ def _get_platform_tools(
+@@ -2040,38 +2040,49 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -2489,7 +2489,7 @@ index f0d0d4f89..2bf2daa4b 100644
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index e1df2a05e..8466f83b5 100644
+index 751c2bf76..f1a02716c 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -60,6 +60,7 @@ import os
@@ -4017,7 +4017,7 @@ index e1df2a05e..8466f83b5 100644
      def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
          if "GetMessageResourceRequest" in globals():
 diff --git a/pyproject.toml b/pyproject.toml
-index d68ce4cfa..9c7902ae8 100644
+index 02c00a096..b0ee5a25e 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -246,7 +246,7 @@ termux-all = [
@@ -6378,10 +6378,10 @@ index ca86fc728..a4bf0b883 100644
      """state.db gateway_routing table is the primary routing index (#9006 follow-up)."""
  
 diff --git a/tests/gateway/test_session_env.py b/tests/gateway/test_session_env.py
-index f5392ab2c..a2f3d7cef 100644
+index 1183e755d..75f2de265 100644
 --- a/tests/gateway/test_session_env.py
 +++ b/tests/gateway/test_session_env.py
-@@ -84,6 +84,29 @@ def test_session_source_uses_contextvars(monkeypatch):
+@@ -87,6 +87,29 @@ def test_session_source_uses_contextvars(monkeypatch):
      assert get_session_env("HERMES_SESSION_SOURCE") == ""
  
  
@@ -6528,10 +6528,10 @@ index fc6dcf67e..42bf04805 100644
      async def test_marker_prefix_then_prose_is_delivered(self):
          """A reply that starts marker-like but continues is delivered whole.
 diff --git a/tests/hermes_cli/test_doctor.py b/tests/hermes_cli/test_doctor.py
-index c439aaf0c..4afccab63 100644
+index 76ba52110..3c2bc6c30 100644
 --- a/tests/hermes_cli/test_doctor.py
 +++ b/tests/hermes_cli/test_doctor.py
-@@ -637,6 +637,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
+@@ -657,6 +657,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
      assert "Either set model.provider to 'openrouter', or drop the vendor prefix." not in out
  
  
@@ -6955,10 +6955,10 @@ index d97b53409..bad630f34 100644
 +    )
 +    assert proj_explicit == "explicit-proj"
 diff --git a/tests/tools/test_approval.py b/tests/tools/test_approval.py
-index 1ebb3efe6..5a2595121 100644
+index d79ec64e7..3befdf526 100644
 --- a/tests/tools/test_approval.py
 +++ b/tests/tools/test_approval.py
-@@ -143,6 +143,26 @@ class TestDetectDangerousRm:
+@@ -178,6 +178,26 @@ class TestDetectDangerousRm:
                  None,
              )
  
@@ -6985,7 +6985,7 @@ index 1ebb3efe6..5a2595121 100644
      def test_verification_cleanup_exemption_rejects_broader_deletions(self):
          commands = (
              "rm -rf /tmp/hermes-verify-example.py",
-@@ -2261,7 +2281,8 @@ class TestApprovalTimeoutIsNotConsent:
+@@ -2296,7 +2316,8 @@ class TestApprovalTimeoutIsNotConsent:
              k: os.environ.get(k)
              for k in ("HERMES_GATEWAY_SESSION", "HERMES_CRON_SESSION",
                        "HERMES_YOLO_MODE",
@@ -6995,7 +6995,7 @@ index 1ebb3efe6..5a2595121 100644
          }
          os.environ.pop("HERMES_YOLO_MODE", None)
          os.environ.pop("HERMES_INTERACTIVE", None)
-@@ -2363,6 +2384,34 @@ class TestApprovalTimeoutIsNotConsent:
+@@ -2398,6 +2419,34 @@ class TestApprovalTimeoutIsNotConsent:
          assert "NOT consented" in r["message"]
          assert "rephrase" in r["message"].lower()
  
@@ -7177,34 +7177,6 @@ index 3b2c0ce59..20113b2a1 100644
  
  class TestSearchPathValidation:
      """Test that search() returns an error for non-existent paths."""
-diff --git a/tests/tools/test_lazy_deps.py b/tests/tools/test_lazy_deps.py
-index 2b319ae04..987670cf2 100644
---- a/tests/tools/test_lazy_deps.py
-+++ b/tests/tools/test_lazy_deps.py
-@@ -326,6 +326,23 @@ class TestActiveFeatures:
-         )
-         assert "platform.slack" in ld.active_features()
- 
-+    def test_matrix_shared_aiohttp_does_not_activate_backend(self, monkeypatch):
-+        # aiohttp is core and appears in platform.matrix only to pin its secure
-+        # version.  It must not make every install look like Matrix was enabled,
-+        # otherwise update repeatedly attempts the unsupported python-olm build.
-+        monkeypatch.setattr(
-+            ld, "_is_present",
-+            lambda spec: ld._pkg_name_from_spec(spec) == "aiohttp",
-+        )
-+        assert "platform.matrix" not in ld.active_features()
-+
-+    def test_matrix_mautrix_anchor_activates_backend(self, monkeypatch):
-+        monkeypatch.setattr(
-+            ld, "_is_present",
-+            lambda spec: ld._pkg_name_from_spec(spec) == "mautrix",
-+        )
-+        assert "platform.matrix" in ld.active_features()
-+
- 
- class TestRefreshActiveFeatures:
-     def test_no_active_features_returns_empty(self, monkeypatch):
 diff --git a/tests/tools/test_read_extract.py b/tests/tools/test_read_extract.py
 index 3757e03c4..9263b93ff 100644
 --- a/tests/tools/test_read_extract.py
@@ -7458,7 +7430,7 @@ index 5274da9c5..d2a11523c 100644
          flat_skill = tmp_path / "legacy-skill.md"
          flat_skill.write_text(
 diff --git a/tools/approval.py b/tools/approval.py
-index 9962bf851..4cccbed4e 100644
+index 24c08f769..c929cf2cd 100644
 --- a/tools/approval.py
 +++ b/tools/approval.py
 @@ -224,6 +224,48 @@ def _get_session_platform() -> str:
@@ -7510,7 +7482,7 @@ index 9962bf851..4cccbed4e 100644
  def _is_gateway_approval_context() -> bool:
      """True when this call is inside a gateway/API session.
  
-@@ -1974,9 +2016,18 @@ def _is_verification_artifact_cleanup(command: str) -> bool:
+@@ -2024,9 +2066,18 @@ def _is_verification_artifact_cleanup(command: str) -> bool:
          return False
  
      operand = argv[2]
@@ -7531,7 +7503,7 @@ index 9962bf851..4cccbed4e 100644
          return False
  
      target = os.path.realpath(operand)
-@@ -2926,6 +2977,10 @@ def check_dangerous_command(command: str, env_type: str,
+@@ -3081,6 +3132,10 @@ def check_dangerous_command(command: str, env_type: str,
      if not is_dangerous:
          return {"approved": True, "message": None}
  
@@ -7542,7 +7514,7 @@ index 9962bf851..4cccbed4e 100644
      return _run_approval_gate(
          pattern_key=pattern_key,
          description=description,
-@@ -3438,6 +3493,9 @@ def check_all_command_guards(command: str, env_type: str,
+@@ -3601,6 +3656,9 @@ def check_all_command_guards(command: str, env_type: str,
      # input() flow.  The agent never sees "approval_required"; it either
      # gets the command output (approved) or a definitive "BLOCKED" message.
      if is_gateway or is_ask:
@@ -7803,7 +7775,7 @@ index 994723cf5..90966831e 100644
          """Delete a single file.
  
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 1c119aabc..8392812fd 100644
+index 0cabac21b..2022bc69c 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -192,6 +192,8 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
@@ -7815,43 +7787,6 @@ index 1c119aabc..8392812fd 100644
      ),
      # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
-@@ -244,6 +246,15 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
-     "tool.trace_upload": ("huggingface-hub==1.2.3",),
- }
- 
-+# Some lazy features include shared core/transitive packages that may be
-+# installed even when the feature itself has never been activated.  Those
-+# packages are not sufficient evidence for update-time refresh.  Matrix is the
-+# important case: aiohttp is a core dependency, while mautrix is the actual
-+# platform SDK and its encryption extra pulls python-olm's native build.
-+LAZY_FEATURE_ACTIVE_ANCHORS: dict[str, tuple[str, ...]] = {
-+    "platform.matrix": ("mautrix",),
-+}
-+
- 
- # Conservative regex for spec validation — package name plus optional
- # version range. Reject anything that looks like a URL, file path, or shell
-@@ -865,7 +876,9 @@ def active_features() -> list[str]:
-     """Return the list of features the user has ever lazy-installed.
- 
-     A feature counts as "active" if at least one of its declared packages
--    is currently installed in the venv (presence check, ignoring version).
-+    is currently installed in the venv (presence check, ignoring version),
-+    unless the feature defines explicit identity anchors.  Anchors prevent a
-+    shared dependency such as core aiohttp from falsely activating Matrix.
-     Features the user has never enabled stay quiet.
- 
-     Used by ``hermes update`` to figure out which lazy backends need a
-@@ -873,7 +886,8 @@ def active_features() -> list[str]:
-     """
-     active = []
-     for feature, specs in LAZY_DEPS.items():
--        if any(_is_present(s) for s in specs):
-+        probes = LAZY_FEATURE_ACTIVE_ANCHORS.get(feature, specs)
-+        if any(_is_present(s) for s in probes):
-             active.append(feature)
-     return active
- 
 diff --git a/tools/read_extract.py b/tools/read_extract.py
 index 3607703de..ed6e37646 100644
 --- a/tools/read_extract.py
@@ -8560,10 +8495,10 @@ index 75219f719..5b34649cb 100644
      "tts": {
          "description": "Text-to-speech: convert text to audio with Edge TTS (free), ElevenLabs, OpenAI, or xAI",
 diff --git a/uv.lock b/uv.lock
-index 3b035b7e2..c68a81984 100644
+index f0b075a08..a4cb25923 100644
 --- a/uv.lock
 +++ b/uv.lock
-@@ -1615,6 +1615,8 @@ fal = [
+@@ -1617,6 +1617,8 @@ fal = [
  ]
  feishu = [
      { name = "lark-oapi" },
@@ -8572,7 +8507,7 @@ index 3b035b7e2..c68a81984 100644
      { name = "qrcode" },
  ]
  firecrawl = [
-@@ -1817,11 +1819,13 @@ requires-dist = [
+@@ -1819,11 +1821,13 @@ requires-dist = [
      { name = "ptyprocess", marker = "sys_platform != 'win32'", specifier = ">=0.7.0,<1" },
      { name = "pydantic", specifier = "==2.13.4" },
      { name = "pyjwt", extras = ["crypto"], specifier = "==2.13.0" },
@@ -8581,12 +8516,12 @@ index 3b035b7e2..c68a81984 100644
      { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = "==1.3.0" },
      { name = "python-dotenv", specifier = "==1.2.2" },
      { name = "python-multipart", specifier = ">=0.0.9,<1" },
-     { name = "python-multipart", marker = "extra == 'web'", specifier = "==0.0.27" },
+     { name = "python-multipart", marker = "extra == 'web'", specifier = "==0.0.32" },
 +    { name = "python-socks", marker = "extra == 'feishu'", specifier = "==2.8.1" },
      { name = "python-telegram-bot", extras = ["webhooks"], marker = "extra == 'messaging'", specifier = "==22.6" },
      { name = "python-telegram-bot", extras = ["webhooks"], marker = "extra == 'termux'", specifier = "==22.6" },
      { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=306,<312" },
-@@ -3403,6 +3407,15 @@ wheels = [
+@@ -3396,6 +3400,15 @@ wheels = [
      { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781, upload-time = "2026-01-21T03:57:55.912Z" },
  ]
  
@@ -8603,10 +8538,10 @@ index 3b035b7e2..c68a81984 100644
  name = "pypng"
  version = "0.20220715.0"
 diff --git a/website/docs/guides/migrate-from-openclaw.md b/website/docs/guides/migrate-from-openclaw.md
-index 38a27e622..4590ea5f0 100644
+index 669497bd1..0effd1674 100644
 --- a/website/docs/guides/migrate-from-openclaw.md
 +++ b/website/docs/guides/migrate-from-openclaw.md
-@@ -159,7 +159,6 @@ TTS settings are read from **two** OpenClaw config locations with this priority:
+@@ -163,7 +163,6 @@ TTS settings are read from **two** OpenClaw config locations with this priority:
  | Browser CDP URL | `browser.cdpUrl` | `config.yaml` → `browser.cdp_url` | |
  | Browser headless | `browser.headless` | `config.yaml` → `browser.headless` | |
  | Brave search key | `tools.web.search.brave.apiKey` | `.env` → `BRAVE_API_KEY` | Requires `--migrate-secrets` |
@@ -8615,7 +8550,7 @@ index 38a27e622..4590ea5f0 100644
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 9473ac605..a38af27ca 100644
+index 362652974..237b91428 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
 @@ -396,8 +396,13 @@ These are set automatically by the Docker terminal backend when `proxy.enabled:
@@ -8633,7 +8568,7 @@ index 9473ac605..a38af27ca 100644
  | `FEISHU_HOME_CHANNEL_NAME` | Display name for the Feishu home channel. |
  | `FEISHU_ALLOW_ALL_USERS` | Allow any Feishu user to trigger the bot (dev only). |
 diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
-index 96ce47b7f..a6cc010c1 100644
+index 4a773b30d..1b1e0aa05 100644
 --- a/website/docs/user-guide/configuration.md
 +++ b/website/docs/user-guide/configuration.md
 @@ -705,6 +705,56 @@ the `hermes tools` UI.

@@ -48,12 +48,13 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.19.0 / main eb527605, `hermes completion zsh` already emits the
+# As of v0.19.0 / main d71033a4, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
 # PATCH-DOCTOR-ENABLED-TOOLSETS (doctor issue-count), PATCH-DELEGATE-ACP-ROUTING (delegate_tool), PATCH-GEMINI-THOUGHT-SIGNATURE (Gemini
-# thought_signature) and PATCH-DASHBOARD-BUILD-CACHE (hermes_cli/main.py dashboard web-build skip)
+# thought_signature), PATCH-DASHBOARD-BUILD-CACHE (hermes_cli/main.py dashboard web-build skip),
+# and PATCH-LAZY-ACTIVATION (first-declared lazy dependency as the activation anchor)
 # were merged upstream and removed from this list.
 PATCHED_FILES=(
     "tools/skill_manager_tool.py"
@@ -61,7 +62,6 @@ PATCHED_FILES=(
     "pyproject.toml"
     "uv.lock"
     "tools/lazy_deps.py"
-    "tests/tools/test_lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
     "website/docs/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
@@ -642,9 +642,9 @@ _ARCHIVED_DOCTOR_TOOLSETS_OK=false
 _ARCHIVED_DASHBOARD_BUILD_CACHE_OK=false
 _ARCHIVED_DELEGATE_ACP_ROUTING_OK=false
 _ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK=false
+_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK=false
 _SKILL_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
-_LAZY_ACTIVE_ANCHOR_PATCH_OK=false
 _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
 _FEISHU_GROUP_ADMISSION_PATCH_OK=false
 _FEISHU_GROUP_SCOPE_PATCH_OK=false
@@ -761,16 +761,16 @@ else
 fi
 
 if [[ -f "${LAZY_DEPS_PY}" && -f "${LAZY_DEPS_TEST_PY}" ]]; then
-    if grep -q 'LAZY_FEATURE_ACTIVE_ANCHORS' "${LAZY_DEPS_PY}" 2>/dev/null &&
-        grep -q 'test_matrix_shared_aiohttp_does_not_activate_backend' "${LAZY_DEPS_TEST_PY}" 2>/dev/null; then
-        ok "Lazy feature activation anchor patch: active (core aiohttp does not activate Matrix)"
-        _LAZY_ACTIVE_ANCHOR_PATCH_OK=true
+    if grep -q 'if specs and _is_present(specs\[0\])' "${LAZY_DEPS_PY}" 2>/dev/null &&
+        grep -q 'test_shared_dependency_does_not_activate_feature' "${LAZY_DEPS_TEST_PY}" 2>/dev/null; then
+        ok "Lazy feature activation anchor: active (upstream merged, PATCH-LAZY-ACTIVATION retired)"
+        _ARCHIVED_LAZY_ACTIVE_ANCHOR_OK=true
     else
-        warn "Lazy feature activation anchor patch inactive — update may retry unused Matrix/python-olm"
-        add_act "Re-apply: see PATCHES.md § [PATCH-LAZY-ACTIVATION]"
+        warn "Upstream lazy activation anchor missing — update may retry unused Matrix/python-olm"
+        add_act "Check upstream: active_features() should probe only each feature's first declared dependency"
     fi
 else
-    warn "Could not locate PATCH-LAZY-ACTIVATION files"
+    warn "Could not locate lazy activation source or regression test"
 fi
 
 OPENCLAW_MIGRATOR="${HERMES_AGENT}/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
@@ -1239,7 +1239,7 @@ fi
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_LAZY_ACTIVE_ANCHOR_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_IMAGE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_IMAGE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
