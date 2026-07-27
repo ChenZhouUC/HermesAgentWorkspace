@@ -2,9 +2,9 @@ User: 周琛 (琛哥). Address as 琛哥。Feishu open_id: ou_33eeacfbd0c0559b7b
 §
 Feishu: Prefers concise, well-structured docs/tables. Fast, direct, jargon-free replies (e.g., 'What is APAC'). Use version tables and @Gödel conventions when editing formal Feishu docs.
 §
-Tools: Execute tasks directly when safe. Prefer first-party CLI/VSCode workflows (currently uses qwencode). Use local wiki before external lookup when relevant. NEVER auto-invoke 'gh copilot'.
+Tools: Execute tasks directly when safe. TUI enthusiast (prefers TUI over GUI, uses qwencode). Prefer first-party CLI/VSCode workflows. Use local wiki before external lookup. NEVER auto-invoke 'gh copilot'.
 §
-Mgmt/Consulting: Plain English, decision trees, business value, and concise limitations. PPTs should be structured and consulting-style. For Chinese reports/drafts, provide multiple versions in official document (公文) style.
+Mgmt/Consulting & Writing: Plain English, decision trees, business value. PPTs structured and consulting-style. Always provide multiple versions/options when generating text, drafts, or reports so he can choose.
 §
 AI Tech: Strong interest in agent orchestration, agent reverse-engineering, sandbox auditing, and direct CLI-based investigation.
 §

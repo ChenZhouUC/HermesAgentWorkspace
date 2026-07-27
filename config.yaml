@@ -579,7 +579,14 @@ platform_toolsets:
     - feishu_doc
     - skills_readonly
     - file_readonly
-    - terminal
+    - sandbox_group
+known_plugin_toolsets:
+  cli:
+    - sandbox_group
+  feishu:
+    - sandbox_group
+  feishu_group:
+    - sandbox_group
 platform_toolset_options:
   feishu_group:
     recover_platform_tools: false

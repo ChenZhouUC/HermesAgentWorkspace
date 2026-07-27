@@ -147,7 +147,9 @@ def upload_md(token, file_path):
     try:
         raw = subprocess.check_output(cmd)
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"curl upload failed (exit {e.returncode}): {e.output!r}")
+        # CalledProcessError formats the full argv, including the Bearer header.
+        # Suppress that context because structured group tools return stderr.
+        raise RuntimeError(f"curl upload failed (exit {e.returncode})") from None
     try:
         resp = json.loads(raw)
     except json.JSONDecodeError:
@@ -524,7 +526,7 @@ def write_block_tree(token, target_doc, top_children_ids, block_map, skip_first_
 # Atomicity: snapshot -> attempt op -> roll back on failure
 # --------------------------------------------------------------------------- #
 
-BACKUP_DIR = os.path.expanduser("~/.hermes/db_workspace/feishu_backups")
+BACKUP_DIR = os.path.expanduser(os.getenv("HERMES_FEISHU_BACKUP_DIR", "~/.hermes/db_workspace/feishu_backups"))
 
 
 def _clear_doc(token, doc_token):

@@ -443,7 +443,7 @@ index 845e4260d..eb17fd31f 100644
                  if not _skill_should_show(
                      extract_skill_conditions(frontmatter),
 diff --git a/agent/replay_cleanup.py b/agent/replay_cleanup.py
-index 780fe761b..fc3081aa7 100644
+index 780fe761b..b9f2e2db3 100644
 --- a/agent/replay_cleanup.py
 +++ b/agent/replay_cleanup.py
 @@ -18,7 +18,7 @@ of the WebUI path silently skipping it.
@@ -464,7 +464,7 @@ index 780fe761b..fc3081aa7 100644
 +# ──────────────────────────────────────────────────────────────────────
 +# Replay-history retention window (time + count)  [history-retention]
 +# ──────────────────────────────────────────────────────────────────────
-+# PATCH-22: long-lived shared group sessions replay their FULL transcript to
++# PATCH-HISTORY-RETENTION: long-lived shared group sessions replay their FULL transcript to
 +# the model every turn — token-based compression never fires on large-context
 +# models, so days-old turns (including one-shot injected instruction blocks
 +# and the model's own replies under them) keep steering later turns ("history
@@ -878,7 +878,7 @@ index 4f2c0e98f..8347a9115 100644
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index aac6a1925..6524666e8 100644
+index aac6a1925..327e834dd 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -84,6 +84,19 @@ _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
@@ -1404,7 +1404,7 @@ index aac6a1925..6524666e8 100644
                      )
 -            
 +
-+            # Replay-history retention (PATCH-14 hardening): bound what the
++            # PATCH-HISTORY-RETENTION: bound what the
 +            # MODEL sees by wall-clock age / message count, per platform key
 +            # (gateway.history_retention.<key> in config.yaml). Placed AFTER
 +            # the cached-agent guard so both the disk and live-memory history
@@ -1474,7 +1474,7 @@ index aac6a1925..6524666e8 100644
                      final_response = f"⚠️ {result['error']}" if result.get("error") else ""
                  return {
 diff --git a/gateway/session.py b/gateway/session.py
-index 89f418866..aaa6c1d19 100644
+index 89f418866..117034ff0 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
 @@ -13,6 +13,7 @@ import hashlib
@@ -1492,7 +1492,7 @@ index 89f418866..aaa6c1d19 100644
 +# ---------------------------------------------------------------------------
 +# People profiles — local, user-curated knowledge base  [people-profile]
 +# ---------------------------------------------------------------------------
-+# PATCH-14: Inject per-person background/stance from ~/.hermes/people.yaml so the
++# PATCH-LOCAL-PROFILES: Inject per-person background/stance from ~/.hermes/people.yaml so the
 +# agent can tailor tone and risk-awareness to whoever is speaking in a chat. The
 +# data file lives in the config repo (OUTSIDE hermes-agent), so it survives
 +# upstream updates and stays hand-editable; this loader is the only source-side
@@ -1760,7 +1760,7 @@ index 89f418866..aaa6c1d19 100644
 +# ---------------------------------------------------------------------------
 +# Group profiles — local, user-curated per-group persona  [group-profile]
 +# ---------------------------------------------------------------------------
-+# PATCH-14: Inject per-group language style + capability framing from
++# PATCH-LOCAL-PROFILES: Inject per-group language style + capability framing from
 +# ~/.hermes/groups.yaml so the agent can present itself differently per audience
 +# (tone, and what it tells people it can do) while the sandbox/safety boundary
 +# stays identical across groups. Same contract as people profiles: the data file
@@ -1948,7 +1948,7 @@ index 89f418866..aaa6c1d19 100644
 +            "must not override the current author."
 +        )
 +
-+    # PATCH-14: per-person profile injection  [people-profile]
++    # PATCH-LOCAL-PROFILES: per-person profile injection  [people-profile]
 +    # Look the current author up in ~/.hermes/people.yaml (by id, then name)
 +    # and inline a compact background/stance block so replies can be tailored.
 +    # Skipped under PII redaction so the contract for PII-safe platforms holds.
@@ -1962,7 +1962,7 @@ index 89f418866..aaa6c1d19 100644
 +            lines.append("")
 +            lines.extend(_render_person_profile(_person))
 +
-+    # PATCH-14: per-group persona + capability framing  [group-profile]
++    # PATCH-LOCAL-PROFILES: per-group persona + capability framing  [group-profile]
 +    # In groups/channels, look the chat up in ~/.hermes/groups.yaml and inline a
 +    # per-group language-style / capability block so the agent presents itself
 +    # differently per audience. Independent of any matched profile, always inject
@@ -2489,7 +2489,7 @@ index f0d0d4f89..2bf2daa4b 100644
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index e1df2a05e..955704d09 100644
+index e1df2a05e..8466f83b5 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -60,6 +60,7 @@ import os
@@ -2941,7 +2941,7 @@ index e1df2a05e..955704d09 100644
 +        # real signal instead: synthesize an intent turn so the model addresses the
 +        # quoted message (if this is a reply) or infers intent from recent channel
 +        # history and helps / asks the sender. The @-sender stays the questioner
-+        # (PATCH-13 author anchoring keeps reply/history as context only). The drop
++        # (PATCH-FEISHU-GROUP-ADMISSION keeps reply/history as context only). The drop
 +        # still applies to DMs, a disabled toggle, and non-bot triggers, so upstream
 +        # behavior stays reversible.
          if inbound_type == MessageType.TEXT and not text and not media_urls:
@@ -3837,7 +3837,7 @@ index e1df2a05e..955704d09 100644
 +        or ask one brief clarifying question. The current message author (the
 +        person who sent this @mention) stays the questioner and reply target; the
 +        quoted message and channel history are context only. Gated by
-+        ``bare_mention_intent``; see PATCHES.md § [PATCH-10].
++        ``bare_mention_intent``; see PATCHES.md § [PATCH-FEISHU-GROUP-ADMISSION].
 +        """
 +        if reply_to_text:
 +            return (
@@ -4344,7 +4344,7 @@ index 4e9026753..67cbc14df 100644
 +        assert skipped == [str(vid)]
 +        assert all(p.get("type") != "image_url" for p in parts)
 diff --git a/tests/agent/test_replay_cleanup.py b/tests/agent/test_replay_cleanup.py
-index 14b44e8f2..48cb1916b 100644
+index 14b44e8f2..47dede2d0 100644
 --- a/tests/agent/test_replay_cleanup.py
 +++ b/tests/agent/test_replay_cleanup.py
 @@ -7,6 +7,7 @@ because the dangling tool-call tail was replayed on every resume).
@@ -4362,7 +4362,7 @@ index 14b44e8f2..48cb1916b 100644
 +
 +
 +# ──────────────────────────────────────────────────────────────────────
-+# apply_history_retention (PATCH-22) — time-window + count replay bound
++# PATCH-HISTORY-RETENTION — time-window + count replay bound
 +# ──────────────────────────────────────────────────────────────────────
 +
 +
@@ -4644,7 +4644,7 @@ index e5c787d65..b53447df9 100644
 +    assert error == ""
 +    assert "revenue,42" in text
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index 0e411b8cf..4f6694a81 100644
+index 0e411b8cf..d66dc2103 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -172,6 +172,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -5187,7 +5187,7 @@ index 0e411b8cf..4f6694a81 100644
      @patch.dict(os.environ, {}, clear=True)
 -    def test_send_replies_in_thread_when_thread_metadata_present(self):
 +    def test_bare_mention_without_text_uses_channel_context_to_infer_intent(self):
-+        """PATCH-10: with bare_mention_intent on, a group @Bot carrying no text is
++        """PATCH-FEISHU-GROUP-ADMISSION: with bare_mention_intent on, a group @Bot carrying no text is
 +        NOT dropped — the synthesized turn tells the model to infer intent from the
 +        recent channel history instead."""
 +        from gateway.config import PlatformConfig
@@ -5238,8 +5238,8 @@ index 0e411b8cf..4f6694a81 100644
 +
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_bare_mention_reply_uses_quoted_message_as_subject_locked_to_sender(self):
-+        """PATCH-10: a bare @Bot that quotes a message routes the quoted message as
-+        the subject, while the questioner stays the @-sender (PATCH-13 anchoring)."""
++        """PATCH-FEISHU-GROUP-ADMISSION: a bare @Bot that quotes a message routes
++        the quote as subject while the questioner stays the @-sender."""
 +        from gateway.config import PlatformConfig
 +        from gateway.platforms.base import MessageType
 +        from plugins.platforms.feishu.adapter import FeishuAdapter
@@ -6009,7 +6009,7 @@ index 3cd3a854a..d3d52ee2f 100644
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
 diff --git a/tests/gateway/test_session.py b/tests/gateway/test_session.py
-index ca86fc728..03a439303 100644
+index ca86fc728..a4bf0b883 100644
 --- a/tests/gateway/test_session.py
 +++ b/tests/gateway/test_session.py
 @@ -17,6 +17,7 @@ from gateway.session import (
@@ -6054,7 +6054,7 @@ index ca86fc728..03a439303 100644
  
  
 +class TestPeopleProfileInjection:
-+    """PATCH-14 people-profile: ~/.hermes/people.yaml → system prompt.
++    """PATCH-LOCAL-PROFILES people-profile: ~/.hermes/people.yaml → system prompt.
 +
 +    Verifies per-person background/stance injection: matched by id and by
 +    name/alias, skipped for unknown authors, and resilient to a missing or
@@ -6238,7 +6238,7 @@ index ca86fc728..03a439303 100644
 +
 +
 +class TestGroupProfileInjection:
-+    """PATCH-14 group-profile: ~/.hermes/groups.yaml → system prompt.
++    """PATCH-LOCAL-PROFILES group-profile: ~/.hermes/groups.yaml → system prompt.
 +
 +    Verifies per-group persona injection (language style + capability framing):
 +    matched by chat_id and by name/alias, skipped for DMs and unknown chats, and
@@ -6412,7 +6412,7 @@ index f5392ab2c..a2f3d7cef 100644
      """_clear_session_env should restore contextvars to their pre-handler values."""
      runner = object.__new__(GatewayRunner)
 diff --git a/tests/gateway/test_stale_confirmation_expiry.py b/tests/gateway/test_stale_confirmation_expiry.py
-index 143d42d74..50fd20bdc 100644
+index 143d42d74..4a086caa1 100644
 --- a/tests/gateway/test_stale_confirmation_expiry.py
 +++ b/tests/gateway/test_stale_confirmation_expiry.py
 @@ -220,3 +220,82 @@ def test_redaction_preserves_role_alternation():
@@ -6421,7 +6421,7 @@ index 143d42d74..50fd20bdc 100644
      assert history[2]["content"] == "confirm forced restart"
 +
 +# ──────────────────────────────────────────────────────────────────────
-+# PATCH-22: gateway replay-history retention config resolution
++# PATCH-HISTORY-RETENTION: gateway replay-history retention config resolution
 +# ──────────────────────────────────────────────────────────────────────
 +# The retention filter itself (agent.replay_cleanup.apply_history_retention)
 +# is covered in tests/agent/test_replay_cleanup.py. These tests cover the

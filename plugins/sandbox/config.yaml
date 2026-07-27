@@ -1,10 +1,8 @@
-# Per-chat tool restriction for Feishu.
+# Per-chat capability boundary for Feishu.
 #
-# Only the chat_ids listed below get unrestricted access. Every other Feishu
-# chat_id can only call the tools in `allowed_tools_for_outsiders`. Messages
-# coming from non-Feishu sources (CLI/TUI, cron, internal) are never gated.
-#
-# To rotate or extend: edit this file and restart the gateway.
+# The owner's main Feishu DM is unrestricted. Other DMs receive only the base
+# allowlist. Group chats also receive the tools listed below. Every change
+# requires a gateway restart.
 
 owner_feishu_chat_ids:
   - oc_c8221472cf59b202ccd0682cf6cea296
@@ -15,39 +13,43 @@ allowed_tools_for_outsiders:
   - vision_analyze
   - image_generate
 
-# Extra allowlist for non-owner Feishu group/channel chats only. Keep this
-# read-mostly. Skill names are still constrained by `skills.platform_allowed`.
-# File reads/searches are additionally constrained to the roots below. The
-# terminal tool is parameter-gated by the plugin: groups may only run curl/wget
-# downloads into configured download roots, or `python existing_script.py ...`
-# under configured script roots.
+# Group tools stay structured: there is no generic terminal, write_file, patch,
+# or process tool. Skill names remain constrained by skills.platform_allowed.
 allowed_tools_for_outsider_groups:
   - skills_list
   - skill_view
   - feishu_doc_read
   - read_file
   - search_files
-  - terminal
+  - group_cache
+  - feishu_doc_manage
 
+# Direct file tools may read the wiki. Reads under group_workspace_root are
+# narrowed again at runtime to the current group's hashed subdirectory.
 allowed_read_roots_for_outsider_groups:
   - ~/.hermes/wiki
-  - ~/.hermes/cache
-  - ~/.hermes/tmp
-  - /tmp
 
-allowed_download_roots_for_outsider_groups:
-  - ~/.hermes/tmp
-  - ~/.hermes/cache
-  - /tmp
+group_workspace_root: ~/.hermes/tmp/group-workspaces
 
-# Script execution is allowlisted per skill directory, NOT per skill tree:
-# only skills that legitimately run scripts in group chats belong here.
-# feishu-people-search is deliberately absent — the people roster is
-# DM-only (owner), so its search_people.py must not be runnable from groups
-# even though the file exists under ~/.hermes/my-skills.
-allowed_script_roots_for_outsider_groups:
-  - ~/.hermes/my-skills/productivity/feishu-docs
+# Exact operator-approved actions. Each maps to one fixed script filename in
+# feishu_doc_scripts_root; the group can never supply a script path or argv.
+allowed_feishu_script_actions_for_outsider_groups:
+  - create
+  - append
+  - rebuild
+  - delete
+  - read_url
+  - download_file
 
-block_message: "本会话不支持该工具。当前会话仅开放：聊天问答 / 联网搜索 / 网页正文抓取 / 图片理解 / 图片生成；群聊额外开放只读知识库、飞书文档读取、/tmp 与 Hermes 缓存/临时目录读取、受限下载、以及运行已配置目录里的既有脚本。"
-read_root_block_message: "群聊只允许读取配置的只读知识库目录。查询 wiki 请直接使用 read_file/search_files，并显式传入 ~/.hermes/wiki 或其子路径；不能省略 path，也不要使用 ~/wiki。"
-terminal_block_message: "群聊里的 terminal 只允许两类操作：curl/wget 下载到 /tmp、~/.hermes/tmp 或缓存目录；python 运行已放行技能目录里的既有脚本。该命令不在放行范围内，视为设计内的安全边界，不要尝试组合其他命令绕过。读取 wiki 请改用 read_file/search_files，并显式传入 ~/.hermes/wiki 路径。"
+feishu_doc_scripts_root: ~/.hermes/my-skills/productivity/feishu-docs/scripts
+python_executable: ~/.hermes/hermes-agent/venv/bin/python
+script_timeout_seconds: 300
+group_max_download_bytes: 50000000
+
+# Fail closed if the OS process sandbox is unavailable. The profile permits
+# reads/execution/network but permits writes only inside the current group
+# workspace, and is inherited by child processes such as curl.
+require_process_sandbox: true
+
+block_message: "本会话不支持该工具。群聊仅开放问答、联网搜索、图片能力、只读 wiki/skill、当前群隔离的 tmp 工作区，以及受进程沙箱保护的飞书文档操作。"
+read_root_block_message: "群聊只允许读取 ~/.hermes/wiki 和当前群自己的 ~/.hermes/tmp/group-workspaces/<群哈希>/；skills/my-skills 只能通过只读 skill 工具访问。"

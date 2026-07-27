@@ -28,7 +28,7 @@ Use this skill whenever you need to read, summarize, create, or update documents
 17. **Rebuild Script KeyError on Deep Nesting**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild and trigger a safe rollback. For a true mapping `KeyError`, use `create_new_doc_from_md.py` only when the user explicitly permits a replacement document. For rich-text-list `HTTP 400` errors, fix the Markdown and rerun the rebuild on the same document as required by rule 21.
 18. **Tenant Domain Configuration**: Scripts output placeholder URLs (e.g. `domain.feishu.cn`). Make sure your execution substitutes the actual tenant domain (`whales.feishu.cn`) when giving links back to the user.
 19. **Nested Inline Formatting in List Items (HTTP 400)**: Feishu's Block API rejects Markdown where bold/italic styling is nested directly inside list items (e.g., `- **Label**: text` or nested sub-lists like `  * **Sub-item**:`), failing with `HTTP 400 Invalid parameter type in json: children`. **WARNING: As an AI, you naturally default to generating `\* **Key**: Value` lists. You MUST actively suppress this habit when generating Markdown for Feishu Docs.** **Resolution**: Flatten the list into regular paragraphs (e.g., `**Label**: text` on its own line), strip the inline emphasis from bullets, or **use Markdown blockquotes (`> text`) instead of lists** to maintain indentation without triggering the rejection. _Example Fix:_ Change `* **Item**:` to `> **Item**:`.
-20. **Process Substitution Upload Bug**: Never use bash process substitution (e.g., `<(cat ... )`) as the `md_file_path` for `create_new_doc_from_md.py` or `append_md_to_doc.py`. The underlying `curl -F file=@...` cannot properly read `/dev/fd/N` and will fail with `exit status 26`. Always write your markdown to a real file in `~/.hermes/tmp/` first.
+20. **Process Substitution Upload Bug**: Never use bash process substitution (e.g., `<(cat ... )`) as the `md_file_path` for `create_new_doc_from_md.py` or `append_md_to_doc.py`. The underlying `curl -F file=@...` cannot properly read `/dev/fd/N` and will fail with `exit status 26`. Always write your markdown to a real file in `~/.hermes/tmp/` first. In a Feishu group, use `group_cache`; it automatically selects that group's isolated tmp subdirectory.
 21. **Import Flakiness & Rebuild Robustness**:
     - **Transient 5006 Errors**: If an import fails with `job_status=3 detail={'job_error_msg': 'call CreateObjNode return error code, code: 5006...'}`, this is a transient Feishu API flake. Retry the exact same command immediately; it usually succeeds on the second try.
     - **Preserving Version History on 400 Errors**: If `rebuild_doc_from_md.py` triggers an atomic rollback due to formatting errors (e.g., the nested bold list `HTTP 400` bug), **you MUST fix the markdown and rerun `rebuild` on the exact same doc_token**. Do NOT create a brand new document and delete the old one to bypass the error—doing so resets the Version Table history to `.01ed` and destroys the user's audit trail.
@@ -50,19 +50,11 @@ If you absolutely MUST create a new document (e.g., explicitly forced), you MUST
 uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/create_new_doc_from_md.py <md_file_path> "<Professional_Title>"
 ```
 
-**Feishu group sandbox command:** In group chats, `uv run`, shell redirection, and
-general file writes may be unavailable. Use the existing script directly and
-pass the Markdown body as data:
-
-```bash
-python ~/.hermes/my-skills/productivity/feishu-docs/scripts/create_new_doc_from_md.py --title "<Professional_Title>" --content "# Title\n\nMarkdown body..."
-```
-
-For quoting-heavy content, pass base64 instead:
-
-```bash
-python ~/.hermes/my-skills/productivity/feishu-docs/scripts/create_new_doc_from_md.py --title "<Professional_Title>" --content-b64 "<base64_utf8_markdown>"
-```
+**Feishu group:** Call `feishu_doc_manage` with `action="create"`, `title`, and
+`content`. Do not call `terminal` or construct a Python command. For a large
+draft, write a `.md` data file with `group_cache`, then pass its relative path as
+`markdown_path`. The tool maps this action to the pre-installed script without a
+shell and confines all local writes to the current group's tmp workspace.
 
 **Transient Error Pitfall (code: 5006):** If the script fails during the `CreateObjNode` step with `job_status=3 detail={'extra': ['_pod_name'], 'job_error_msg': 'call CreateObjNode return error code, code: 5006...`, this is a transient Feishu API sync/rate-limit issue. **Do not modify the file or script.** Simply re-run the exact same command and it will usually succeed immediately.
 
@@ -125,7 +117,7 @@ uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scrip
 The `append_md_to_doc.py` and `rebuild_doc_from_md.py` scripts wrap their destructive
 work in `feishu_common.atomic_update`:
 
-- The doc is **snapshotted to a local backup file** (`~/.hermes/db_workspace/feishu_backups/`) before any destructive write.
+- The doc is **snapshotted to a local backup file** before any destructive write. Owner/CLI runs use `~/.hermes/db_workspace/feishu_backups/`; Feishu group runs use `<group_cache workspace>/backups/`, so the process sandbox never needs to write outside that group's isolated tmp directory.
 - On **any** failure mid-update, the doc is **rolled back** to its pre-update state. You end up with either the fully-updated doc or the original — never a half-written, garbled doc.
 - If rollback itself fails, the backup file path is printed for manual recovery.
 - All API calls retry automatically on rate limits, 5xx, and dropped connections (the `RemoteDisconnected` that large `batch_delete`s trigger).
@@ -208,10 +200,7 @@ To merge large Markdown content into an existing document with perfect native fo
 
 支持：`/docx` `/docs`(文档→markdown)、`/wiki`(解析节点后递归)、`/sheets`(电子表格→markdown 表)、`/base`(多维表格→markdown 表)、`/file`(下载附件，再用 `read_file` 抽取)。
 
-**🚨 群聊里两条硬规矩 (实测沙箱会拦):**
-
-1. **必须用 venv 解释器，不要用 `uv run`**:群聊沙箱的 terminal 只放行 `python`/`python3` 运行配置目录下的既有脚本 (`uv` 会被拦)。`~/.hermes/hermes-agent/venv/bin/python` 的 `Path(...).name == "python"` 能过沙箱，且 venv 自带 `requests`/`lark_oapi`。
-2. **URL 必须用双引号包起来**:`/base/`、`/sheets/` 链接常带 `?table=x&view=y`,裸 `&` 会被沙箱判成 shell 控制符直接拦截。加引号 `"https://...&..."` 即放行。
+**群聊调用规则：** 群聊没有 `terminal`。读取任意飞书链接、下载附件以及创建、追加、重建、删除文档，一律调用结构化的 `feishu_doc_manage`；需要落地 Markdown 时先调用 `group_cache`。工具只会映射到管理员逐项批准的既有脚本，参数不经过 shell，群聊工作区内创建的文件永远不会作为脚本执行。
 
 新读取脚本本体 (`read_sheet.py`/`read_bitable.py`/`download_feishu_file.py`/`feishu_render.py`) 是纯标准库，复用 `feishu_common.py` 取 token。
 
@@ -219,7 +208,7 @@ To merge large Markdown content into an existing document with perfect native fo
 
 - 电子表格：`venv/bin/python scripts/read_sheet.py <sheets_url> [range]`(默认 `A1:Z300`)
 - 多维表格：`venv/bin/python scripts/read_bitable.py <base_url> [table_id] [max_records]`
-- 文件附件：优先使用统一入口 `read_feishu_url.py`；它会下载并直接抽取 PDF、HTML/HTM、DOCX、XLSX、PPTX、ODT、IPYNB 和常见纯文本，无需在群沙箱里追加 terminal 命令。图片/视频 `/file/` 链接由 Feishu 网关原生媒体路由处理。`download_feishu_file.py` 只作为需要原始落地路径时的低层入口。
+- 文件附件：优先使用统一入口 `read_feishu_url.py`；它会下载并直接抽取 PDF、HTML/HTM、DOCX、XLSX、PPTX、ODT、IPYNB 和常见纯文本。群聊通过 `feishu_doc_manage(action="read_url")` 调用。图片/视频 `/file/` 链接由 Feishu 网关原生媒体路由处理；需要原始落地路径时用 `action="download_file"`。
 
 **已知限制**:docx 内嵌的表格/图片仍渲染为占位符 (块抽取器的固有限制);**独立**的电子表格/多维表格才渲染为完整 markdown 表。图片/截图走原生 vision(被 @ 时网关自动附图),不需要脚本。
 
@@ -245,7 +234,7 @@ If the user has already granted permission but the API is slow to sync, wait a m
 
 ## 📎 Downloading File Attachments (Excel, PDF, etc.)
 
-Links in the form `https://whales.feishu.cn/file/TOKEN` are file attachments, not docs. `feishu_doc_read` and docx scripts **will not work** on these. **Easiest path**: run the unified `venv/bin/python scripts/read_feishu_url.py "<file_url>"`; it downloads to `~/.hermes/tmp/` and immediately extracts common text/document formats, including PDF and HTML. In Feishu chat, quoting a `/file/` link and @-mentioning the bot is also handled by the gateway. Manual fallback — use `download_feishu_file.py` or the `drive/v1/files/:token/download` endpoint to download raw binary, then:
+Links in the form `https://whales.feishu.cn/file/TOKEN` are file attachments, not docs. `feishu_doc_read` and docx scripts **will not work** on these. **Easiest path**: run the unified `venv/bin/python scripts/read_feishu_url.py "<file_url>"`; in a Feishu group use `feishu_doc_manage(action="read_url")`. Downloads land in that group's isolated `~/.hermes/tmp/group-workspaces/...` directory and common text/document formats are extracted immediately. Quoting a `/file/` link and @-mentioning the bot is also handled by the gateway.
 
 - For `.xlsx`: rename with `.xlsx` extension and use `read_file` (auto-extracts to text)
 - For other types: inspect `Content-Type` header and handle accordingly

@@ -5,8 +5,9 @@ uploaded into chat. These are NOT docs; feishu_doc_read won't read them. After
 downloading, Hermes's ``read_file`` tool auto-extracts .docx/.xlsx to text
 (see references/file-attachment-download.md).
 
-The destination ~/.hermes/tmp is inside the group sandbox's read roots, so the
-agent can ``read_file`` the result directly.
+In a group call, ``HERMES_GROUP_WORKSPACE`` selects that group's isolated
+``~/.hermes/tmp/group-workspaces/...`` directory, so the agent can read the
+result without exposing another group's files.
 
 Usage:
   python download_feishu_file.py <file_url_or_token> [dest_dir]
@@ -21,7 +22,7 @@ import urllib.request
 
 import feishu_common as fc
 
-DEFAULT_DEST = "~/.hermes/tmp"
+DEFAULT_DEST = os.getenv("HERMES_GROUP_WORKSPACE", "~/.hermes/tmp")
 _EXT_BY_CTYPE = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
@@ -29,6 +30,29 @@ _EXT_BY_CTYPE = {
     "text/csv": ".csv",
     "text/plain": ".txt",
 }
+
+
+def _read_response_data(resp):
+    raw_limit = os.getenv("HERMES_GROUP_MAX_DOWNLOAD_BYTES")
+    if not raw_limit:
+        return resp.read()
+    try:
+        limit = int(raw_limit)
+    except ValueError as exc:
+        raise RuntimeError("HERMES_GROUP_MAX_DOWNLOAD_BYTES must be an integer") from exc
+    if limit <= 0:
+        raise RuntimeError("HERMES_GROUP_MAX_DOWNLOAD_BYTES must be positive")
+    content_length = resp.headers.get("Content-Length")
+    if content_length:
+        try:
+            if int(content_length) > limit:
+                raise RuntimeError(f"Feishu file exceeds the group download limit ({limit} bytes)")
+        except ValueError:
+            pass
+    data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise RuntimeError(f"Feishu file exceeds the group download limit ({limit} bytes)")
+    return data
 
 
 def extract_file_token(url_or_token):
@@ -63,7 +87,7 @@ def download_file(url_or_token, dest_dir=DEFAULT_DEST):
     url = f"{fc.API}/drive/v1/files/{file_token}/download"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     with urllib.request.urlopen(req, timeout=120) as resp:  # urllib follows 3xx redirects
-        data = resp.read()
+        data = _read_response_data(resp)
         ctype = resp.headers.get("Content-Type", "")
         fname = _filename_from(resp.headers.get("Content-Disposition", ""), ctype, file_token)
     # Some failures come back as HTTP 200 + a JSON error envelope, not binary.

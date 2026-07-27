@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent macOS Ops
 created: 2026-05-14
-updated: 2026-06-22
+updated: 2026-07-27
 ---
 
 # Hermes Agent macOS 安装与运维手册
@@ -202,7 +202,7 @@ uv pip install -e ".[all,feishu]"
 > 这套安装组合覆盖：上游 `[all]` 的常用 CLI / Gateway / Web / MCP / PTY 能力，以及本机常驻需要的飞书集成。Python 版本不要写死，按当前 `pyproject.toml` 的 `requires-python` 与本机可用版本选择；本机持续运行的是 pyenv `3.12.7`。
 > 想启用本地 STT / 语音消息时再追加 `voice` extra；想启用 Computer Use 时再追加 `computer-use`（需要后续 `hermes tools` 装 cua-driver）。
 >
-> **关于 `python-socks`（飞书 + 代理网络必装，PATCH-7）**：上游 v0.16.0 的 `feishu` extra 与 `tools/lazy_deps.py` 的 Feishu lazy backend 都仍未声明 `python-socks`。本机通过 PATCH-7 同时补到 `pyproject.toml` 和 `tools/lazy_deps.py`，因此不要再手动安装宽松区间约束；补丁固定为当前验证过的 `python-socks==2.8.1`。
+> **关于 `python-socks`（飞书 + 代理网络必装，`PATCH-FEISHU-SOCKS-DEPENDENCY`）**：上游 v0.16.0 的 `feishu` extra 与 `tools/lazy_deps.py` 的 Feishu lazy backend 都仍未声明 `python-socks`。本机通过 `PATCH-FEISHU-SOCKS-DEPENDENCY` 同时补到 `pyproject.toml` 和 `tools/lazy_deps.py`，因此不要再手动安装宽松区间约束；补丁固定为当前验证过的 `python-socks==2.8.1`。
 
 ### 3.3 暴露 hermes 命令
 
@@ -222,7 +222,7 @@ chmod 600 ~/.hermes/credentials/*.json
 
 > 把公司发的 SA JSON 放到 `~/.hermes/credentials/`；权限设 600。
 
-### 3.5 修复 npm 依赖已知漏洞（等价于本地 PATCH-6）
+### 3.5 修复 npm 依赖已知漏洞（等价于本地 `PATCH-NPM-DEPENDENCY-HYGIENE`）
 
 `hermes` 在装 Node 工具时使用 `npm install --no-audit`，所以已知漏洞不会被自动修复。装完 / 每次更新代码后跑一次 `npm audit fix` 把可自动修复的全部解决（不能动的会输出"need force"提示，谨慎处理）：
 
@@ -755,7 +755,7 @@ hermes tools list
 bash ~/.hermes/hermes-update.sh
 ```
 
-> 封装脚本会在 Step 8 验证 PATCH-7：`pyproject.toml` 和 `tools/lazy_deps.py` 都必须包含 `python-socks==2.8.1`，否则会提示重新应用补丁。
+> 封装脚本会在 Step 8 验证 `PATCH-FEISHU-SOCKS-DEPENDENCY`：`pyproject.toml` 和 `tools/lazy_deps.py` 都必须包含 `python-socks==2.8.1`，否则会提示重新应用补丁。
 > `hermes update --backup` / `--no-backup` 控制是否做升级前快照；详见 `hermes update --help`。
 > 升级后 Vertex token 仍有效；想立即跑一次刷新：`launchctl kickstart -k gui/$(id -u)/ai.hermes.vertex-refresh`。
 
@@ -835,9 +835,9 @@ rm -rf ~/.hermes
 | 修改 `config.yaml` 后不生效                                                                  | 后台 gateway 必须 `hermes gateway restart`；前台 chat 用 `/reload`                                                                                                                                                                                                                           |
 | 飞书任务跑到一半"突然没反应"/会话重置                                                        | 大概率是 Vertex 刷新触发 `gateway restart`，但 in-flight 长任务超过 `agent.restart_drain_timeout` 被 SIGKILL。看 `grep "drain timed out" ~/.hermes/logs/errors.log` 是否有命中。修复：把 `restart_drain_timeout` 调大到 900s（见第四章 agent 段示例），上限受 `(token 寿命 - 刷新间隔)` 约束 |
 | 长会话报 `Compression summary failed: 429 Resource exhausted` / 插入 fallback context marker | 默认 `auxiliary.compression.provider=auto` 会复用主模型的 Vertex 配额。修复：`hermes config set auxiliary.compression.provider alibaba && hermes config set auxiliary.compression.model qwen3.6-plus && hermes gateway restart`，让压缩走 DashScope 独立配额                                 |
-| 升级代码后 bot 无法启动（`ModuleNotFoundError`）                                             | `cd ~/.hermes/hermes-agent && source venv/bin/activate && uv pip install -e ".[all,feishu]" && deactivate && hermes gateway restart`；若缺的是 Feishu SOCKS 支持，先确认 PATCH-7 已应用到 `pyproject.toml` 和 `tools/lazy_deps.py`                                                           |
+| 升级代码后 bot 无法启动（`ModuleNotFoundError`）                                             | `cd ~/.hermes/hermes-agent && source venv/bin/activate && uv pip install -e ".[all,feishu]" && deactivate && hermes gateway restart`；若缺的是 Feishu SOCKS 支持，先确认 `PATCH-FEISHU-SOCKS-DEPENDENCY` 已应用到 `pyproject.toml` 和 `tools/lazy_deps.py`                                   |
 | 想限定特定飞书用户访问                                                                       | `.env` 注释掉 `GATEWAY_ALLOW_ALL_USERS=true`，改为 `FEISHU_ALLOWED_USERS=ou_用户ID1,ou_用户ID2`（用户 ID 在飞书开放平台「通讯录」查到）                                                                                                                                                      |
-| `Found N issue(s) to address` 误报未启用的 toolset（如 moa / rl）                            | 本机 PATCH-2 已过滤未启用平台 toolset；若仍出现，先跑 `hermes doctor` 看是否是真缺凭据，再检查 `hermes_cli/doctor.py` 中 `_get_platform_tools` 补丁是否还在                                                                                                                                  |
+| `Found N issue(s) to address` 误报未启用的 toolset（如 moa / rl）                            | 本机归档补丁 `PATCH-DOCTOR-ENABLED-TOOLSETS` 的回归 sentinel 会验证上游已过滤未启用平台 toolset；若仍出现，先跑 `hermes doctor` 看是否是真缺凭据，再检查 `hermes_cli/doctor.py` 中 `_get_platform_tools` 的上游实现                                                                          |
 | 飞书每 50min 收到 ⚠ Gateway restarting 通知                                                  | 这是 `vertex-refresh` 触发的 planned restart（默认 3000s 周期），属于预期行为。想降低提醒频率可 `--interval-seconds 3300` 拉长到 55min                                                                                                                                                       |
 | 完全清理                                                                                     | 见 §9.14                                                                                                                                                                                                                                                                                     |
 

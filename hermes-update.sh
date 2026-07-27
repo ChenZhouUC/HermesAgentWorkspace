@@ -46,14 +46,14 @@ PATCHES_DIR="${HERMES_HOME}/patches"
 PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 
 # Files we maintain local patches for (relative to HERMES_AGENT).
-# Note: completions/_hermes (PATCH-3) is handled separately in step 7 via
+# Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
 # As of v0.19.0 / main eb527605, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
-# PATCH-2 (doctor issue-count), PATCH-5 (delegate_tool), PATCH-8 (Gemini
-# thought_signature) and PATCH-4 (hermes_cli/main.py dashboard web-build skip)
+# PATCH-DOCTOR-ENABLED-TOOLSETS (doctor issue-count), PATCH-DELEGATE-ACP-ROUTING (delegate_tool), PATCH-GEMINI-THOUGHT-SIGNATURE (Gemini
+# thought_signature) and PATCH-DASHBOARD-BUILD-CACHE (hermes_cli/main.py dashboard web-build skip)
 # were merged upstream and removed from this list.
 PATCHED_FILES=(
     "tools/skill_manager_tool.py"
@@ -280,7 +280,8 @@ fi
 cd - >/dev/null
 
 # npm 12 blocks unreviewed dependency lifecycle scripts by default.  Keep the
-# approval scoped to this Hermes update via a temporary global-config file:
+# PATCH-NPM-DEPENDENCY-HYGIENE: keep install-script approval scoped to this
+# Hermes update via a temporary global-config file:
 # project-scoped --allow-scripts/env flags are rejected by npm, while changing
 # ~/.npmrc would broaden the policy to unrelated projects.  Versions are pinned
 # so an upstream bump becomes a deliberate re-review instead of inheriting
@@ -359,7 +360,7 @@ fi
 # Clear the trap flag — patches will be re-applied in step 8.
 _PATCHES_REVERTED=false
 
-# ── 4. npm audit fix ─────────────────────────────────────────────────────────
+# ── 4. npm audit fix (PATCH-NPM-DEPENDENCY-HYGIENE) ──────────────────────────
 # hermes update runs `npm install --no-audit` for node-based tools (e.g.
 # agent-browser). This can leave known npm vulnerabilities unfixed.
 # Run npm audit fix to patch them automatically.
@@ -497,12 +498,12 @@ set -e
 if [[ $COMP_RC -eq 0 ]]; then
     ok "Written: ${COMP_FILE}"
 
-    # PATCH-3 regression sentinel: upstream commit fe61d95b4 (v0.13.0) fixed
+    # PATCH-ZSH-COMPLETION-SYNTAX regression sentinel: upstream commit fe61d95b4 (v0.13.0) fixed
     # the generator to emit the valid `'(-)'{-h,--help}'[...]'` form, so the
     # grep below should not match on current releases. If a future upstream
     # change reverts to the broken `(...){...}` combo, this block re-applies
     # the split-flag rewrite so Tab completion keeps working.
-    # See: README.md § 本地补丁记录 [PATCH-3]
+    # See: README.md § 本地补丁记录 [PATCH-ZSH-COMPLETION-SYNTAX]
     if grep -q '){-h,--help}' "${COMP_FILE}" 2>/dev/null ||
         grep -q '){-V,--version}' "${COMP_FILE}" 2>/dev/null ||
         grep -q '){-p,--profile}' "${COMP_FILE}" 2>/dev/null; then
@@ -530,9 +531,9 @@ for old, new in fixes:
 with open(path, 'w') as f:
     f.write(content)
 PYEOF
-        ok "PATCH-3 applied: fixed _arguments invalid syntax in completion script"
+        ok "PATCH-ZSH-COMPLETION-SYNTAX applied: fixed _arguments invalid syntax in completion script"
     else
-        ok "PATCH-3: upstream completion output already uses correct syntax — no fix needed"
+        ok "PATCH-ZSH-COMPLETION-SYNTAX: upstream completion output already uses correct syntax — no fix needed"
     fi
 
     # Clear zsh completion cache so the regenerated _hermes is picked up.
@@ -634,26 +635,32 @@ else
 fi
 
 # -- 8b. Behavioral verification -----------------------------------------------
-# PATCH-2 (doctor issue-count) was merged upstream in v0.18.0.
-# PATCH-5 (delegate ACP routing) was merged upstream in v0.10.0.
-# PATCH-4 (dashboard web-build skip) was merged upstream in v0.11.x via
-# upstream commit 5b5a53a1 introducing _web_ui_build_needed().
+# Archived patches retain independent regression gates. A regression in an
+# upstream-absorbed invariant must block the replay-bundle refresh just like an
+# active patch failure; otherwise the new base could be recorded as healthy.
+_ARCHIVED_DOCTOR_TOOLSETS_OK=false
+_ARCHIVED_DASHBOARD_BUILD_CACHE_OK=false
+_ARCHIVED_DELEGATE_ACP_ROUTING_OK=false
+_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK=false
 _SKILL_PATCH_OK=false
-_DELEGATE_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
 _LAZY_ACTIVE_ANCHOR_PATCH_OK=false
 _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
-_FEISHU_GROUP_PATCH_OK=false
-_FEISHU_SKILL_SCOPE_PATCH_OK=false
+_FEISHU_GROUP_ADMISSION_PATCH_OK=false
+_FEISHU_GROUP_SCOPE_PATCH_OK=false
+_PLATFORM_CAPABILITY_SCOPE_PATCH_OK=false
+_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK=false
 _FEISHU_NO_THREAD_PATCH_OK=false
-_GROUP_AUTHOR_IDENTITY_PATCH_OK=false
+_FEISHU_FINAL_ONLY_PATCH_OK=false
 _PEOPLE_PROFILE_PATCH_OK=false
-_FEISHU_BACKFILL_PATCH_OK=false
+_FEISHU_RESOURCE_ACCESS_PATCH_OK=false
+_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK=false
 _FEISHU_MARKDOWN_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _VERTEX_FALLBACK_PATCH_OK=false
-_VERTEX_VISION_ROUTING_PATCH_OK=false
+_VERTEX_IMAGE_ROUTING_PATCH_OK=false
+_VERTEX_VIDEO_ROUTING_PATCH_OK=false
 _HISTORY_RETENTION_PATCH_OK=false
 _APPROVAL_TEMP_CLEANUP_PATCH_OK=false
 _FTS5_CJK_BUILD_PATCH_OK=false
@@ -674,7 +681,7 @@ PYEOF
         _SKILL_PATCH_OK=true
     else
         warn "Skill routing patch inactive — new skills will land in ~/.hermes/skills/"
-        add_act "Re-apply: see PATCHES.md § [PATCH-1] skill_manager_tool.py"
+        add_act "Re-apply: see PATCHES.md § [PATCH-SKILL-CREATE-ROOT]"
     fi
 else
     warn "Could not locate venv or skill_manager_tool.py — skipping skill routing check"
@@ -682,7 +689,8 @@ fi
 
 if [[ -f "${DOCTOR_PY}" ]]; then
     if grep -q "_get_platform_tools" "${DOCTOR_PY}" 2>/dev/null; then
-        ok "Doctor issue-count filter: active (upstream merged, PATCH-2 retired)"
+        ok "Doctor issue-count filter: active (upstream merged, PATCH-DOCTOR-ENABLED-TOOLSETS retired)"
+        _ARCHIVED_DOCTOR_TOOLSETS_OK=true
     else
         warn "Doctor issue-count filter missing — hermes doctor may report false issue for disabled toolsets"
         add_act "Check upstream: hermes_cli/doctor.py should filter missing API-key issues through enabled toolsets"
@@ -691,32 +699,52 @@ else
     warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
 fi
 
-# PATCH-4 (dashboard web-build skip) was merged upstream via _web_ui_build_needed()
+# PATCH-DASHBOARD-BUILD-CACHE (dashboard web-build skip) was merged upstream via _web_ui_build_needed()
 # in commit 5b5a53a1; verify the upstream helper is present so we can detect
 # regressions, but no local patch is required.
 MAIN_PY="${HERMES_AGENT}/hermes_cli/main.py"
 if [[ -f "${MAIN_PY}" ]]; then
     if grep -q '_web_ui_build_needed' "${MAIN_PY}" 2>/dev/null; then
-        ok "Dashboard web-build skip: active (upstream merged, PATCH-4 retired)"
+        ok "Dashboard web-build skip: active (upstream merged, PATCH-DASHBOARD-BUILD-CACHE retired)"
+        _ARCHIVED_DASHBOARD_BUILD_CACHE_OK=true
     else
         warn "Upstream _web_ui_build_needed() missing — dashboard may rebuild on every start"
         add_act "Check upstream: hermes_cli/main.py should define _web_ui_build_needed()"
     fi
 fi
 
-# PATCH-5 (delegate ACP routing) was merged upstream in v0.10.0.
+# PATCH-DELEGATE-ACP-ROUTING (delegate ACP routing) was merged upstream in v0.10.0.
 # Verify the behavior still exists but don't require local patch.
 if [[ -f "${DELEGATE_TOOL}" ]]; then
     if grep -q 'override_acp_command' "${DELEGATE_TOOL}" 2>/dev/null &&
         grep -q 'copilot-acp' "${DELEGATE_TOOL}" 2>/dev/null; then
-        ok "Delegate ACP routing: active (upstream merged, PATCH-5 retired)"
-        _DELEGATE_PATCH_OK=true
+        ok "Delegate ACP routing: active (upstream merged, PATCH-DELEGATE-ACP-ROUTING retired)"
+        _ARCHIVED_DELEGATE_ACP_ROUTING_OK=true
     else
         warn "Delegate ACP routing missing — delegate_task acp_command may be ignored"
         add_act "Check upstream: _build_child_agent should force copilot-acp when override_acp_command is set"
     fi
 else
     warn "Could not locate tools/delegate_tool.py — skipping delegate patch check"
+fi
+
+# PATCH-GEMINI-THOUGHT-SIGNATURE was merged upstream in v0.11.0. Preserve the
+# property + regression-test contract so Gemini tool replay cannot silently
+# drop thought_signature metadata again.
+TRANSPORT_TYPES_PY="${HERMES_AGENT}/agent/transports/types.py"
+TRANSPORT_TYPES_TEST_PY="${HERMES_AGENT}/tests/agent/transports/test_types.py"
+if [[ -f "${TRANSPORT_TYPES_PY}" && -f "${TRANSPORT_TYPES_TEST_PY}" ]]; then
+    if grep -q 'def extra_content' "${TRANSPORT_TYPES_PY}" 2>/dev/null &&
+        grep -q 'provider_data or {}' "${TRANSPORT_TYPES_PY}" 2>/dev/null &&
+        grep -q 'test_extra_content_getattr_pattern' "${TRANSPORT_TYPES_TEST_PY}" 2>/dev/null; then
+        ok "Gemini thought-signature replay: active (upstream merged, PATCH-GEMINI-THOUGHT-SIGNATURE retired)"
+        _ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK=true
+    else
+        warn "Gemini thought-signature replay missing — Gemini tool calls may fail on the next turn"
+        add_act "Check upstream: ToolCall.extra_content must expose provider_data thought_signature metadata"
+    fi
+else
+    warn "Could not locate transport types or its tests — skipping Gemini thought-signature check"
 fi
 
 if [[ -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
@@ -726,7 +754,7 @@ if [[ -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
         _FEISHU_DEPS_PATCH_OK=true
     else
         warn "Feishu python-socks dep patch inactive — feishu gateway may fail behind proxy"
-        add_act "Re-apply: see PATCHES.md § [PATCH-7] feishu python-socks"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-SOCKS-DEPENDENCY]"
     fi
 else
     warn "Could not locate pyproject.toml or tools/lazy_deps.py — skipping feishu deps check"
@@ -739,10 +767,10 @@ if [[ -f "${LAZY_DEPS_PY}" && -f "${LAZY_DEPS_TEST_PY}" ]]; then
         _LAZY_ACTIVE_ANCHOR_PATCH_OK=true
     else
         warn "Lazy feature activation anchor patch inactive — update may retry unused Matrix/python-olm"
-        add_act "Re-apply: see PATCHES.md § [PATCH-21] lazy feature activation anchors"
+        add_act "Re-apply: see PATCHES.md § [PATCH-LAZY-ACTIVATION]"
     fi
 else
-    warn "Could not locate lazy dependency source/tests — skipping PATCH-21 check"
+    warn "Could not locate PATCH-LAZY-ACTIVATION files"
 fi
 
 OPENCLAW_MIGRATOR="${HERMES_AGENT}/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
@@ -753,7 +781,7 @@ if [[ -f "${OPENCLAW_MIGRATOR}" && -f "${OPENCLAW_MIGRATION_DOC}" ]]; then
         _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=true
     else
         warn "OpenClaw gateway token patch inactive — migration may recreate unused HERMES_GATEWAY_TOKEN"
-        add_act "Re-apply: see PATCHES.md § [PATCH-9] OpenClaw gateway token"
+        add_act "Re-apply: see PATCHES.md § [PATCH-OPENCLAW-TOKEN-MIGRATION]"
     fi
 else
     warn "Could not locate OpenClaw migration files — skipping gateway token patch check"
@@ -762,47 +790,70 @@ fi
 FEISHU_PY="${HERMES_AGENT}/plugins/platforms/feishu/adapter.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
 SESSION_CONTEXT_PY="${HERMES_AGENT}/gateway/session_context.py"
+SESSION_PY="${HERMES_AGENT}/gateway/session.py"
 GATEWAY_CONFIG_PY="${HERMES_AGENT}/gateway/config.py"
 AUTHZ_MIXIN_PY="${HERMES_AGENT}/gateway/authz_mixin.py"
 TOOLS_CONFIG_PY="${HERMES_AGENT}/hermes_cli/tools_config.py"
-FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
-FILE_OPERATIONS_PY="${HERMES_AGENT}/tools/file_operations.py"
-FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
-FILE_OPERATIONS_TEST_PY="${HERMES_AGENT}/tests/tools/test_file_operations.py"
 FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admission.py"
 FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
+SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
+SESSION_ENV_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session_env.py"
+TOOLS_CONFIG_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
 LLM_WIKI_SKILL_MD="${HERMES_AGENT}/skills/research/llm-wiki/SKILL.md"
-if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${LLM_WIKI_SKILL_MD}" ]]; then
+
+# PATCH-FEISHU-GROUP-ADMISSION: group admission, context backfill and current-
+# speaker integrity. Trigger priority,
+# per-sender batching and prompt attribution are one admission/identity contract.
+if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_TEST_PY}" && -f "${SESSION_TEST_PY}" && -f "${LLM_WIKI_SKILL_MD}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_sender_is_configured_assistant_user' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_GROUP_TECHNICAL_QUERY_INSTRUCTION' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'never omit search_files.path' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'retry with the explicit allowed path' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
-        grep -q 'feishu_group' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'FEISHU_GROUP_ALLOWED_CHATS' "${AUTHZ_MIXIN_PY}" 2>/dev/null &&
         grep -q 'history_backfill_max_chars' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
-        grep -q 'recover_platform_tools' "${TOOLS_CONFIG_PY}" 2>/dev/null &&
-        grep -q '_client_from_env' "${FEISHU_DOC_TOOL_PY}" 2>/dev/null &&
-        grep -q '_read_spreadsheet' "${FILE_OPERATIONS_PY}" 2>/dev/null &&
-        grep -q 'test_doc_read_builds_env_client_outside_comment_context' "${FEISHU_TOOLS_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'explicit path under ~/.hermes/wiki' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_read_file_extracts_xlsx_as_text' "${FILE_OPERATIONS_TEST_PY}" 2>/dev/null &&
         grep -q 'bare_mention_intent' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q '_build_bare_mention_intent_text' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'Sandboxed Feishu groups' "${LLM_WIKI_SKILL_MD}" 2>/dev/null &&
         grep -q 'search_files(pattern="transformer", path="~/.hermes/wiki"' "${LLM_WIKI_SKILL_MD}" 2>/dev/null &&
-        grep -q 'test_bare_mention_dropped_when_toggle_disabled' "${HERMES_AGENT}/tests/gateway/test_feishu.py" 2>/dev/null; then
-        ok "Feishu group mention/context patch: active (bot/@assistant trigger, shared llm-wiki path guard, configured-human no-intro, group history, feishu_group key, doc/xlsx reads, bare-@ intent)"
-        _FEISHU_GROUP_PATCH_OK=true
+        grep -q 'test_bare_mention_dropped_when_toggle_disabled' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'Current-author rule' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'main subject of your response' "${SESSION_PY}" 2>/dev/null &&
+        grep -q '_with_current_author_prefix' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'test_bot_mention_takes_priority_over_assistant_user_mention' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_text_batch_does_not_merge_different_senders' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_group_turn_body_keeps_current_author_next_to_question' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'Current message author' "${SESSION_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-FEISHU-GROUP-ADMISSION active: context + current-speaker integrity"
+        _FEISHU_GROUP_ADMISSION_PATCH_OK=true
     else
-        warn "Feishu group mention/context patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-10] Feishu group mention/context mode"
+        warn "PATCH-FEISHU-GROUP-ADMISSION inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-GROUP-ADMISSION]"
     fi
 else
-    warn "Could not locate Feishu gateway files — skipping group mention/context patch check"
+    warn "Could not locate PATCH-FEISHU-GROUP-ADMISSION files"
+fi
+
+# PATCH-FEISHU-GROUP-SCOPE: the group capability namespace. Group sessions resolve tools and
+# skill policy through feishu_group while owner DMs remain on feishu.
+if [[ -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${SESSION_ENV_TEST_PY}" && -f "${TOOLS_CONFIG_TEST_PY}" ]]; then
+    if grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
+        grep -q 'return "feishu_group"' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'recover_platform_tools' "${TOOLS_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'test_set_session_env_sets_feishu_group_config_key' "${SESSION_ENV_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_get_platform_tools_feishu_group_uses_independent_config' "${TOOLS_CONFIG_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-FEISHU-GROUP-SCOPE active: feishu_group isolated from owner DM"
+        _FEISHU_GROUP_SCOPE_PATCH_OK=true
+    else
+        warn "PATCH-FEISHU-GROUP-SCOPE inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-GROUP-SCOPE]"
+    fi
+else
+    warn "Could not locate PATCH-FEISHU-GROUP-SCOPE files"
 fi
 
 SKILL_UTILS_PY="${HERMES_AGENT}/agent/skill_utils.py"
@@ -812,7 +863,10 @@ SKILLS_TOOL_TEST_PY="${HERMES_AGENT}/tests/tools/test_skills_tool.py"
 TOOLSETS_PY="${HERMES_AGENT}/toolsets.py"
 APPROVAL_PY="${HERMES_AGENT}/tools/approval.py"
 APPROVAL_TEST_PY="${HERMES_AGENT}/tests/tools/test_approval.py"
-if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${SKILLS_TOOL_TEST_PY}" && -f "${TOOLSETS_PY}" && -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
+
+# PATCH-PLATFORM-CAPABILITY-SCOPE: reusable platform capability scoping
+# primitives. Group approval is deliberately verified separately.
+if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${SKILLS_TOOL_TEST_PY}" && -f "${TOOLSETS_PY}" ]]; then
     if grep -q 'get_allowed_skill_names' "${SKILL_UTILS_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${PROMPT_BUILDER_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${SKILLS_TOOL_PY}" 2>/dev/null &&
@@ -822,64 +876,66 @@ if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_P
         grep -q 'skill_view' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'skills_list' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'read_file' "${TOOLSETS_PY}" 2>/dev/null &&
-        grep -q 'search_files' "${TOOLSETS_PY}" 2>/dev/null &&
-        grep -q '_is_restricted_feishu_approval_session' "${APPROVAL_PY}" 2>/dev/null &&
-        grep -q 'test_feishu_group_dangerous_command_does_not_send_approval_card' "${APPROVAL_TEST_PY}" 2>/dev/null; then
-        ok "Feishu/group skill allowlist patch: active (per-platform skill allowlist + read-only skills/file toolsets + group approval hard-block)"
-        _FEISHU_SKILL_SCOPE_PATCH_OK=true
+        grep -q 'search_files' "${TOOLSETS_PY}" 2>/dev/null; then
+        ok "PATCH-PLATFORM-CAPABILITY-SCOPE active: allowlist + read-only toolsets"
+        _PLATFORM_CAPABILITY_SCOPE_PATCH_OK=true
     else
-        warn "Feishu/group skill allowlist patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-11] per-platform skill allowlist"
+        warn "PATCH-PLATFORM-CAPABILITY-SCOPE inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-PLATFORM-CAPABILITY-SCOPE]"
     fi
 else
-    warn "Could not locate skill scope/approval files — skipping skill allowlist patch check"
+    warn "Could not locate PATCH-PLATFORM-CAPABILITY-SCOPE files"
 fi
 
-# PATCH-12: Feishu replies must never create a topic/thread (always normal
-# quote-reply, and generic metadata.thread_id must not become receive_id_type
-# thread_id). Feishu also defaults to final-only display so internal thinking /
-# interim status bubbles do not show up in group chats.
+# PATCH-FEISHU-GROUP-APPROVAL: group sessions must never turn dangerous-command approval into a
+# privilege escalation. Owner Feishu DMs retain the normal manual approval path.
+if [[ -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
+    if grep -q '_is_restricted_feishu_approval_session' "${APPROVAL_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_dangerous_command_does_not_send_approval_card' "${APPROVAL_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-FEISHU-GROUP-APPROVAL active: approval escalation hard-blocked"
+        _FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK=true
+    else
+        warn "PATCH-FEISHU-GROUP-APPROVAL inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-GROUP-APPROVAL]"
+    fi
+else
+    warn "Could not locate PATCH-FEISHU-GROUP-APPROVAL files"
+fi
+
+# PATCH-FEISHU-NORMAL-REPLY: replies must never create a topic/thread. Generic
+# metadata.thread_id must not become receive_id_type=thread_id.
 DISPLAY_CONFIG_PY="${HERMES_AGENT}/gateway/display_config.py"
 DISPLAY_CONFIG_TEST_PY="${HERMES_AGENT}/tests/gateway/test_display_config.py"
-if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" ]]; then
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
     if grep -q 'reply_in_thread = False' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'Ignore generic thread metadata on Feishu' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'test_send_ignores_thread_metadata_when_no_reply_anchor' "${FEISHU_TEST_PY}" 2>/dev/null &&
-        grep -q '"feishu":          {' "${DISPLAY_CONFIG_PY}" 2>/dev/null &&
-        grep -q 'test_feishu_defaults_to_final_only' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null; then
-        ok "Feishu no-thread reply patch: active (reply_in_thread false, thread metadata ignored, final-only defaults)"
+        grep -q 'test_send_ignores_thread_metadata_when_no_reply_anchor' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-FEISHU-NORMAL-REPLY active: replies stay in the normal chat lane"
         _FEISHU_NO_THREAD_PATCH_OK=true
     else
-        warn "Feishu no-thread reply patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-12] Feishu replies never create a thread"
+        warn "PATCH-FEISHU-NORMAL-REPLY inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-NORMAL-REPLY]"
     fi
 else
-    warn "Could not locate Feishu/display files — skipping no-thread reply patch check"
+    warn "Could not locate PATCH-FEISHU-NORMAL-REPLY files"
 fi
 
-SESSION_PY="${HERMES_AGENT}/gateway/session.py"
-GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
-SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
-if [[ -f "${SESSION_PY}" && -f "${FEISHU_PY}" && -f "${SESSION_TEST_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" ]]; then
-    if grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
-        grep -q 'Current-author rule' "${SESSION_PY}" 2>/dev/null &&
-        grep -q 'main subject of your response' "${SESSION_PY}" 2>/dev/null &&
-        grep -q '_with_current_author_prefix' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q 'test_bot_mention_takes_priority_over_assistant_user_mention' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_text_batch_does_not_merge_different_senders' "${FEISHU_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_group_turn_body_keeps_current_author_next_to_question' "${FEISHU_TEST_PY}" 2>/dev/null &&
-        grep -q 'Current message author' "${SESSION_TEST_PY}" 2>/dev/null; then
-        ok "Group author identity patch: active (explicit current author, body author prefix, bot mention priority, per-sender batching)"
-        _GROUP_AUTHOR_IDENTITY_PATCH_OK=true
+# PATCH-FEISHU-FINAL-ONLY: defaults to final-only output so progress, interim drafts and
+# hidden reasoning do not appear as user-visible chat bubbles.
+if [[ -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" ]]; then
+    if grep -q '"feishu":          {' "${DISPLAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_defaults_to_final_only' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-FEISHU-FINAL-ONLY active: final-only display defaults"
+        _FEISHU_FINAL_ONLY_PATCH_OK=true
     else
-        warn "Group author identity patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-13] group author identity"
+        warn "PATCH-FEISHU-FINAL-ONLY inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-FINAL-ONLY]"
     fi
 else
-    warn "Could not locate group author identity files — skipping PATCH-13 check"
+    warn "Could not locate PATCH-FEISHU-FINAL-ONLY files"
 fi
 
-# PATCH-14: per-person + per-group profile injection (people.yaml / groups.yaml
+# PATCH-LOCAL-PROFILES: per-person + per-group profile injection (people.yaml / groups.yaml
 # → system prompt), presentational service-hours intro hint, group tool-limitation
 # disclosure, and group-visible private profile redaction. Source-side hooks live
 # in gateway/session.py + gateway/run.py; stream guardrails live in
@@ -914,18 +970,18 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         _PEOPLE_PROFILE_PATCH_OK=true
     else
         warn "People/group profile patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-14] people/group profile injection"
+        add_act "Re-apply: see PATCHES.md § [PATCH-LOCAL-PROFILES]"
     fi
 else
-    warn "Could not locate people/group profile files — skipping PATCH-14 check"
+    warn "Could not locate PATCH-LOCAL-PROFILES files"
 fi
 
-# PATCH-15: Feishu group @-mention attachment backfill. When a bare @mention
-# arrives in a group, the adapter looks back over the same sender's recent
-# image/file messages (un-mentionable, _admit-dropped) and stitches them onto
-# the turn. It also resolves quoted /file/ links through Drive and extracts
-# PDF/HTML/Office/OpenDocument text before sandboxed group agents see it.
-if [[ -f "${FEISHU_PY}" ]]; then
+# PATCH-FEISHU-RESOURCE-ACCESS: Feishu group attachment backfill and Drive/doc
+# resource acquisition. This unit stops once bytes or document API content are
+# available; format extraction belongs to PATCH-DOCUMENT-EXTRACTION.
+FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
+FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" ]]; then
     if grep -q 'def _backfill_sender_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
@@ -934,24 +990,51 @@ if [[ -f "${FEISHU_PY}" ]]; then
         grep -q 'normalized.image_keys or normalized.media_refs' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _download_feishu_drive_file' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_DRIVE_FILE_URL_RE' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'def _extract_inbound_document' "${HERMES_AGENT}/gateway/run.py" 2>/dev/null &&
-        grep -q 'def _extract_pdf' "${HERMES_AGENT}/tools/read_extract.py" 2>/dev/null &&
-        grep -q 'def _extract_html_file' "${HERMES_AGENT}/tools/read_extract.py" 2>/dev/null &&
-        grep -q 'pypdf==6.14.2' "${HERMES_AGENT}/pyproject.toml" 2>/dev/null &&
+        grep -q '_client_from_env' "${FEISHU_DOC_TOOL_PY}" 2>/dev/null &&
         grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'class TestFeishuDriveFileLinks' "${FEISHU_TEST_PY}" 2>/dev/null &&
-        grep -q 'class TestCommonDocumentExtraction' "${HERMES_AGENT}/tests/tools/test_read_extract.py" 2>/dev/null; then
-        ok "Feishu attachment patch: active (backfill + /file/ download + common-document extraction)"
-        _FEISHU_BACKFILL_PATCH_OK=true
+        grep -q 'test_doc_read_builds_env_client_outside_comment_context' "${FEISHU_TOOLS_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-FEISHU-RESOURCE-ACCESS active: backfill + Drive links + tenant doc client"
+        _FEISHU_RESOURCE_ACCESS_PATCH_OK=true
     else
-        warn "Feishu attachment/reader patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-15] Feishu attachments and common-document reader"
+        warn "PATCH-FEISHU-RESOURCE-ACCESS inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-RESOURCE-ACCESS]"
     fi
 else
-    warn "Could not locate Feishu adapter — skipping PATCH-15 check"
+    warn "Could not locate PATCH-FEISHU-RESOURCE-ACCESS files"
 fi
 
-# PATCH-16: Feishu outbound markdown full render. post/md cannot render ATX
+# PATCH-DOCUMENT-EXTRACTION: trusted XLSX/PDF/HTML/Office/OpenDocument parsing
+# before content reaches a sandboxed group agent.
+FILE_OPERATIONS_PY="${HERMES_AGENT}/tools/file_operations.py"
+FILE_OPERATIONS_TEST_PY="${HERMES_AGENT}/tests/tools/test_file_operations.py"
+READ_EXTRACT_PY="${HERMES_AGENT}/tools/read_extract.py"
+READ_EXTRACT_TEST_PY="${HERMES_AGENT}/tests/tools/test_read_extract.py"
+DOCUMENT_CONTEXT_TEST_PY="${HERMES_AGENT}/tests/gateway/test_document_context_note.py"
+if [[ -f "${GATEWAY_RUN_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TEST_PY}" && -f "${DOCUMENT_CONTEXT_TEST_PY}" && -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
+    if grep -q 'def _extract_inbound_document' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '_read_spreadsheet' "${FILE_OPERATIONS_PY}" 2>/dev/null &&
+        grep -q 'test_read_file_extracts_xlsx_as_text' "${FILE_OPERATIONS_TEST_PY}" 2>/dev/null &&
+        grep -q 'def _extract_pdf' "${READ_EXTRACT_PY}" 2>/dev/null &&
+        grep -q 'def _extract_html_file' "${READ_EXTRACT_PY}" 2>/dev/null &&
+        grep -q 'class TestCommonDocumentExtraction' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'pypdf==6.14.2' "${PYPROJECT}" 2>/dev/null &&
+        grep -q 'pypdf==6.14.2' "${LAZY_DEPS_PY}" 2>/dev/null; then
+        ok "PATCH-DOCUMENT-EXTRACTION active: trusted spreadsheet and common-document readers"
+        _TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK=true
+    else
+        warn "PATCH-DOCUMENT-EXTRACTION inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-DOCUMENT-EXTRACTION]"
+    fi
+else
+    warn "Could not locate PATCH-DOCUMENT-EXTRACTION files"
+fi
+
+# A group @mention can arrive separately from its media. The two contracts above
+# deliberately verify acquisition and parsing independently so either can be
+# absorbed upstream without masking the other.
+
+# PATCH-FEISHU-MARKDOWN: Feishu outbound markdown full render. post/md cannot render ATX
 # headings (`## h`) or block quotes (`> q`), and its CommonMark flanking
 # rules reject `**` spans with punctuation just inside + a word char just
 # outside (`到**“x”**的`); _build_outbound_payload promotes headings/quotes
@@ -968,13 +1051,13 @@ if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
         _FEISHU_MARKDOWN_PATCH_OK=true
     else
         warn "Feishu markdown render patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-16] Feishu 出站消息 markdown 完整渲染"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-MARKDOWN]"
     fi
 else
-    warn "Could not locate Feishu adapter/test — skipping PATCH-16 check"
+    warn "Could not locate PATCH-FEISHU-MARKDOWN files"
 fi
 
-# PATCH-17: Vertex OpenAI-compatible returns include_thoughts output as normal
+# PATCH-VERTEX-HIDDEN-THOUGHTS: Vertex OpenAI-compatible returns include_thoughts output as normal
 # assistant content. Keep model-side Gemini thinking level/budget, but force
 # include_thoughts=false so Feishu/dashboard only receive the final answer.
 # The suppression MUST return single-level {"google": {...}} (merged into
@@ -991,13 +1074,13 @@ if [[ -f "${VERTEX_PROVIDER_PY}" && -f "${VERTEX_PROVIDER_TEST_PY}" ]]; then
         _VERTEX_THOUGHTS_PATCH_OK=true
     else
         warn "Vertex hidden-thoughts patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-17] Vertex thinking hidden from visible content"
+        add_act "Re-apply: see PATCHES.md § [PATCH-VERTEX-HIDDEN-THOUGHTS]"
     fi
 else
-    warn "Could not locate Vertex provider files — skipping PATCH-17 check"
+    warn "Could not locate PATCH-VERTEX-HIDDEN-THOUGHTS files"
 fi
 
-# PATCH-18: doctor must understand the official Vertex provider profile and
+# PATCH-VERTEX-DOCTOR: doctor must understand the official Vertex provider profile and
 # Google-style model slugs so `hermes doctor` stays green after switching the
 # main model path from the legacy custom endpoint to provider: vertex.
 DOCTOR_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_doctor.py"
@@ -1010,13 +1093,13 @@ if [[ -f "${DOCTOR_PY}" && -f "${DOCTOR_TEST_PY}" ]]; then
         _VERTEX_DOCTOR_PATCH_OK=true
     else
         warn "Vertex doctor patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-18] Doctor recognizes official Vertex provider"
+        add_act "Re-apply: see PATCHES.md § [PATCH-VERTEX-DOCTOR]"
     fi
 else
-    warn "Could not locate doctor files — skipping PATCH-18 check"
+    warn "Could not locate PATCH-VERTEX-DOCTOR files"
 fi
 
-# PATCH-19: second Vertex account as fallback provider. Same model/profile via a
+# PATCH-VERTEX-FALLBACK: second Vertex account as fallback provider. Same model/profile via a
 # distinct SA file + GCP project (VERTEX_FALLBACK_*), wired as provider
 # "vertex-fallback" so the fallback chain doesn't dedup it against primary vertex
 # and resolve_provider_client() finds it in PROVIDER_REGISTRY.
@@ -1034,41 +1117,50 @@ if [[ -f "${VERTEX_ADAPTER_PY}" && -f "${AUTH_PY}" && -f "${AUX_CLIENT_PY}" && -
         _VERTEX_FALLBACK_PATCH_OK=true
     else
         warn "Vertex fallback provider patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-19] Vertex 第二账号 fallback provider"
+        add_act "Re-apply: see PATCHES.md § [PATCH-VERTEX-FALLBACK]"
     fi
 else
-    warn "Could not locate Vertex fallback files — skipping PATCH-19 check"
+    warn "Could not locate PATCH-VERTEX-FALLBACK files"
 fi
 
-# PATCH-20: Vertex Gemini 3.x should be treated as vision-capable even when the
-# dynamic model catalog lacks the preview slug. Otherwise image_input_mode:auto
-# routes attached images through auxiliary vision_analyze, which fails on
-# Vertex-only installs without OpenRouter/Nous auxiliary credentials.
-# Also covers native video routing: user-attached videos ride the same
-# image_url data-URI path (decide_video_input_mode + gateway video buffering)
-# so sandboxed group chats can see video without terminal tools.
+# PATCH-VERTEX-IMAGE-ROUTING: Vertex Gemini 3.x is vision-capable even when the
+# dynamic model catalog has not learned a preview slug yet.
 IMAGE_ROUTING_PY="${HERMES_AGENT}/agent/image_routing.py"
 IMAGE_ROUTING_TEST_PY="${HERMES_AGENT}/tests/agent/test_image_routing.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
-if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${GATEWAY_RUN_PY}" ]]; then
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" ]]; then
     if grep -q 'def _known_provider_model_supports_vision' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q '"vertex-fallback"' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
-        grep -q 'def decide_video_input_mode' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
-        grep -q '_pending_native_video_paths_by_session' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'gemini-3.1-pro-preview' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_video_attached_as_data_url_part' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
-        ok "Vertex Gemini vision routing patch: active (Gemini 3.x routes attached images + videos natively)"
-        _VERTEX_VISION_ROUTING_PATCH_OK=true
+        grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-VERTEX-IMAGE-ROUTING active: Gemini 3.x images route natively"
+        _VERTEX_IMAGE_ROUTING_PATCH_OK=true
     else
-        warn "Vertex Gemini vision routing patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-20] Vertex Gemini vision routing"
+        warn "PATCH-VERTEX-IMAGE-ROUTING inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-VERTEX-IMAGE-ROUTING]"
     fi
 else
-    warn "Could not locate image routing files — skipping PATCH-20 check"
+    warn "Could not locate PATCH-VERTEX-IMAGE-ROUTING files"
 fi
 
-# PATCH-22: replay-history retention window (time + count) for shared group
+# PATCH-VERTEX-VIDEO-ROUTING: user videos use native data-URI parts and bounded
+# gateway buffering instead of relying on terminal/ffprobe access.
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${GATEWAY_RUN_PY}" ]]; then
+    if grep -q 'def decide_video_input_mode' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q '_pending_native_video_paths_by_session' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'test_auto_native_for_vertex_gemini_3' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_video_attached_as_data_url_part' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-VERTEX-VIDEO-ROUTING active: Gemini videos route natively"
+        _VERTEX_VIDEO_ROUTING_PATCH_OK=true
+    else
+        warn "PATCH-VERTEX-VIDEO-ROUTING inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-VERTEX-VIDEO-ROUTING]"
+    fi
+else
+    warn "Could not locate PATCH-VERTEX-VIDEO-ROUTING files"
+fi
+
+# PATCH-HISTORY-RETENTION: replay-history retention window (time + count) for shared group
 # sessions. Bounds what the MODEL sees per turn (view-level; state.db keeps
 # the full transcript) so days-old injected instruction blocks stop steering
 # later turns. Config: gateway.history_retention.<platform-key> in config.yaml.
@@ -1089,13 +1181,13 @@ if [[ -f "${REPLAY_CLEANUP_PY}" && -f "${REPLAY_CLEANUP_TEST_PY}" && -f "${GATEW
         _HISTORY_RETENTION_PATCH_OK=true
     else
         warn "History retention patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-22] replay-history retention window"
+        add_act "Re-apply: see PATCHES.md § [PATCH-HISTORY-RETENTION]"
     fi
 else
-    warn "Could not locate replay cleanup files — skipping PATCH-22 check"
+    warn "Could not locate PATCH-HISTORY-RETENTION files"
 fi
 
-# PATCH-23: approval temp-cleanup exemption on Darwin. Upstream 0c8bcd339's
+# PATCH-APPROVAL-DARWIN-TMP: approval temp-cleanup exemption on Darwin. Upstream 0c8bcd339's
 # _is_verification_artifact_cleanup realpath()s the temp dir but not the
 # operand, so on Darwin (/tmp -> /private/tmp, /var/folders ->
 # /private/var/folders) the runtime's own `rm -f` verify-artifact cleanup
@@ -1111,13 +1203,13 @@ if [[ -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
         _APPROVAL_TEMP_CLEANUP_PATCH_OK=true
     else
         warn "Approval temp-cleanup Darwin alias patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-23] approval temp-cleanup Darwin alias"
+        add_act "Re-apply: see PATCHES.md § [PATCH-APPROVAL-DARWIN-TMP]"
     fi
 else
     warn "Could not locate approval files — skipping temp-cleanup patch check"
 fi
 
-# PATCH-24: fts5_cjk extension build on Darwin. Upstream build.sh (PR #65544)
+# PATCH-FTS5-CJK-DARWIN: fts5_cjk extension build on Darwin. Upstream build.sh (PR #65544)
 # links with bare `gcc -shared`, which macOS rejects (unresolved sqlite3_*
 # symbols), and Apple's SDK sqlite3ext.h leaves several sqlite3_* calls as
 # direct symbol references — against the uv-managed CPython (static SQLite,
@@ -1137,7 +1229,7 @@ if [[ -f "${FTS5_CJK_BUILD_SH}" ]]; then
         _FTS5_CJK_BUILD_PATCH_OK=true
     else
         warn "fts5_cjk Darwin build patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-24] fts5_cjk Darwin build"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FTS5-CJK-DARWIN]"
     fi
 else
     warn "Could not locate native/fts5_cjk/build.sh — skipping fts5_cjk build patch check"
@@ -1147,7 +1239,7 @@ fi
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_SKILL_PATCH_OK && $_DELEGATE_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_LAZY_ACTIVE_ANCHOR_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_PATCH_OK && $_FEISHU_SKILL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_GROUP_AUTHOR_IDENTITY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_BACKFILL_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_VISION_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_LAZY_ACTIVE_ANCHOR_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_IMAGE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
@@ -1181,7 +1273,7 @@ fi
 # re-applied. Re-seed llm-wiki from the now-patched bundled source and rebuild
 # its manifest baseline so a future startup/update does not classify this
 # maintained patch as an ad-hoc user edit or restore the old ~/wiki guidance.
-if $_PATCH_APPLY_OK && $_FEISHU_GROUP_PATCH_OK && [[ -f "${LLM_WIKI_SKILL_MD}" ]]; then
+if $_PATCH_APPLY_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && [[ -f "${LLM_WIKI_SKILL_MD}" ]]; then
     step "Syncing patched llm-wiki skill"
     set +e
     _LLM_WIKI_RESET_OUT=$(hermes skills reset llm-wiki --restore --yes 2>&1)
@@ -1245,25 +1337,38 @@ fi
 # patched.
 #
 # Currently active plugins:
-#   - sandbox  (per-chat Feishu tool restriction; see README § 用户插件)
+#   - PATCH-FEISHU-GROUP-SANDBOX
+#     sandbox (per-chat Feishu capability boundary; see README § 用户插件)
 #
 # Add new plugins here by appending another conditional block.
 PLUGIN_VERIFIERS=("${HERMES_HOME}/plugins/sandbox/verify.sh")
 for verifier in "${PLUGIN_VERIFIERS[@]}"; do
-    if [[ -x "${verifier}" ]]; then
-        plugin_name=$(basename "$(dirname "${verifier}")")
-        step "Verifying user plugin: ${plugin_name}"
-        set +e
-        _PV_OUT=$(bash "${verifier}" 2>&1)
-        _PV_RC=$?
-        set -e
-        echo "${_PV_OUT}"
-        if [[ ${_PV_RC} -eq 0 ]]; then
-            ok "${plugin_name} compatibility OK"
-        else
-            warn "${plugin_name} compatibility check failed"
-            add_act "Inspect ${verifier} output and patch plugins/${plugin_name}/__init__.py if upstream changed hook kwargs/names"
-        fi
+    plugin_name=$(basename "$(dirname "${verifier}")")
+    step "Verifying user plugin: ${plugin_name}"
+    if [[ ! -f "${verifier}" ]]; then
+        fail "${plugin_name} verifier is missing: ${verifier}"
+        add_act "Restore plugins/${plugin_name}/verify.sh from the config repository before using the upgraded gateway"
+        FINAL_RC=1
+        continue
+    fi
+    if [[ ! -x "${verifier}" ]]; then
+        fail "${plugin_name} verifier is not executable: ${verifier}"
+        add_act "Restore its executable bit: chmod +x ${verifier}"
+        FINAL_RC=1
+        continue
+    fi
+
+    set +e
+    _PV_OUT=$(bash "${verifier}" 2>&1)
+    _PV_RC=$?
+    set -e
+    echo "${_PV_OUT}"
+    if [[ ${_PV_RC} -eq 0 ]]; then
+        ok "${plugin_name} compatibility OK"
+    else
+        fail "${plugin_name} compatibility check failed"
+        add_act "Inspect ${verifier} output and repair plugins/${plugin_name}/, config.yaml, or the upstream hook/toolset integration"
+        FINAL_RC=1
     fi
 done
 

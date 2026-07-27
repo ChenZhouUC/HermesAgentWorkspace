@@ -1,6 +1,6 @@
 name: sandbox
-version: 0.1.0
-description: "Per-chat tool restriction for Feishu. Owner DM gets the full toolset; other Feishu DMs get a safe allowlist; group chats may add path-scoped read-only wiki/doc tools. Non-Feishu sources are untouched."
+version: 0.2.0
+description: "Per-chat Feishu boundary with read-only knowledge access, isolated group temp workspaces, and process-sandboxed trusted document scripts."
 author: "周琛"
 hooks:
   - pre_gateway_dispatch

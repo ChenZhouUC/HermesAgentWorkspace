@@ -15,7 +15,7 @@ This skill documents how the bot talks to Feishu groups. The group roster itself
 list item under `groups:` carries the group's stable `chat_id` (plus `name`,
 `style`, `capabilities`, `audience`, `intro`, `service_hours` …). The gateway
 injects the matched group's persona into the system prompt (`gateway/session.py`,
-sentinel `group-profile`, PATCH-14); `service_hours` is informational text, not a
+sentinel `group-profile`, `PATCH-LOCAL-PROFILES`); `service_hours` is informational text, not a
 reply gate. This only changes presentation — the sandbox/read-only toolset is
 identical across groups.
 

@@ -21,7 +21,12 @@ def _decode_inline_content(value):
 
 
 def _write_temp_markdown(content):
-    tmp_root = Path(os.path.expanduser(os.getenv("HERMES_HOME", "~/.hermes"))) / "tmp" / "feishu-docs"
+    group_workspace = os.getenv("HERMES_GROUP_WORKSPACE")
+    tmp_root = (
+        Path(group_workspace)
+        if group_workspace
+        else Path(os.path.expanduser(os.getenv("HERMES_HOME", "~/.hermes"))) / "tmp" / "feishu-docs"
+    )
     tmp_root.mkdir(parents=True, exist_ok=True)
     fd, path = tempfile.mkstemp(
         prefix="create_doc_",
