@@ -22,6 +22,7 @@ mem0.json
 *.pfx
 
 # ── 运行时状态 ──────────────────────────────────────────────────
+checkpoints/
 state.db
 state.db-shm
 state.db-wal

@@ -178,12 +178,14 @@ _hermes() {
                 curator)
                     local -a curator_cmds
                     curator_cmds=(
+                    'adopt:Hand unmanaged skills to the curator (provenance is a user d'
                     'archive:Manually archive a skill (move to .archive/, excluded from p'
                     'backup:Take a manual tar.gz snapshot of ~/.hermes/skills/ (curator '
                     'list-archived:List archived skills'
+                    'list-unmanaged:List curation-eligible skills with no provenance marker'
                     'pause:Pause the curator until resumed'
                     'pin:Pin a skill so the curator never auto-transitions it'
-                    'prune:Bulk-archive agent-created skills idle for >= N days (defaul'
+                    'prune:Bulk-archive curator-managed skills idle for >= N days (defa'
                     'restore:Restore an archived skill'
                     'resume:Resume a paused curator'
                     'rollback:Restore ~/.hermes/skills/ from a curator snapshot (defaults '
@@ -497,8 +499,10 @@ _hermes() {
                     'optimize:Reclaim disk space: merge FTS5 segments + VACUUM (no data ch'
                     'optimize-storage:Migrate the search index to the compact v23 layout (reclaims'
                     'prune:Delete old sessions (filterable by time window, source, titl'
+                    'recover:Rebuild canonical session data into a separate clean databas'
                     'rename:Set or change a sessions title'
                     'repair:Repair a malformed state.db schema so hidden sessions reappe'
+                    'retitle-skills:Re-title sessions whose auto-title came from a /skills own t'
                     'stats:Show session store statistics'
                     )
                     _describe 'sessions command' sessions_cmds
