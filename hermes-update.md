@@ -6,6 +6,32 @@
 
 ---
 
+## 持久化演进幂等与跨会话收敛
+
+本 playbook 所说的幂等不是“同一版本重复执行后所有文件字节完全不变”，而是**持久化演进幂等**：Hermes upstream 会持续变化，但本地语义不变量、功能与安全边界不能因升级丢失。任何新的 AI 会话只依赖仓库与运行环境中的持久化状态，完整读取本 playbook 后，都能重建当前升级阶段，安全接管中断现场，对新的 upstream 重新求解“上游已经提供什么、本地还必须补什么”，并按同一决策规则自主收敛；不得依赖上一轮对话记忆、临时推理、人工逐轮指挥或某个 agent 私有的补丁清单。
+
+每次升级都应视为下面这个持续迁移，而不是把旧 diff 机械贴到新代码上：
+
+```text
+旧 upstream + 已登记的本地语义不变量
+    → 读取新 upstream 的实现与测试
+    → 对每个 PATCH 判定：未吸收 / 部分吸收 / 完全吸收
+    → 新 upstream + 最小剩余本地 patch 集 + 对齐后的验证与监管状态
+```
+
+- **状态可重建**：每轮从外层/内层 Git 状态、`origin/main`、bundle/base、PATCH 注册表、执行 gate、日志和当前运行态重新发现事实；“上次报告已完成”不能替代现场检查。
+- **动作可重入**：已完成步骤允许再次执行；脚本必须保护非 patch 用户改动、失败时恢复或保留可接管现场，agent 按实际状态跳过、重试或修复，不能靠固定步骤编号猜测进度。
+- **本地不变量跨版本保持**：不能以“上游升级了”或“旧 hunk 贴不上”为理由静默丢弃本地功能。未被上游吸收的 PATCH 必须适配新接口后重新打入；冲突由 AI 按语义解决，并以行为测试证明不变量仍成立。
+- **PATCH 集合随上游进化**：每轮必须逐个读取活跃 PATCH 的 `上游吸收判断`，不能用 apply 成功或 sentinel 通过代替吸收判定。未吸收的继续保留；部分吸收的删除冗余 hunk、收缩四段定义与验证；完全吸收的先在裸 upstream 证明等价行为和测试，再删除本地 hunk 并移动到 Archive。目标是维护**最小剩余 patch 集**，既不漏补丁，也不永久背负已被上游替代的实现。
+- **结果可收敛**：无论 upstream 不变还是前进多个版本，重复执行可以更新审计时间、日志、Gateway PID 或可再生依赖状态，但终态必须重新满足 Step 2c、Step 3、Step 5 和 Step 8e 的全部不变量；这些可变审计值不构成语义漂移。相同的“新 upstream + 本地语义不变量”应收敛到等价的最小 patch 状态，而不取决于由哪个 AI、从哪次中断开始执行。
+- **经验要落盘**：发现新的上游冲突、依赖摩擦、恢复路径或完成标准缺口时，必须在当轮按责任边界同步到执行脚本、PATCH 注册表、replay bundle、playbook 摩擦表或对应文档。只写在会话总结里等同于未修复；下一轮 AI 必须能仅凭仓库文件复现该判断。
+- **权威源不分叉**：执行行为写进 `hermes-update.sh`，PATCH 生命周期写进 `PATCHES.md`，工程内物理改动写进 bundle，决策与恢复规则写进本 playbook。不得为一次升级另建会过期的平行清单，也不得把普通审计噪音误登记为语义 PATCH。
+- **默认自主完成**：上述吸收判定、冲突适配、patch 新增/合并/归档、依赖自愈、测试修复和文档对齐都属于升级流程本身，按本 playbook 的既定边界自主完成，不要求用户每轮人工介入。只有引入全新依赖、改变安全边界或遇到本地不可修的外部阻塞时，才按文末行为约束留案。
+
+因此，持久化演进幂等的验收不是内容指纹零变化，而是：“换一个没有会话记忆的 AI，面对任意后继 upstream，只从当前磁盘状态和本文件出发，仍能保住所有尚未被上游吸收的本地不变量，移除已经等价吸收的本地实现，并通过同一组闭环验证。”
+
+---
+
 ## 仓库模型与目标
 
 本目录有两个职责不同的 Git 仓库，升级时必须分开判断：
@@ -115,18 +141,31 @@ cd ~/.hermes && grep -rln -E "<OLD_SHA>|<OLD_DATE>" \
 
 对每个命中文件，按下表决定改不改：
 
-| 命中位置类型                                                       | 处置                                                      |
-| ------------------------------------------------------------------ | --------------------------------------------------------- |
-| "当前版本" / "适用版本" / "本手册基于" / "baseline" 类**现状陈述** | **改**，更新到 NEW_SHA/NEW_DATE                           |
-| "basis OLD → NEW" / "较 OLD 前进 N commits" 类**差量描述**         | **不改**（历史差量）                                      |
-| 版本记录 / changelog / 升级历史表里的**旧 row**                    | **不改**（历史快照）                                      |
-| 不带版本号的概念性文档（实体定义、抽象架构）                       | 不会命中；命中说明是无关引用                              |
-| 命中任何 `wiki/**` 路径                                            | 见下方 **Wiki 编辑规范**（按 Layer 分别处置，不要一刀切） |
+| 命中位置类型                                                       | 处置                                                         |
+| ------------------------------------------------------------------ | ------------------------------------------------------------ |
+| "当前版本" / "适用版本" / "本手册基于" / "baseline" 类**现状陈述** | **改**，更新到 NEW_SHA/NEW_DATE                              |
+| "basis OLD → NEW" / "较 OLD 前进 N commits" 类**差量描述**         | **不改**（历史差量）                                         |
+| README 版本记录中与 `NEW_DATE` 同一 ISO 周的**当前周 row**         | **改**，合并本轮结果；保留该周最早 basis，只推进周内最新终点 |
+| 版本记录 / changelog / 升级历史表里的**已结束周 row**              | **不改**（周度历史快照；仅事实纠错或规则迁移可重整）         |
+| 不带版本号的概念性文档（实体定义、抽象架构）                       | 不会命中；命中说明是无关引用                                 |
+| 命中任何 `wiki/**` 路径                                            | 见下方 **Wiki 编辑规范**（按 Layer 分别处置，不要一刀切）    |
 
-**新增内容**（属于"对齐"的一部分）：
+**新增或更新内容**（属于"对齐"的一部分）：
 
-- `README.md` 版本记录表 → 顶端插入本次升级 row
+- `README.md` 版本记录表 → 按下方周度聚合规则新增或更新唯一周 row
 - `patches/PATCHES.md` § 当前版本 → 重写 header + "最近一次升级"摘要
+
+#### README 版本记录周度聚合规则
+
+版本记录使用 ISO 自然周（周一至周日，键为 `ISO year-Wweek`），**每周最多一条**，不按每次 update 追加流水账：
+
+1. 现场解析 README 现有版本 row 的日期并计算 ISO week；不要按相邻行、月份或自然年周数猜测，跨年周以 Python `date.isocalendar()` 的 ISO year 为准。
+2. **当周已有 row**：重写这条 row，不新增。版本和日期更新为当周最后一次升级；upstream 范围保留该周第一次升级前的最早 SHA，只把终点推进到最新 `NEW_SHA`，不能把周度 basis 重置成本次 `OLD_SHA`。把本轮新事实合入原周摘要。
+3. **当周没有 row**：在表顶新增一条，版本/日期取本轮终态，upstream 范围从本轮 `OLD_SHA → NEW_SHA` 开始；本周后续升级继续更新此 row。
+4. 周摘要只保留五类可跨会话复用的信息：周内 upstream 首尾范围与主要主题；PATCH 新增/并入/部分吸收/归档；真实冲突及语义解决原则；周末最终回归/闭环；重大依赖、配置或运行态摩擦。重复的 clean apply、每次 Skills 数字、瞬时 PID、重复 Doctor 输出和中间测试数字不逐轮堆叠，只保留周末终态或确有诊断价值的异常→修复链。
+5. 已结束周 row 是历史快照，普通升级不得回写；只有事实纠错或版本记录规则本身迁移时可重整，并须在最终报告说明。`PATCHES.md` 的“最近一次升级”仍按**本轮**写 5 段，不受 README 周度聚合影响。
+
+文档对齐结束后必须在 Step 5 运行周键唯一性检查；发现重复周先合并，不能带重复 row 收尾。
 
 摘要写作 5 段固定结构（保持跨升级一致）：
 
@@ -180,6 +219,29 @@ Wiki 有独立的分层与硬约束体系，**结构会演进**——layer 定�
 
 文档改完后**再跑一次** Step 4 的 grep，逐条人工确认：剩余命中应**全部**是"差量描述"或"历史 row"。任何"现状陈述"型命中漏掉 = bug，要补改。
 
+同时机械校验 README 版本记录每个 ISO week 恰好至多一条：
+
+```bash
+python3 - <<'PY'
+from collections import Counter
+from datetime import date
+from pathlib import Path
+import re
+
+text = Path("README.md").read_text()
+days = re.findall(r"(?m)^\|\s*v[^|]*\|\s*(\d{4}-\d{2}-\d{2})\s*\|", text)
+
+def iso_week(day):
+    iso = date.fromisoformat(day).isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+weeks = [iso_week(day) for day in days]
+duplicates = {week: count for week, count in Counter(weeks).items() if count > 1}
+assert not duplicates, f"duplicate README version weeks: {duplicates}"
+print(f"README weekly versions: {len(weeks)} rows, ISO weeks unique")
+PY
+```
+
 ### Step 6 — 收尾报告
 
 向用户报告（**不要自动提交**）：
@@ -187,7 +249,9 @@ Wiki 有独立的分层与硬约束体系，**结构会演进**——layer 定�
 - **完成标准**：补丁回归 **0 failed**、Step 3 七层仓库闭环全部成立、所有用户插件 verifier 绑定当前 Gateway PID 通过、doctor 无可修而未修的 ⚠、无环境残留。达不到时不得声称完成，单列阻塞项、原因与建议
 - 升级 `OLD_SHA → NEW_SHA`，`+N commits`
 - 文档对齐了哪些文件（列文件名 + 改动类别一句话，不展开内容）
+- README 版本记录周键检查结果：当周是新增还是合并、当前总周数、是否存在重复 ISO week
 - Gateway / Doctor 现状（异常项展开，正常项一行带过）；安全插件需报告 verifier 对照的当前 PID，以及 owner 主会话与群聊实际 toolset 是否仍满足边界
+- 持久化演进接管性：报告活跃 PATCH 的未吸收 / 部分吸收 / 完全吸收判定及相应状态变化；列出本轮新发现的冲突、摩擦或规则缺口分别落盘到哪个权威文件，如没有新增经验也明确写“无”。确认不存在下一轮升级必需、但只保留在本次会话或临时日志中的恢复知识
 - 工作树里哪些是“升级相关”、哪些是“用户先前在编辑的其他东西”，提示后者保持不动；明确说明内层受管 modified files 是预期 patch overlay，外层 bundle 才是待提交记录
 - 若 Step 2/3 中发现脚本侧的新兼容性问题，单列一节描述给用户决策
 - 提醒：若用户随后明确要求提交，只提交外层 `~/.hermes` 仓库里的升级监管改动；不要在 `~/.hermes/hermes-agent` 创建 commit
@@ -208,6 +272,8 @@ Wiki 有独立的分层与硬约束体系，**结构会演进**——layer 定�
 | 用户插件 verifier 缺失或失败                                    | `PATCH-FEISHU-GROUP-SANDBOX` 类外层安全补丁不得继续显示升级成功。恢复 `plugins/<name>/verify.sh` 的文件/执行位，修复根配置、插件配置或上游 hook/toolset 兼容性，直到 Step 8e 对照当前 Gateway PID 返回 0；不要把外层文件加入内层 `PATCHED_FILES`                                                                                                                                                                                                                                                          |
 | 补丁整体 apply 失败（上游真实冲突，脚本已回滚）                 | 手工 `cd hermes-agent && git apply --3way ~/.hermes/patches/local-patches.diff`，解决带 `<<<<<<<` 标记的文件（多为"并存"型：上游新增与补丁插入同位），`git add <冲突文件> && git reset` 清索引，然后**重跑脚本**——Step 2 会从工作树捕获已解决的 diff 并走完整验证。注意：`git apply` 输出别接 `head` 截断，SIGPIPE 会中断 apply                                                                                                                                                                           |
 | `package-lock.json` 在 npm audit fix 后 dirty                   | 本机 npm 可能归一化排序 / `peer` 标记，也可能把传递依赖推进到 audit 可用的补丁版本。每轮必须先审查实际 diff：确认 `package.json` 无意外语义变化、记录版本升降和剩余 advisory，再把可解释的 lock drift 保留在内层工作树且排除出 replay bundle；不得一律按“无版本变化噪音”跳过。                                                                                                                                                                                                                            |
+| `npm audit fix` 因 ui-tui ESLint peer 冲突报 `ERESOLVE`         | 先用 `npm audit --json` 区分根运行时、Web/UI/Desktop 构建链与可破坏修复，并用 `npm explain <package>` 定位 critical/high 的真实依赖链。已知 ui-tui `eslint@9` 与 `eslint-plugin-react@7.22` 的 peer 冲突会让自动 fix 与手工重试同样失败；不要用 `--force` 倒退 Electron/ESLint 大版本。根 `npm install` 恢复 agent-browser 能力后，保留可解释的 bundle 外 lock drift，把剩余开发/构建链 advisory 记录为待上游 lockfile bump。                                                                             |
+| Doctor 提示 `npx playwright install` 但根 CLI 不存在            | 根 `npm install` 后先检查 `node_modules/.bin/playwright` 与各 workspace 的 `.bin/playwright`。当 Playwright 仅由 Desktop workspace 安装时，根 `npx playwright install chromium` 会报 `playwright: command not found`；使用同一 lockfile 已安装的 `apps/desktop/node_modules/.bin/playwright install chromium`，然后以 `hermes doctor` 的 `Playwright Chromium` 转 ✓ 为终态验证，不为此新增根依赖。                                                                                                        |
 | `test_approval.py` 的 verifier temp cleanup 测试在 macOS 失败   | 上游 `0c8bcd339` 的 `_is_verification_artifact_cleanup` 对 temp_dir 做 `realpath`（`/tmp`→`/private/tmp`）而 operand 不做，Darwin 上恒不匹配，其自带测试预期失败；裸上游同样失败、与本地 patch 无关。由 `PATCH-APPROVAL-DARWIN-TMP` 仅对 `/private` 系统别名放行 raw 拼写，其余 symlink 保持 fail-closed。上游统一 realpath 后归档该补丁并删除本 row                                                                                                                                                      |
 | `test_feishu.py` 的 SSRF connect-time rebind 测试偶发失败       | 真实原因（2026-07-29 定性，推翻旧"跨文件状态"结论）：上游测试只 blank 代理 env 变量，httpx `trust_env` 在 env 为空时经 `urllib.request.getproxies()` 回落 macOS **系统代理配置**——宿主 Clash 系统代理开着就必失败（守卫按设计把解析委托给代理，收到裸 `httpx.ConnectError`），关着就通过，与批量/单跑无关；裸上游同样失败，与本地 patch 无关。已由 `PATCH-FEISHU-SSRF-TEST-SYSPROXY` 在测试内补 `patch("httpx._utils.getproxies", return_value={})` 修 hermetic；上游吸收后归档该补丁并删除本 row         |
 | 升级窗口内 Matrix 重进 lazy refresh 并报 ⚠                      | Step 3 期间补丁处于还原态、`PATCH-LAZY-ACTIVATION` 锚点暂不生效，属固有时序；refresh 失败本身是 python-olm 构建问题，backend 保留既装版本，回贴后恢复，忽略即可                                                                                                                                                                                                                                                                                                                                           |
@@ -223,7 +289,7 @@ Wiki 有独立的分层与硬约束体系，**结构会演进**——layer 定�
 
 - **不要自动提交**。升级结束先报告；按全局 guardrail 等用户明示"提交一下"再走外层 `~/.hermes` 仓库的 `copilot-git-approve` 流程
 - **不要在 `~/.hermes/hermes-agent` 提交**。该仓库是官方源码 checkout，本地 patch 由外层 `patches/local-patches.diff` 监管；除非用户明确要求维护 fork，否则内层只允许 fast-forward/checkout 和 modified patch files
-- **不要修改**版本记录表里的旧 row、PATCHES.md 升级摘要里的 "basis OLD → NEW" 句子（都是历史差量）
+- **不要修改**README 版本记录表里的已结束周 row、PATCHES.md 升级摘要里的 "basis OLD → NEW" 句子（都是历史差量）；当前 ISO 周 row 必须按 Step 4 聚合更新，同周不得追加第二条
 - **不要触碰**已 modified 但与升级无关的工作树文件（如 `memories/USER.md` 的用户编辑、未跟踪笔记）
 - **不要后台跑** `gh copilot` / `claude` / `codex` 等 AI CLI
 - **不要中途追问**用户，也**不要把可修的问题留到报告里等确认**。回归失败、依赖缺口、doctor 可修 ⚠ 一律当轮按 Step 2b/2c 的分支修复到位（依赖自愈与回归所需的本地补丁均已常设授权）。只有两类允许留案并在最终报告单列：① 本地确实不可修的上游阻塞（如 npm lockfile 高危待上游 bump）；② 引入全新依赖或改变安全边界的决策

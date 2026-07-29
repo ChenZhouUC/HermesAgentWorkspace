@@ -1,8 +1,8 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index 0165987d8..8f732c5a6 100644
+index 426479560..f8ca8ff07 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
-@@ -5566,22 +5566,36 @@ def resolve_provider_client(
+@@ -5814,22 +5814,36 @@ def resolve_provider_client(
          # OAuth2 bearer token (NOT a static key). We build a standard OpenAI
          # client pointed at the runtime-computed Vertex base_url with a fresh
          # token; no custom SDK or message translation needed.
@@ -805,10 +805,10 @@ index be57b3f03..4f638ba08 100644
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index 781a94217..ec8c5a29e 100644
+index 759c255bd..282bbcaa9 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
-@@ -1580,6 +1580,23 @@ def load_gateway_config() -> GatewayConfig:
+@@ -1582,6 +1582,23 @@ def load_gateway_config() -> GatewayConfig:
                      bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
                  if "group_user_allowed_commands" in platform_cfg:
                      bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
@@ -856,10 +856,10 @@ index e58e6e82b..84c371bb6 100644
      # Tier 3 — no edit support, progress messages are permanent
      "signal":          _TIER_LOW,
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index e55c91b4d..bbcb0ab35 100644
+index 2d7163a38..425f14935 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -1377,6 +1377,8 @@ def _log_safe_path(path: str) -> str:
+@@ -1539,6 +1539,8 @@ def _log_safe_path(path: str) -> str:
  
  SUPPORTED_DOCUMENT_TYPES = {
      ".pdf": "application/pdf",
@@ -868,7 +868,7 @@ index e55c91b4d..bbcb0ab35 100644
      ".md": "text/markdown",
      ".txt": "text/plain",
      ".csv": "text/csv",
-@@ -1395,6 +1397,8 @@ SUPPORTED_DOCUMENT_TYPES = {
+@@ -1557,6 +1559,8 @@ SUPPORTED_DOCUMENT_TYPES = {
      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
      ".ppt": "application/vnd.ms-powerpoint",
      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -878,7 +878,7 @@ index e55c91b4d..bbcb0ab35 100644
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index 37dfd9d92..810394e2a 100644
+index e7e641601..3cfc071aa 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -84,6 +84,19 @@ _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
@@ -899,9 +899,9 @@ index 37dfd9d92..810394e2a 100644
 +    ".gradle", ".rst", ".tex", ".srt", ".vtt", ".diff", ".patch",
 +})
  _TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
+ _GATEWAY_HYGIENE_PLATFORM = "gateway_hygiene"
  
- _TELEGRAM_NOISY_STATUS_RE = re.compile(
-@@ -1338,6 +1351,7 @@ from agent.replay_cleanup import (  # noqa: E402
+@@ -1363,6 +1376,7 @@ from agent.replay_cleanup import (  # noqa: E402
      strip_dangling_tool_call_tail as _strip_dangling_tool_call_tail,
      strip_stale_dangerous_confirmations as _strip_stale_dangerous_confirmations,
      is_dangerous_confirmation as _is_dangerous_confirmation,
@@ -909,7 +909,7 @@ index 37dfd9d92..810394e2a 100644
  )
  
  
-@@ -2165,6 +2179,7 @@ from gateway.session import (
+@@ -2190,6 +2204,7 @@ from gateway.session import (
      build_session_key,
      is_shared_multi_user_session,
      neutralize_untrusted_inline_text,
@@ -917,7 +917,7 @@ index 37dfd9d92..810394e2a 100644
  )
  from gateway.delivery import (
      DeliveryRouter,
-@@ -2531,33 +2546,72 @@ def _build_media_placeholder(event) -> str:
+@@ -2557,33 +2572,72 @@ def _build_media_placeholder(event) -> str:
      return "\n".join(parts)
  
  
@@ -1003,7 +1003,7 @@ index 37dfd9d92..810394e2a 100644
  def _format_duration(seconds: float) -> str:
      total = int(round(seconds))
      if total < 0:
-@@ -2768,6 +2822,51 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2794,6 +2848,51 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -1055,7 +1055,7 @@ index 37dfd9d92..810394e2a 100644
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -3507,6 +3606,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -3533,6 +3632,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # preserve the queue.
          self._queued_events: Dict[str, List[MessageEvent]] = {}
          self._pending_native_image_paths_by_session: Dict[str, List[str]] = {}
@@ -1063,7 +1063,7 @@ index 37dfd9d92..810394e2a 100644
          self._busy_ack_ts: Dict[str, float] = {}  # last busy-ack timestamp per session (debounce)
          self._session_run_generation: Dict[str, int] = {}
          # Startup restore gate: while restart-interrupted sessions are being
-@@ -6455,7 +6555,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -6530,7 +6630,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -1072,7 +1072,7 @@ index 37dfd9d92..810394e2a 100644
                  "busy_ack_detail",
                  True,
              )
-@@ -12315,8 +12415,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12554,8 +12654,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      _skill_name = skill_cmds[cmd_key].get("name", "")
                      _plat = source.platform.value if source.platform else None
                      if _plat and _skill_name:
@@ -1089,7 +1089,7 @@ index 37dfd9d92..810394e2a 100644
                              return (
                                  f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                  f"Enable it with: `hermes skills config`"
-@@ -12582,27 +12688,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12821,27 +12927,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if _pending_stt_prepared
              else event.text
          ) or ""
@@ -1122,7 +1122,7 @@ index 37dfd9d92..810394e2a 100644
              # (mirrors the same field's treatment in
              # build_session_context_prompt via _format_untrusted_prompt_value).
              _safe_user_name = neutralize_untrusted_inline_text(source.user_name)
-@@ -12616,7 +12716,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12855,7 +12955,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  _safe_user_name = (
                      f"{_safe_user_name} | Slack user <@{source.user_id}>"
                  )
@@ -1131,7 +1131,7 @@ index 37dfd9d92..810394e2a 100644
  
          # Prepend channel context from history backfill (if any).  This
          # happens after sender-prefix so the prefix only applies to the
-@@ -12757,6 +12857,40 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -12996,6 +13096,40 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  message_text = f"{_note}\n\n{message_text}"
  
@@ -1172,7 +1172,7 @@ index 37dfd9d92..810394e2a 100644
          if video_paths:
              from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
              for _vpath in video_paths:
-@@ -12780,7 +12914,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13019,7 +13153,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              import mimetypes as _mimetypes
              from tools.credential_files import to_agent_visible_cache_path
  
@@ -1181,7 +1181,7 @@ index 37dfd9d92..810394e2a 100644
              for i, path in enumerate(event.media_urls):
                  # Per-attachment document handling. Skip anything already routed
                  # as image / audio / video by the buckets above — only genuine
-@@ -12798,7 +12932,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13037,7 +13171,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  mtype = event.media_types[i] if i < len(event.media_types) else ""
                  if mtype in {"", "application/octet-stream"}:
                      _ext = os.path.splitext(path)[1].lower()
@@ -1190,7 +1190,7 @@ index 37dfd9d92..810394e2a 100644
                          mtype = "text/plain"
                      else:
                          guessed, _ = _mimetypes.guess_type(path)
-@@ -12820,8 +12954,43 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -13059,8 +13193,43 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # cache directories are auto-mounted at /root/.hermes/cache/* by get_cache_directory_mounts().
                  agent_path = to_agent_visible_cache_path(path)
  
@@ -1236,8 +1236,8 @@ index 37dfd9d92..810394e2a 100644
  
          # Discord: surface the triggering message id per-turn on the user
          # message rather than in the cached system prompt. message_id changes
-@@ -12988,12 +13157,28 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
-             session_key=session_key,
+@@ -13241,12 +13410,28 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             if transcript.strip()
          )
  
 +    @staticmethod
@@ -1265,7 +1265,7 @@ index 37dfd9d92..810394e2a 100644
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -14275,6 +14460,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14573,6 +14758,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -1274,7 +1274,7 @@ index 37dfd9d92..810394e2a 100644
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -14316,7 +14503,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14614,7 +14801,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -1283,7 +1283,7 @@ index 37dfd9d92..810394e2a 100644
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -14377,7 +14564,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -14675,7 +14862,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -1292,7 +1292,7 @@ index 37dfd9d92..810394e2a 100644
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -15991,7 +16178,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16330,7 +16517,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -1301,7 +1301,7 @@ index 37dfd9d92..810394e2a 100644
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -17640,6 +17827,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17979,6 +18166,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -1309,7 +1309,7 @@ index 37dfd9d92..810394e2a 100644
              chat_id=context.source.chat_id,
              chat_type=(
                  str(context.source.chat_type) if context.source.chat_type else ""
-@@ -17716,11 +17904,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18055,11 +18243,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -1325,7 +1325,7 @@ index 37dfd9d92..810394e2a 100644
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -17730,7 +17920,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18069,7 +18259,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          only the persisted default model.
          """
          try:
@@ -1334,7 +1334,7 @@ index 37dfd9d92..810394e2a 100644
              from agent.auxiliary_client import _read_main_model, _read_main_provider
              from hermes_cli.config import load_config
  
-@@ -17771,6 +17961,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18110,6 +18300,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not resolved_model:
                  resolved_model = _read_main_model()
  
@@ -1343,7 +1343,7 @@ index 37dfd9d92..810394e2a 100644
              return decide_image_input_mode(
                  resolved_provider,
                  resolved_model,
-@@ -20008,7 +20200,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20410,7 +20602,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -1352,7 +1352,7 @@ index 37dfd9d92..810394e2a 100644
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -20066,6 +20258,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20468,6 +20660,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -1364,7 +1364,7 @@ index 37dfd9d92..810394e2a 100644
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -20414,7 +20611,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20820,7 +21017,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -1373,7 +1373,7 @@ index 37dfd9d92..810394e2a 100644
  
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -21470,9 +21667,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21928,9 +22125,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # --session-key argv, a separate process) — so removing this in-process
              # gateway write does not affect any of them.
  
@@ -1386,7 +1386,7 @@ index 37dfd9d92..810394e2a 100644
              
              # Combine platform context, YAML channel_prompts hint for this chat,
              # channel_overrides system_prompt (or global ephemeral), and gateway
-@@ -21602,6 +21799,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22065,6 +22262,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                              on_before_finalize=_pause_typing_before_finalize,
                              initial_reply_to_id=event_message_id,
                              run_still_current=_run_still_current,
@@ -1398,7 +1398,7 @@ index 37dfd9d92..810394e2a 100644
                          )
                          if _want_stream_deltas:
                              def _stream_delta_cb(text: str) -> None:
-@@ -22179,7 +22381,22 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22653,7 +22855,22 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_history = _strip_stale_dangerous_confirmations(
                          _selected, now=time.time()
                      )
@@ -1422,7 +1422,7 @@ index 37dfd9d92..810394e2a 100644
              # Collect MEDIA paths already in history so we can exclude them
              # from the current turn's extraction. This is compression-safe:
              # even if the message list shrinks, we know which paths are old.
-@@ -22434,31 +22651,33 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22908,31 +23125,33 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              _approval_session_token = set_current_session_key(_approval_session_key)
              register_gateway_notify(_approval_session_key, _approval_notify_sync)
              try:
@@ -1464,7 +1464,7 @@ index 37dfd9d92..810394e2a 100644
                              _img_exc,
                          )
                          _run_message = message
-@@ -22620,6 +22839,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23099,6 +23318,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      result, final_response or "", history_len=len(agent_history),
                  )
                  final_response = _sanitize_gateway_final_response(source.platform, final_response)
@@ -2131,7 +2131,7 @@ index 7d3e31cf1..0b167447b 100644
                      metadata=self._metadata_for_send(
                          final=finalize,
 diff --git a/hermes_cli/auth.py b/hermes_cli/auth.py
-index 98b354715..129d326bf 100644
+index c380f3af8..5b494b12e 100644
 --- a/hermes_cli/auth.py
 +++ b/hermes_cli/auth.py
 @@ -490,6 +490,24 @@ except Exception:
@@ -2160,7 +2160,7 @@ index 98b354715..129d326bf 100644
  # Anthropic Key Helper
  # =============================================================================
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 9fd241630..a3f71b8fe 100644
+index b4c5e678d..66411eda0 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
 @@ -60,6 +60,9 @@ _PROVIDER_ENV_HINTS = (
@@ -2266,10 +2266,10 @@ index 9fd241630..a3f71b8fe 100644
              ):
                  check_warn(
 diff --git a/hermes_cli/runtime_provider.py b/hermes_cli/runtime_provider.py
-index 58202c7ec..75cfb2e16 100644
+index 3b3d0eafb..130d1cfba 100644
 --- a/hermes_cli/runtime_provider.py
 +++ b/hermes_cli/runtime_provider.py
-@@ -1738,6 +1738,32 @@ def resolve_runtime_provider(
+@@ -1742,6 +1742,32 @@ def resolve_runtime_provider(
              "requested_provider": requested_provider,
          }
  
@@ -2303,10 +2303,10 @@ index 58202c7ec..75cfb2e16 100644
          requested_provider=requested_provider,
          explicit_api_key=explicit_api_key,
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index 1d3f6899f..33e6287f7 100644
+index fdf6f343e..be4a469cc 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -2040,38 +2040,49 @@ def _get_platform_tools(
+@@ -2149,38 +2149,49 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -2417,10 +2417,10 @@ index 900c360a1..132fdda84 100755
  mkdir -p "$dest"
  install -m 0644 libfts5_cjk.so "$dest/libfts5_cjk.so"
 diff --git a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
-index 7f6e9b3fb..a899e9a46 100644
+index 62cae3f6d..7e4a549cd 100644
 --- a/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
 +++ b/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
-@@ -2433,11 +2433,6 @@ class Migrator:
+@@ -2440,11 +2440,6 @@ class Migrator:
          self.record("gateway-config", "openclaw.json gateway.*", "archive/gateway-config.json",
                      "archived", "Gateway config archived. Use 'hermes gateway' to configure.")
  
@@ -2433,7 +2433,7 @@ index 7f6e9b3fb..a899e9a46 100644
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/model-providers/vertex/__init__.py b/plugins/model-providers/vertex/__init__.py
-index f0d0d4f89..2bf2daa4b 100644
+index a63aa2b68..2ae71eeaa 100644
 --- a/plugins/model-providers/vertex/__init__.py
 +++ b/plugins/model-providers/vertex/__init__.py
 @@ -8,9 +8,10 @@ resolution and refresh live in ``agent/vertex_adapter.py``; runtime_provider.py
@@ -2526,7 +2526,7 @@ index f0d0d4f89..2bf2daa4b 100644
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 751c2bf76..f1a02716c 100644
+index f3756a858..92fcd3a8c 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -60,6 +60,7 @@ import os
@@ -3639,8 +3639,8 @@ index 751c2bf76..f1a02716c 100644
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3877,6 +4737,8 @@ class FeishuAdapter(BasePlatformAdapter):
-             return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.AUDIO)
+@@ -3885,6 +4745,8 @@ class FeishuAdapter(BasePlatformAdapter):
+             return MessageType.VOICE
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
 +        if media_types and normalized.raw_type in {"image", "file", "audio", "media"}:
@@ -3648,7 +3648,7 @@ index 751c2bf76..f1a02716c 100644
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4004,6 +4866,77 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4012,6 +4874,77 @@ class FeishuAdapter(BasePlatformAdapter):
                  )
          return "", ""
  
@@ -3726,7 +3726,7 @@ index 751c2bf76..f1a02716c 100644
      # =========================================================================
      # Static helpers — extension / media-type guessing
      # =========================================================================
-@@ -4234,10 +5167,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4242,10 +5175,19 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -3748,7 +3748,7 @@ index 751c2bf76..f1a02716c 100644
              )
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
-@@ -4290,6 +5232,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4298,6 +5240,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -3760,7 +3760,7 @@ index 751c2bf76..f1a02716c 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4305,7 +5252,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4313,7 +5260,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -3769,7 +3769,7 @@ index 751c2bf76..f1a02716c 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4326,8 +5273,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4334,8 +5281,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -3780,7 +3780,7 @@ index 751c2bf76..f1a02716c 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4425,6 +5372,167 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4433,6 +5380,167 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -3948,7 +3948,7 @@ index 751c2bf76..f1a02716c 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4669,9 +5777,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4768,9 +5876,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -3964,7 +3964,7 @@ index 751c2bf76..f1a02716c 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4682,34 +5794,25 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4781,34 +5893,25 @@ class FeishuAdapter(BasePlatformAdapter):
              request = self._build_reply_message_request(effective_reply_to, body)
              return await self._run_blocking(self._client.im.v1.message.reply, request)
  
@@ -4018,7 +4018,7 @@ index 751c2bf76..f1a02716c 100644
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -4929,6 +6032,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -5028,6 +6131,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -4054,10 +4054,10 @@ index 751c2bf76..f1a02716c 100644
      def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
          if "GetMessageResourceRequest" in globals():
 diff --git a/pyproject.toml b/pyproject.toml
-index 02c00a096..b0ee5a25e 100644
+index 40dabe198..c79b83322 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -246,7 +246,7 @@ termux-all = [
+@@ -273,7 +273,7 @@ termux-all = [
    "hermes-agent[pty]",
  ]
  dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
@@ -4681,7 +4681,7 @@ index e5c787d65..b53447df9 100644
 +    assert error == ""
 +    assert "revenue,42" in text
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index 0e411b8cf..70615666d 100644
+index d887bc94f..b07b23ad8 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -172,6 +172,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -5116,7 +5116,7 @@ index 0e411b8cf..70615666d 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1808,6 +2226,101 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1812,6 +2230,101 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.text, "A\nB")
          self.assertEqual(event.message_type, MessageType.TEXT)
  
@@ -5218,7 +5218,7 @@ index 0e411b8cf..70615666d 100644
      @patch.dict(
          os.environ,
          {
-@@ -2063,6 +2576,14 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2067,6 +2580,14 @@ class TestAdapterBehavior(unittest.TestCase):
          }
          with (
              patch.dict(os.environ, proxy_vars, clear=False),
@@ -5233,7 +5233,7 @@ index 0e411b8cf..70615666d 100644
              patch("socket.getaddrinfo", side_effect=fake_getaddrinfo),
              patch.object(AutoBackend, "connect_tcp", new=fake_connect_tcp),
              self.assertRaises(SSRFConnectionBlocked),
-@@ -2165,7 +2686,155 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2169,7 +2690,155 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -5390,7 +5390,7 @@ index 0e411b8cf..70615666d 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2203,10 +2872,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2207,10 +2876,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -5403,7 +5403,7 @@ index 0e411b8cf..70615666d 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2242,7 +2911,44 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2246,7 +2915,44 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -5449,7 +5449,7 @@ index 0e411b8cf..70615666d 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2333,7 +3039,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2337,7 +3043,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -5458,7 +5458,7 @@ index 0e411b8cf..70615666d 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2385,7 +3091,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2389,7 +3095,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -5467,7 +5467,7 @@ index 0e411b8cf..70615666d 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -2711,8 +3417,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2715,8 +3421,10 @@ class TestAdapterBehavior(unittest.TestCase):
          adapter = FeishuAdapter(PlatformConfig())
          payload = json.loads(adapter._build_post_payload("# 标题\n访问 [文档](https://example.com)"))
  
@@ -5479,7 +5479,7 @@ index 0e411b8cf..70615666d 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_build_post_payload_wraps_markdown_in_md_tag(self):
-@@ -2750,6 +3458,80 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2754,6 +3462,80 @@ class TestAdapterBehavior(unittest.TestCase):
              [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
          )
  
@@ -5560,7 +5560,7 @@ index 0e411b8cf..70615666d 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_build_outbound_payload_uses_post_for_markdown_table(self):
          from gateway.config import PlatformConfig
-@@ -4789,6 +5571,43 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
+@@ -4793,6 +5575,43 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
          adapter._dispatch_inbound_event = AsyncMock()
          return adapter
  
@@ -5604,7 +5604,7 @@ index 0e411b8cf..70615666d 100644
      def test_leading_self_mention_stripped_for_command(self):
          from gateway.platforms.base import MessageType
  
-@@ -5039,6 +5858,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -5043,6 +5862,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -5631,7 +5631,7 @@ index 0e411b8cf..70615666d 100644
      def test_build_mentions_map_string_id_shape(self):
          """_build_mentions_map accepts the reply-history shape (id as str +
          id_type='open_id'). user_id id_type is not load-bearing for self
-@@ -5244,6 +6083,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
+@@ -5248,6 +6087,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
          self.assertNotIn("@Hermes @Alice", event.text)
  
  
@@ -6580,7 +6580,7 @@ index fc6dcf67e..42bf04805 100644
      async def test_marker_prefix_then_prose_is_delivered(self):
          """A reply that starts marker-like but continues is delivered whole.
 diff --git a/tests/hermes_cli/test_doctor.py b/tests/hermes_cli/test_doctor.py
-index 76ba52110..3c2bc6c30 100644
+index 29aa0f38c..808be05e0 100644
 --- a/tests/hermes_cli/test_doctor.py
 +++ b/tests/hermes_cli/test_doctor.py
 @@ -657,6 +657,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
@@ -6851,7 +6851,7 @@ index 31365fcf2..51a1783b2 100644
          """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
          config = tmp_path / "config.yaml"
 diff --git a/tests/hermes_cli/test_tools_config.py b/tests/hermes_cli/test_tools_config.py
-index 0b3e84251..0178f8652 100644
+index 5d2980007..8e6ebb3ad 100644
 --- a/tests/hermes_cli/test_tools_config.py
 +++ b/tests/hermes_cli/test_tools_config.py
 @@ -1512,6 +1512,32 @@ def test_get_platform_tools_feishu_includes_doc_and_drive():
@@ -7518,7 +7518,7 @@ index 5274da9c5..d2a11523c 100644
          flat_skill = tmp_path / "legacy-skill.md"
          flat_skill.write_text(
 diff --git a/tools/approval.py b/tools/approval.py
-index 24c08f769..c929cf2cd 100644
+index 57300f0cb..c6daf3fb2 100644
 --- a/tools/approval.py
 +++ b/tools/approval.py
 @@ -224,6 +224,48 @@ def _get_session_platform() -> str:
@@ -7863,10 +7863,10 @@ index 994723cf5..90966831e 100644
          """Delete a single file.
  
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 0cabac21b..2022bc69c 100644
+index c965e1734..a1bff980d 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
-@@ -192,6 +192,8 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
+@@ -229,6 +229,8 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
      "platform.feishu": (
          "lark-oapi==1.6.8",
          "qrcode==7.4.2",
@@ -8273,10 +8273,18 @@ index 3607703de..ed6e37646 100644
          return {}
      rel_tag = f"{{{_NS_PKG_REL}}}Relationship"
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index 2cd20bde2..5e5d5c99e 100644
+index 3284cb923..035c44236 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -638,10 +638,39 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
+@@ -34,6 +34,7 @@ Directory layout for user skills:
+ 
+ import json
+ import logging
++import os
+ import re
+ import shutil
+ import contextvars as _ctxvars
+@@ -636,10 +637,39 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
  
  
  def _resolve_skill_dir(name: str, category: str = None) -> Path:
@@ -8319,7 +8327,7 @@ index 2cd20bde2..5e5d5c99e 100644
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -919,7 +948,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -895,7 +925,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -8332,7 +8340,7 @@ index 2cd20bde2..5e5d5c99e 100644
          "skill_md": str(skill_md),
          "_change": {"description": _desc},
      }
-@@ -1191,9 +1224,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
+@@ -1167,9 +1201,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
  
      shutil.rmtree(skill_dir)
  
@@ -8583,10 +8591,10 @@ index 75219f719..5b34649cb 100644
      "tts": {
          "description": "Text-to-speech: convert text to audio with Edge TTS (free), ElevenLabs, OpenAI, or xAI",
 diff --git a/uv.lock b/uv.lock
-index f0b075a08..a4cb25923 100644
+index ef3672e74..d2a81aa56 100644
 --- a/uv.lock
 +++ b/uv.lock
-@@ -1617,6 +1617,8 @@ fal = [
+@@ -1645,6 +1645,8 @@ fal = [
  ]
  feishu = [
      { name = "lark-oapi" },
@@ -8595,8 +8603,8 @@ index f0b075a08..a4cb25923 100644
      { name = "qrcode" },
  ]
  firecrawl = [
-@@ -1819,11 +1821,13 @@ requires-dist = [
-     { name = "ptyprocess", marker = "sys_platform != 'win32'", specifier = ">=0.7.0,<1" },
+@@ -1859,11 +1861,13 @@ requires-dist = [
+     { name = "pvporcupine", marker = "extra == 'wake'", specifier = "==4.0.3" },
      { name = "pydantic", specifier = "==2.13.4" },
      { name = "pyjwt", extras = ["crypto"], specifier = "==2.13.0" },
 +    { name = "pypdf", marker = "extra == 'feishu'", specifier = "==6.14.2" },
@@ -8609,7 +8617,7 @@ index f0b075a08..a4cb25923 100644
      { name = "python-telegram-bot", extras = ["webhooks"], marker = "extra == 'messaging'", specifier = "==22.6" },
      { name = "python-telegram-bot", extras = ["webhooks"], marker = "extra == 'termux'", specifier = "==22.6" },
      { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=306,<312" },
-@@ -3396,6 +3400,15 @@ wheels = [
+@@ -3477,6 +3481,15 @@ wheels = [
      { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781, upload-time = "2026-01-21T03:57:55.912Z" },
  ]
  
@@ -8638,10 +8646,10 @@ index 669497bd1..0effd1674 100644
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 362652974..237b91428 100644
+index 99f872415..5c3985958 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
-@@ -396,8 +396,13 @@ These are set automatically by the Docker terminal backend when `proxy.enabled:
+@@ -397,8 +397,13 @@ These are set automatically by the Docker terminal backend when `proxy.enabled:
  | `FEISHU_ENCRYPT_KEY` | Optional encryption key for webhook mode |
  | `FEISHU_VERIFICATION_TOKEN` | Optional verification token for webhook mode |
  | `FEISHU_ALLOWED_USERS` | Comma-separated Feishu user IDs allowed to message the bot |
@@ -8656,7 +8664,7 @@ index 362652974..237b91428 100644
  | `FEISHU_HOME_CHANNEL_NAME` | Display name for the Feishu home channel. |
  | `FEISHU_ALLOW_ALL_USERS` | Allow any Feishu user to trigger the bot (dev only). |
 diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
-index 4a773b30d..1b1e0aa05 100644
+index 09558a4e9..11558ea50 100644
 --- a/website/docs/user-guide/configuration.md
 +++ b/website/docs/user-guide/configuration.md
 @@ -705,6 +705,56 @@ the `hermes tools` UI.
