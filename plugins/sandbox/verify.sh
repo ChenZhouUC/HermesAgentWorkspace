@@ -75,6 +75,7 @@ fi
 # 4. Root/plugin configuration contract (HARD)
 if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${ROOT_CONFIG}" ]] && [[ -r "${PLUGIN_CONFIG}" ]] &&
     "${VENV_PYTHON}" - "${ROOT_CONFIG}" "${PLUGIN_CONFIG}" <<'PY'; then
+import re
 import sys
 import plistlib
 from pathlib import Path
@@ -165,6 +166,16 @@ expected_scripts = {
 assert python_executable.is_file(), f"configured Python is missing: {python_executable}"
 missing_scripts = sorted(name for name in expected_scripts if not (scripts_root / name).is_file())
 assert not missing_scripts, f"configured Feishu scripts are missing: {missing_scripts}"
+
+# read_feishu_url imports read_docx_to_markdown only for the pure parse_blocks
+# renderer. A module-scope `import requests` there breaks every read_url call
+# whenever the running interpreter lacks requests, so keep the dependency
+# confined to the two network helpers.
+renderer = (scripts_root / "read_docx_to_markdown.py").read_text(encoding="utf-8")
+assert re.search(
+    r"^import requests\b", renderer, re.MULTILINE
+) is None, "read_docx_to_markdown.py must not import requests at module scope"
+assert "    import requests\n" in renderer, "network helpers must still import requests lazily"
 PY
     echo "OK   owner-DM/group YAML contract and fixed Feishu script map are valid"
 else

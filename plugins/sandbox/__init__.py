@@ -503,17 +503,19 @@ def _handle_feishu_doc_manage(args: Dict[str, Any], **_kwargs: Any) -> str:
     action, script, argv = _build_script_argv(args, workspace)
     actor = str(_current_user_id.get() or "unknown")
     logger.info(
-        "sandbox: trusted script start action=%s script=%s chat=%s actor=%s",
+        "sandbox: trusted script start action=%s script=%s python=%s chat=%s actor=%s",
         action,
         script.name,
+        _PYTHON_EXECUTABLE,
         chat_id,
         actor,
     )
     result = _run_trusted_script(script, argv, workspace)
     logger.info(
-        "sandbox: trusted script end action=%s script=%s chat=%s actor=%s returncode=%s",
+        "sandbox: trusted script end action=%s script=%s python=%s chat=%s actor=%s returncode=%s",
         action,
         script.name,
+        _PYTHON_EXECUTABLE,
         chat_id,
         actor,
         result.returncode,

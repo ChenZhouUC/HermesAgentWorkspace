@@ -185,7 +185,7 @@ To merge large Markdown content into an existing document with perfect native fo
    - **Strip all `block_id`s.**
    - **Tables:** ONLY copy `row_size`, `column_size`, and `column_width`. Do NOT include `cells` or `merge_info` in the payload. Split tables if they exceed the 9-row limit.
 4. Insert top-level blocks in chunks (e.g., 40 at a time) to avoid payload size/timeout errors.
-5. Re-map the newly created auto-generated cell IDs and sequentially POST their nested children. (See `scripts/merge_markdown_blocks.py` for the block-mapping implementation. For a fully automated end-to-end wrapper, run: `python ~/.hermes/my-skills/productivity/feishu-docs/scripts/append_md_to_doc.py <target_doc_token> <md_file_path>`).
+5. Re-map the newly created auto-generated cell IDs and sequentially POST their nested children. (See `scripts/merge_markdown_blocks.py` for the block-mapping implementation. For a fully automated end-to-end wrapper, run: `~/.hermes/hermes-agent/venv/bin/python ~/.hermes/my-skills/productivity/feishu-docs/scripts/append_md_to_doc.py <target_doc_token> <md_file_path>`).
 
 ---
 
@@ -229,7 +229,7 @@ If the user has already granted permission but the API is slow to sync, wait a m
   Useful when you only need a straightforward block dump to Markdown.
 - **Compatibility helper**: `uv run --with requests python ~/.hermes/my-skills/productivity/feishu-docs/scripts/download_docx_to_md.py <doc_token>`
   Keeps older workflows working when the lightweight extraction path is sufficient.
-- **Dependency note**: All three scripts require the `requests` Python package. The base system Python does NOT have it installed. You MUST prefix with `uv run --with requests` (or ensure `requests` is available) to avoid `ModuleNotFoundError`.
+- **Dependency note**: All three scripts require the `requests` Python package. **Preferred interpreter is `~/.hermes/hermes-agent/venv/bin/python`** — it has `requests` pinned as a direct dependency, so no `--with` flag is needed. Neither the base system Python nor a bare `uv run python` has `requests`: run from a directory without a `pyproject.toml`/`.venv` (such as `~/.hermes`), `uv run python` provisions its own ephemeral interpreter (currently 3.13.x) that is unrelated to the hermes venv, so the `uv run` form only works when you also pass `--with requests`. Prefer the venv path; if you do use `uv run`, never omit `--with requests`.
 - **Embedded Sheets (Block Type 30)**: The markdown extraction scripts do NOT extract the content of embedded Feishu Sheets. The token inside a Sheet block is often compound (`SpreadsheetToken_SheetID`, e.g., `C8DCskW..._bmJW05`). To read its data via `execute_code`, split the token by `_` to get the base Spreadsheet Token, use `sheets/v3/spreadsheets/{base_token}/sheets/query` to list sheets, and `sheets/v2/spreadsheets/{base_token}/values/{sheet_id}` to read the cell values.
 
 ## 📎 Downloading File Attachments (Excel, PDF, etc.)

@@ -1,10 +1,15 @@
 import os
 import re
 
-import requests
+# `requests` is imported inside the two network helpers below, not at module
+# scope: other scripts import this module only for the pure `parse_blocks`
+# renderer, and a top-level import makes those callers fail when the running
+# interpreter lacks requests.
 
 
 def get_tenant_access_token():
+    import requests
+
     with open(os.path.expanduser("~/.hermes/.env"), "r") as f:
         env_content = f.read()
     app_id = re.search(r"FEISHU_APP_ID=(.*)", env_content).group(1).strip()
@@ -60,6 +65,8 @@ def parse_blocks(blocks):
 
 
 def download_doc_to_md(doc_token):
+    import requests
+
     token = get_tenant_access_token()
     url = f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_token}/blocks"
     headers = {"Authorization": f"Bearer {token}"}
