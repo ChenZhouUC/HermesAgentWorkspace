@@ -2265,6 +2265,43 @@ index 9fd241630..a3f71b8fe 100644
                  and not provider_accepts_vendor_slug
              ):
                  check_warn(
+diff --git a/hermes_cli/runtime_provider.py b/hermes_cli/runtime_provider.py
+index 58202c7ec..75cfb2e16 100644
+--- a/hermes_cli/runtime_provider.py
++++ b/hermes_cli/runtime_provider.py
+@@ -1738,6 +1738,32 @@ def resolve_runtime_provider(
+             "requested_provider": requested_provider,
+         }
+ 
++    # Second Vertex account (fallback chain entry). Must be resolved HERE, not
++    # by the generic tail: falling through would "succeed" with an unrelated
++    # provider and an empty api_key, poisoning the gateway's fallback chain and
++    # masking the later entries. Raise AuthError on failure so the chain
++    # advances to the next entry instead.
++    if requested_provider in ("vertex-fallback", "vertex2", "vertex-secondary"):
++        from agent.vertex_adapter import get_vertex_fallback_config
++
++        token, base_url = get_vertex_fallback_config()
++        if not token or not base_url:
++            raise AuthError(
++                "Vertex fallback credentials could not be resolved. Set "
++                "VERTEX_FALLBACK_CREDENTIALS_PATH (and optionally "
++                "VERTEX_FALLBACK_PROJECT_ID) in ~/.hermes/.env to a second "
++                "service-account JSON, or remove 'vertex-fallback' from the "
++                "fallback chain."
++            )
++        return {
++            "provider": "vertex-fallback",
++            "api_mode": "chat_completions",
++            "base_url": base_url.rstrip("/"),
++            "api_key": token,
++            "source": "vertex-oauth",
++            "requested_provider": requested_provider,
++        }
++
+     custom_runtime = _resolve_named_custom_runtime(
+         requested_provider=requested_provider,
+         explicit_api_key=explicit_api_key,
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
 index 1d3f6899f..33e6287f7 100644
 --- a/hermes_cli/tools_config.py
@@ -6836,7 +6873,7 @@ index 0b3e84251..0178f8652 100644
      for plat in ["cli", "telegram", "discord"]:
          enabled = _get_platform_tools({}, plat)
 diff --git a/tests/hermes_cli/test_vertex_provider.py b/tests/hermes_cli/test_vertex_provider.py
-index d97b53409..bad630f34 100644
+index d97b53409..d67da7698 100644
 --- a/tests/hermes_cli/test_vertex_provider.py
 +++ b/tests/hermes_cli/test_vertex_provider.py
 @@ -88,9 +88,26 @@ def test_vertex_extra_body_thinking_config():
@@ -6869,7 +6906,7 @@ index d97b53409..bad630f34 100644
  
  
  def test_vertex_extra_body_empty_without_reasoning():
-@@ -126,3 +143,84 @@ def test_vertex_registered_in_hermes_overlays():
+@@ -126,3 +143,120 @@ def test_vertex_registered_in_hermes_overlays():
      resolved = get_provider("vertex")
      assert resolved is not None
      assert resolved.auth_type == "vertex"
@@ -6954,6 +6991,42 @@ index d97b53409..bad630f34 100644
 +        "/fake/sa.json", project_override="explicit-proj"
 +    )
 +    assert proj_explicit == "explicit-proj"
++
++
++def test_resolve_runtime_provider_vertex_fallback_mints_token(monkeypatch):
++    """The gateway's fallback chain resolves entries via resolve_runtime_provider,
++    NOT resolve_provider_client — 'vertex-fallback' must be handled there too.
++    Without a dedicated branch it falls through to the generic tail, which
++    'succeeds' with an unrelated provider and an empty api_key, so the chain
++    never advances to later entries and AIAgent init dies with
++    'No LLM provider configured'."""
++    import agent.vertex_adapter as va
++    from hermes_cli import runtime_provider as rp
++
++    monkeypatch.setattr(
++        va, "get_vertex_fallback_config",
++        lambda: ("ya29.FB-TOKEN", "https://aiplatform.googleapis.com/v1beta1/projects/fb-proj/locations/global/endpoints/openapi"),
++    )
++    rt = rp.resolve_runtime_provider(requested="vertex-fallback")
++    assert rt["provider"] == "vertex-fallback"
++    assert rt["api_mode"] == "chat_completions"
++    assert rt["source"] == "vertex-oauth"
++    assert rt["api_key"] == "ya29.FB-TOKEN"
++    assert "fb-proj" in rt["base_url"]
++
++
++def test_resolve_runtime_provider_vertex_fallback_raises_autherror(monkeypatch):
++    """When the second account can't mint a token the branch must raise (typed)
++    so _try_resolve_fallback_provider advances to the next chain entry, instead
++    of silently returning a broken generic runtime."""
++    import agent.vertex_adapter as va
++    from hermes_cli import runtime_provider as rp
++    from hermes_cli.auth import AuthError
++
++    monkeypatch.setattr(va, "get_vertex_fallback_config", lambda: (None, None))
++    with pytest.raises(AuthError) as exc:
++        rp.resolve_runtime_provider(requested="vertex-fallback")
++    assert "VERTEX_FALLBACK_CREDENTIALS_PATH" in str(exc.value)
 diff --git a/tests/tools/test_approval.py b/tests/tools/test_approval.py
 index d79ec64e7..3befdf526 100644
 --- a/tests/tools/test_approval.py

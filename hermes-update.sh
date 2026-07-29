@@ -109,6 +109,7 @@ PATCHED_FILES=(
     "tests/hermes_cli/test_vertex_provider.py"
     "agent/vertex_adapter.py"
     "hermes_cli/auth.py"
+    "hermes_cli/runtime_provider.py"
     "agent/auxiliary_client.py"
     "agent/image_routing.py"
     "tests/agent/test_image_routing.py"
@@ -1101,17 +1102,22 @@ fi
 
 # PATCH-VERTEX-FALLBACK: second Vertex account as fallback provider. Same model/profile via a
 # distinct SA file + GCP project (VERTEX_FALLBACK_*), wired as provider
-# "vertex-fallback" so the fallback chain doesn't dedup it against primary vertex
-# and resolve_provider_client() finds it in PROVIDER_REGISTRY.
+# "vertex-fallback" so the fallback chain doesn't dedup it against primary vertex,
+# resolve_provider_client() finds it in PROVIDER_REGISTRY, and the gateway's
+# resolve_runtime_provider() mints its token instead of falling through to the
+# generic tail with an empty api_key (which broke the whole fallback chain).
 VERTEX_ADAPTER_PY="${HERMES_AGENT}/agent/vertex_adapter.py"
 AUTH_PY="${HERMES_AGENT}/hermes_cli/auth.py"
 AUX_CLIENT_PY="${HERMES_AGENT}/agent/auxiliary_client.py"
-if [[ -f "${VERTEX_ADAPTER_PY}" && -f "${AUTH_PY}" && -f "${AUX_CLIENT_PY}" && -f "${VERTEX_PROVIDER_PY}" ]]; then
+RUNTIME_PROVIDER_PY="${HERMES_AGENT}/hermes_cli/runtime_provider.py"
+if [[ -f "${VERTEX_ADAPTER_PY}" && -f "${AUTH_PY}" && -f "${AUX_CLIENT_PY}" && -f "${VERTEX_PROVIDER_PY}" && -f "${RUNTIME_PROVIDER_PY}" ]]; then
     if grep -q 'def get_vertex_fallback_config' "${VERTEX_ADAPTER_PY}" 2>/dev/null &&
         grep -q 'apply_global_project_override' "${VERTEX_ADAPTER_PY}" 2>/dev/null &&
         grep -q '"vertex-fallback"' "${AUTH_PY}" 2>/dev/null &&
         grep -q 'has_vertex_fallback_credentials' "${AUX_CLIENT_PY}" 2>/dev/null &&
         grep -q 'name="vertex-fallback"' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
+        grep -q '"vertex-fallback", "vertex2", "vertex-secondary"' "${RUNTIME_PROVIDER_PY}" 2>/dev/null &&
+        grep -q 'test_resolve_runtime_provider_vertex_fallback_mints_token' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null &&
         grep -q 'test_vertex_fallback_profile_registered' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null; then
         ok "Vertex fallback provider patch: active (vertex-fallback = 2nd account, quota failover)"
         _VERTEX_FALLBACK_PATCH_OK=true
