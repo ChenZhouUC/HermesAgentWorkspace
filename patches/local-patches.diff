@@ -4681,7 +4681,7 @@ index e5c787d65..b53447df9 100644
 +    assert error == ""
 +    assert "revenue,42" in text
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index 0e411b8cf..d66dc2103 100644
+index 0e411b8cf..70615666d 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -172,6 +172,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -5218,7 +5218,22 @@ index 0e411b8cf..d66dc2103 100644
      @patch.dict(
          os.environ,
          {
-@@ -2165,7 +2678,155 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2063,6 +2576,14 @@ class TestAdapterBehavior(unittest.TestCase):
+         }
+         with (
+             patch.dict(os.environ, proxy_vars, clear=False),
++            # Blank env vars alone don't make this hermetic: httpx trust_env
++            # resolves proxies via urllib.request.getproxies(), which falls
++            # back to the SYSTEM proxy config (macOS scutil / Windows
++            # registry) when the env is empty. A host-level proxy (Clash
++            # etc.) then routes the request and the direct-connect SSRF
++            # guard under test is bypassed by design (proxy = trusted
++            # egress boundary), so the expected block never fires.
++            patch("httpx._utils.getproxies", return_value={}),
+             patch("socket.getaddrinfo", side_effect=fake_getaddrinfo),
+             patch.object(AutoBackend, "connect_tcp", new=fake_connect_tcp),
+             self.assertRaises(SSRFConnectionBlocked),
+@@ -2165,7 +2686,155 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -5375,7 +5390,7 @@ index 0e411b8cf..d66dc2103 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2203,10 +2864,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2203,10 +2872,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -5388,7 +5403,7 @@ index 0e411b8cf..d66dc2103 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2242,7 +2903,44 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2242,7 +2911,44 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -5434,7 +5449,7 @@ index 0e411b8cf..d66dc2103 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2333,7 +3031,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2333,7 +3039,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -5443,7 +5458,7 @@ index 0e411b8cf..d66dc2103 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2385,7 +3083,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2385,7 +3091,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -5452,7 +5467,7 @@ index 0e411b8cf..d66dc2103 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -2711,8 +3409,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2711,8 +3417,10 @@ class TestAdapterBehavior(unittest.TestCase):
          adapter = FeishuAdapter(PlatformConfig())
          payload = json.loads(adapter._build_post_payload("# 标题\n访问 [文档](https://example.com)"))
  
@@ -5464,7 +5479,7 @@ index 0e411b8cf..d66dc2103 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_build_post_payload_wraps_markdown_in_md_tag(self):
-@@ -2750,6 +3450,80 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2750,6 +3458,80 @@ class TestAdapterBehavior(unittest.TestCase):
              [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
          )
  
@@ -5545,7 +5560,7 @@ index 0e411b8cf..d66dc2103 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_build_outbound_payload_uses_post_for_markdown_table(self):
          from gateway.config import PlatformConfig
-@@ -4789,6 +5563,43 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
+@@ -4789,6 +5571,43 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
          adapter._dispatch_inbound_event = AsyncMock()
          return adapter
  
@@ -5589,7 +5604,7 @@ index 0e411b8cf..d66dc2103 100644
      def test_leading_self_mention_stripped_for_command(self):
          from gateway.platforms.base import MessageType
  
-@@ -5039,6 +5850,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -5039,6 +5858,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -5616,7 +5631,7 @@ index 0e411b8cf..d66dc2103 100644
      def test_build_mentions_map_string_id_shape(self):
          """_build_mentions_map accepts the reply-history shape (id as str +
          id_type='open_id'). user_id id_type is not load-bearing for self
-@@ -5244,6 +6075,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
+@@ -5244,6 +6083,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
          self.assertNotIn("@Hermes @Alice", event.text)
  
  

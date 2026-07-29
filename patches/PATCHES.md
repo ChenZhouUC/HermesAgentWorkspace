@@ -75,6 +75,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-FEISHU-RESOURCE-ACCESS: 附件回看、Drive 链接与 tenant doc client
   │   ├─ PATCH-DOCUMENT-EXTRACTION: XLSX/PDF/HTML/Office/OpenDocument 可信抽取
   │   ├─ PATCH-FEISHU-MARKDOWN: 标题/引用提升与 strong flanking 归一化
+  │   ├─ PATCH-FEISHU-SSRF-TEST-SYSPROXY: SSRF rebind 测试对宿主系统代理 hermetic
   │   ├─ PATCH-VERTEX-HIDDEN-THOUGHTS: Vertex thought 文本不进入可见内容
   │   ├─ PATCH-VERTEX-DOCTOR: doctor 识别官方 Vertex profile
   │   ├─ PATCH-VERTEX-FALLBACK: 第二 Vertex 账号作为独立 fallback provider
@@ -249,7 +250,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 ## 当前版本：v0.19.0 (upstream `main` `d71033a4`，2026-07-27)
 
-**活跃补丁**：当前共 23 个语义补丁。21 个工程内补丁由 Step 8b/8c 管理，`PATCH-NPM-DEPENDENCY-HYGIENE` 由 Step 3/4 管理，`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 24 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理，`PATCH-NPM-DEPENDENCY-HYGIENE` 由 Step 3/4 管理，`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
 **最近一次升级（v0.19.0 → v0.19.0，+274 commits，basis `eb527605` → `d71033a4`）要点**：
 
@@ -258,6 +259,8 @@ cat ~/.hermes/patches/.local-patches.base
 - 依赖：本轮**无 venv 重建**；uv sync 将 `cryptography 46.0.7→48.0.1`、`python-multipart 0.0.27→0.0.32`、`starlette 1.0.1→1.3.1`，其余既有能力保持。补丁态 `refresh_active_features()` 17 项全部 current，Matrix 不在 active 列表；`pip check` 无破损。`npm audit fix` exited 1（non-critical）；bundle 外 `package-lock.json` 保留 bippy 排序以及 `dompurify 3.4.11→3.4.12`、`fast-uri 3.1.2→3.1.4`、`tar 7.5.17→7.5.21` 的传递依赖补丁升级，最终全仓 `npm audit` 仍为 25 high。根目录 `npm install` 恢复 `agent-browser 0.26.0` 与 Playwright Chromium，Doctor 转 ✓。Skills mirror 首轮 `+0/~0/−4`，闭环重跑 `+0/~1/−1`（llm-wiki 固定振荡，终态补丁版 + manifest re-baselined）。无 `.venv` / `venv.stale.*` 环境残留。
 - 已知摩擦：GitHub HTTPS fetch 首次触发 `LibreSSL SSL_ERROR_SYSCALL`，经 curl 与 SSH 443 双检后用进程级 URL rewrite 抓取同一官方仓库；上游 CLI 将等价 SSH URL 误判为 fork，已拒绝新增 remote、清理 `.skip_upstream_prompt` 并核对 `origin` 未变、`HEAD == origin/main`。补丁首轮真实冲突已按归档流程消解；`npm audit fix` 非零，实际 lock drift 已逐项记录并维持 bundle 外；`uv --python venv/bin/python` fallback 0 次，E-949 runtime repair 未复发。误触发的全仓 runner 在发现路径数组为空后已终止，全部子进程清零，最终统计仅采用随后显式 23 路径的正式回归。
 - 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`，无需 `--fix`；仅余 web 8 high / ui-tui 7 high 构建工具 advisory（已知待上游 lockfile bump，不阻塞），未登录 provider、未配置可选工具不属于升级缺口。Gateway plist matches current install、launchd 监管 PID `56288`；sandbox verifier 对照同一 PID 通过，owner Feishu DM 保持 terminal/process/read/write/patch/code/skill-manage 完整工具面，群聊仍严格限制为 `group_cache` / `feishu_doc_manage` + 只读 file/skill 工具。
+
+**期中变更（2026-07-29，非升级轮，upstream HEAD 不变 `d71033a4`）**：① `PATCH-VERTEX-FALLBACK` 补第 5 处缺口——`hermes_cli/runtime_provider.py` 新增 `vertex-fallback` 分支（网关 fallback 链此前静默解析成 `openrouter`+空 key，导致代理瞬断时用户看到 "Sorry, I encountered an unexpected error"），`PATCHED_FILES` 59 → **60**（+`hermes_cli/runtime_provider.py`），`test_vertex_provider.py` +2 回归。② 新增 `PATCH-FEISHU-SSRF-TEST-SYSPROXY`——上游 SSRF rebind 测试补系统代理中和（旧摩擦表"跨文件状态"结论系误诊，实为宿主 Clash 系统代理开关），无新增文件。二者均已完成四处同步（PATCHED_FILES / Step 8b gate + 8c 总闸门 / 本注册表 / bundle+base 刷新）并通过 Step 3 闭环。**下轮 Step 2c 回归基准：23 files 1850 passed / 0 failed**（1848 + vertex-fallback 2 条新增；SSRF rebind 修复不改条数）。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -502,6 +505,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `adapter.py` 中存在 `def _promote_block_markdown`、`def _fix_strong_flanking`；grep `test_feishu.py` 中存在 `test_promote_block_markdown_fixes_strong_flanking`；`tests/gateway/test_feishu.py` 全量 237 passed（2026-07-25，含新增 3 条 flanking 用例；表格退役后恢复上游直传断言；SSRF rebind 测试本次单文件跑亦通过）。flanking 修复上线前经真机三轮 A/B：真实失败样例（`**“端云通信协议”**` 等）复现失败 → 修复后写法（`“**端云通信协议**”`）实测正常渲染；近 21 天语料重放确认 84/445 条会被改写且全部改写结果 flanking 合法。
 
 **上游吸收判断**：若上游为飞书 post/md 原生补齐标题 / 引用渲染，或将回复改走 interactive card markdown 元素，可归档本补丁的 promote 分支；flanking 分支（修复 ②）在上游对出站 markdown 做等价 flanking 归一化前保持活跃。表格转 bullets 子分支已于 2026-07-25 真机验证原生表格渲染后撤除（该部分现与上游 #52786 行为一致，见上文"表格子分支（已退役）"）。
+
+---
+
+### [PATCH-FEISHU-SSRF-TEST-SYSPROXY] SSRF rebind 测试对宿主系统代理 hermetic
+
+| 字段     | 内容                           |
+| -------- | ------------------------------ |
+| **文件** | `tests/gateway/test_feishu.py` |
+| **状态** | 🟡 未上游合并                  |
+
+**问题**：上游 `test_download_remote_document_blocks_connect_time_rebind` 只把 6 个代理**环境变量** patch 成空串来构造"无代理直连"场景，但 httpx `trust_env` 的代理解析走 `urllib.request.getproxies()`——env 为空时在 macOS 回落到 **scutil 系统代理配置**（Windows 回落注册表）。宿主开着系统级代理（本机 Clash Verge，127.0.0.1:7897）时，请求实际经代理外发，direct-connect SSRF 守卫按设计把最终目标解析委托给代理（"proxy = trusted egress boundary"，见 `create_ssrf_safe_async_client` docstring），测试预期的 `SSRFConnectionBlocked` 永不触发，收到裸 `httpx.ConnectError`。后果：只要跑回归时 Clash 系统代理开着，规范 runner（`scripts/run_tests.sh`）必然 1 failed，升级 playbook 的 "0 failed" 完成标准无法达成。此前摩擦表把该现象误诊为"跨文件测试状态依赖、批量跑通过"——实际变量是**跑测试那一刻宿主系统代理的开关状态**，与文件组合方式无关（2026-07-29 以 probe 插件证实测试内 HERMES_HOME 隔离与 allow_private 缓存均正常，failing connect 目标为 `127.0.0.1:7897`）。
+
+**修复**：测试的 `with` 块内在 `patch.dict(os.environ, proxy_vars)` 之后追加 `patch("httpx._utils.getproxies", return_value={})`（httpx 0.28 在 `_utils` 模块顶部 `from urllib.request import getproxies`，client 构造时经 `get_environment_proxies()` 调用），把系统代理回落一并掐断，使测试语义回到其本意（无任何代理、纯直连路径校验 connect-time rebind 拦截）。生产代码零改动；env 变量 blank 保留（防护其他读取路径）。
+
+**验证**：Step 8b grep `tests/gateway/test_feishu.py` 存在 `httpx._utils.getproxies`。`tests/gateway/test_feishu.py` 全量 237 passed / 0 failed（2026-07-29，Clash 系统代理**开启**状态下经规范 runner 复跑通过；修复前同条件 1 failed，且单 pytest 进程多文件组合同样失败，证伪旧"批量通过"结论）。
+
+**上游吸收判断**：上游为该测试补上系统代理中和（patch `getproxies` / `trust_env=False` / mounts 显式置空任一等价手段）后可归档本补丁；届时同步删除摩擦表对应 row。
 
 ---
 

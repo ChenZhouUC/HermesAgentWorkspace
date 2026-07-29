@@ -657,6 +657,7 @@ _PEOPLE_PROFILE_PATCH_OK=false
 _FEISHU_RESOURCE_ACCESS_PATCH_OK=false
 _TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK=false
 _FEISHU_MARKDOWN_PATCH_OK=false
+_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _VERTEX_FALLBACK_PATCH_OK=false
@@ -1058,6 +1059,26 @@ else
     warn "Could not locate PATCH-FEISHU-MARKDOWN files"
 fi
 
+# PATCH-FEISHU-SSRF-TEST-SYSPROXY: upstream's connect-time rebind SSRF test only
+# blanks proxy ENV vars, but httpx trust_env falls back to
+# urllib.request.getproxies() = the macOS scutil / Windows registry SYSTEM
+# proxy when the env is empty. With a host proxy (Clash etc.) running, the
+# request routes through the proxy, the direct-connect guard is bypassed by
+# design, and the test fails with a raw ConnectError — the canonical patch
+# regression then cannot reach 0 failed. The patch pins the test hermetic by
+# also patching httpx._utils.getproxies to {}.
+if [[ -f "${FEISHU_TEST_PY}" ]]; then
+    if grep -q 'httpx._utils.getproxies' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "Feishu SSRF-test sysproxy patch: active (rebind test hermetic to host system proxy)"
+        _FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK=true
+    else
+        warn "Feishu SSRF-test sysproxy patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-SSRF-TEST-SYSPROXY]"
+    fi
+else
+    warn "Could not locate PATCH-FEISHU-SSRF-TEST-SYSPROXY files"
+fi
+
 # PATCH-VERTEX-HIDDEN-THOUGHTS: Vertex OpenAI-compatible returns include_thoughts output as normal
 # assistant content. Keep model-side Gemini thinking level/budget, but force
 # include_thoughts=false so Feishu/dashboard only receive the final answer.
@@ -1245,7 +1266,7 @@ fi
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_IMAGE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_IMAGE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
