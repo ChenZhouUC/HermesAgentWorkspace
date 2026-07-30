@@ -967,8 +967,12 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q 'class TestPeopleProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'class TestGroupProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_service_hours_are_intro_hint_not_reply_gate' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'def _history_sender_person' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _history_person_qualifier' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_history_sender_label_joins_people_profile' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_history_sender_label_survives_profile_lookup_failure' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_text_filter_applies_before_stream_delivery' "${STREAM_CONSUMER_TEST_PY}" 2>/dev/null; then
-        ok "People/group profile patch: active (people.yaml + groups.yaml lookup, service-hours intro hint, address public, private-profile redaction, group disclosure rule, roster-source secrecy)"
+        ok "People/group profile patch: active (people.yaml + groups.yaml lookup, service-hours intro hint, address public, private-profile redaction, group disclosure rule, roster-source secrecy, history sender name/role/team join)"
         _PEOPLE_PROFILE_PATCH_OK=true
     else
         warn "People/group profile patch inactive or partial"

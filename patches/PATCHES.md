@@ -434,16 +434,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-LOCAL-PROFILES] 本地人物/群画像与群聊输出保密
 
-| 字段     | 内容                                                                                                                          |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/session.py`, `gateway/run.py`, `gateway/stream_consumer.py` 及对应测试；`people.yaml` / `groups.yaml` 为配置仓库数据 |
-| **状态** | 🟡 本地个性化功能，不预期上游直接吸收                                                                                         |
+| 字段     | 内容                                                                                                                                                                 |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/session.py`, `gateway/run.py`, `gateway/stream_consumer.py`, `plugins/platforms/feishu/adapter.py` 及对应测试；`people.yaml` / `groups.yaml` 为配置仓库数据 |
+| **状态** | 🟡 本地个性化功能，不预期上游直接吸收                                                                                                                                |
 
 **问题**：模型只凭 open_id/显示名无法按用户维护的人物背景和群人设调整表达；画像私有字段、数据来源和 `people.yaml` 文件名又绝不能在群聊泄露。工具受限时也必须披露证据边界，不能把未验证内容包装成结论。
 
 **修复**：按 mtime 热加载 people/group profile；人物画像拆为公开字段与保密字段，群画像只控制风格、介绍、能力口径和提示性服务时间。所有 group/channel 无条件注入来源保密和工具限制声明；非 DM 的最终、流式、fallback 等可见输出统一经过 `redact_private_person_profile_text`/`text_filter`。loader 缺文件或坏 YAML 时安全降级，DM 不注入群画像规则。
 
-**验证**：Step 8b 检查 profile loaders/lookups、公开 `address`、来源保密常量、私有值/文件名字面量 redactor、stream filter 和两组 profile tests。验证只归属于画像与输出过滤；旧 terminal/script-root allowlist 已被删除，不再作为本补丁的实现或测试。
+聊天历史（群聊回填与合并转发展开共用的 `_history_sender_label`）此前只渲染 `ou_xxx` 裸 id 或缓存显示名，缓存未命中时模型无法分辨发言人。现复用同一份 `_lookup_person` 索引（open_id/user_id/union_id/name/aliases）把发送者 join 到 people.yaml：命中则用画像 `name`，并只追加公开面中的 `role`/`department` 作为限定语。历史会被回显进群聊回复，因此限定语字段是白名单而非黑名单，公开四项以外（含 `employee_no`、保密备注等）一律不进入 label；join 失败或 people.yaml 缺失时安全降级为原有 id/显示名。
+
+**验证**：Step 8b 检查 profile loaders/lookups、公开 `address`、来源保密常量、私有值/文件名字面量 redactor、stream filter 和两组 profile tests，另加历史发送者 join 的 `_history_sender_person`/`_history_person_qualifier` 与两个回归测试（公开字段命中 + 保密字段不泄露 / lookup 抛错时降级）。验证只归属于画像与输出过滤；旧 terminal/script-root allowlist 已被删除，不再作为本补丁的实现或测试。
 
 **上游吸收判断**：若上游提供等价的本地 per-sender/per-group profile 注入与全出站路径隐私过滤，可重新评估；否则保持本地补丁。
 
