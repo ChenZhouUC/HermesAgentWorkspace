@@ -456,13 +456,13 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/platforms/base.py`, `tools/feishu_doc_tool.py`, `tests/gateway/test_feishu.py`, `tests/tools/test_feishu_tools.py` |
 | **状态** | 🟡 未上游合并                                                                                                                                                      |
 
-**问题**：群聊媒体与 @mention 常分成两条消息，引用里的 `/file/<token>` 也不是 IM 附件；普通 gateway 工具调用没有 comment thread-local client 时，tenant 凭据明明存在却无法读取飞书文档。
+**问题**：群聊媒体与 @mention 常分成两条消息，引用里的 `/file/<token>` 也不是 IM 附件；普通 gateway 工具调用没有 comment thread-local client 时，tenant 凭据明明存在却无法读取飞书文档。另外，被引用的合并转发消息在 webhook payload 里不带子消息体，上游只把它归一化成 `[Merged forward message]` 占位符，因此群里"引用合并记录 + @Bot"只能看到占位符，而私聊直发同一条合并记录却能正常展开。
 
-**修复**：按同发送者和引用链有界回看附件、去重并回填；扫描正文/引用中最多三个 Drive file token，以 tenant 身份下载并保留 MIME/文件名。`feishu_doc_read` 缺 comment client 时从 env/`.env` 构建 tenant client。该补丁只负责取得资源字节或 API 文本，不负责解析文件格式。
+**修复**：按同发送者和引用链有界回看附件、去重并回填；扫描正文/引用中最多三个 Drive file token，以 tenant 身份下载并保留 MIME/文件名。`feishu_doc_read` 缺 comment client 时从 env/`.env` 构建 tenant client。引用目标是 `merge_forward` 时，`_fetch_message_text` 复用直发路径的 `_expand_merge_forward_message` 展开子消息；`_collect_reply_attachments` 同时接受 `upper_message_id` 指向引用目标的子消息，使转发记录内的图片/文件也被下载。该补丁只负责取得资源字节或 API 文本，不负责解析文件格式。
 
-**验证**：Step 8b 单独检查 sender/reply backfill、去重窗口、Drive URL/download、tenant client fallback 及对应测试；覆盖失败静默降级、数量上限和 DM/group 通用 doc client。
+**验证**：Step 8b 单独检查 sender/reply backfill、去重窗口、Drive URL/download、tenant client fallback、引用 merge_forward 展开（`is_forward_child` + `_fetch_message_text` 展开分支）及对应测试；覆盖失败静默降级、数量上限和 DM/group 通用 doc client。
 
-**上游吸收判断**：上游同时支持分离消息附件回看、Drive 正文链接下载和无 comment-context 的 tenant doc client 时可归档。
+**上游吸收判断**：上游同时支持分离消息附件回看、Drive 正文链接下载、引用合并转发的子消息展开和无 comment-context 的 tenant doc client 时可归档。
 
 ---
 

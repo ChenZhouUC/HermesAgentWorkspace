@@ -2526,7 +2526,7 @@ index a63aa2b68..2ae71eeaa 100644
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index f3756a858..92fcd3a8c 100644
+index f3756a858..c9e7713ff 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -60,6 +60,7 @@ import os
@@ -3104,7 +3104,7 @@ index f3756a858..92fcd3a8c 100644
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3346,8 +3710,376 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3346,8 +3710,384 @@ class FeishuAdapter(BasePlatformAdapter):
              channel_prompt=self._resolve_channel_prompt(chat_id, thread_id or None),
              timestamp=datetime.now(),
          )
@@ -3340,7 +3340,15 @@ index f3756a858..92fcd3a8c 100644
 +        media_urls: List[str] = []
 +        media_types: List[str] = []
 +        for item in items:
-+            if str(getattr(item, "message_id", "") or "") != reply_to_message_id:
++            item_message_id = str(getattr(item, "message_id", "") or "")
++            # ``items`` holds the quoted message plus, for a merge_forward, its
++            # children (linked by upper_message_id). Accept both so attachments
++            # inside a quoted forwarded transcript are downloaded too.
++            is_target = item_message_id == reply_to_message_id
++            is_forward_child = (
++                str(getattr(item, "upper_message_id", "") or "") == reply_to_message_id
++            )
++            if not (is_target or is_forward_child):
 +                continue
 +            body = getattr(item, "body", None)
 +            normalized = normalize_feishu_message(
@@ -3352,7 +3360,7 @@ index f3756a858..92fcd3a8c 100644
 +            if not (normalized.image_keys or normalized.media_refs):
 +                continue
 +            urls, types = await self._download_feishu_message_resources(
-+                message_id=reply_to_message_id,
++                message_id=item_message_id or reply_to_message_id,
 +                normalized=normalized,
 +            )
 +            media_urls.extend(urls)
@@ -3481,7 +3489,7 @@ index f3756a858..92fcd3a8c 100644
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -3382,6 +4114,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3382,6 +4122,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -3491,7 +3499,7 @@ index f3756a858..92fcd3a8c 100644
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3690,7 +4425,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3690,7 +4433,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -3503,7 +3511,7 @@ index f3756a858..92fcd3a8c 100644
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3809,6 +4547,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3809,6 +4555,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -3528,7 +3536,7 @@ index f3756a858..92fcd3a8c 100644
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3823,6 +4579,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3823,6 +4587,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -3639,7 +3647,7 @@ index f3756a858..92fcd3a8c 100644
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3885,6 +4745,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3885,6 +4753,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return MessageType.VOICE
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -3648,7 +3656,7 @@ index f3756a858..92fcd3a8c 100644
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4012,6 +4874,77 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4012,6 +4882,77 @@ class FeishuAdapter(BasePlatformAdapter):
                  )
          return "", ""
  
@@ -3726,7 +3734,7 @@ index f3756a858..92fcd3a8c 100644
      # =========================================================================
      # Static helpers — extension / media-type guessing
      # =========================================================================
-@@ -4242,10 +5175,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4242,11 +5183,31 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -3741,14 +3749,26 @@ index f3756a858..92fcd3a8c 100644
 +            media_urls, _media_types = await self._download_feishu_message_resources(
 +                message_id=message_id,
 +                normalized=normalized,
-+            )
+             )
 +            text = self._message_context_text(
 +                normalized=normalized,
 +                media_urls=media_urls,
-             )
++            )
++            # A quoted merge_forward only normalizes to its summary placeholder,
++            # because the webhook payload carries no child bodies. Expand the
++            # children the same way a directly-sent merge_forward is expanded,
++            # so quoting a forwarded transcript reads like forwarding it.
++            if normalized.raw_type == "merge_forward":
++                expanded_text, _urls, _types = await self._expand_merge_forward_message(
++                    message_id=message_id,
++                )
++                if expanded_text:
++                    prefix = "" if text == FALLBACK_FORWARD_TEXT else text
++                    text = "\n\n".join(part for part in (prefix, expanded_text) if part)
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
-@@ -4298,6 +5240,11 @@ class FeishuAdapter(BasePlatformAdapter):
+                 self._message_text_cache.popitem(last=False)
+@@ -4298,6 +5259,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -3760,7 +3780,7 @@ index f3756a858..92fcd3a8c 100644
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4313,7 +5260,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4313,7 +5279,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -3769,7 +3789,7 @@ index f3756a858..92fcd3a8c 100644
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4334,8 +5281,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4334,8 +5300,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -3780,7 +3800,7 @@ index f3756a858..92fcd3a8c 100644
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4433,6 +5380,167 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4433,6 +5399,167 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -3948,7 +3968,7 @@ index f3756a858..92fcd3a8c 100644
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4768,9 +5876,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4768,9 +5895,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -3964,7 +3984,7 @@ index f3756a858..92fcd3a8c 100644
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4781,34 +5893,25 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4781,34 +5912,25 @@ class FeishuAdapter(BasePlatformAdapter):
              request = self._build_reply_message_request(effective_reply_to, body)
              return await self._run_blocking(self._client.im.v1.message.reply, request)
  
@@ -4018,7 +4038,7 @@ index f3756a858..92fcd3a8c 100644
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -5028,6 +6131,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -5028,6 +6150,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -4681,10 +4701,10 @@ index e5c787d65..b53447df9 100644
 +    assert error == ""
 +    assert "revenue,42" in text
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index d887bc94f..b07b23ad8 100644
+index d887bc94f..a177884b8 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
-@@ -172,6 +172,100 @@ class TestFeishuMessageNormalization(unittest.TestCase):
+@@ -172,6 +172,189 @@ class TestFeishuMessageNormalization(unittest.TestCase):
              "Build Failed\nService: payments-api\nBranch: main\nView Logs\nRetry\nActions: View Logs, Retry",
          )
  
@@ -4782,10 +4802,99 @@ index d887bc94f..b07b23ad8 100644
 +        self.assertEqual(media_urls, ["/tmp/forward.png"])
 +        self.assertEqual(media_types, ["image/png"])
 +
++    @patch.dict(os.environ, {}, clear=True)
++    def test_quoted_merge_forward_expands_children_and_attachments(self):
++        """Quoting a merged forward in a group must read like forwarding it.
++
++        The webhook payload for the quoted parent carries no child bodies, so
++        without expansion the model only sees the summary placeholder.
++        """
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig())
++        adapter._app_id = "cli_app"
++        adapter._sender_name_cache = {
++            "ou_alice": ("Alice", time.time() + 60),
++            "ou_bob": ("Bob", time.time() + 60),
++        }
++
++        def _items():
++            return [
++                SimpleNamespace(
++                    message_id="om_quoted",
++                    upper_message_id="",
++                    create_time="1710000000000",
++                    msg_type="merge_forward",
++                    sender=SimpleNamespace(id="ou_alice", sender_type="user"),
++                    body=SimpleNamespace(content='"Merged and Forwarded Message"'),
++                    mentions=[],
++                ),
++                SimpleNamespace(
++                    message_id="om_child_text",
++                    upper_message_id="om_quoted",
++                    create_time="1710000001000",
++                    msg_type="text",
++                    sender=SimpleNamespace(id="ou_alice", sender_type="user"),
++                    body=SimpleNamespace(content=json.dumps({"text": "群里问的问题"})),
++                    mentions=[],
++                ),
++                SimpleNamespace(
++                    message_id="om_child_image",
++                    upper_message_id="om_quoted",
++                    create_time="1710000002000",
++                    msg_type="image",
++                    sender=SimpleNamespace(id="ou_bob", sender_type="user"),
++                    body=SimpleNamespace(content=json.dumps({"image_key": "img_key"})),
++                    mentions=[],
++                ),
++            ]
++
++        class _MessageAPI:
++            def get(self, request):
++                return SimpleNamespace(
++                    success=lambda: True,
++                    data=SimpleNamespace(items=_items()),
++                )
++
++        class _ResourceAPI:
++            def get(self, request):
++                return SimpleNamespace(
++                    success=lambda: True,
++                    file=SimpleNamespace(read=lambda: b"image-bytes"),
++                    raw=SimpleNamespace(headers={"Content-Type": "image/png"}),
++                    file_name="forward.png",
++                )
++
++        adapter._client = SimpleNamespace(
++            im=SimpleNamespace(
++                v1=SimpleNamespace(
++                    message=_MessageAPI(),
++                    message_resource=_ResourceAPI(),
++                )
++            )
++        )
++
++        async def _direct(func, *args, **kwargs):
++            return func(*args, **kwargs)
++
++        with (
++            patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct),
++            patch.object(FeishuAdapter, "_run_blocking", side_effect=_direct),
++            patch("plugins.platforms.feishu.adapter.cache_image_from_bytes", return_value="/tmp/forward.png"),
++        ):
++            quoted_text = asyncio.run(adapter._fetch_message_text("om_quoted"))
++            attachments = asyncio.run(adapter._backfill_reply_attachments("om_quoted"))
++
++        self.assertIn("[Merged forwarded messages]", quoted_text)
++        self.assertIn("- Alice: 群里问的问题", quoted_text)
++        self.assertIn("- Bob: [Image saved at: /tmp/forward.png]", quoted_text)
++        self.assertEqual(attachments, (["/tmp/forward.png"], ["image/png"]))
++
  
  class TestFeishuAdapterMessaging(unittest.TestCase):
      @unittest.skipUnless(_HAS_LARK_OAPI, "lark-oapi not installed")
-@@ -484,6 +578,330 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+@@ -484,6 +667,330 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
          self.assertEqual(call_kwargs["extra_ua_tags"], ["channel"],
                           "extra_ua_tags must be ['channel'] to enable group event routing")
  
@@ -5116,7 +5225,7 @@ index d887bc94f..b07b23ad8 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_edit_message_updates_existing_feishu_message(self):
          from gateway.config import PlatformConfig
-@@ -1812,6 +2230,101 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1812,6 +2319,101 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.text, "A\nB")
          self.assertEqual(event.message_type, MessageType.TEXT)
  
@@ -5218,7 +5327,7 @@ index d887bc94f..b07b23ad8 100644
      @patch.dict(
          os.environ,
          {
-@@ -2067,6 +2580,14 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2067,6 +2669,14 @@ class TestAdapterBehavior(unittest.TestCase):
          }
          with (
              patch.dict(os.environ, proxy_vars, clear=False),
@@ -5233,7 +5342,7 @@ index d887bc94f..b07b23ad8 100644
              patch("socket.getaddrinfo", side_effect=fake_getaddrinfo),
              patch.object(AutoBackend, "connect_tcp", new=fake_connect_tcp),
              self.assertRaises(SSRFConnectionBlocked),
-@@ -2169,7 +2690,155 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2169,7 +2779,155 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.reply_to_text, "父消息内容")
  
      @patch.dict(os.environ, {}, clear=True)
@@ -5390,7 +5499,7 @@ index d887bc94f..b07b23ad8 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2207,10 +2876,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2207,10 +2965,10 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(result.message_id, "om_reply")
@@ -5403,7 +5512,7 @@ index d887bc94f..b07b23ad8 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2246,7 +2915,44 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2246,7 +3004,44 @@ class TestAdapterBehavior(unittest.TestCase):
  
          self.assertTrue(result.success)
          self.assertEqual(captured["request"].message_id, "om_trigger")
@@ -5449,7 +5558,7 @@ index d887bc94f..b07b23ad8 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_retries_transient_failure(self):
-@@ -2337,7 +3043,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2337,7 +3132,7 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(sleeps, [])
  
      @patch.dict(os.environ, {}, clear=True)
@@ -5458,7 +5567,7 @@ index d887bc94f..b07b23ad8 100644
          from gateway.config import PlatformConfig
          from plugins.platforms.feishu.adapter import FeishuAdapter
  
-@@ -2389,7 +3095,7 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2389,7 +3184,7 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -5467,7 +5576,7 @@ index d887bc94f..b07b23ad8 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_send_document_uploads_file_and_sends_file_message(self):
-@@ -2715,8 +3421,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2715,8 +3510,10 @@ class TestAdapterBehavior(unittest.TestCase):
          adapter = FeishuAdapter(PlatformConfig())
          payload = json.loads(adapter._build_post_payload("# 标题\n访问 [文档](https://example.com)"))
  
@@ -5479,7 +5588,7 @@ index d887bc94f..b07b23ad8 100644
  
      @patch.dict(os.environ, {}, clear=True)
      def test_build_post_payload_wraps_markdown_in_md_tag(self):
-@@ -2754,6 +3462,80 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -2754,6 +3551,80 @@ class TestAdapterBehavior(unittest.TestCase):
              [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
          )
  
@@ -5560,7 +5669,7 @@ index d887bc94f..b07b23ad8 100644
      @patch.dict(os.environ, {}, clear=True)
      def test_build_outbound_payload_uses_post_for_markdown_table(self):
          from gateway.config import PlatformConfig
-@@ -4793,6 +5575,43 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
+@@ -4793,6 +5664,43 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
          adapter._dispatch_inbound_event = AsyncMock()
          return adapter
  
@@ -5604,7 +5713,7 @@ index d887bc94f..b07b23ad8 100644
      def test_leading_self_mention_stripped_for_command(self):
          from gateway.platforms.base import MessageType
  
-@@ -5043,6 +5862,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -5043,6 +5951,26 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -5631,7 +5740,7 @@ index d887bc94f..b07b23ad8 100644
      def test_build_mentions_map_string_id_shape(self):
          """_build_mentions_map accepts the reply-history shape (id as str +
          id_type='open_id'). user_id id_type is not load-bearing for self
-@@ -5248,6 +6087,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
+@@ -5248,6 +6176,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
          self.assertNotIn("@Hermes @Alice", event.text)
  
  
