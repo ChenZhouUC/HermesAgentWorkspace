@@ -51,6 +51,7 @@ _hermes() {
                 'gateway:Messaging gateway management'
                 'hooks:Inspect and manage shell-script hooks'
                 'import:Restore a Hermes backup from a zip file'
+                'import-agent:Import a Claude Code or Codex CLI setup into Hermes'
                 'insights:Show usage insights and analytics'
                 'journey:Timeline of learned skills + memories over time'
                 'kanban:Multi-profile collaboration board (tasks, links, comments)'
@@ -62,6 +63,7 @@ _hermes() {
                 'migrate:Migrate configuration for retired models or deprecated setti'
                 'moa:Configure Mixture of Agents provider/model slots'
                 'model:Select default model and provider'
+                'monitoring:Inspect gateway monitoring (health & diagnostics export)'
                 'pairing:Manage DM pairing codes for user authorization'
                 'pets:Browse, install, and select petdex animated pets'
                 'plugins:Manage plugins — install, update, remove, list'
@@ -80,6 +82,7 @@ _hermes() {
                 'skin:List, switch, and tweak skins'
                 'slack:Slack integration helpers (manifest generation, etc.)'
                 'status:Show status of all components'
+                'sync:Skill Sync — sync your skills across devices and with your t'
                 'tools:Configure which tools are enabled per platform'
                 'uninstall:Uninstall Hermes Agent'
                 'update:Update Hermes Agent to the latest version'
@@ -383,10 +386,17 @@ _hermes() {
                     )
                     _describe 'moa command' moa_cmds
                     ;;
+                monitoring)
+                    local -a monitoring_cmds
+                    monitoring_cmds=(
+                    'status:Show monitoring settings, export state, and redaction postur'
+                    )
+                    _describe 'monitoring command' monitoring_cmds
+                    ;;
                 pairing)
                     local -a pairing_cmds
                     pairing_cmds=(
-                    'approve:Approve a pairing code'
+                    'approve:Approve a pairing request'
                     'clear-pending:Clear all pending codes'
                     'list:Show pending + approved users'
                     'revoke:Revoke user access'
@@ -555,6 +565,20 @@ _hermes() {
                     'manifest:Print or write a Slack app manifest with every gateway comma'
                     )
                     _describe 'slack command' slack_cmds
+                    ;;
+                sync)
+                    local -a sync_cmds
+                    sync_cmds=(
+                    'device:Show or set this devices label (shown in the sync console)'
+                    'disable:Exclude a skill from your sync'
+                    'enable:Include a skill in your sync'
+                    'now:Reconcile now: pull then push'
+                    'propose:Share a skill with your organisation'
+                    'pull:Pull your synced skills (and your organisations)'
+                    'push:Push your opted-in skills'
+                    'status:Show what is synced, and from where'
+                    )
+                    _describe 'sync command' sync_cmds
                     ;;
                 tools)
                     local -a tools_cmds

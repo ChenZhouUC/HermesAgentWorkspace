@@ -9,7 +9,7 @@
 #   2. Save & clean local patches  → patches/local-patches.diff + git checkout
 #   3. hermes update               (pull · deps · web · skills · config migration · restart)
 #   4. npm audit fix               (fix known npm vulnerabilities after deps install)
-#   4b. Skills mirror sync         (rsync --delete to match upstream exactly)
+#   4b. Skills mirror sync         (rsync --delete upstream content; preserve runtime metadata)
 #   5. Gateway launchd plist refresh (hermes gateway install --force, if needed)
 #   6. Ensure gateway running
 #   7. zsh completion script regeneration
@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.19.0 / main 41a07f5b, `hermes completion zsh` already emits the
+# As of v0.19.0 / main 26e0b1c, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -232,7 +232,7 @@ for _f in "${PATCHED_FILES[@]}"; do
 done
 
 if [[ ${#_CHANGED_PATCH_FILES[@]} -gt 0 ]]; then
-    git --no-pager diff HEAD -- "${_CHANGED_PATCH_FILES[@]}" >"${PATCH_FILE}.tmp" &&
+    git --no-pager diff --full-index HEAD -- "${_CHANGED_PATCH_FILES[@]}" >"${PATCH_FILE}.tmp" &&
         mv -f "${PATCH_FILE}.tmp" "${PATCH_FILE}"
     ok "Saved ${#_CHANGED_PATCH_FILES[@]} patched file(s) → patches/local-patches.diff"
     git checkout HEAD -- "${_CHANGED_PATCH_FILES[@]}"
@@ -411,18 +411,35 @@ LOCAL_SKILLS_DIR="${HERMES_HOME}/skills"
 step "Skills sync (mirror upstream)"
 if [[ -d "${BUNDLED_SKILLS_DIR}" ]]; then
     mkdir -p "${LOCAL_SKILLS_DIR}"
-    # --archive preserves structure, --delete removes anything not in upstream
+    # --archive preserves structure, --delete removes upstream-owned orphans.
+    # Runtime metadata belongs to the local installation and must survive the
+    # mirror pass; deleting .curator_state resets curator scheduling/history.
+    set +e
     _SYNC_OUT=$(rsync -a --delete --itemize-changes \
-        "${BUNDLED_SKILLS_DIR}/" "${LOCAL_SKILLS_DIR}/" 2>&1) || true
+        --exclude='/.bundled_manifest' \
+        --exclude='/.curator_state' \
+        "${BUNDLED_SKILLS_DIR}/" "${LOCAL_SKILLS_DIR}/" 2>&1)
+    _SYNC_RC=$?
+    set -e
 
-    _ADDED=$(echo "${_SYNC_OUT}" | grep -c '^>f+++' || true)
-    _UPDATED=$(echo "${_SYNC_OUT}" | grep -c '^>f[^+]' || true)
-    _DELETED=$(echo "${_SYNC_OUT}" | grep -c '^\*deleting' || true)
-
-    if [[ ${_ADDED} -gt 0 || ${_UPDATED} -gt 0 || ${_DELETED} -gt 0 ]]; then
-        ok "Skills synced: +${_ADDED} new, ~${_UPDATED} updated, -${_DELETED} removed"
+    if [[ ${_SYNC_RC} -ne 0 ]]; then
+        fail "Skills mirror failed (rsync rc=${_SYNC_RC})"
+        if [[ -n "${_SYNC_OUT:-}" ]]; then
+            add_warn "Skills rsync output: ${_SYNC_OUT//$'\n'/ | }"
+        fi
+        add_act "Retry with runtime exclusions: rsync -a --delete --exclude=/.bundled_manifest --exclude=/.curator_state ~/.hermes/hermes-agent/skills/ ~/.hermes/skills/"
+        FINAL_RC=1
     else
-        ok "Skills already in sync with upstream"
+        _ADDED=$(echo "${_SYNC_OUT}" | grep -c '^>f+++' || true)
+        _UPDATED=$(echo "${_SYNC_OUT}" | grep -c '^>f[^+]' || true)
+        _DELETED=$(echo "${_SYNC_OUT}" | grep -c '^\*deleting' || true)
+
+        if [[ ${_ADDED} -gt 0 || ${_UPDATED} -gt 0 || ${_DELETED} -gt 0 ]]; then
+            ok "Skills synced: +${_ADDED} new, ~${_UPDATED} updated, -${_DELETED} removed"
+        else
+            ok "Skills already in sync with upstream"
+        fi
+        ok "Skills runtime metadata preserved (.bundled_manifest, .curator_state)"
     fi
 else
     warn "Bundled skills dir not found: ${BUNDLED_SKILLS_DIR}"
@@ -1279,6 +1296,7 @@ if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUI
         warn "Patched files contain conflict markers — skipping diff refresh"
         add_warn "patches/local-patches.diff was NOT refreshed because patched files are not clean"
         add_act "Inspect patched files: cd ${HERMES_AGENT} && grep -rnE '^(<{7}|={7}|>{7})' ${PATCHED_FILES[*]}"
+        FINAL_RC=1
     else
         _REFRESHED=()
         for _f in "${PATCHED_FILES[@]}"; do
@@ -1287,7 +1305,7 @@ if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUI
             fi
         done
         if [[ ${#_REFRESHED[@]} -gt 0 ]]; then
-            git --no-pager diff HEAD -- "${_REFRESHED[@]}" >"${PATCH_FILE}.tmp" &&
+            git --no-pager diff --full-index HEAD -- "${_REFRESHED[@]}" >"${PATCH_FILE}.tmp" &&
                 mv -f "${PATCH_FILE}.tmp" "${PATCH_FILE}"
             ok "patches/local-patches.diff refreshed (${#_REFRESHED[@]} file(s))"
             # Record upstream base commit for provenance tracking
@@ -1298,9 +1316,15 @@ if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUI
             note "All patched files match upstream HEAD — patches may have been absorbed"
             note "Review PATCHED_FILES list and PATCHES.md for stale entries"
             add_act "If patches are fully upstream, prune PATCHED_FILES in hermes-update.sh and PATCHES.md"
+            FINAL_RC=1
         fi
     fi
     cd - >/dev/null
+else
+    fail "Patch apply or behavioral verification gate failed"
+    add_warn "Replay bundle was not refreshed because one or more engineering patch gates failed"
+    add_act "Resolve the PATCH warnings above, then re-run hermes-update.sh"
+    FINAL_RC=1
 fi
 
 # The full bundled-skill mirror in step 4b runs before local patches are

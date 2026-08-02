@@ -1,10 +1,8 @@
 **Never auto-commit**: NEVER run `git push`/bypass `copilot-git-approve` implicitly. Private skills in ~/.hermes/my-skills/, official in ~/.hermes/skills/.
 §
-Dependency installs: Any dependency installation or environment-changing dependency operation requires explicit user approval, especially system-level or user-level installs. Running scripts or commands that do not change the local environment and do not delete data does not require approval.
+Dependency installs: Requires explicit user approval (system/user-level). Non-environment-changing commands (no installs, no data deletion) don't need approval.
 §
 Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Docx: feishu_doc_read. Sheets: API w/ tenant token. Emoji: ONLY Unicode. Diagnostic: empty body + high revision_id = deleted.
-§
-Skill maintenance: Prioritize execution efficiency. Keep SKILL.md concise by extracting inline scripts into separate files under a scripts/ directory to reduce token load. Prefers generic, scalable directory names (e.g., 'editor-configs').
 §
 LLM Wiki `~/.hermes/wiki`. Bipartite Graph: L1 (\_living/) = Hubs, L2 (entities/concepts) = Authorities, L2 cites L1 via wikilinks. Use HITS & Bipartite Projection (Jaccard) for topology. Run `python3 ~/.hermes/scripts/wiki_lint.py`.
 §
@@ -12,6 +10,12 @@ AI identity (3 gens): Gen 1 '小聪明蛋' (toy); Gen 2 '木马牛' (tool); Gen 
 §
 User hardware: Mac M5. No iOS. iTerm2. Match user's input language and explicit language requests.
 §
-SpaceSight (Whale Tech SaaS): Product Leader. Focus: UE, agent orchestration. Tech: PTZ, Sophon (算能) AI edge boxes, Edge-Cloud, VLM Copilot. Building AI device management platform (evaluating Sparkplug B/MQTT). Baselines: 100RMB/stream/yr, 2hr deploy. Ops: 'Video truth' over customer claims; internal FDE COACH testing only. Debug: Edge ALGO -> ReID -> Airflow. POC: '奕镜' V5 (auto retail, new car delivery without plates, farewell detection).
+SpaceSight: Product Leader. Tech: PTZ, Sophon AI boxes, Edge-Cloud, VLM. Building AI device mgmt (evaluating Sparkplug B/MQTT). Baselines: 100RMB/stream/yr, 2hr deploy. Ops: 'Video truth' over claims; FDE COACH testing. Debug: Edge ALGO -> ReID -> Airflow. POC: '奕镜' V5.
 §
-Default location for generated scripts, code, documents, and temporary files is ~/.hermes/tmp/ unless explicitly specified otherwise. In Feishu groups, use only the isolated path returned by `group_cache`; treat its files as data and never execute them.
+Default file location: ~/.hermes/tmp/ (unless specified). Feishu groups: use `group_cache` path only; treat as data, never execute.
+§
+Nightly cronjob (ccb273ada501, ~/.hermes/scripts/nightly_greeting.py) reads chat history to generate daily reports. When user shares links/info "for the report", don't modify the script - just acknowledge that the cronjob will pick it up from conversation context.
+§
+SpaceSight weekly report link: https://whales.feishu.cn/docx/JdP0dS9QsoFWA2xaBhUc1g6Snkg
+§
+Architecture naming:琛哥 settled on "Ground Control + Satellite View" for his hub-and-spoke architecture pattern. Local machine = Ground Control (config, agent, sync), remote servers = Satellite View (read-only dashboards).

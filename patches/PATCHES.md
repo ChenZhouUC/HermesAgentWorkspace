@@ -19,20 +19,20 @@
 
 所有针对 `hermes-agent/` 源码的补丁以**单一 unified diff replay bundle** 保存在 `local-patches.diff`，由 `hermes-update.sh` 全自动管理。语义补丁是独立的行为与吸收单元；replay bundle 只是原子回放载体。多个补丁共享 `adapter.py`、`gateway/run.py` 等文件，强拆物理 diff 会引入脆弱的 hunk 顺序依赖，因此当前保持一个回放包，但 Step 8b 对每个语义补丁分别设 gate。
 
-两类补丁走不同管道：
+四类补丁走不同管道：
 
 | 类型                 | 代表                                   | 管理方式                                                                                                                                  |
 | -------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | **工程内补丁**       | 当前清单中标记为“未上游合并”的源码补丁 | 统一 replay bundle (`local-patches.diff`) + `PATCHED_FILES` + 每补丁独立行为 gate                                                         |
 | **配置仓库用户插件** | `PATCH-FEISHU-GROUP-SANDBOX`           | 外层 Git 跟踪 `config.yaml` / `plugins/` / `my-skills/`；Step 8e 强制校验配置、真实 toolset、行为测试和运行时注册，失败则整次升级非零退出 |
-| **运行时补丁**       | `PATCH-NPM-DEPENDENCY-HYGIENE`         | Step 3 scoped install-script policy + Step 4 `npm audit fix`，每次 update 重建运行时状态                                                  |
+| **运行时补丁**       | `PATCH-NPM-DEPENDENCY-HYGIENE` 等      | 由 `hermes-update.sh` 的明确步骤重建并验证；不进入 replay bundle，失败必须使整轮 update 非零退出                                          |
 | **已上游合并**       | 文末 Archive                           | 保留吸收来源和回归 sentinel；不计入活跃补丁清单                                                                                           |
 
 ### 更新生命周期（关键步骤）
 
 ```
 Step 2: Save & Clean
-  ├─ git diff HEAD -- PATCHED_FILES → local-patches.diff（原子写：先 .tmp 再 mv）
+  ├─ git diff --full-index HEAD -- PATCHED_FILES → local-patches.diff（原子写：先 .tmp 再 mv）
   ├─ git checkout HEAD -- PATCHED_FILES  ← 还原到干净状态
   └─ 设置 _PATCHES_REVERTED=true（EXIT trap 用）
 
@@ -45,7 +45,9 @@ Step 4b: Skills 镜像同步
   └─ rsync -a --delete hermes-agent/skills/ → ~/.hermes/skills/
       ├─ 新增 skill：自动复制到本地
       ├─ 更新 skill：覆盖本地旧版本
-      └─ 删除 skill：清理上游已移除但本地残留的孤儿
+      ├─ 删除 skill：清理上游已移除但本地残留的孤儿
+      ├─ 排除 .bundled_manifest / .curator_state，保留本地 runtime metadata
+      └─ rsync 非零：FINAL_RC=1
       （my-skills/ 为独立目录，不受此步骤影响）
 
 Step 8: Re-apply & Verify（核心）
@@ -89,8 +91,9 @@ Step 8: Re-apply & Verify（核心）
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
       ├─ 再次 _has_conflict_markers() → 不干净则拒绝刷新
-      ├─ 干净且有 diff: 原子写 local-patches.diff + 写 .local-patches.base
-      └─ 干净但无 diff: 提示 "patches may have been absorbed"
+      ├─ 干净且有 diff: 用 --full-index 原子写 local-patches.diff + 写 .local-patches.base
+      ├─ 干净但无 diff: 提示 "patches may have been absorbed" 并返回非零
+      └─ apply / sentinel / conflict 任一失败: FINAL_RC=1
 
 Step 8d: Gateway restart（post-patch）
   └─ 前提: _PATCH_APPLY_OK == true && gateway 正在运行
@@ -228,7 +231,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（60 文件，2026-07-29 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（60 文件，2026-08-03 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
 
 ### 手动恢复
 
@@ -248,11 +251,19 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.19.0 (upstream `main` `41a07f5b`，2026-07-29)
+## 当前版本：v0.19.1 (upstream `main` `26e0b1c`，2026-08-02)
 
-**活跃补丁**：当前共 24 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理，`PATCH-NPM-DEPENDENCY-HYGIENE` 由 Step 3/4 管理，`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 27 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.19.0 → v0.19.0，+903 commits，basis `d71033a4` → `41a07f5b`）要点**：
+**最近一次升级（v0.19.0 → v0.19.1，+971 commits，basis `41a07f5b` → `26e0b1c`）要点**：
+
+- 上游主线（971 commits，间隔 4 天，期间发布 Hermes v0.19.1 / tag `v2026.7.30`）：**Desktop / Photon**——最大变更面（109 fix + 40 feat + 10 refactor + 7 perf），持续打磨 UI 与流稳定性；**Gateway / Sessions**——abandoned-turn 后台进程回收范围收窄到该轮真正创建的进程（`80e4fb599`）、跨轮 reap 竞态关闭并覆盖 API-server 断连（`a35691781`）、空 `task_id` reap 防护与优先取已完成 worker 结果（`eb4772ec2`）；**Cron**——`run` 不再阻塞调用轮（`2314abcbb`）、心跳上限加固（`8fd1a6810` / `0cd26ce9a`）；**安全 / 多路复用隔离**——Docker passthrough 快照隔离（`fc61608a1`）、passthrough env 按路由 profile 收敛（`7138b9587`）、model tools / Camofox / Matrix / WhatsApp 全面按 multiplex profile 隔离 secret scope（`76cf19fee` / `3d9a146d8` / `153442dd5` / `4f4ea9a6d`）、冷 profile secret 源 hydration（`6ab390a47`）；**CLI / 迁移**——`hermes import-agent` 不再破坏不可读 `config.yaml`（`981a59864`）、迁移脚本原子写保留 symlink 目标（`e75336d59`）、openclaw EXDEV fallback 吞掉 fsync 错误（`0a62610f1`）；**Skills**——skill 安装拒绝覆盖 category bucket（`75e85ef6b`）、hybrid skill-dir 嵌套与文件冲突防护加宽（`881ac5242`）。
+- patch apply / registry：`git apply` 在 971 commits 跨度上失败，按 playbook fallback 走 `git apply --3way`，15 个文件出现 41 处冲突（`gateway/run.py` 22 处、测试文件 19 处）。冲突解决后逐项复核补丁不变量，修复 session isolation、thread flag、`platform_config_key`、toolset 预期和 test fusion 共 5 个失败。原 24 个活跃 PATCH 均仍需保留，无部分吸收或归档；收尾审计新增 `PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-SKILLS-MIRROR-METADATA` 三个运行时 PATCH，当前共 27 个。终态 60 files clean apply；bundle 改用 full-index 后与 live diff `cmp` 逐字节一致，正向 cached / 反向 worktree apply check 通过、base=`26e0b1c`、index 干净、注册表/执行链唯一、外层插件未混入 bundle。功能回归按动态集合为 23 files **793 passed / 0 failed**。锚点漂移 `41a07f5b` → `26e0b1c`。
+- 依赖：本轮**无 venv 重建**，19 个 active backend 全部 current，无 `.venv` / `venv.stale.*` 残留；根 workspace 与 website `npm audit` 均为 **0 vulnerabilities**。Skills 源文件镜像现场 dry-run 为 `+0/~0/-0`，`.bundled_manifest` / `.curator_state` 已从 delete 集合排除。
+- 已知摩擦：3-way 解冲突阶段的并行报告曾遗漏 `platform_config_key` 并制造杂交测试，已按逐 hunk 复核和规范 runner 收敛。收尾审计另发现默认 Git SHA 缩写会让无语义变化的 bundle `cmp` 失败、Step 8 gate 失败仍可能退出 0、Skills rsync 会删除 runtime metadata 且吞掉错误；三项分别落盘到上述新运行时 PATCH，脚本与 playbook 已闭环。
+- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`，无需 `--fix`；未登录 provider、未配置可选工具不属于升级缺口。Gateway plist 匹配当前安装并由 launchd 监管 PID `75422`；sandbox verifier 21 passed 且绑定同一 PID，owner Feishu DM 保持完整工具面，群聊仍限制为结构化工具 + 只读 file/skill 工具。
+
+**上一次升级（v0.19.0 → v0.19.0，+903 commits，basis `d71033a4` → `41a07f5b`）要点**：
 
 - 上游主线（903 commits，间隔 2 天，release tag 维持 v0.19.0 (2026.7.20)，无新 release）：**Gateway / Sessions**——关停前 flush 内存消息与待写 memory（`23e44a284` / `5cc5c58e`）、生命周期 ledger 检测非正常退出（`9c76c133b`）、多平台 webhook dual-stack（`2c771be40`）；**Voice / STT / 媒体**——STT 工具与 GUI 完整可配置（`96bf65a6f`）、Gemini SSE + xAI WebSocket 流式 TTS（`bc4dcb1b0`）、飞书原生语音正确分类（`1ca1deb7f`）；**Desktop / Photon / Web**——browser backend readiness（`2319dbb01`）、Photon zombie stream 恢复（`709dd3282`）、原生 poll 与链接预览（`fe95194c5` / `cf550c086`）、session 过滤（`cb0049555`）；**模型 / 观测**——Gemini 默认值推进到 3.6 Flash（`63fc810b9`）、Relay 运行时与 metrics pipeline（`3bd338d2a`）；**安全 / Tools**——voice subprocess 凭据脱敏（`24a6fb644`）、MCP 工具名冲突拒绝（`20de37d40`）、cron 对 env 注入凭据的端到端契约回归（`41a07f5b`）。
 - patch apply / registry：首轮 `d71033a4` → `5cc5c58e` 在 solvepatch 解冲突后中断；接管检查确认无 conflict marker、index 干净、bundle 正反向 apply check 均通过，但 `tools/skill_manager_tool.py` 为保留 `PATCH-SKILL-CREATE-ROOT` 而补回的 `os` import 尚未捕获进 bundle。完整重跑将该冲突修复纳入 replay bundle，并在新增 1 个 upstream commit 后 clean apply 到 `41a07f5b`。逐块读取上游吸收条件并以裸 `HEAD` 功能特征复核：24 个活跃 PATCH 全部仍需保留，无新增、部分吸收或归档。终态 60 files **clean apply**，22 个活跃工程内 gate、5 个 Step 8b Archive sentinel、Step 7 completion sentinel 与 Step 8e sandbox verifier 全 OK。Step 3 七层闭环成立：60/60 文件有 diff、bundle 与 overlay 逐字节一致、正向 cached / 反向 worktree apply check 通过、base=`41a07f5b`、index 干净、注册表/执行链唯一、外层插件未混入 bundle；额外内层改动仅有 bundle 外 `package-lock.json` 归一化。功能回归按动态集合为 23 files **1852 passed / 0 failed**，较期中基准 1850/0 增加 2 条上游测试。锚点漂移 `d71033a4` → `41a07f5b`。
@@ -293,6 +304,57 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：以相同临时 policy 实跑 root `npm ci --workspaces=false` 与 ui-tui/web workspace `npm ci`，均无 `install scripts blocked` / `not covered by allowScripts`；随后 audit 恢复完整 workspace 产物，`agent-browser 0.26.0`、`esbuild 0.28.1`、`require("fsevents")`、`require("unicode-animations")` 全部可用，package.json / lockfile 无 tracked drift。
 
 **上游吸收判断**：这是本地升级流程的依赖安全策略；只有上游升级器同时提供等价的 scoped install-script allowlist、自动清理临时配置和漏洞修复流程后，才可移除本补丁。
+
+---
+
+### [PATCH-REPLAY-BUNDLE-FULL-INDEX] replay bundle 使用稳定对象 ID
+
+| 字段     | 内容                                         |
+| -------- | -------------------------------------------- |
+| **文件** | `hermes-update.sh`, `local-patches.diff`     |
+| **状态** | 🟢 自动化（Step 2 / Step 8c `--full-index`） |
+
+**问题**：`git diff` 默认按对象库规模自动决定 `index` 行的 SHA 缩写长度。bundle 生成后即使源码 hunk 完全不变，后续 fetch/apply 增加对象也可能让 live diff 从 9 位变成 10 位，导致 playbook 要求的逐字节 `cmp` 失败；只刷新一次默认缩写 bundle 仍会复发。
+
+**修复**：Step 2 保存与 Step 8c 刷新统一使用 `git diff --full-index`，playbook 的 live-diff 核验也固定同一参数。bundle 的对象 ID 始终写完整 SHA，不再依赖仓库当前的自动缩写宽度。
+
+**验证**：动态解析 `PATCHED_FILES` 后，`cmp -s <(git -C hermes-agent diff --full-index HEAD -- "${PATCHED_FILES[@]}") patches/local-patches.diff` 必须返回 0；正向 cached 与反向 worktree apply check 仍须同时通过。
+
+**上游吸收判断**：这是外层 replay bundle 的本地持久化格式；只有未来迁移到不含动态缩写元数据的等价稳定格式，或不再维护本地 replay bundle 时，才可归档。
+
+---
+
+### [PATCH-UPDATE-GATE-EXIT-STATUS] 升级 gate 失败必须非零退出
+
+| 字段     | 内容                                 |
+| -------- | ------------------------------------ |
+| **文件** | `hermes-update.sh`                   |
+| **状态** | 🟢 自动化（Step 8 transaction gate） |
+
+**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。因此所有本地源码定制都可能未生效，而脚本最终仍返回 0，与 README 的 gate 契约相反。
+
+**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
+
+**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；隔离执行脚本片段时，任一 gate 为 false 必须得到非零终态，全部 gate 为 true 才允许刷新 bundle/base。
+
+**上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。
+
+---
+
+### [PATCH-SKILLS-MIRROR-METADATA] Skills 镜像保留本地 runtime 状态
+
+| 字段     | 内容                                    |
+| -------- | --------------------------------------- |
+| **文件** | `hermes-update.sh`, `~/.hermes/skills/` |
+| **状态** | 🟢 自动化（Step 4b rsync gate）         |
+
+**问题**：Step 4b 原先用裸 `rsync -a --delete` 把上游 skills 镜像到运行目录，会删除源树中不存在的 `.bundled_manifest` 和 `.curator_state`。前者被迫反复重建，后者会丢失 curator 的 pause/run count/last-run 状态；同时 `|| true` 吞掉 rsync 非零，复制失败也可能被显示成“已同步”。
+
+**修复**：从 delete 集合排除根级 `.bundled_manifest` / `.curator_state`，只镜像上游拥有的 skill 内容；显式捕获 rsync 退出码，失败时记录输出、设置 `FINAL_RC=1`，成功时继续报告 `+/~/-` 并确认 runtime metadata 保留策略生效。
+
+**验证**：在隔离临时目录预置两份 metadata 与一个上游孤儿，执行脚本同款 rsync 后必须保留 metadata、删除孤儿并保持内容不变；把源目录改为不可读或传入无效 rsync 参数时必须走非零 gate。现场 dry-run 不得再出现删除 `.bundled_manifest` / `.curator_state`。
+
+**上游吸收判断**：当上游同步器原生提供“官方 skill 内容镜像 + 本地 manifest/curator state 保留 + 失败非零”的等价行为，外层不再需要 Step 4b wrapper 时可归档。
 
 ---
 
