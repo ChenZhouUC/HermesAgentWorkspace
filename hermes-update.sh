@@ -15,7 +15,7 @@
 #   7. zsh completion script regeneration
 #   8. Re-apply & verify local patches
 #      8a. Apply saved diff
-#      8b. Behavioral verification
+#      8b. Patch invariant gates     (structural sentinels + smoke checks)
 #      8c. Refresh saved diff + re-sync patched bundled skills
 #      8d. Gateway restart         (reload patched Python modules into running process)
 #   8e. User-plugin compatibility checks (plugins/*/verify.sh)
@@ -163,8 +163,8 @@ _has_conflict_markers() {
     return 1
 }
 
-# Print the active launchd gateway PID, accepting both the older JSON-like
-# status output and the current "Gateway is supervised by launchd (PID NNN)".
+# Print the active gateway PID, accepting both the older JSON-like status
+# output and the current "Gateway is supervised by <service> (PID NNN)".
 gw_pid() {
     hermes gateway status 2>&1 | sed -nE \
         -e 's/.*"PID"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' \
@@ -174,6 +174,22 @@ gw_pid() {
 # Returns 0 if the launchd gateway service has an active PID.
 gw_running() {
     [[ -n "$(gw_pid)" ]]
+}
+
+# Allow a planned restart to use the complete configured drain budget, plus a
+# small supervisor-respawn margin. Fall back to the upstream default budget if
+# the freshly-updated runtime cannot import its config helper yet.
+gw_restart_wait_seconds() {
+    local _python="${HERMES_AGENT}/venv/bin/python"
+    if [[ ! -x "${_python}" ]]; then
+        echo 210
+        return
+    fi
+    "${_python}" -c '
+from hermes_cli.gateway import _get_restart_drain_timeout
+
+print(int(max(30.0, float(_get_restart_drain_timeout()) + 30.0)))
+' 2>/dev/null || echo 210
 }
 
 # Personal display contract: the owner DM may show each newly-started tool as
@@ -677,7 +693,7 @@ else
     note "No saved patch file — skipping apply (fresh install or patches never saved)"
 fi
 
-# -- 8b. Behavioral verification -----------------------------------------------
+# -- 8b. Patch invariant gates (structural sentinels + smoke checks) ------------
 # Archived patches retain independent regression gates. A regression in an
 # upstream-absorbed invariant must block the replay-bundle refresh just like an
 # active patch failure; otherwise the new base could be recorded as healthy.
@@ -1152,7 +1168,8 @@ if [[ -f "${VERTEX_PROVIDER_PY}" && -f "${VERTEX_PROVIDER_TEST_PY}" ]]; then
     if grep -q 'include_thoughts=true' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
         grep -q 'thinking_config\["include_thoughts"\] = False' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
         grep -q 'return {"google": {"thinking_config": thinking_config}}' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
-        grep -q 'test_vertex_extra_body_preserves_disabled_reasoning' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null; then
+        grep -q 'test_vertex_extra_body_preserves_disabled_reasoning' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_vertex_transport_build_kwargs_hides_thoughts_on_wire' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null; then
         ok "Vertex hidden-thoughts patch: active (single-level extra_body, thought text hidden from content)"
         _VERTEX_THOUGHTS_PATCH_OK=true
     else
@@ -1358,7 +1375,7 @@ if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUI
     fi
     cd - >/dev/null
 else
-    fail "Patch apply or behavioral verification gate failed"
+    fail "Patch apply or invariant gate failed"
     add_warn "Replay bundle was not refreshed because one or more engineering patch gates failed"
     add_act "Resolve the PATCH warnings above, then re-run hermes-update.sh"
     FINAL_RC=1
@@ -1391,37 +1408,39 @@ fi
 # hermes update (step 3) restarts the gateway BEFORE patches are re-applied.
 # The running Python process still has the pre-patch modules cached in
 # sys.modules. A restart ensures patched code (skill routing, delegate ACP
-# routing, etc.) is loaded by the gateway immediately. On macOS, stopping the
-# launchd job can briefly leave it unloaded, so poll for a replacement PID
-# instead of accepting the stale process as a successful reload.
+# routing, etc.) is loaded by the gateway immediately. Use the CLI restart path
+# so in-flight runs receive the configured drain budget; `gateway stop` force-
+# kills after a short fixed grace period on macOS. A replacement PID remains
+# the runtime-freshness proof: accepting the old PID would leave stale modules.
 if $_PATCH_APPLY_OK; then
     set +e
     _GW_OLD_PID=$(gw_pid)
     if [[ -n "${_GW_OLD_PID:-}" ]]; then
-        step "Restarting gateway (loading patched code)"
-        hermes gateway stop >/dev/null 2>&1
-        sleep 2
-        _GW_RESTART_OUT=$(hermes gateway start 2>&1)
+        _GW_RESTART_WAIT=$(gw_restart_wait_seconds)
+        if [[ ! "${_GW_RESTART_WAIT}" =~ ^[0-9]+$ ]]; then
+            _GW_RESTART_WAIT=210
+        fi
+        step "Restarting gateway after draining in-flight runs (up to ${_GW_RESTART_WAIT}s)"
+        hermes gateway restart
         _GW_RESTART_RC=$?
         _GW_NEW_PID=""
-        for _ in {1..12}; do
+        _GW_WAITED=0
+        while [[ ${_GW_RESTART_RC} -eq 0 && ${_GW_WAITED} -lt ${_GW_RESTART_WAIT} ]]; do
             sleep 1
+            _GW_WAITED=$((_GW_WAITED + 1))
             _GW_NEW_PID=$(gw_pid)
             if [[ -n "${_GW_NEW_PID:-}" && "${_GW_NEW_PID}" != "${_GW_OLD_PID}" ]]; then
                 break
             fi
         done
-        if [[ -n "${_GW_NEW_PID:-}" && "${_GW_NEW_PID}" != "${_GW_OLD_PID}" ]]; then
+        if [[ ${_GW_RESTART_RC} -eq 0 && -n "${_GW_NEW_PID:-}" && "${_GW_NEW_PID}" != "${_GW_OLD_PID}" ]]; then
             ok "Gateway restarted — patched modules now active (PID ${_GW_OLD_PID} → ${_GW_NEW_PID})"
         else
-            warn "Gateway did not replace the pre-patch process (old PID ${_GW_OLD_PID}, current ${_GW_NEW_PID:-none})"
-            if [[ -n "${_GW_RESTART_OUT:-}" ]]; then
-                add_warn "gateway start output: ${_GW_RESTART_OUT//$'\n'/ | }"
+            warn "Gateway did not complete a drain-aware replacement (old PID ${_GW_OLD_PID}, current ${_GW_NEW_PID:-none})"
+            if [[ ${_GW_RESTART_RC} -ne 0 ]]; then
+                add_warn "gateway restart exited ${_GW_RESTART_RC}"
             fi
-            if [[ ${_GW_RESTART_RC:-0} -ne 0 ]]; then
-                add_warn "gateway start exited ${_GW_RESTART_RC}"
-            fi
-            add_act "Force a real gateway replacement, then verify the PID changed: hermes gateway stop && hermes gateway start"
+            add_act "Inspect in-flight work and gateway logs, then rerun: hermes gateway restart (the replacement PID must differ from ${_GW_OLD_PID})"
             FINAL_RC=1
         fi
     fi

@@ -23,7 +23,7 @@
 
 | 类型                 | 代表                                   | 管理方式                                                                                                                                  |
 | -------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁**       | 当前清单中标记为“未上游合并”的源码补丁 | 统一 replay bundle (`local-patches.diff`) + `PATCHED_FILES` + 每补丁独立行为 gate                                                         |
+| **工程内补丁**       | 当前清单中标记为“未上游合并”的源码补丁 | 统一 replay bundle (`local-patches.diff`) + `PATCHED_FILES` + 每补丁独立 invariant gate；完整行为由 playbook Step 2c 回归证明             |
 | **配置仓库用户插件** | `PATCH-FEISHU-GROUP-SANDBOX`           | 外层 Git 跟踪 `config.yaml` / `plugins/` / `my-skills/`；Step 8e 强制校验配置、真实 toolset、行为测试和运行时注册，失败则整次升级非零退出 |
 | **运行时补丁**       | `PATCH-NPM-DEPENDENCY-HYGIENE` 等      | 由 `hermes-update.sh` 的明确步骤重建并验证；不进入 replay bundle，失败必须使整轮 update 非零退出                                          |
 | **已上游合并**       | 文末 Archive                           | 保留吸收来源和回归 sentinel；不计入活跃补丁清单                                                                                           |
@@ -58,7 +58,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ 失败: git restore --source=HEAD 回滚所有 PATCHED_FILES
   │   └─ 成功后: _has_conflict_markers() 扫描 → 含标记则回滚
   │
-  ├─ 8b. Behavioral verification
+  ├─ 8b. Patch invariant gates（structural sentinels + smoke checks）
   │   ├─ PATCH-SKILL-CREATE-ROOT: Python import + 调用 _resolve_skill_dir()，检查返回路径
   │   ├─ PATCH-DOCTOR-ENABLED-TOOLSETS: grep _get_platform_tools in doctor.py（✅ 已上游合并 v0.18.0）
   │   ├─ PATCH-ZSH-COMPLETION-SYNTAX: Step 7 中对 `){-h,--help}` / `){-V,--version}` / `){-p,--profile}` 做回归检测（✅ 已上游合并 v0.13.0）
@@ -97,12 +97,13 @@ Step 8: Re-apply & Verify（核心）
 
 Step 8d: Gateway restart（post-patch）
   └─ 前提: _PATCH_APPLY_OK == true && gateway 正在运行
-      └─ 记录 old PID → stop → sleep 2 → start → 轮询 different new PID（最多约 12s）
+      └─ 记录 old PID → drain-aware `hermes gateway restart`
+          → 按 `agent.restart_drain_timeout + 30s` 轮询 different new PID
           └─ 未替换或未恢复: FINAL_RC=1
       （hermes update 在 step 3 重启 gateway 时补丁尚未 apply，
        Python 进程 sys.modules 缓存旧模块，需重启才能加载补丁代码；
-       macOS launchd 在 stop 后可能短暂 unloaded，因此不能假设固定 3s 内必起，
-       也不能把仍存活的 old PID 误认成加载成功）
+       planned restart 给在途 agent run 完整排空预算；macOS stop 路径短宽限后
+       会 SIGKILL，不能用来做常规重载，也不能把仍存活的 old PID 误认成加载成功）
 
 Step 8e: User-plugin verification
   ├─ verifier 文件必须存在且可执行
@@ -257,7 +258,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **活跃补丁**：当前共 27 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**2026-08-03 更新后运行态审计**：发现 2026-08-02 的 patch 文件在 Gateway 进程启动后才落盘，旧进程继续缓存 pre-patch modules，导致合并转发仍显示占位符、Vertex `include_thoughts` 抑制未生效并把英文 thought 写入最终 `assistant.content`。人工替换 PID 后两项既有补丁恢复；同时修复主会话 DM 纯 @ 被静默丢弃，并将 Step 8d 收紧为“必须 old PID → different new PID，否则整轮非零”。继续真会话复测又发现完整 12 条转发虽已从 API 取回，却被 Gateway 通用 500 字符引用上限截到第 6 条中间；现已给内部标记的 Feishu merged-forward 引用设置 20,000 字符专用有界上限，真实卡片 1,073 字符及末条 `Okay 非常 make sense` 均通过送模断言。Data Pipeline Workshop 真会话随后证明纯 @ 引用图片已回填 `media=1`，但测试任务被审计重启中断；另一条 `@Gödel /` 又暴露单独 `/` 被误判 command、显式重复引用受窗口去重、DM 与 `assistant_user` 触发不走附件回填的矩阵缺口，现已一并闭合。最终回复 `content` 与模型 `reasoning` 分离且后者未透传；受管动态集合 23 files **797 passed / 0 failed**，sandbox verifier 21 passed 并绑定新 PID。
+**2026-08-03 更新后运行态审计**：发现 2026-08-02 的 patch 文件在 Gateway 进程启动后才落盘，旧进程继续缓存 pre-patch modules，导致合并转发仍显示占位符、Vertex `include_thoughts` 抑制未生效并把英文 thought 写入最终 `assistant.content`。人工替换 PID 后两项既有补丁恢复；同时修复主会话 DM 纯 @ 被静默丢弃。继续真会话复测又发现完整 12 条转发虽已从 API 取回，却被 Gateway 通用 500 字符引用上限截到第 6 条中间；现已给内部标记的 Feishu merged-forward 引用设置 20,000 字符专用有界上限，真实卡片 1,073 字符及末条 `Okay 非常 make sense` 均通过送模断言。Data Pipeline Workshop 真会话随后证明纯 @ 引用图片已回填 `media=1`，但测试任务被审计重启中断；另一条 `@Gödel /` 又暴露单独 `/` 被误判 command、显式重复引用受窗口去重、DM 与 `assistant_user` 触发不走附件回填的矩阵缺口，现已一并闭合。最终回复 `content` 与模型 `reasoning` 分离且后者未透传。流程复盘确认旧 Step 8d 的 `stop/start` 会在短宽限后强杀在途任务，现已改为排空感知 restart + PID 替换硬门禁，并新增最终运行屏障和最高有效边界测试规则；Vertex hidden-thoughts 另补真实 `ChatCompletionsTransport.build_kwargs()` wire-shape 回归。受管动态集合 23 files **798 passed / 0 failed**，sandbox verifier 21 passed 并绑定新 PID。
 
 **最近一次升级（v0.19.0 → v0.19.1，+971 commits，basis `41a07f5b` → `26e0b1c`）要点**：
 
@@ -335,11 +336,11 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `hermes-update.sh`                   |
 | **状态** | 🟢 自动化（Step 8 transaction gate） |
 
-**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。因此所有本地源码定制都可能未生效，而脚本最终仍返回 0，与 README 的 gate 契约相反。
+**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。
 
-**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。Step 8d 在 stop 前捕获旧 PID，start 后必须轮询到一个不同的新 PID 才确认 patched modules 已加载；旧 PID 未替换或 Gateway 未恢复都会设置 `FINAL_RC=1`。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
+**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。Step 8d 在重启前捕获旧 PID，改走排空感知的 `hermes gateway restart`，从更新后 runtime 读取 `restart_drain_timeout` 并给 supervisor 额外 30 秒替换余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
 
-**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；Step 8d 同时比较 `_GW_OLD_PID` / `_GW_NEW_PID` 且未替换分支置非零。隔离执行脚本片段时，任一 gate 为 false 或 restart 返回相同 PID 必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。
+**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；Step 8d 必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `_get_restart_drain_timeout() + 30s`，并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`。隔离执行脚本片段时，任一 gate 为 false、restart 非零、超时或返回相同 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 PID。
 
 **上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。
 
@@ -604,7 +605,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：`build_extra_body` 改为返回**单层** `{"google": {"thinking_config": thinking_config}}`（与 qwen/nous 等 profile 的扁平返回约定一致），使线上 `api_kwargs["extra_body"]` 恰为 `{"google": {"thinking_config": {"include_thoughts": False, "thinking_level": "high"}}}`——Vertex 读到顶层 `google.thinking_config`，抑制生效。保留 `thinking_level=high` 让模型继续内部思考，只是不把 thought text 返回正文。
 
-**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 存在 `include_thoughts=true` 说明、`thinking_config["include_thoughts"] = False` 与**单层** `return {"google": {"thinking_config": thinking_config}}`；grep test 存在 `test_vertex_extra_body_preserves_disabled_reasoning`。单测 `venv/bin/python -m pytest tests/hermes_cli/test_vertex_provider.py -q` 12 passed。真链路 A/B 对比（`VERTEX_ACCESS_TOKEN`，同一 plan 类 prompt）：**A 单层 → 干净答案**；**B 双层（旧）→ `" Too simple, doesn't add value…"` 思考泄漏**。`build_kwargs(provider_profile=vertex)` 输出确认为单层结构。2026-08-03 主会话复测因 Google OAuth 链路瞬时 SSL EOF 自动回退到 Qwen，但仍证明出站最终 `content` 与隐藏 `reasoning` 分离；Vertex 请求形状由上述 12 条单测覆盖。
+**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 存在 `include_thoughts=true` 说明、`thinking_config["include_thoughts"] = False` 与**单层** `return {"google": {"thinking_config": thinking_config}}`；测试同时保留 profile 正反例，并以 `test_vertex_transport_build_kwargs_hides_thoughts_on_wire` 穿过真实 `ChatCompletionsTransport.build_kwargs()`，断言最终请求 kwargs 只有单层 `extra_body.google.thinking_config`。真链路 A/B 对比（`VERTEX_ACCESS_TOKEN`，同一 plan 类 prompt）：**A 单层 → 干净答案**；**B 双层（旧）→ `" Too simple, doesn't add value…"` 思考泄漏**。2026-08-03 主会话复测因 Google OAuth 链路瞬时 SSL EOF 自动回退到 Qwen，但仍证明出站最终 `content` 与隐藏 `reasoning` 分离；Vertex wire request 形状由规范 runner 的边界测试持续锁定。
 
 **注**：`plugins/model-providers/gemini/__init__.py`（AI-Studio `gemini` provider）存在同构的双层写法，但本环境不走该 provider，暂不改动，待验证。
 

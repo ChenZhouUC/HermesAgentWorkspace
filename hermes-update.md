@@ -23,7 +23,8 @@
 - **动作可重入**：已完成步骤允许再次执行；脚本必须保护非 patch 用户改动、失败时恢复或保留可接管现场，agent 按实际状态跳过、重试或修复，不能靠固定步骤编号猜测进度。
 - **本地不变量跨版本保持**：不能以“上游升级了”或“旧 hunk 贴不上”为理由静默丢弃本地功能。未被上游吸收的 PATCH 必须适配新接口后重新打入；冲突由 AI 按语义解决，并以行为测试证明不变量仍成立。
 - **PATCH 集合随上游进化**：每轮必须逐个读取活跃 PATCH 的 `上游吸收判断`，不能用 apply 成功或 sentinel 通过代替吸收判定。未吸收的继续保留；部分吸收的删除冗余 hunk、收缩四段定义与验证；完全吸收的先在裸 upstream 证明等价行为和测试，再删除本地 hunk 并移动到 Archive。目标是维护**最小剩余 patch 集**，既不漏补丁，也不永久背负已被上游替代的实现。
-- **结果可收敛**：无论 upstream 不变还是前进多个版本，重复执行可以更新审计时间、日志、Gateway PID 或可再生依赖状态，但终态必须重新满足 Step 2c、Step 3、Step 5 和 Step 8e 的全部不变量；这些可变审计值不构成语义漂移。相同的“新 upstream + 本地语义不变量”应收敛到等价的最小 patch 状态，而不取决于由哪个 AI、从哪次中断开始执行。
+- **结果可收敛**：无论 upstream 不变还是前进多个版本，重复执行可以更新审计时间、日志、Gateway PID 或可再生依赖状态，但终态必须重新满足 Step 2c、Step 3、Step 5（含运行态闭环）和 Step 8e 的全部不变量；这些可变审计值不构成语义漂移。相同的“新 upstream + 本地语义不变量”应收敛到等价的最小 patch 状态，而不取决于由哪个 AI、从哪次中断开始执行。
+- **运行态可证明**：磁盘 patch 正确不等于当前进程已加载。升级和任何后续运行时代码/配置修复都必须经过排空感知的 planned restart，以 `old PID → different new PID`、新 PID 下的 plugin verifier 和最终 status 作为终态证据；禁止用会在短固定宽限后强杀在途任务的 `gateway stop && gateway start` 充当常规重载，也禁止在运行态闭环之后继续修改运行时输入而不重新闭环。
 - **经验要落盘**：发现新的上游冲突、依赖摩擦、恢复路径或完成标准缺口时，必须在当轮按责任边界同步到执行脚本、PATCH 注册表、replay bundle、playbook 摩擦表或对应文档。只写在会话总结里等同于未修复；下一轮 AI 必须能仅凭仓库文件复现该判断。
 - **权威源不分叉**：执行行为写进 `hermes-update.sh`，PATCH 生命周期写进 `PATCHES.md`，工程内物理改动写进 bundle，决策与恢复规则写进本 playbook。不得为一次升级另建会过期的平行清单，也不得把普通审计噪音误登记为语义 PATCH。
 - **默认自主完成**：上述吸收判定、冲突适配、patch 新增/合并/归档、依赖自愈、测试修复和文档对齐都属于升级流程本身，按本 playbook 的既定边界自主完成，不要求用户每轮人工介入。只有引入全新依赖、改变安全边界或遇到本地不可修的外部阻塞时，才按文末行为约束留案。
@@ -65,7 +66,7 @@
 - `cd ~/.hermes/hermes-agent && git status -sb` → 内层官方源码仓库状态，区分"本地 patch modified files"和"非 patch 的用户改动"
 - 当天日期（记为 `OLD_DATE` 用于 grep；本次升级新日期记为 `NEW_DATE`）
 
-只有当 `~/.hermes/hermes-agent` 相对目标 `origin/main` 落后 0 commits，且外层 patch 快照/文档没有需要刷新的现状陈述时，才允许跳过实际更新、依赖恢复、功能回归和文档改写；但仍须执行 Step 3 的只读闭环检查，并运行所有 Step 8e verifier 核对当前 Gateway PID 后，才能到 Step 6 报告“已是最新”。不要因为 `hermes --version` 显示 `Up to date` 就跳过。
+只有当 `~/.hermes/hermes-agent` 相对目标 `origin/main` 落后 0 commits，且外层 patch 快照/文档没有需要刷新的现状陈述时，才允许跳过实际更新、依赖恢复、功能回归和文档改写；但仍须执行 Step 3 的只读闭环检查，并运行所有 Step 8e verifier 核对当前 Gateway PID 后，才能到 Step 6 报告“已是最新”。完全只读且运行态输入未变化时不为制造新 PID 而重启；如果接管中断现场后无法证明当前 PID 晚于最后一次运行态修改，则按 Step 5b 执行终态运行屏障。不要因为 `hermes --version` 显示 `Up to date` 就跳过。
 
 ### Step 2 — 跑升级脚本
 
@@ -73,12 +74,12 @@
 bash ~/.hermes/hermes-update.sh
 ```
 
-建议 background + tee 日志，超时 ≥ 600s。脚本自带：preflight / 内层 patch 存档到外层 `patches/local-patches.diff` / `hermes update` 拉平内层官方 checkout / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 行为化验证 / gateway 重启 / 用户 plugin verify / 健康检查。补丁回贴后的 Gateway 重启必须观察到 PID 从旧值替换为新值；只看到“仍有 PID”不能证明运行进程已经加载磁盘上的新代码，PID 未替换必须令脚本非零退出。
+建议 background + tee 日志；外层任务超时必须大于 `agent.restart_drain_timeout`，当前配置下取 ≥ 1200s。脚本自带：preflight / 内层 patch 存档到外层 `patches/local-patches.diff` / `hermes update` 拉平内层官方 checkout / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 结构化 sentinel 验证 / 排空感知的 gateway planned restart / 用户 plugin verify / 健康检查。Step 8b sentinel 只证明关键实现锚点存在，不能替代 Step 2c 的行为回归。补丁回贴后的 Gateway 重启必须给在途任务完整的 `agent.restart_drain_timeout` 预算，并观察到 PID 从旧值替换为新值；只看到“仍有 PID”不能证明运行进程已经加载磁盘上的新代码，PID 未替换必须令脚本非零退出。
 
 退出码 0 不代表完美。**通读输出**，特别关注：
 
-- 各 PATCH 行为化验证是否 OK
-- Step 8d 是否明确报告 Gateway `old PID → new PID`；相同 PID 或无新 PID 不得作为 patched modules active
+- 各 PATCH 结构化 sentinel / smoke gate 是否 OK（行为正确性另以 Step 2c 为准）
+- Step 8d 是否走 `hermes gateway restart` 的排空路径并明确报告 Gateway `old PID → new PID`；相同 PID、无新 PID 或回退到短宽限强杀都不得作为 patched modules active
 - Step 8e 的每个用户插件 verifier 是否存在、可执行且返回 0；任一失败都必须使整次升级返回非零
 - Skills mirror 的 `+/~/-` 数字
 - 任何 `⚠` 或 `✗` 行
@@ -100,13 +101,15 @@ bash ~/.hermes/hermes-update.sh
 
 ### Step 2c — 补丁功能回归（终态必须 0 failed）
 
-patch 回贴 + 依赖自愈后，用 `scripts/run_tests.sh` 批量跑 `PATCHED_FILES` 里全部 `tests/**` 文件，与 `PATCHES.md` § 当前版本摘要里记录的上轮基准（passed 数）对比。禁止直接调用 `pytest`；runner 会隔离 HOME/凭据、固定时区/locale，并逐测试文件放进独立子进程，结果才与 Hermes CI 口径一致。**回归终态 0 failed 是本 playbook 的完成标准**——出现新失败先定性、再按分支当轮修到转绿，不留遗留：
+patch 回贴 + 依赖自愈后，执行 `cd ~/.hermes/hermes-agent && ./scripts/run_tests.sh <从 PATCHED_FILES 动态提取的全部 tests/**>`；测试文件清单与上轮外层提交中的 `hermes-update.sh` 对比，passed 数与 `PATCHES.md` § 当前版本摘要对比。禁止直接调用 `pytest`；runner 会隔离 HOME/凭据、固定时区/locale，并逐测试文件放进独立子进程，结果才与 Hermes CI 口径一致。**回归终态 0 failed 是必要条件，不是充分条件**：passed 数只是遥测，数量下降、测试文件消失、collection 异常或关键用例被改名/跳过都必须逐项解释，不能拿“仍然 0 failed”掩盖覆盖面退化。出现新失败先定性、再按分支当轮修到转绿，不留遗留：
 
 1. **环境缺口**（依赖缺失 / 解释器变化）→ 回到 Step 2b 补装后复跑；
 2. **上游自身 bug**（`git stash push -- <相关源文件+测试>` 后在裸上游复跑同样失败）：影响本部署行为或本回归套件的，**本地补丁修复**——按 Step 4 的补丁归并原则决定并入现有语义 PATCH 还是新增语义 PATCH，同步 sentinel / PATCHED_FILES / PATCHES.md / 快照，修到转绿；确实不影响本部署行为且测试不在本套件内的，才允许只记摩擦表；
 3. **补丁真回归**（仅打补丁后失败）→ 修补丁本身。
 
-工具注意：pytest 若因 venv 重建暂缺，可先 `pip install --target /tmp/... --no-deps pytest==<pin> pytest-asyncio==<pin>` + `PYTHONPATH` 叠加做初步定性（不污染 venv），但最终数字必须用 `scripts/run_tests.sh` 复跑得出；**禁止用 `uv run` 跑回归**——它会挂到 `.venv`（uv 默认项目环境）而不是 hermes 的 `venv`，产生成批假失败。
+凡是由真实平台事件暴露的缺陷，新增回归必须落在**最高有效边界**：至少用平台真实 payload 形状穿过完整 adapter 入站路由，并断言最终 Gateway event / provider request / 出站消息中真正需要保持的不变量；只测新 helper 或 grep sentinel 不算回归完成。测试同时要有正例、不会误触发的反例，以及问题涉及重试、去重、重复引用或恢复时的重入例。能对用户已置于本次范围内的既有消息做只读 API replay 时可作为额外证据；没有明确授权时不要为了 canary 主动向外部会话发消息，fixture 级边界回归仍是硬门禁。
+
+工具注意：pytest 若因 venv 重建暂缺，可先 `pip install --target /tmp/... --no-deps pytest==<pin> pytest-asyncio==<pin>` + `PYTHONPATH` 叠加做初步定性（不污染 venv），但最终文件清单和数字必须用 `./scripts/run_tests.sh` 复跑得出；**禁止用 `uv run` 跑回归**——它会挂到 `.venv`（uv 默认项目环境）而不是 hermes 的 `venv`，产生成批假失败。
 
 ### Step 3 — 审查 patch & 脚本
 
@@ -127,7 +130,7 @@ patch 回贴 + 依赖自愈后，用 `scripts/run_tests.sh` 批量跑 `PATCHED_F
 - `~/.hermes/hermes-agent` 里被 patch 修改的文件保持为 modified，不在内层仓库提交；外层 patch diff 才是可提交记录。
 - `git diff` 检查 index hash / 行号漂移是否来自本次上游变化；共享文件上的 hunk 必须按语义 PATCH 分别解释。
 - `hermes-update.sh` 顶部注释里的 baseline SHA 是**手写**的，本步骤手动改成 `NEW_SHA`。
-- 如脚本本身在升级过程中报了新的兼容性问题（新 uv 报错、新 step），**记录在最终报告里**，不要自行扩展脚本的工作流逻辑（按补丁归并原则为新语义 PATCH 添加 sentinel 块与 gate 变量属既定补丁工作流，不在此限）。
+- 如脚本本身在升级过程中暴露了会破坏既有升级不变量的兼容性问题（例如强杀在途任务、失败仍返回 0、重载后仍是旧 PID），属于流程本身的修复范围：按运行时 PATCH 归并原则当轮修脚本、PATCH 注册表、README 与本 playbook，并完成相应静态/隔离验证。只有引入新工作流目标或扩大安全边界时才留给用户决策；不能一边把缺口写进报告，一边保留下一轮必然复发的执行路径。
 
 ### Step 4 — 文档对齐（发现式，不用预设清单）
 
@@ -243,11 +246,17 @@ print(f"README weekly versions: {len(weeks)} rows, ISO weeks unique")
 PY
 ```
 
+#### Step 5b — 终态运行屏障
+
+Step 2c/4/5 期间只要修改过 `hermes-agent` 运行时代码、`config.yaml`、`.env` 或 `plugins/`，Step 8d 的 PID 证据就立即失效。所有代码、配置、测试、bundle 和文档修改结束后，必须把 planned restart 当作一次**终态写屏障**：记录当前 PID，执行 `hermes gateway restart`，按 `agent.restart_drain_timeout + 30s` 轮询到不同的新 PID，再在新 PID 下重跑全部 Step 8e verifier 和 `hermes gateway status`。如果 barrier 之后又改了任何运行时输入，必须重新执行本步骤；完全只读的“已是最新”审计且能证明当前进程晚于最后一次运行态修改时可跳过。
+
+禁止用 `hermes gateway stop && hermes gateway start` 代替 planned restart：macOS stop 路径在短固定宽限后会强杀进程，可能把正在处理的飞书 turn 变成中断恢复任务并产生非预期回复。若排空超过预算或 PID 未替换，本轮必须非零/阻塞收尾，保留旧进程与日志供诊断，不能为了得到新 PID 直接强杀。
+
 ### Step 6 — 收尾报告
 
 向用户报告（**不要自动提交**）：
 
-- **完成标准**：补丁回归 **0 failed**、Step 3 七层仓库闭环全部成立、所有用户插件 verifier 绑定当前 Gateway PID 通过、doctor 无可修而未修的 ⚠、无环境残留。达不到时不得声称完成，单列阻塞项、原因与建议
+- **完成标准**：补丁回归 **0 failed 且测试清单/关键边界未退化**、Step 3 七层仓库闭环全部成立、Step 5b 的终态 PID 晚于最后一次运行态修改、所有用户插件 verifier 绑定该当前 PID 通过、doctor 无可修而未修的 ⚠、无环境残留。达不到时不得声称完成，单列阻塞项、原因与建议
 - 升级 `OLD_SHA → NEW_SHA`，`+N commits`
 - 文档对齐了哪些文件（列文件名 + 改动类别一句话，不展开内容）
 - README 版本记录周键检查结果：当周是新增还是合并、当前总周数、是否存在重复 ISO week
@@ -267,6 +276,7 @@ PY
 | `hermes doctor` 报 web / ui-tui build-tool 高危                 | npm arborist crash 已知 bug，待上游 lockfile bump，不阻塞                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | launchd `Bootstrap failed: 5`                                   | 上游 PR #40831 已修，基线 ≥ `d62979a6` 后不复现                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | PATCH 行号漂移                                                  | `hermes-update.sh` Step 8 自动 rebase；摘要里写 `OLD → NEW` 即可                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Step 8d/终态重载打断飞书任务或留下旧 PID                        | 常规更新只用排空感知的 `hermes gateway restart`，等待预算取 `agent.restart_drain_timeout + 30s`，并硬性核对 old PID → different new PID；不得用 macOS 上短宽限后会 SIGKILL 的 `gateway stop && gateway start`。Step 8d 后若又修了运行时代码/配置，按 Step 5b 再做一次终态屏障并在新 PID 下重跑 plugin verifier；超时则失败留案，不强杀换取表面成功。                                                                                                                                                      |
 | `local-patches.diff` 自身带 conflict marker                     | 脚本会拦截；`git restore --source=HEAD -- patches/local-patches.diff` 恢复入库版本后重跑                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 某个活跃 PATCH 疑似已被上游吸收                                 | 不依赖脚本自动标 `retired`；逐个按该块的 `上游吸收判断` 在裸 upstream 验证。完全吸收后删除其独有 hunk、移动定义块到 `## Archive — PATCH-...`，仅在文件不再被其他活跃补丁触及时移出 `PATCHED_FILES`；部分吸收则保留活跃块并收缩 hunk/四段描述，最后重跑 Step 3 闭环                                                                                                                                                                                                                                        |
 | 新增本地补丁                                                    | 先按 Step 4 判断并入还是新增语义 PATCH；工程内补丁同步 `PATCHED_FILES`、独立 sentinel/gate、`PATCHES.md` 四段和 replay bundle/base；运行时或外层插件补丁走各自管道。不能只等下次 Step 2 自动 capture                                                                                                                                                                                                                                                                                                      |

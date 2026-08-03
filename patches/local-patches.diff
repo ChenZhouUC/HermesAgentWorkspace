@@ -8964,10 +8964,10 @@ index 09af0c4e117a42fedb68f4e5b6e512be383cbc3c..3d2ae746ae47c6d90c3d1f2e41dc7466
  
  def test_get_effective_configurable_toolsets_dedupes_bundled_plugins():
 diff --git a/tests/hermes_cli/test_vertex_provider.py b/tests/hermes_cli/test_vertex_provider.py
-index 129c44a8eb3ad7bed02770913493364e5412a7da..ccdfc0c6c6a50f1c529389ac9d2233a09bcd0622 100644
+index 129c44a8eb3ad7bed02770913493364e5412a7da..cfc9c1b20fceb7ea221b831d377975506664549d 100644
 --- a/tests/hermes_cli/test_vertex_provider.py
 +++ b/tests/hermes_cli/test_vertex_provider.py
-@@ -29,6 +29,43 @@ def test_resolve_runtime_provider_raises_autherror_when_unresolved(monkeypatch):
+@@ -29,6 +29,77 @@ def test_resolve_runtime_provider_raises_autherror_when_unresolved(monkeypatch):
      assert "not a static API key" in msg
  
  
@@ -8986,6 +8986,40 @@ index 129c44a8eb3ad7bed02770913493364e5412a7da..ccdfc0c6c6a50f1c529389ac9d2233a0
 +    thinking_config = body["google"]["thinking_config"]
 +    assert thinking_config["include_thoughts"] is False
 +    assert thinking_config["thinking_level"] == "high"
++
++
++def test_vertex_transport_build_kwargs_hides_thoughts_on_wire():
++    """Exercise the real Chat Completions request assembly boundary.
++
++    Calling ``build_extra_body`` alone missed the original double-wrapper bug:
++    the profile result was correct in isolation but reached the wire nested
++    under ``extra_body.extra_body``, which Vertex ignored.
++    """
++    import agent.transports.chat_completions  # noqa: F401
++    from agent.transports import get_transport
++    from providers import get_provider_profile
++
++    profile = get_provider_profile("vertex")
++    transport = get_transport("chat_completions")
++    kwargs = transport.build_kwargs(
++        model="google/gemini-3-pro-preview",
++        messages=[{"role": "user", "content": "analyze this image"}],
++        tools=[],
++        reasoning_config={"enabled": True, "effort": "high"},
++        supports_reasoning=True,
++        provider_profile=profile,
++        provider_name="vertex",
++        base_url=profile.base_url,
++    )
++
++    assert kwargs["extra_body"] == {
++        "google": {
++            "thinking_config": {
++                "include_thoughts": False,
++                "thinking_level": "high",
++            }
++        }
++    }
 +
 +
 +def test_vertex_extra_body_preserves_disabled_reasoning():
@@ -9011,7 +9045,7 @@ index 129c44a8eb3ad7bed02770913493364e5412a7da..ccdfc0c6c6a50f1c529389ac9d2233a0
  def test_vertex_registered_in_provider_registry():
      """PROVIDER_REGISTRY (hermes_cli.auth) is what agent/auxiliary_client.py's
      resolve_provider_client() looks up before dispatching on auth_type. Without
-@@ -55,3 +92,120 @@ def test_vertex_registered_in_hermes_overlays():
+@@ -55,3 +126,120 @@ def test_vertex_registered_in_hermes_overlays():
      resolved = get_provider("vertex")
      assert resolved is not None
      assert resolved.auth_type == "vertex"
