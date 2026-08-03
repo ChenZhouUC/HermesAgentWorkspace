@@ -100,6 +100,7 @@ PATCHED_FILES=(
     "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
     "tests/gateway/test_run_progress_topics.py"
+    "tests/gateway/test_background_command.py"
     "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
     "tests/hermes_cli/test_doctor.py"
@@ -1023,7 +1024,28 @@ fi
 # ~/.hermes/groups.yaml are in the config repo and intentionally NOT PATCHED_FILES.
 STREAM_CONSUMER_PY="${HERMES_AGENT}/gateway/stream_consumer.py"
 STREAM_CONSUMER_TEST_PY="${HERMES_AGENT}/tests/gateway/test_stream_consumer_silence.py"
-if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}" && -f "${SESSION_TEST_PY}" && -f "${STREAM_CONSUMER_TEST_PY}" ]]; then
+BACKGROUND_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_background_command.py"
+
+_secure_local_profile_files() {
+    local profile_name profiles_file mode
+    for profile_name in people.yaml groups.yaml; do
+        profiles_file="${HERMES_HOME}/${profile_name}"
+        [[ -e "${profiles_file}" ]] || continue
+        chmod 600 "${profiles_file}" 2>/dev/null || return 1
+        mode="$(stat -f '%Lp' "${profiles_file}" 2>/dev/null || stat -c '%a' "${profiles_file}" 2>/dev/null || true)"
+        [[ "${mode}" == "600" ]] || return 1
+    done
+}
+
+_PEOPLE_PROFILE_FILE_OK=false
+if _secure_local_profile_files; then
+    _PEOPLE_PROFILE_FILE_OK=true
+else
+    warn "Could not secure people.yaml/groups.yaml to mode 0600"
+    add_act "Restrict local profile access: chmod 600 ${HERMES_HOME}/people.yaml ${HERMES_HOME}/groups.yaml"
+fi
+
+if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}" && -f "${SESSION_TEST_PY}" && -f "${STREAM_CONSUMER_TEST_PY}" && -f "${BACKGROUND_COMMAND_TEST_PY}" ]]; then
     if grep -q 'people-profile' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'def _load_people_profiles' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'def _lookup_person' "${SESSION_PY}" 2>/dev/null &&
@@ -1040,6 +1062,9 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q '_PEOPLE_SOURCE_LITERALS' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'test_address_is_public_and_usable_for_reply' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_private_profile_redactor_keeps_public_fields' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_unlisted_fields_are_internal_and_identity_values_are_redacted' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_people_file_remains_owner_editable_while_removing_other_access' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_groups_file_remains_owner_editable_while_removing_other_access' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_people_source_secrecy_rule_present_for_group' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_redactor_hides_roster_file_name_even_without_profile_match' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'class TestPeopleProfileInjection' "${SESSION_TEST_PY}" 2>/dev/null &&
@@ -1049,8 +1074,13 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q 'def _history_person_qualifier' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'test_history_sender_label_joins_people_profile' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_history_sender_label_survives_profile_lookup_failure' "${FEISHU_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_text_filter_applies_before_stream_delivery' "${STREAM_CONSUMER_TEST_PY}" 2>/dev/null; then
-        ok "People/group profile patch: active (people.yaml + groups.yaml lookup, service-hours intro hint, address public, private-profile redaction, group disclosure rule, roster-source secrecy, history sender name/role/team join)"
+        grep -q 'test_text_filter_applies_before_stream_delivery' "${STREAM_CONSUMER_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_non_dm_interim_direct_fallback_redacts_private_profile' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
+        grep -q 'assert "Prompt:" not in content' "${BACKGROUND_COMMAND_TEST_PY}" 2>/dev/null &&
+        grep -q 'redact_private_person_profile_text(source, response)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '_stts_consumer_ref.on_delta(_visible_turn_text(text))' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        $_PEOPLE_PROFILE_FILE_OK; then
+        ok "People/group profile patch: active (people.yaml + groups.yaml owner-rw mode 0600; profile lookup; final/stream/interim/background/audio redaction; no background prompt replay; roster-source secrecy; public-only history sender join)"
         _PEOPLE_PROFILE_PATCH_OK=true
     else
         warn "People/group profile patch inactive or partial"
