@@ -74,7 +74,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-FEISHU-NORMAL-REPLY: 普通引用回复，不进入 thread/topic lane
   │   ├─ PATCH-FEISHU-FINAL-ONLY: Feishu 默认只显示最终回复
   │   ├─ PATCH-LOCAL-PROFILES: 人物/群画像、来源保密与可见输出过滤
-  │   ├─ PATCH-FEISHU-RESOURCE-ACCESS: 附件回看、Drive 链接与 tenant doc client
+  │   ├─ PATCH-FEISHU-RESOURCE-ACCESS: 附件回看、合并转发完整引用、Drive/doc access
   │   ├─ PATCH-DOCUMENT-EXTRACTION: XLSX/PDF/HTML/Office/OpenDocument 可信抽取
   │   ├─ PATCH-FEISHU-MARKDOWN: 标题/引用提升与 strong flanking 归一化
   │   ├─ PATCH-FEISHU-SSRF-TEST-SYSPROXY: SSRF rebind 测试对宿主系统代理 hermetic
@@ -97,10 +97,12 @@ Step 8: Re-apply & Verify（核心）
 
 Step 8d: Gateway restart（post-patch）
   └─ 前提: _PATCH_APPLY_OK == true && gateway 正在运行
-      └─ stop → sleep 2 → start → 轮询 PID（最多约 12s）→ 确认存活
+      └─ 记录 old PID → stop → sleep 2 → start → 轮询 different new PID（最多约 12s）
+          └─ 未替换或未恢复: FINAL_RC=1
       （hermes update 在 step 3 重启 gateway 时补丁尚未 apply，
        Python 进程 sys.modules 缓存旧模块，需重启才能加载补丁代码；
-       macOS launchd 在 stop 后可能短暂 unloaded，因此不能假设固定 3s 内必起）
+       macOS launchd 在 stop 后可能短暂 unloaded，因此不能假设固定 3s 内必起，
+       也不能把仍存活的 old PID 误认成加载成功）
 
 Step 8e: User-plugin verification
   ├─ verifier 文件必须存在且可执行
@@ -251,9 +253,11 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.19.1 (upstream `main` `26e0b1c`，2026-08-02)
+## 当前版本：v0.19.1 (upstream `main` `26e0b1c`，2026-08-03)
 
 **活跃补丁**：当前共 27 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+
+**2026-08-03 更新后运行态审计**：发现 2026-08-02 的 patch 文件在 Gateway 进程启动后才落盘，旧进程继续缓存 pre-patch modules，导致合并转发仍显示占位符、Vertex `include_thoughts` 抑制未生效并把英文 thought 写入最终 `assistant.content`。人工替换 PID 后两项既有补丁恢复；同时修复主会话 DM 纯 @ 被静默丢弃，并将 Step 8d 收紧为“必须 old PID → different new PID，否则整轮非零”。继续真会话复测又发现完整 12 条转发虽已从 API 取回，却被 Gateway 通用 500 字符引用上限截到第 6 条中间；现已给内部标记的 Feishu merged-forward 引用设置 20,000 字符专用有界上限，真实卡片 1,073 字符及末条 `Okay 非常 make sense` 均通过送模断言。Data Pipeline Workshop 真会话随后证明纯 @ 引用图片已回填 `media=1`，但测试任务被审计重启中断；另一条 `@Gödel /` 又暴露单独 `/` 被误判 command、显式重复引用受窗口去重、DM 与 `assistant_user` 触发不走附件回填的矩阵缺口，现已一并闭合。最终回复 `content` 与模型 `reasoning` 分离且后者未透传；受管动态集合 23 files **797 passed / 0 failed**，sandbox verifier 21 passed 并绑定新 PID。
 
 **最近一次升级（v0.19.0 → v0.19.1，+971 commits，basis `41a07f5b` → `26e0b1c`）要点**：
 
@@ -331,11 +335,11 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `hermes-update.sh`                   |
 | **状态** | 🟢 自动化（Step 8 transaction gate） |
 
-**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。因此所有本地源码定制都可能未生效，而脚本最终仍返回 0，与 README 的 gate 契约相反。
+**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。因此所有本地源码定制都可能未生效，而脚本最终仍返回 0，与 README 的 gate 契约相反。
 
-**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
+**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。Step 8d 在 stop 前捕获旧 PID，start 后必须轮询到一个不同的新 PID 才确认 patched modules 已加载；旧 PID 未替换或 Gateway 未恢复都会设置 `FINAL_RC=1`。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
 
-**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；隔离执行脚本片段时，任一 gate 为 false 必须得到非零终态，全部 gate 为 true 才允许刷新 bundle/base。
+**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；Step 8d 同时比较 `_GW_OLD_PID` / `_GW_NEW_PID` 且未替换分支置非零。隔离执行脚本片段时，任一 gate 为 false 或 restart 返回相同 PID 必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。
 
 **上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。
 
@@ -399,11 +403,11 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/authz_mixin.py`, `gateway/run.py`, `gateway/session.py`, `skills/research/llm-wiki/SKILL.md` 及对应 gateway 测试/文档 |
 | **状态** | 🟡 未上游合并                                                                                                                                                                              |
 
-**问题**：群聊需要同时支持 `@bot` 与 `@配置本人账号` 触发、近期群消息回填和纯 @ 意图推断；共享 session 还必须防止 owner profile、引用内容、历史末位发言人或跨发送者 debounce 被误认成当前提问者。群授权也不能借通配符放开 DM。
+**问题**：群聊需要同时支持 `@bot` 与 `@配置本人账号` 触发、近期群消息回填和纯 @ 意图推断；共享 session 还必须防止 owner profile、引用内容、历史末位发言人或跨发送者 debounce 被误认成当前提问者。群授权也不能借通配符放开 DM。原纯 @ 分支硬编码排除 `p2p`，导致主会话里回复一条合并转发后只 @Bot 会在剥离 mention 后成为空文本并被静默丢弃。
 
-**修复**：实现 assistant-user/configured-human 两类触发与身份说明、群历史回填、默认关闭且可配置的 `bare_mention_intent`、`FEISHU_GROUP_ALLOWED_CHATS` 群授权；把 bot mention 设为最高触发优先级，批处理 key 纳入发送者，并在 system prompt 和最终 user turn 相邻位置双重标注 current author。技术问题提示显式要求先读 `llm-wiki`，所有 wiki 文件调用必须携带 `~/.hermes/wiki` 路径，禁止用 terminal 探测；bundled skill 同步相同规则。
+**修复**：实现 assistant-user/configured-human 两类触发与身份说明、群历史回填、默认关闭且可配置的 `bare_mention_intent`、`FEISHU_GROUP_ALLOWED_CHATS` 群授权；把 bot mention 设为最高触发优先级，批处理 key 纳入发送者，并在 system prompt 和最终 user turn 相邻位置双重标注 current author。开启 `bare_mention_intent` 后，群聊和 DM 中明确提及 bot 自身的纯 @ 都进入意图推断；引用消息时以引用内容为主题且只读取一次，未引用时使用既有会话历史，空文本但未 @Bot 仍丢弃。技术问题提示显式要求先读 `llm-wiki`，所有 wiki 文件调用必须携带 `~/.hermes/wiki` 路径，禁止用 terminal 探测；bundled skill 同步相同规则。
 
-**验证**：Step 8b 独立 gate 检查 trigger/settings/history/bare-mention/wiki sentinels、group allowlist、current-author prompt/body prefix、bot 优先级和跨发送者不合并测试。定向测试覆盖未 @ 静默、第三方 @本人代答、本人 @bot 不自我介绍、纯 @ 引用/历史意图、DM 不被群 allowlist 放开，以及历史末位发言人与当前提问者不同时仍正确锚定当前作者。
+**验证**：Step 8b 独立 gate 检查 trigger/settings/history/bare-mention/wiki sentinels、DM 纯 @ 回归、group allowlist、current-author prompt/body prefix、bot 优先级和跨发送者不合并测试。定向测试覆盖未 @ 静默、第三方 @本人代答、本人 @bot 不自我介绍、群聊与 DM 的纯 @ 引用/历史意图、DM 不被群 allowlist 放开，以及历史末位发言人与当前提问者不同时仍正确锚定当前作者。
 
 **上游吸收判断**：上游同时具备等价的 Feishu 多触发 admission、群历史/纯 @ 意图、按发送者隔离的 batching 和多用户 current-author 契约后可归档；工具权限隔离不属于本补丁。
 
@@ -479,16 +483,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-FINAL-ONLY] Feishu 默认只展示最终回复
 
-| 字段     | 内容                                                                                                     |
-| -------- | -------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/display_config.py`, `tests/gateway/test_display_config.py`（本机 `config.yaml` 有显式同值覆盖） |
-| **状态** | 🟡 未上游合并                                                                                            |
+| 字段     | 内容                                                                                                           |
+| -------- | -------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/display_config.py`, `tests/gateway/test_display_config.py`（本机 `config.yaml` 按 DM/group 显式覆盖） |
+| **状态** | 🟡 未上游合并                                                                                                  |
 
 **问题**：Feishu 默认 tool progress、streaming 和 interim bubbles 会把草稿、工具进度或思考式中间态暴露到群聊；这与消息是否进入 thread 无关，应独立控制。
 
-**修复**：Feishu 内置 display tier 默认关闭 tool progress、streaming、interim assistant messages、long-running notification 和 busy detail，只发送最终回复。
+**修复**：Feishu 内置 display tier 默认关闭 tool progress、streaming、interim assistant messages、long-running notification 和 busy detail。当前本机有意让主会话 DM 使用 `tool_progress: new`（独立工具进度卡），群聊保持 `tool_progress: false`；两者都关闭 streaming/interim/thinking progress，最终 assistant 回复只走最终内容。若 provider 把 thought 错塞进 `message.content`，由 `PATCH-VERTEX-HIDDEN-THOUGHTS` 在请求侧抑制，不能误认为 display 层会自动识别并清洗正文。
 
-**验证**：Step 8b 单独检查 Feishu display defaults 与 `test_feishu_defaults_to_final_only`。
+**验证**：Step 8b 单独检查 Feishu display defaults 与 `test_feishu_defaults_to_final_only`；本机配置检查主会话 `tool_progress: new`、群聊 `tool_progress: false`，且两者的 `thinking_progress` / `interim_assistant_messages` 均为 false。
 
 **上游吸收判断**：上游 Feishu 默认 final-only，或提供等价且默认安全的 display profile 后可归档。
 
@@ -515,18 +519,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-RESOURCE-ACCESS] 附件回看、Drive 链接与 tenant 文档读取
 
-| 字段     | 内容                                                                                                                                                               |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/platforms/base.py`, `tools/feishu_doc_tool.py`, `tests/gateway/test_feishu.py`, `tests/tools/test_feishu_tools.py` |
-| **状态** | 🟡 未上游合并                                                                                                                                                      |
+| 字段     | 内容                                                                                                                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/run.py`, `gateway/platforms/base.py`, `tools/feishu_doc_tool.py`, `tests/gateway/test_feishu.py`, `tests/tools/test_feishu_tools.py` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                        |
 
-**问题**：群聊媒体与 @mention 常分成两条消息，引用里的 `/file/<token>` 也不是 IM 附件；普通 gateway 工具调用没有 comment thread-local client 时，tenant 凭据明明存在却无法读取飞书文档。另外，被引用的合并转发消息在 webhook payload 里不带子消息体，上游只把它归一化成 `[Merged forward message]` 占位符，因此群里"引用合并记录 + @Bot"只能看到占位符，而私聊直发同一条合并记录却能正常展开。
+**问题**：群聊媒体与 @mention 常分成两条消息，引用里的 `/file/<token>` 也不是 IM 附件；普通 gateway 工具调用没有 comment thread-local client 时，tenant 凭据明明存在却无法读取飞书文档。旧附件补丁还只允许群 `trigger_kind == bot` 且非 command 的回填：DM 显式引用、群 `@配置本人账号`、Feishu command composer 遗留的单独 `/` 均会只留下缓存路径而不把图片/视频交给模型；显式再次引用同一资源又会被本应只约束滑动窗口的去重缓存错误抑制。另外，被引用的合并转发消息在 webhook payload 里不带子消息体，上游只把它归一化成 `[Merged forward message]` 占位符，因此群里"引用合并记录 + @Bot"只能看到占位符，而私聊直发同一条合并记录却能正常展开。初次补上展开后仍有第二层截断：Gateway 对所有 `reply_to_text` 硬编码 `[:500]`，真实卡片的 12 条子消息虽已全部从 Feishu API 取回，送模时却在第 6 条中间静默截断，导致机器人错误声称后续内容不存在。
 
-**修复**：按同发送者和引用链有界回看附件、去重并回填；扫描正文/引用中最多三个 Drive file token，以 tenant 身份下载并保留 MIME/文件名。`feishu_doc_read` 缺 comment client 时从 env/`.env` 构建 tenant client。引用目标是 `merge_forward` 时，`_fetch_message_text` 复用直发路径的 `_expand_merge_forward_message` 展开子消息；`_collect_reply_attachments` 同时接受 `upper_message_id` 指向引用目标的子消息，使转发记录内的图片/文件也被下载。该补丁只负责取得资源字节或 API 文本，不负责解析文件格式。
+**修复**：将显式引用恢复与群聊同发送者滑动窗口回看拆开：DM 和已准入的 `bot`/`assistant_user` 群触发始终可恢复引用附件，显式重复引用不受窗口去重限制；窗口扫描仍仅限群聊并保持有界去重。把单独 `/` 归一为无实际命令的 bare mention，使引用主题进入同一意图链。扫描正文/引用中最多三个 Drive file token，以 tenant 身份下载并保留 MIME/文件名；普通网页链接原文保留。`feishu_doc_read` 缺 comment client 时从 env/`.env` 构建 tenant client。引用目标是 `merge_forward` 时，`_fetch_message_text` 复用直发路径的 `_expand_merge_forward_message` 展开子消息；`_collect_reply_attachments` 同时接受 `upper_message_id` 指向引用目标的子消息，使转发记录内的图片/文件也被下载。Gateway 识别仅由该展开器生成的 `[Merged forwarded messages]` 内部标记，把 Feishu 引用上下文上限从通用 500 提高到有界 20,000 字符；普通 Feishu 引用与其他平台仍保持 500，避免无关扩权。该补丁只负责取得资源字节/API 文本并完整交给模型，不负责解析文件格式。
 
-**验证**：Step 8b 单独检查 sender/reply backfill、去重窗口、Drive URL/download、tenant client fallback、引用 merge_forward 展开（`is_forward_child` + `_fetch_message_text` 展开分支）及对应测试；覆盖失败静默降级、数量上限和 DM/group 通用 doc client。
+**验证**：Step 8b 单独检查 sender/reply backfill、显式重复引用不被去重、单独 `/`、DM/两类群触发、Drive URL/download、tenant client fallback、引用 merge_forward 展开（`is_forward_child` + `_fetch_message_text` 展开分支）、Gateway 20,000 字符专用上限及对应测试。`test_quoted_resource_matrix_reaches_event_across_dm_and_group_triggers` 从完整入站路由覆盖群图片、群视频、DM 网页链接和 DM Drive 链接；`test_explicit_requote_is_not_suppressed_and_media_video_is_preserved` 锁定重复引用与视频 MIME。`test_feishu_merge_forward_reply_context_is_not_cut_at_generic_500_chars` 同时证明 12 条长转发的尾条保留、普通引用仍在 500 截断。真实 API 卡片返回 13 items（1 parent + 12 children、正文 915 字符），修复前 DB turn 在第 6 条中间止于 500 字符，修复后完整文本落入 user turn。
 
-**上游吸收判断**：上游同时支持分离消息附件回看、Drive 正文链接下载、引用合并转发的子消息展开和无 comment-context 的 tenant doc client 时可归档。
+**上游吸收判断**：上游同时支持分离消息附件回看、Drive 正文链接下载、引用合并转发的子消息展开及完整有界送模、无 comment-context 的 tenant doc client 时可归档。
 
 ---
 
@@ -600,7 +604,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：`build_extra_body` 改为返回**单层** `{"google": {"thinking_config": thinking_config}}`（与 qwen/nous 等 profile 的扁平返回约定一致），使线上 `api_kwargs["extra_body"]` 恰为 `{"google": {"thinking_config": {"include_thoughts": False, "thinking_level": "high"}}}`——Vertex 读到顶层 `google.thinking_config`，抑制生效。保留 `thinking_level=high` 让模型继续内部思考，只是不把 thought text 返回正文。
 
-**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 存在 `include_thoughts=true` 说明、`thinking_config["include_thoughts"] = False` 与**单层** `return {"google": {"thinking_config": thinking_config}}`；grep test 存在 `test_vertex_extra_body_preserves_disabled_reasoning`。单测 `venv/bin/python -m pytest tests/hermes_cli/test_vertex_provider.py -q` 19 passed。真链路 A/B 对比（`VERTEX_ACCESS_TOKEN`，同一 plan 类 prompt）：**A 单层 → 干净答案**；**B 双层（旧）→ `" Too simple, doesn't add value…"` 思考泄漏**。`build_kwargs(provider_profile=vertex)` 输出确认为单层结构。
+**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 存在 `include_thoughts=true` 说明、`thinking_config["include_thoughts"] = False` 与**单层** `return {"google": {"thinking_config": thinking_config}}`；grep test 存在 `test_vertex_extra_body_preserves_disabled_reasoning`。单测 `venv/bin/python -m pytest tests/hermes_cli/test_vertex_provider.py -q` 12 passed。真链路 A/B 对比（`VERTEX_ACCESS_TOKEN`，同一 plan 类 prompt）：**A 单层 → 干净答案**；**B 双层（旧）→ `" Too simple, doesn't add value…"` 思考泄漏**。`build_kwargs(provider_profile=vertex)` 输出确认为单层结构。2026-08-03 主会话复测因 Google OAuth 链路瞬时 SSL EOF 自动回退到 Qwen，但仍证明出站最终 `content` 与隐藏 `reasoning` 分离；Vertex 请求形状由上述 12 条单测覆盖。
 
 **注**：`plugins/model-providers/gemini/__init__.py`（AI-Studio `gemini` provider）存在同构的双层写法，但本环境不走该 provider，暂不改动，待验证。
 

@@ -878,15 +878,22 @@ index d7654ff6c147a4d75047948a82ef115db13bc3dc..e44bda2286c2b08a905ac23f6a053916
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258dee6b0da5 100644
+index 905a7763c5f9d402081a77e54db993a7fb7b4c72..ba9390e05df318ef2477844851a8a7f648657207 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -76,6 +76,19 @@ _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
+@@ -76,6 +76,26 @@ _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
  _TELEGRAM_CONNECT_TIMEOUT_SECS_DEFAULT = 180.0
  _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT = 5.0
  _GATEWAY_PROXY_SSE_BUFFER_MAX_CHARS = 16 * 1024 * 1024
 +_DOCUMENT_EXTRACT_MAX_CHARS_PER_FILE = 20_000
 +_DOCUMENT_EXTRACT_MAX_CHARS_TOTAL = 40_000
++_REPLY_CONTEXT_MAX_CHARS = 500
++# Feishu merged-forward cards are already a bounded, explicit user-selected
++# transcript. The generic 500-char reply pointer silently cut real cards in the
++# middle of a child message, so retain the full normal card while keeping an
++# upper bound for pathological forwards.
++_FEISHU_MERGE_FORWARD_REPLY_CONTEXT_MAX_CHARS = 20_000
++_FEISHU_MERGE_FORWARD_CONTEXT_PREFIX = "[Merged forwarded messages]"
 +_PLAIN_TEXT_ATTACHMENT_EXTENSIONS = frozenset({
 +    ".txt", ".md", ".markdown", ".csv", ".tsv", ".log", ".json", ".jsonl",
 +    ".ndjson", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
@@ -901,7 +908,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
  _TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
  _GATEWAY_HYGIENE_PLATFORM = "gateway_hygiene"
  
-@@ -1376,6 +1389,7 @@ from agent.replay_cleanup import (  # noqa: E402
+@@ -1376,6 +1396,7 @@ from agent.replay_cleanup import (  # noqa: E402
      strip_interrupted_tool_tails,
      strip_dangling_tool_call_tail,
      strip_stale_dangerous_confirmations,
@@ -909,7 +916,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
  )
  
  
-@@ -2218,6 +2232,7 @@ from gateway.session import (
+@@ -2218,6 +2239,7 @@ from gateway.session import (
      build_session_key,
      is_shared_multi_user_session,
      neutralize_untrusted_inline_text,
@@ -917,7 +924,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
  )
  from gateway.delivery import (
      DeliveryRouter,
-@@ -2593,33 +2608,72 @@ def _build_media_placeholder(event) -> str:
+@@ -2593,33 +2615,72 @@ def _build_media_placeholder(event) -> str:
      return "\n".join(parts)
  
  
@@ -1003,7 +1010,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
  def _format_duration(seconds: float) -> str:
      total = int(round(seconds))
      if total < 0:
-@@ -2978,6 +3032,51 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -2978,6 +3039,51 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -1055,7 +1062,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -4365,6 +4464,12 @@ class TurnRunner:
+@@ -4365,6 +4471,12 @@ class TurnRunner:
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=ctx.event_message_id,
                          run_still_current=ctx._run_still_current,
@@ -1068,7 +1075,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
                      )
                      if _want_stream_deltas:
                          def _stream_delta_cb(text: str) -> None:
-@@ -4958,7 +5063,22 @@ class TurnRunner:
+@@ -4958,7 +5070,22 @@ class TurnRunner:
                  agent_history = strip_stale_dangerous_confirmations(
                      _selected, now=time.time()
                  )
@@ -1092,7 +1099,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
          # Collect MEDIA paths already in history so we can exclude them
          # from the current turn's extraction. This is compression-safe:
          # even if the message list shrinks, we know which paths are old.
-@@ -5218,26 +5338,28 @@ class TurnRunner:
+@@ -5218,26 +5345,28 @@ class TurnRunner:
              # content list. Consume-and-clear so subsequent turns on the same
              # runner instance don't re-attach stale images.
              _native_imgs = self._runner._consume_pending_native_image_paths(ctx.session_key)
@@ -1125,7 +1132,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
                          _img_exc,
                      )
                      _run_message = ctx.message
-@@ -5404,6 +5526,9 @@ class TurnRunner:
+@@ -5404,6 +5533,9 @@ class TurnRunner:
                  result, final_response or "", history_len=len(agent_history),
              )
              final_response = _sanitize_gateway_final_response(ctx.source.platform, final_response)
@@ -1135,7 +1142,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
              if not final_response:
                  final_response = f"⚠️ {result['error']}" if result.get("error") else ""
              return {
-@@ -15405,6 +15530,41 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15405,6 +15537,41 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  message_text = f"{_note}\n\n{message_text}"
  
@@ -1177,7 +1184,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
          if video_paths:
              from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
              for _vpath in video_paths:
-@@ -15429,6 +15589,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15429,6 +15596,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from tools.credential_files import to_agent_visible_cache_path
  
              _TEXT_EXTENSIONS = {".txt", ".md", ".csv", ".log", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
@@ -1187,7 +1194,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
              for i, path in enumerate(event.media_urls):
                  # Per-attachment document handling. Skip anything already routed
                  # as image / audio / video by the buckets above — only genuine
-@@ -15468,8 +15631,47 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15468,8 +15638,47 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # cache directories are auto-mounted at /root/.hermes/cache/* by get_cache_directory_mounts().
                  agent_path = to_agent_visible_cache_path(path)
  
@@ -1237,7 +1244,23 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
  
          # Discord: surface the triggering message id per-turn on the user
          # message rather than in the cached system prompt. message_id changes
-@@ -15658,6 +15860,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15497,7 +15706,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             # is referencing. History can contain the same or similar text
+             # multiple times, and without an explicit pointer the agent has to
+             # guess (or answer for both subjects). Token overhead is minimal.
+-            reply_snippet = event.reply_to_text[:500]
++            reply_context_limit = _REPLY_CONTEXT_MAX_CHARS
++            if (
++                source is not None
++                and getattr(source, "platform", None) == Platform.FEISHU
++                and event.reply_to_text.startswith(_FEISHU_MERGE_FORWARD_CONTEXT_PREFIX)
++            ):
++                reply_context_limit = _FEISHU_MERGE_FORWARD_REPLY_CONTEXT_MAX_CHARS
++            reply_snippet = event.reply_to_text[:reply_context_limit]
+             if getattr(event, "reply_to_is_own_message", False):
+                 message_text = (
+                     f'[Replying to your previous message: "{reply_snippet}"]\n\n'
+@@ -15658,6 +15874,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          state.persistent.native_image_paths = []
          return paths
  
@@ -1250,7 +1273,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -16993,6 +17201,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16993,6 +17215,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -1262,7 +1285,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -20565,6 +20778,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20565,6 +20792,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -1273,7 +1296,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
              chat_id=context.source.chat_id,
              chat_type=(
                  str(context.source.chat_type) if context.source.chat_type else ""
-@@ -20641,11 +20858,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20641,11 +20872,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -1289,7 +1312,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -20701,6 +20920,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20701,6 +20934,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  resolved_model,
                  cfg,
                  requested_provider=resolved_requested_provider,
@@ -1297,7 +1320,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..17f35061c495d6eac0840bea4de9258d
              )
          except Exception as exc:
              logger.debug("image_routing: decision failed, falling back to text — %s", exc)
-@@ -23153,6 +23373,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23153,6 +23387,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -2363,7 +2386,7 @@ index a63aa2b68c27652c17a30b5e300664781a53933c..2ae71eeaabb84e2f62f3b7cda4bf481c
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7b4951eaf 100644
+index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904ada325910 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -60,6 +60,7 @@ import os
@@ -2784,20 +2807,23 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
  
      def _build_event_handler(self) -> Any:
          if EventDispatcherHandler is None:
-@@ -3282,31 +3547,132 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3282,30 +3547,137 @@ class FeishuAdapter(BasePlatformAdapter):
          is_bot: bool = False,
      ) -> None:
          text, inbound_type, media_urls, media_types, mentions = await self._extract_message_content(message)
-+        trigger_kind = (
-+            self._message_trigger_kind(message)
-+            if chat_type != "p2p"
-+            else "dm"
-+        )
++        mention_trigger_kind = self._message_trigger_kind(message)
++        trigger_kind = mention_trigger_kind if chat_type != "p2p" else "dm"
 +        chat_id = getattr(message, "chat_id", "") or ""
  
          if inbound_type == MessageType.TEXT:
              text = _strip_edge_self_mentions(text, mentions)
-             if text.startswith("/"):
+-            if text.startswith("/"):
++            # Feishu's command composer can leave a lone slash behind after an
++            # @mention. It is not an executable command; treat it like an empty
++            # mention so quoted media/history can still supply the intent.
++            if text == "/":
++                text = ""
++            elif text.startswith("/"):
                  inbound_type = MessageType.COMMAND
  
 -        # Guard runs post-strip so a pure "@Bot" message (stripped to "") is dropped.
@@ -2811,27 +2837,29 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
 +        )
 +
 +        # A pure "@Bot" (stripped to "") carries no instruction, so upstream drops
-+        # it. With bare_mention_intent enabled, a group @mention is treated as a
-+        # real signal instead: synthesize an intent turn so the model addresses the
-+        # quoted message (if this is a reply) or infers intent from recent channel
-+        # history and helps / asks the sender. The @-sender stays the questioner
-+        # (PATCH-FEISHU-GROUP-ADMISSION keeps reply/history as context only). The drop
-+        # still applies to DMs, a disabled toggle, and non-bot triggers, so upstream
-+        # behavior stays reversible.
++        # it. With bare_mention_intent enabled, an explicit self-mention is treated
++        # as a real signal in both groups and DMs: synthesize an intent turn so the
++        # model addresses the quoted message (if this is a reply) or infers intent
++        # from recent conversation history and helps / asks the sender. The
++        # @-sender stays the questioner (PATCH-FEISHU-GROUP-ADMISSION keeps
++        # reply/history as context only). The drop still applies when the toggle is
++        # disabled or the empty message did not mention this bot.
++        reply_to_text: Optional[str] = None
++        reply_to_text_loaded = False
          if inbound_type == MessageType.TEXT and not text and not media_urls:
 -            logger.debug("[Feishu] Ignoring empty text message id=%s", message_id)
 -            return
 +            if (
 +                getattr(self, "_bare_mention_intent", False)
-+                and trigger_kind == "bot"
-+                and chat_type != "p2p"
++                and mention_trigger_kind == "bot"
 +            ):
-+                _reply_text = (
++                reply_to_text = (
 +                    await self._fetch_message_text(reply_to_message_id)
 +                    if reply_to_message_id
 +                    else None
 +                )
-+                text = self._build_bare_mention_intent_text(_reply_text)
++                reply_to_text_loaded = bool(reply_to_message_id)
++                text = self._build_bare_mention_intent_text(reply_to_text)
 +            else:
 +                logger.debug("[Feishu] Ignoring empty text message id=%s", message_id)
 +                return
@@ -2868,20 +2896,22 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
 -            or getattr(message, "root_id", None)
 -            or None
 -        )
+-        reply_to_text = await self._fetch_message_text(reply_to_message_id) if reply_to_message_id else None
 +        # reply_to_message_id was computed above (before the bare-@mention guard).
-         reply_to_text = await self._fetch_message_text(reply_to_message_id) if reply_to_message_id else None
- 
-+        # ── Backfill recently-sent attachments onto a bare @mention ────────────
-+        # A group @mention that carries no media of its own is very likely a
-+        # follow-up to a picture/file the same sender just posted as a separate
-+        # (un-mentionable, therefore _admit-dropped) message. Stitch those in so
-+        # the model can actually see them. Silent on failure — never block the
-+        # text reply. See _backfill_sender_attachments / _backfill_reply_attachments.
++        if reply_to_message_id and not reply_to_text_loaded:
++            reply_to_text = await self._fetch_message_text(reply_to_message_id)
++
++        # ── Backfill quoted or recently-sent attachments ─────────────────────
++        # Explicit quotes are authoritative and work in DMs as well as admitted
++        # group triggers. The sender-window scan is group-only: it recovers a
++        # picture/file sent separately because that media message could not carry
++        # an @mention. Silent on failure — never block the text reply.
++        is_group_context = source_chat_type in {"group", "forum", "channel"}
++        can_backfill_group = is_group_context and trigger_kind in {"bot", "assistant_user"}
 +        if (
 +            getattr(self, "_history_backfill", False)
 +            and self._client is not None
-+            and source_chat_type in {"group", "forum", "channel"}
-+            and trigger_kind == "bot"
++            and (source_chat_type == "dm" or can_backfill_group)
 +            and not media_urls
 +            and inbound_type != MessageType.COMMAND
 +        ):
@@ -2891,15 +2921,16 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
 +                    if reply_attach:
 +                        media_urls.extend(reply_attach[0])
 +                        media_types.extend(reply_attach[1])
-+                window_attach = await self._backfill_sender_attachments(
-+                    chat_id=chat_id,
-+                    trigger_message_id=message_id,
-+                    trigger_timestamp=getattr(message, "create_time", None),
-+                    sender_id=sender_id,
-+                )
-+                if window_attach:
-+                    media_urls.extend(window_attach[0])
-+                    media_types.extend(window_attach[1])
++                if can_backfill_group:
++                    window_attach = await self._backfill_sender_attachments(
++                        chat_id=chat_id,
++                        trigger_message_id=message_id,
++                        trigger_timestamp=getattr(message, "create_time", None),
++                        sender_id=sender_id,
++                    )
++                    if window_attach:
++                        media_urls.extend(window_attach[0])
++                        media_types.extend(window_attach[1])
 +            except Exception:
 +                logger.warning("[Feishu] Attachment backfill failed for id=%s", message_id, exc_info=True)
 +            if media_urls:
@@ -2922,11 +2953,10 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
 +            if drive_attach:
 +                media_urls.extend(drive_attach[0])
 +                media_types.extend(drive_attach[1])
-+
+ 
          sender_primary = (
              getattr(sender_id, "open_id", None)
-             or getattr(sender_id, "user_id", None)
-@@ -3325,13 +3691,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3325,13 +3697,11 @@ class FeishuAdapter(BasePlatformAdapter):
              len(media_urls),
          )
  
@@ -2941,7 +2971,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3351,8 +3715,423 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3351,8 +3721,423 @@ class FeishuAdapter(BasePlatformAdapter):
              channel_prompt=self._resolve_channel_prompt(chat_id, thread_id or None),
              timestamp=datetime.now(),
          )
@@ -3150,11 +3180,11 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
 +        message, or None.
 +
 +        ``_fetch_message_text`` downloads then discards these resources (keeping
-+        only text), so we fetch them directly here. Deduped and silent on failure.
++        only text), so we fetch them directly here. An explicit quote is never
++        suppressed by the sender-window dedupe cache: users may legitimately
++        re-quote the same image/video for a different question.
 +        """
 +        if not reply_to_message_id or not self._client:
-+            return None
-+        if str(reply_to_message_id) in self._backfilled_attachment_ids:
 +            return None
 +        try:
 +            return await asyncio.wait_for(
@@ -3365,7 +3395,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -3387,6 +4166,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3387,6 +4172,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -3375,7 +3405,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3695,7 +4477,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3695,7 +4483,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -3387,7 +3417,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3814,6 +4599,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3814,6 +4605,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -3412,7 +3442,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3828,6 +4631,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3828,6 +4637,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -3523,7 +3553,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3890,6 +4797,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3890,6 +4803,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return MessageType.VOICE
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -3532,7 +3562,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4017,6 +4926,77 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4017,6 +4932,77 @@ class FeishuAdapter(BasePlatformAdapter):
                  )
          return "", ""
  
@@ -3610,7 +3640,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
      # =========================================================================
      # Static helpers — extension / media-type guessing
      # =========================================================================
-@@ -4247,11 +5227,31 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4247,11 +5233,31 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -3621,11 +3651,11 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
                  raw_content=raw_content,
                  mentions=parent_mentions,
 +                bot=self._bot_identity(),
-+            )
+             )
 +            media_urls, _media_types = await self._download_feishu_message_resources(
 +                message_id=message_id,
 +                normalized=normalized,
-             )
++            )
 +            text = self._message_context_text(
 +                normalized=normalized,
 +                media_urls=media_urls,
@@ -3644,7 +3674,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
                  self._message_text_cache.popitem(last=False)
-@@ -4303,6 +5303,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4303,6 +5309,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -3656,7 +3686,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4318,7 +5323,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4318,7 +5329,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -3665,7 +3695,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4339,8 +5344,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4339,8 +5350,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -3676,12 +3706,12 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4438,6 +5443,167 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4438,6 +5449,167 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
 +    def _message_trigger_kind(self, message: Any) -> str:
-+        """Return why a Feishu group message should trigger Hermes."""
++        """Return which configured mention target the message addresses."""
 +        mention_triggers = getattr(self, "_mention_triggers", {"bot"})
 +        if "bot" in mention_triggers and self._mentions_self(message):
 +            return "bot"
@@ -3762,11 +3792,11 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
 +
 +    @staticmethod
 +    def _build_bare_mention_intent_text(reply_to_text: Optional[str]) -> str:
-+        """Synthesize a turn for a bare group @mention that carries no text.
++        """Synthesize a turn for a bare @mention that carries no text.
 +
 +        The user @mentioned the bot with nothing else. Instead of dropping the
 +        turn, instruct the model to act on the quoted message (when this is a
-+        reply) or to infer intent from the recent channel history and either help
++        reply) or to infer intent from the recent conversation history and either help
 +        or ask one brief clarifying question. The current message author (the
 +        person who sent this @mention) stays the questioner and reply target; the
 +        quoted message and channel history are context only. Gated by
@@ -3782,10 +3812,10 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
 +            )
 +        return (
 +            "[Feishu bare @mention — no text]\n"
-+            "The current author @mentioned you with no text of their own. Use the recent channel "
-+            "history above as context to infer their most likely intent: if it is reasonably clear, "
++            "The current author @mentioned you with no text of their own. Use the recent channel history "
++            "(or, in a DM, conversation history) as context to infer their most likely intent: if it is reasonably clear, "
 +            "give your best helpful answer; otherwise ask one brief clarifying question about what "
-+            "they need. The channel history is context only — the current author is the person you "
++            "they need. The history is context only — the current author is the person you "
 +            "are replying to."
 +        )
 +
@@ -3844,7 +3874,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4773,9 +5939,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4773,9 +5945,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -3860,7 +3890,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4786,34 +5956,25 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4786,34 +5962,25 @@ class FeishuAdapter(BasePlatformAdapter):
              request = self._build_reply_message_request(effective_reply_to, body)
              return await self._run_blocking(self._client.im.v1.message.reply, request)
  
@@ -3914,7 +3944,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..b82c6a861248236eb37ab7ae9b112cd7
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -5033,6 +6194,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -5033,6 +6200,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -4612,7 +4642,7 @@ index cd5c8a0be79c2623c23b7190c662952239979fcb..b53447df942babc4617e02caf38e8ebe
 +    assert error == ""
 +    assert "revenue,42" in text
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b1ff6a495 100644
+index a923ea5f5d46eaa5501fcd965989e6b186152b0f..2061d5b7de64f0dd4a0d9fd294727f9acad7096b 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -99,6 +99,244 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -4961,7 +4991,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
          )
  
          async def _direct(func, *args, **kwargs):
-@@ -270,115 +566,422 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+@@ -270,115 +566,475 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
  
          with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
              result = asyncio.run(
@@ -5282,6 +5312,59 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +        self.assertEqual(normalized.image_keys, ["img_key"])
 +
 +    @patch.dict(os.environ, {}, clear=True)
++    def test_explicit_requote_is_not_suppressed_and_media_video_is_preserved(self):
++        """PATCH-FEISHU-RESOURCE-ACCESS: sender-window dedupe must not block
++        an explicit repeat quote, and native Feishu media keeps its video MIME."""
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig(extra={"history_backfill": True}))
++
++        class _MessageAPI:
++            def get(self, request):
++                return SimpleNamespace(
++                    success=lambda: True,
++                    data=SimpleNamespace(
++                        items=[
++                            SimpleNamespace(
++                                message_id=request.message_id,
++                                upper_message_id="",
++                                msg_type="media",
++                                body=SimpleNamespace(
++                                    content=json.dumps(
++                                        {"file_key": "video_key", "file_name": "clip.mp4"}
++                                    )
++                                ),
++                                mentions=[],
++                            )
++                        ]
++                    ),
++                )
++
++        adapter._client = SimpleNamespace(
++            im=SimpleNamespace(v1=SimpleNamespace(message=_MessageAPI()))
++        )
++        adapter._mark_attachment_backfilled("om_video")
++
++        async def _direct(func, *args, **kwargs):
++            return func(*args, **kwargs)
++
++        with (
++            patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct),
++            patch.object(
++                adapter,
++                "_download_feishu_message_resources",
++                AsyncMock(return_value=(["/tmp/clip.mp4"], ["video/mp4"])),
++            ) as download,
++        ):
++            result = asyncio.run(adapter._backfill_reply_attachments("om_video"))
++
++        self.assertEqual(result, (["/tmp/clip.mp4"], ["video/mp4"]))
++        normalized = download.await_args.kwargs["normalized"]
++        self.assertEqual(normalized.raw_type, "media")
++        self.assertEqual(normalized.media_refs[0].file_key, "video_key")
++
++    @patch.dict(os.environ, {}, clear=True)
 +    def test_edit_message_updates_existing_feishu_message(self):
 +        from gateway.config import PlatformConfig
 +        from plugins.platforms.feishu.adapter import FeishuAdapter
@@ -5463,22 +5546,36 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
                  return self
  
              def register_p2_im_message_receive_v1(self, _handler):
-@@ -951,6 +1554,101 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -951,28 +1607,30 @@ class TestAdapterBehavior(unittest.TestCase):
          self.assertEqual(event.source.chat_name, "Feishu DM")
  
  
+-    @patch.dict(
+-        os.environ,
+-        {
+-            "HERMES_FEISHU_TEXT_BATCH_MAX_MESSAGES": "2",
+-        },
+-        clear=True,
+-    )
+-    def test_text_batch_flushes_when_message_count_limit_is_hit(self):
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_text_batch_does_not_merge_different_senders(self):
-+        from gateway.config import PlatformConfig
-+        from gateway.platforms.base import MessageEvent, MessageType
-+        from plugins.platforms.feishu.adapter import FeishuAdapter
-+        from gateway.session import SessionSource
-+
+         from gateway.config import PlatformConfig
+         from gateway.platforms.base import MessageEvent, MessageType
+         from plugins.platforms.feishu.adapter import FeishuAdapter
+         from gateway.session import SessionSource
+ 
+-        adapter = FeishuAdapter(PlatformConfig())
 +        adapter = FeishuAdapter(PlatformConfig(extra={"group_sessions_per_user": False}))
-+        adapter.handle_message = AsyncMock()
+         adapter.handle_message = AsyncMock()
+-        source = SessionSource(
 +        alice = SessionSource(
-+            platform=adapter.platform,
-+            chat_id="oc_chat",
+             platform=adapter.platform,
+             chat_id="oc_chat",
+-            chat_name="Feishu DM",
+-            chat_type="dm",
+-            user_id="ou_user",
+-            user_name="张三",
 +            chat_name="Feishu Group",
 +            chat_type="group",
 +            user_id="ou_alice",
@@ -5491,40 +5588,52 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +            chat_type="group",
 +            user_id="ou_bob",
 +            user_name="Bob",
-+        )
-+
-+        async def _sleep(_delay):
-+            return None
-+
-+        async def _run() -> None:
-+            with patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_sleep):
-+                await adapter._dispatch_inbound_event(
+         )
+ 
+         async def _sleep(_delay):
+@@ -981,13 +1639,10 @@ class TestAdapterBehavior(unittest.TestCase):
+         async def _run() -> None:
+             with patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_sleep):
+                 await adapter._dispatch_inbound_event(
+-                    MessageEvent(text="A", message_type=MessageType.TEXT, source=source, message_id="om_1")
+-                )
+-                await adapter._dispatch_inbound_event(
+-                    MessageEvent(text="B", message_type=MessageType.TEXT, source=source, message_id="om_2")
 +                    MessageEvent(text="A", message_type=MessageType.TEXT, source=alice, message_id="om_1")
-+                )
-+                await adapter._dispatch_inbound_event(
+                 )
+                 await adapter._dispatch_inbound_event(
+-                    MessageEvent(text="C", message_type=MessageType.TEXT, source=source, message_id="om_3")
 +                    MessageEvent(text="B", message_type=MessageType.TEXT, source=bob, message_id="om_2")
-+                )
-+                pending = list(adapter._pending_text_batch_tasks.values())
-+                self.assertEqual(len(pending), 1)
-+                await asyncio.gather(*pending, return_exceptions=True)
-+
-+        asyncio.run(_run())
-+
-+        self.assertEqual(adapter.handle_message.await_count, 2)
+                 )
+                 pending = list(adapter._pending_text_batch_tasks.values())
+                 self.assertEqual(len(pending), 1)
+@@ -996,27 +1651,182 @@ class TestAdapterBehavior(unittest.TestCase):
+         asyncio.run(_run())
+ 
+         self.assertEqual(adapter.handle_message.await_count, 2)
+-        first = adapter.handle_message.await_args_list[0].args[0]
+-        second = adapter.handle_message.await_args_list[1].args[0]
+-        self.assertEqual(first.text, "A\nB")
+-        self.assertEqual(second.text, "C")
 +        first_event = adapter.handle_message.await_args_list[0].args[0]
 +        second_event = adapter.handle_message.await_args_list[1].args[0]
 +        self.assertEqual(first_event.text, "A")
 +        self.assertEqual(first_event.source.user_name, "Alice")
 +        self.assertEqual(second_event.text, "B")
 +        self.assertEqual(second_event.source.user_name, "Bob")
-+
-+    @patch.dict(os.environ, {}, clear=True)
+ 
+     @patch.dict(os.environ, {}, clear=True)
+-    def test_media_batch_merges_rapid_photo_messages(self):
+-        from gateway.config import PlatformConfig
 +    def test_group_turn_body_keeps_current_author_next_to_question(self):
 +        from gateway.config import GatewayConfig, PlatformConfig, Platform
-+        from gateway.platforms.base import MessageEvent, MessageType
+         from gateway.platforms.base import MessageEvent, MessageType
+-        from plugins.platforms.feishu.adapter import FeishuAdapter
 +        from gateway.run import GatewayRunner
-+        from gateway.session import SessionSource
-+
+         from gateway.session import SessionSource
+ 
+-        adapter = FeishuAdapter(PlatformConfig())
+-        adapter.handle_message = AsyncMock()
 +        runner = GatewayRunner.__new__(GatewayRunner)
 +        runner.config = GatewayConfig(
 +            group_sessions_per_user=False,
@@ -5536,9 +5645,14 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +        runner._consume_pending_native_image_paths = lambda _session_key: []
 +        runner._session_key_for_source = lambda _source: "agent:main:feishu:group:oc_chat:ou_songfen"
 +
-+        source = SessionSource(
+         source = SessionSource(
+-            platform=adapter.platform,
 +            platform=Platform.FEISHU,
-+            chat_id="oc_chat",
+             chat_id="oc_chat",
+-            chat_name="Feishu DM",
+-            chat_type="dm",
+-            user_id="ou_user",
+-            user_name="张三",
 +            chat_name="SpaceSight 技术分享专项群",
 +            chat_type="group",
 +            user_id="ou_songfen",
@@ -5562,26 +5676,153 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +        self.assertIn("[Ethan] 前面的问题", result)
 +        self.assertIn("[New message]\n[Songfen] 这个问题怎么理解？", result)
 +
-     @patch.dict(
-         os.environ,
-         {
-@@ -1087,97 +1785,1285 @@ class TestAdapterBehavior(unittest.TestCase):
-                 events.append("client_enter")
-                 return self
++    @patch.dict(os.environ, {}, clear=True)
++    def test_feishu_merge_forward_reply_context_is_not_cut_at_generic_500_chars(self):
++        """PATCH-FEISHU-RESOURCE-ACCESS: expanded forwarded transcripts must
++        survive Gateway reply-pointer injection; ordinary replies keep the
++        shared 500-character cap."""
++        from gateway.config import GatewayConfig, PlatformConfig, Platform
++        from gateway.platforms.base import MessageEvent
++        from gateway.run import GatewayRunner
++        from gateway.session import SessionSource
++
++        runner = GatewayRunner.__new__(GatewayRunner)
++        runner.config = GatewayConfig(
++            platforms={Platform.FEISHU: PlatformConfig(enabled=True)},
++        )
++        runner.adapters = {}
++        runner._model = "test-model"
++        runner._base_url = None
++        source = SessionSource(
++            platform=Platform.FEISHU,
++            chat_id="oc_dm",
++            chat_name="Feishu DM",
++            chat_type="private",
++            user_id="ou_alice",
++            user_name="Alice",
++        )
++        forwarded = (
++            "[Merged forwarded messages]\n"
++            + "\n".join(f"- Alice: message {index} " + ("x" * 90) for index in range(12))
++            + "\n- Bob: final child survives"
++        )
++        self.assertGreater(len(forwarded), 500)
++        event = MessageEvent(
++            text="请完整复述",
++            source=source,
++            reply_to_message_id="om_forward",
++            reply_to_text=forwarded,
++        )
++
++        result = asyncio.run(
++            runner._prepare_inbound_message_text(
++                event=event,
++                source=source,
++                history=[],
++            )
++        )
++
++        self.assertIn("final child survives", result)
++        self.assertIn(forwarded, result)
++
++        event.reply_to_text = ("ordinary reply " * 50) + "ordinary tail"
++        ordinary = asyncio.run(
++            runner._prepare_inbound_message_text(
++                event=event,
++                source=source,
++                history=[],
++            )
++        )
++        self.assertNotIn("ordinary tail", ordinary)
++
++    @patch.dict(
++        os.environ,
++        {
++            "HERMES_FEISHU_TEXT_BATCH_MAX_MESSAGES": "2",
++        },
++        clear=True,
++    )
++    def test_text_batch_flushes_when_message_count_limit_is_hit(self):
++        from gateway.config import PlatformConfig
++        from gateway.platforms.base import MessageEvent, MessageType
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++        from gateway.session import SessionSource
++
++        adapter = FeishuAdapter(PlatformConfig())
++        adapter.handle_message = AsyncMock()
++        source = SessionSource(
++            platform=adapter.platform,
++            chat_id="oc_chat",
++            chat_name="Feishu DM",
++            chat_type="dm",
++            user_id="ou_user",
++            user_name="张三",
++        )
++
++        async def _sleep(_delay):
++            return None
++
++        async def _run() -> None:
++            with patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_sleep):
++                await adapter._dispatch_inbound_event(
++                    MessageEvent(text="A", message_type=MessageType.TEXT, source=source, message_id="om_1")
++                )
++                await adapter._dispatch_inbound_event(
++                    MessageEvent(text="B", message_type=MessageType.TEXT, source=source, message_id="om_2")
++                )
++                await adapter._dispatch_inbound_event(
++                    MessageEvent(text="C", message_type=MessageType.TEXT, source=source, message_id="om_3")
++                )
++                pending = list(adapter._pending_text_batch_tasks.values())
++                self.assertEqual(len(pending), 1)
++                await asyncio.gather(*pending, return_exceptions=True)
++
++        asyncio.run(_run())
++
++        self.assertEqual(adapter.handle_message.await_count, 2)
++        first = adapter.handle_message.await_args_list[0].args[0]
++        second = adapter.handle_message.await_args_list[1].args[0]
++        self.assertEqual(first.text, "A\nB")
++        self.assertEqual(second.text, "C")
++
++    @patch.dict(os.environ, {}, clear=True)
++    def test_media_batch_merges_rapid_photo_messages(self):
++        from gateway.config import PlatformConfig
++        from gateway.platforms.base import MessageEvent, MessageType
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++        from gateway.session import SessionSource
++
++        adapter = FeishuAdapter(PlatformConfig())
++        adapter.handle_message = AsyncMock()
++        source = SessionSource(
++            platform=adapter.platform,
++            chat_id="oc_chat",
++            chat_name="Feishu DM",
++            chat_type="dm",
++            user_id="ou_user",
++            user_name="张三",
+         )
  
--            async def __aexit__(self, *exc: object) -> None:
--                events.append("client_exit")
-+            async def __aexit__(self, *exc: object) -> None:
-+                events.append("client_exit")
-+
-+            async def get(self, *_a: object, **_k: object) -> _FakeResponse:
-+                events.append("get")
-+                return _FakeResponse()
-+
-+        with tempfile.TemporaryDirectory() as tmp:
-+            with patch.dict(os.environ, {"HERMES_HOME": tmp}, clear=False):
-+                adapter = FeishuAdapter(PlatformConfig())
-+
+         async def _sleep(_delay):
+@@ -1098,86 +1908,1338 @@ class TestAdapterBehavior(unittest.TestCase):
+             with patch.dict(os.environ, {"HERMES_HOME": tmp}, clear=False):
+                 adapter = FeishuAdapter(PlatformConfig())
+ 
+-                async def _run() -> tuple[str, str]:
+-                    with patch("tools.url_safety.is_safe_url", return_value=True):
+-                        with patch(
+-                            "tools.url_safety.create_ssrf_safe_async_client",
+-                            side_effect=lambda **_kwargs: _FakeAsyncClient(),
+-                        ):
+-                            with patch(
+-                                "plugins.platforms.feishu.adapter.cache_document_from_bytes",
+-                                return_value="/tmp/cached-doc.bin",
+-                            ):
+-                                return await adapter._download_remote_document(
+-                                    "https://example.com/doc.bin",
+-                                    default_ext=".bin",
+-                                    preferred_name="doc",
+-                                )
 +                async def _run() -> tuple[str, str]:
 +                    with patch("tools.url_safety.is_safe_url", return_value=True):
 +                        with patch(
@@ -5862,6 +6103,70 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +        self.assertIn("quoted message", event.text)
 +        # The questioner is the @-sender, NOT the quoted message's author.
 +        self.assertEqual(event.source.user_name, "Alice")
++
++    @patch.dict(os.environ, {}, clear=True)
++    def test_dm_bare_mention_routes_reply_or_recent_conversation_intent(self):
++        """PATCH-FEISHU-GROUP-ADMISSION: an explicit bare @Bot in a DM is a
++        real trigger too; a quote becomes the subject, while an unquoted mention
++        asks the model to infer intent from the existing conversation."""
++        from gateway.config import PlatformConfig
++        from gateway.platforms.base import MessageType
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        for parent_id, quoted_text in (
++            ("om_forward", "合并转发记录正文"),
++            (None, None),
++        ):
++            with self.subTest(parent_id=parent_id):
++                adapter = FeishuAdapter(PlatformConfig())
++                adapter._bare_mention_intent = True
++                adapter._dispatch_inbound_event = AsyncMock()
++                adapter._message_trigger_kind = Mock(return_value="bot")
++                adapter._extract_message_content = AsyncMock(
++                    return_value=("", MessageType.TEXT, [], [], [])
++                )
++                adapter._fetch_channel_context = AsyncMock(return_value=None)
++                adapter._fetch_message_text = AsyncMock(return_value=quoted_text)
++                adapter.get_chat_info = AsyncMock(
++                    return_value={"chat_id": "oc_dm", "name": "Feishu DM", "type": "dm"}
++                )
++                adapter._resolve_sender_profile = AsyncMock(
++                    return_value={"user_id": "ou_alice", "user_name": "Alice", "user_id_alt": None}
++                )
++                message = SimpleNamespace(
++                    chat_id="oc_dm",
++                    thread_id=None,
++                    parent_id=parent_id,
++                    upper_message_id=None,
++                    root_id=None,
++                    message_type="text",
++                    content='{"text":""}',
++                    message_id="om_dm_bare",
++                )
++
++                asyncio.run(
++                    adapter._process_inbound_message(
++                        data=SimpleNamespace(event=SimpleNamespace(message=message)),
++                        message=message,
++                        sender_id=SimpleNamespace(open_id="ou_alice", user_id=None, union_id=None),
++                        is_bot=False,
++                        chat_type="p2p",
++                        message_id="om_dm_bare",
++                    )
++                )
++
++                adapter._dispatch_inbound_event.assert_awaited_once()
++                event = adapter._dispatch_inbound_event.await_args.args[0]
++                self.assertIn("bare @mention", event.text)
++                if parent_id:
++                    self.assertEqual(event.reply_to_message_id, parent_id)
++                    self.assertEqual(event.reply_to_text, quoted_text)
++                    self.assertIn("quoted message", event.text)
++                    adapter._fetch_message_text.assert_awaited_once_with(parent_id)
++                else:
++                    self.assertIsNone(event.reply_to_message_id)
++                    self.assertIn("conversation history", event.text)
++                    adapter._fetch_message_text.assert_not_awaited()
 +
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_bare_mention_dropped_when_toggle_disabled(self):
@@ -6733,10 +7038,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +
 +        adapter = FeishuAdapter(PlatformConfig())
 +        captured = {}
- 
--            async def get(self, *_a: object, **_k: object) -> _FakeResponse:
--                events.append("get")
--                return _FakeResponse()
++
 +        class _MessageAPI:
 +            def create(self, request):
 +                captured["request"] = request
@@ -6744,10 +7046,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +                    success=lambda: True,
 +                    data=SimpleNamespace(message_id="om_markdown"),
 +                )
- 
--        with tempfile.TemporaryDirectory() as tmp:
--            with patch.dict(os.environ, {"HERMES_HOME": tmp}, clear=False):
--                adapter = FeishuAdapter(PlatformConfig())
++
 +        adapter._client = SimpleNamespace(
 +            im=SimpleNamespace(
 +                v1=SimpleNamespace(
@@ -6756,25 +7055,16 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +            )
 +        )
  
--                async def _run() -> tuple[str, str]:
--                    with patch("tools.url_safety.is_safe_url", return_value=True):
--                        with patch(
--                            "tools.url_safety.create_ssrf_safe_async_client",
--                            side_effect=lambda **_kwargs: _FakeAsyncClient(),
--                        ):
--                            with patch(
--                                "plugins.platforms.feishu.adapter.cache_document_from_bytes",
--                                return_value="/tmp/cached-doc.bin",
--                            ):
--                                return await adapter._download_remote_document(
--                                    "https://example.com/doc.bin",
--                                    default_ext=".bin",
--                                    preferred_name="doc",
--                                )
+-                path, filename = asyncio.run(_run())
 +        async def _direct(func, *args, **kwargs):
 +            return func(*args, **kwargs)
  
--                path, filename = asyncio.run(_run())
+-        self.assertEqual(path, "/tmp/cached-doc.bin")
+-        self.assertTrue(filename)
+-        # content_read MUST happen before client_exit — otherwise we're
+-        # reading response body after the connection pool has been torn
+-        # down, which only works by accident (httpx's eager buffering).
+-        self.assertLess(events.index("content_read"), events.index("client_exit"))
 +        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
 +            result = asyncio.run(
 +                adapter.send(
@@ -6783,21 +7073,15 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +                )
 +            )
  
--        self.assertEqual(path, "/tmp/cached-doc.bin")
--        self.assertTrue(filename)
--        # content_read MUST happen before client_exit — otherwise we're
--        # reading response body after the connection pool has been torn
--        # down, which only works by accident (httpx's eager buffering).
--        self.assertLess(events.index("content_read"), events.index("client_exit"))
+-    def test_download_remote_document_blocks_connect_time_rebind(self):
+-        import httpcore
+-        from httpcore._backends.auto import AutoBackend
 +        self.assertTrue(result.success)
 +        self.assertEqual(captured["request"].request_body.msg_type, "post")
 +        payload = json.loads(captured["request"].request_body.content)
 +        elements = payload["zh_cn"]["content"][0]
 +        self.assertEqual(elements, [{"tag": "md", "text": "可以用 **粗体** 和 *斜体*。"}])
- 
--    def test_download_remote_document_blocks_connect_time_rebind(self):
--        import httpcore
--        from httpcore._backends.auto import AutoBackend
++
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_send_splits_fenced_code_blocks_into_separate_post_rows(self):
          from gateway.config import PlatformConfig
@@ -6925,7 +7209,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
  
      def test_dedup_state_persists_across_adapter_restart(self):
          from gateway.config import PlatformConfig
-@@ -1244,7 +3130,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1244,7 +3306,10 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -6937,7 +7221,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
  
  
      @patch.dict(os.environ, {}, clear=True)
-@@ -2227,6 +4116,74 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
+@@ -2227,6 +4292,195 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
          adapter._dispatch_inbound_event = AsyncMock()
          return adapter
  
@@ -6978,6 +7262,127 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
 +        adapter._download_drive_file_links.assert_awaited_once()
 +        self.assertIn("boxcnQuotedPdf", adapter._download_drive_file_links.await_args.args[0])
 +
++    def test_quoted_resource_matrix_reaches_event_across_dm_and_group_triggers(self):
++        """PATCH-FEISHU-RESOURCE-ACCESS: exercise the complete inbound route,
++        not just attachment helpers, for image/video/web/Drive reply subjects."""
++        from gateway.platforms.base import MessageType
++
++        cases = (
++            (
++                "group_lone_slash_image",
++                "group",
++                "bot",
++                "/",
++                "[Image saved at: /cache/quoted.jpg]",
++                (["/cache/quoted.jpg"], ["image/jpeg"]),
++                None,
++                ["/cache/quoted.jpg"],
++                ["image/jpeg"],
++            ),
++            (
++                "group_assistant_user_video",
++                "group",
++                "assistant_user",
++                "请分析",
++                "[Attachment: clip.mp4]",
++                (["/cache/clip.mp4"], ["video/mp4"]),
++                None,
++                ["/cache/clip.mp4"],
++                ["video/mp4"],
++            ),
++            (
++                "dm_web_link",
++                "p2p",
++                "bot",
++                "看看",
++                "https://example.com/report?id=7",
++                None,
++                None,
++                [],
++                [],
++            ),
++            (
++                "dm_drive_link",
++                "p2p",
++                "bot",
++                "看看",
++                "https://whales.feishu.cn/file/boxcnQuotedPdf",
++                None,
++                (["/cache/report.pdf"], ["application/pdf"]),
++                ["/cache/report.pdf"],
++                ["application/pdf"],
++            ),
++        )
++
++        for (
++            label,
++            chat_type,
++            trigger_kind,
++            current_text,
++            quoted_text,
++            quoted_media,
++            drive_media,
++            expected_urls,
++            expected_types,
++        ) in cases:
++            with self.subTest(label=label):
++                adapter = self._build_adapter()
++                adapter._client = Mock()
++                adapter._bare_mention_intent = True
++                adapter._history_backfill = True
++                adapter._assistant_identity_label = "cyber assistant"
++                adapter._assistant_identity_throttle_messages = 20
++                adapter._assistant_identity_throttle_seconds = 600
++                adapter._message_trigger_kind = Mock(return_value=trigger_kind)
++                adapter._resolve_source_chat_type = Mock(
++                    return_value="dm" if chat_type == "p2p" else "group"
++                )
++                adapter._extract_message_content = AsyncMock(
++                    return_value=(current_text, MessageType.TEXT, [], [], [])
++                )
++                adapter._fetch_message_text = AsyncMock(return_value=quoted_text)
++                adapter._fetch_channel_context = AsyncMock(return_value=None)
++                adapter._backfill_reply_attachments = AsyncMock(return_value=quoted_media)
++                adapter._backfill_sender_attachments = AsyncMock(return_value=None)
++                adapter._download_drive_file_links = AsyncMock(return_value=drive_media)
++                adapter._sender_is_configured_assistant_user = Mock(return_value=False)
++                adapter._resolve_channel_prompt = Mock(return_value=None)
++                message = SimpleNamespace(
++                    content=json.dumps({"text": current_text}),
++                    message_type="text",
++                    message_id=f"m_{label}",
++                    mentions=[],
++                    chat_id="oc_chat",
++                    parent_id="m_parent",
++                    upper_message_id=None,
++                    root_id=None,
++                    thread_id=None,
++                    create_time="1710000005000",
++                )
++
++                asyncio.run(
++                    adapter._process_inbound_message(
++                        data=message,
++                        message=message,
++                        sender_id=SimpleNamespace(
++                            open_id="ou_alice", user_id=None, union_id=None
++                        ),
++                        chat_type=chat_type,
++                        message_id=message.message_id,
++                    )
++                )
++
++                event = adapter._dispatch_inbound_event.await_args.args[0]
++                self.assertEqual(event.message_type, MessageType.TEXT)
++                self.assertEqual(event.reply_to_text, quoted_text)
++                self.assertEqual(event.media_urls, expected_urls)
++                self.assertEqual(event.media_types, expected_types)
++                adapter._backfill_reply_attachments.assert_awaited_once_with("m_parent")
++                if label == "group_lone_slash_image":
++                    self.assertIn("bare @mention", event.text)
++                if chat_type == "p2p":
++                    adapter._backfill_sender_attachments.assert_not_awaited()
++
 +    def test_leading_self_mention_stripped_for_command(self):
 +        from gateway.platforms.base import MessageType
 +
@@ -7012,7 +7417,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
  
      def test_non_command_message_with_mentions_injects_hint(self):
          from gateway.platforms.base import MessageType
-@@ -2342,6 +4299,44 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -2342,6 +4596,44 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -7057,7 +7462,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
  
  class TestFeishuMentionEndToEnd(unittest.TestCase):
      """High-level scenarios from the design spec — verify the full pipeline."""
-@@ -2447,6 +4442,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
+@@ -2447,6 +4739,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
          self.assertNotIn("@Hermes @Alice", event.text)
  
  
@@ -7123,6 +7528,12 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..61a500d385943be9ff58fc562eb0c53b
  class TestChatLockEviction(unittest.TestCase):
      """_get_chat_lock is LRU-bounded so _chat_locks cannot grow unbounded."""
  
+@@ -2465,5 +4816,3 @@ class TestChatLockEviction(unittest.TestCase):
+ 
+         adapter = self._make_adapter()
+         self.assertIsInstance(adapter._chat_locks, _collections.OrderedDict)
+-
+-
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
 index 09157c757e98522fa0202af70f29c49cddc90c48..b170441ebb4a8f50c6f4f688686cd4c6d3b0697e 100644
 --- a/tests/gateway/test_feishu_bot_admission.py

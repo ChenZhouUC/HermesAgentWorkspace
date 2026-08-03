@@ -163,11 +163,36 @@ _has_conflict_markers() {
     return 1
 }
 
-# Returns 0 (true) if the launchd gateway service has an active PID.
-# Older hermes gateway status output used launchd's quoted "PID" field; current
-# pretty output prints "Gateway is supervised by launchd (PID NNN)".
+# Print the active launchd gateway PID, accepting both the older JSON-like
+# status output and the current "Gateway is supervised by launchd (PID NNN)".
+gw_pid() {
+    hermes gateway status 2>&1 | sed -nE \
+        -e 's/.*"PID"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' \
+        -e 's/.*PID[[:space:]]+([0-9]+).*/\1/p' | head -n 1
+}
+
+# Returns 0 if the launchd gateway service has an active PID.
 gw_running() {
-    hermes gateway status 2>&1 | grep -Eq '"PID"|PID[[:space:]]+[0-9]+'
+    [[ -n "$(gw_pid)" ]]
+}
+
+# Personal display contract: the owner DM may show each newly-started tool as
+# a separate progress card, while Feishu groups expose no tool/interim/thinking
+# UI. Both scopes keep final assistant delivery non-streaming and draft-free.
+_verify_feishu_display_policy() {
+    "${HERMES_AGENT}/venv/bin/python" -c '
+import sys, yaml
+with open(sys.argv[1], encoding="utf-8") as handle:
+    config = yaml.safe_load(handle) or {}
+platforms = ((config.get("display") or {}).get("platforms") or {})
+dm = platforms.get("feishu") or {}
+group = platforms.get("feishu_group") or {}
+disabled = ("streaming", "interim_assistant_messages", "long_running_notifications", "busy_ack_detail", "thinking_progress")
+assert dm.get("tool_progress") == "new"
+assert all(dm.get(key) is False for key in disabled)
+assert group.get("tool_progress") is False
+assert all(group.get(key) is False for key in disabled)
+' "${HERMES_HOME}/config.yaml" >/dev/null 2>&1
 }
 
 # ── Trap: restore patches if script dies after reverting them ────────────────
@@ -838,6 +863,7 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "$
         grep -q '_build_bare_mention_intent_text' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'Sandboxed Feishu groups' "${LLM_WIKI_SKILL_MD}" 2>/dev/null &&
         grep -q 'search_files(pattern="transformer", path="~/.hermes/wiki"' "${LLM_WIKI_SKILL_MD}" 2>/dev/null &&
+        grep -q 'test_dm_bare_mention_routes_reply_or_recent_conversation_intent' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_bare_mention_dropped_when_toggle_disabled' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'Current-author rule' "${SESSION_PY}" 2>/dev/null &&
@@ -939,15 +965,18 @@ else
     warn "Could not locate PATCH-FEISHU-NORMAL-REPLY files"
 fi
 
-# PATCH-FEISHU-FINAL-ONLY: defaults to final-only output so progress, interim drafts and
-# hidden reasoning do not appear as user-visible chat bubbles.
+# PATCH-FEISHU-FINAL-ONLY: upstream defaults stay final-only. This personal
+# config deliberately enables separate `new` tool cards only in the owner DM;
+# groups keep every progress/interim/thinking surface off. Provider-side thought
+# suppression remains the separate PATCH-VERTEX-HIDDEN-THOUGHTS contract.
 if [[ -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" ]]; then
     if grep -q '"feishu":          {' "${DISPLAY_CONFIG_PY}" 2>/dev/null &&
-        grep -q 'test_feishu_defaults_to_final_only' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-FEISHU-FINAL-ONLY active: final-only display defaults"
+        grep -q 'test_feishu_defaults_to_final_only' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null &&
+        _verify_feishu_display_policy; then
+        ok "PATCH-FEISHU-FINAL-ONLY active: DM new-tool cards; groups final-only; thinking hidden"
         _FEISHU_FINAL_ONLY_PATCH_OK=true
     else
-        warn "PATCH-FEISHU-FINAL-ONLY inactive or partial"
+        warn "PATCH-FEISHU-FINAL-ONLY inactive or local DM/group display policy drifted"
         add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-FINAL-ONLY]"
     fi
 else
@@ -999,9 +1028,10 @@ else
     warn "Could not locate PATCH-LOCAL-PROFILES files"
 fi
 
-# PATCH-FEISHU-RESOURCE-ACCESS: Feishu group attachment backfill and Drive/doc
-# resource acquisition. This unit stops once bytes or document API content are
-# available; format extraction belongs to PATCH-DOCUMENT-EXTRACTION.
+# PATCH-FEISHU-RESOURCE-ACCESS: Feishu DM/group explicit-quote attachment
+# recovery, group sender-window backfill, Drive/doc acquisition, and complete
+# bounded delivery of merged-forward transcripts. File-format extraction belongs
+# to PATCH-DOCUMENT-EXTRACTION.
 FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
 FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
 if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" ]]; then
@@ -1010,17 +1040,24 @@ if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" 
         grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_BACKFILL_WINDOW_SECONDS' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_backfilled_attachment_ids' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'if text == "/":' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'can_backfill_group = ' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'source_chat_type == "dm" or can_backfill_group' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'normalized.image_keys or normalized.media_refs' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _download_feishu_drive_file' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_DRIVE_FILE_URL_RE' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'is_forward_child' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'if normalized.raw_type == "merge_forward":' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_FEISHU_MERGE_FORWARD_REPLY_CONTEXT_MAX_CHARS' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q '_client_from_env' "${FEISHU_DOC_TOOL_PY}" 2>/dev/null &&
         grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_explicit_requote_is_not_suppressed_and_media_video_is_preserved' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_quoted_resource_matrix_reaches_event_across_dm_and_group_triggers' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quoted_merge_forward_expands_children_and_attachments' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_merge_forward_reply_context_is_not_cut_at_generic_500_chars' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'class TestFeishuDriveFileLinks' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_doc_read_builds_env_client_outside_comment_context' "${FEISHU_TOOLS_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-FEISHU-RESOURCE-ACCESS active: backfill + Drive links + tenant doc client"
+        ok "PATCH-FEISHU-RESOURCE-ACCESS active: complete quote/backfill matrix + merged transcripts + Drive/doc access"
         _FEISHU_RESOURCE_ACCESS_PATCH_OK=true
     else
         warn "PATCH-FEISHU-RESOURCE-ACCESS inactive or partial"
@@ -1355,32 +1392,37 @@ fi
 # The running Python process still has the pre-patch modules cached in
 # sys.modules. A restart ensures patched code (skill routing, delegate ACP
 # routing, etc.) is loaded by the gateway immediately. On macOS, stopping the
-# launchd job can briefly leave it unloaded, so poll for the PID instead of
-# assuming a fixed 3s start window is sufficient.
+# launchd job can briefly leave it unloaded, so poll for a replacement PID
+# instead of accepting the stale process as a successful reload.
 if $_PATCH_APPLY_OK; then
     set +e
-    if gw_running; then
+    _GW_OLD_PID=$(gw_pid)
+    if [[ -n "${_GW_OLD_PID:-}" ]]; then
         step "Restarting gateway (loading patched code)"
         hermes gateway stop >/dev/null 2>&1
         sleep 2
         _GW_RESTART_OUT=$(hermes gateway start 2>&1)
         _GW_RESTART_RC=$?
+        _GW_NEW_PID=""
         for _ in {1..12}; do
             sleep 1
-            if gw_running; then
+            _GW_NEW_PID=$(gw_pid)
+            if [[ -n "${_GW_NEW_PID:-}" && "${_GW_NEW_PID}" != "${_GW_OLD_PID}" ]]; then
                 break
             fi
         done
-        if gw_running; then
-            ok "Gateway restarted — patched modules now active"
+        if [[ -n "${_GW_NEW_PID:-}" && "${_GW_NEW_PID}" != "${_GW_OLD_PID}" ]]; then
+            ok "Gateway restarted — patched modules now active (PID ${_GW_OLD_PID} → ${_GW_NEW_PID})"
         else
-            warn "Gateway did not come back up after restart"
+            warn "Gateway did not replace the pre-patch process (old PID ${_GW_OLD_PID}, current ${_GW_NEW_PID:-none})"
             if [[ -n "${_GW_RESTART_OUT:-}" ]]; then
                 add_warn "gateway start output: ${_GW_RESTART_OUT//$'\n'/ | }"
-            elif [[ ${_GW_RESTART_RC:-0} -ne 0 ]]; then
+            fi
+            if [[ ${_GW_RESTART_RC:-0} -ne 0 ]]; then
                 add_warn "gateway start exited ${_GW_RESTART_RC}"
             fi
-            add_act "Start gateway manually: hermes gateway start"
+            add_act "Force a real gateway replacement, then verify the PID changed: hermes gateway stop && hermes gateway start"
+            FINAL_RC=1
         fi
     fi
     set -e

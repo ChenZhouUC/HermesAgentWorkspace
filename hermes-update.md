@@ -73,11 +73,12 @@
 bash ~/.hermes/hermes-update.sh
 ```
 
-建议 background + tee 日志，超时 ≥ 600s。脚本自带：preflight / 内层 patch 存档到外层 `patches/local-patches.diff` / `hermes update` 拉平内层官方 checkout / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 行为化验证 / gateway 重启 / 用户 plugin verify / 健康检查。
+建议 background + tee 日志，超时 ≥ 600s。脚本自带：preflight / 内层 patch 存档到外层 `patches/local-patches.diff` / `hermes update` 拉平内层官方 checkout / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 行为化验证 / gateway 重启 / 用户 plugin verify / 健康检查。补丁回贴后的 Gateway 重启必须观察到 PID 从旧值替换为新值；只看到“仍有 PID”不能证明运行进程已经加载磁盘上的新代码，PID 未替换必须令脚本非零退出。
 
 退出码 0 不代表完美。**通读输出**，特别关注：
 
 - 各 PATCH 行为化验证是否 OK
+- Step 8d 是否明确报告 Gateway `old PID → new PID`；相同 PID 或无新 PID 不得作为 patched modules active
 - Step 8e 的每个用户插件 verifier 是否存在、可执行且返回 0；任一失败都必须使整次升级返回非零
 - Skills mirror 的 `+/~/-` 数字
 - 任何 `⚠` 或 `✗` 行
