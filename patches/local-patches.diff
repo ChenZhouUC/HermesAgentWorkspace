@@ -1,8 +1,8 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index 8decf5dd22c45abafb6ec1aa2619f39ee4888454..857e1bbffebb971b38ed69f21568807fac3a7137 100644
+index 22bf9c165cf04723d6a558086e046cf49078bb35..7367f0b1b44bdef16b89c7d057909df0408fc53a 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
-@@ -6079,22 +6079,36 @@ def resolve_provider_client(
+@@ -6343,22 +6343,36 @@ def resolve_provider_client(
          # OAuth2 bearer token (NOT a static key). We build a standard OpenAI
          # client pointed at the runtime-computed Vertex base_url with a fresh
          # token; no custom SDK or message translation needed.
@@ -793,7 +793,7 @@ index 6e425753f053ae5ce5051d79939e74cf240fa2c5..911cc29357aa239de309c84420435a72
      """Fast check for whether Vertex credentials appear configured.
  
 diff --git a/gateway/authz_mixin.py b/gateway/authz_mixin.py
-index f1bb24bb8a853893d5143099d606d442dad119ad..77325fbc53c7611ddb3fbbc16f3ec8dccab6760f 100644
+index 144cb50431f4e058a358ef545c0709b15275a3da..5e564b16ddbe83c9ce857de42ce7874b3e892db9 100644
 --- a/gateway/authz_mixin.py
 +++ b/gateway/authz_mixin.py
 @@ -530,6 +530,7 @@ class GatewayAuthorizationMixin:
@@ -866,10 +866,10 @@ index e58e6e82b22d41b99a4a1ab3c40025d20acd7af3..29fd9234e12d293d8141c720cb1278e4
          Display setting name (e.g. ``"tool_progress"``, ``"show_reasoning"``).
      fallback : Any
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index d7654ff6c147a4d75047948a82ef115db13bc3dc..e44bda2286c2b08a905ac23f6a0539164fd2eaec 100644
+index c42b9160737d5d4101d4f61a99726b7c9ab834c4..0b749d8041ba9a10836bfa493c474be85c5682f3 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -1539,6 +1539,8 @@ def _log_safe_path(path: str) -> str:
+@@ -1542,6 +1542,8 @@ def _log_safe_path(path: str) -> str:
  
  SUPPORTED_DOCUMENT_TYPES = {
      ".pdf": "application/pdf",
@@ -878,7 +878,7 @@ index d7654ff6c147a4d75047948a82ef115db13bc3dc..e44bda2286c2b08a905ac23f6a053916
      ".md": "text/markdown",
      ".txt": "text/plain",
      ".csv": "text/csv",
-@@ -1557,6 +1559,8 @@ SUPPORTED_DOCUMENT_TYPES = {
+@@ -1560,6 +1562,8 @@ SUPPORTED_DOCUMENT_TYPES = {
      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
      ".ppt": "application/vnd.ms-powerpoint",
      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -888,12 +888,12 @@ index d7654ff6c147a4d75047948a82ef115db13bc3dc..e44bda2286c2b08a905ac23f6a053916
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c6815b890ee0 100644
+index 8c162f7dc9a468bb5d06097b2f55bd98dd273b7c..3ab87ee5f2a693ab9c81d6319196a3f320beef93 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -76,6 +76,26 @@ _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
- _TELEGRAM_CONNECT_TIMEOUT_SECS_DEFAULT = 180.0
- _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT = 5.0
+@@ -81,6 +81,26 @@ _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT = 5.0
+ # on timeout the latch stays clear and the next tick retries).
+ _STALL_NOTIFY_SEND_TIMEOUT_SECONDS = 15.0
  _GATEWAY_PROXY_SSE_BUFFER_MAX_CHARS = 16 * 1024 * 1024
 +_DOCUMENT_EXTRACT_MAX_CHARS_PER_FILE = 20_000
 +_DOCUMENT_EXTRACT_MAX_CHARS_TOTAL = 40_000
@@ -918,7 +918,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  _TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
  _GATEWAY_HYGIENE_PLATFORM = "gateway_hygiene"
  
-@@ -1376,6 +1396,7 @@ from agent.replay_cleanup import (  # noqa: E402
+@@ -1394,6 +1414,7 @@ from agent.replay_cleanup import (  # noqa: E402
      strip_interrupted_tool_tails,
      strip_dangling_tool_call_tail,
      strip_stale_dangerous_confirmations,
@@ -926,7 +926,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  )
  
  
-@@ -2218,6 +2239,7 @@ from gateway.session import (
+@@ -2241,6 +2262,7 @@ from gateway.session import (
      build_session_key,
      is_shared_multi_user_session,
      neutralize_untrusted_inline_text,
@@ -934,7 +934,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  )
  from gateway.delivery import (
      DeliveryRouter,
-@@ -2593,33 +2615,72 @@ def _build_media_placeholder(event) -> str:
+@@ -2621,33 +2643,72 @@ def _build_media_placeholder(event) -> str:
      return "\n".join(parts)
  
  
@@ -1020,7 +1020,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  def _format_duration(seconds: float) -> str:
      total = int(round(seconds))
      if total < 0:
-@@ -2978,6 +3039,52 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -3006,6 +3067,52 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -1073,7 +1073,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -4321,6 +4428,13 @@ class TurnRunner:
+@@ -4358,6 +4465,13 @@ class TurnRunner:
          # reads it via ``streaming_tts_consumer_holder[0]`` for delta
          # callback wiring.
          _stts_consumer_ref = ctx.streaming_tts_consumer_holder[0]
@@ -1087,7 +1087,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
          _scfg = getattr(getattr(self._runner, 'config', None), 'streaming', None)
          if _scfg is None:
              from gateway.config import StreamingConfig
-@@ -4365,6 +4479,12 @@ class TurnRunner:
+@@ -4402,6 +4516,12 @@ class TurnRunner:
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=ctx.event_message_id,
                          run_still_current=ctx._run_still_current,
@@ -1100,7 +1100,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                      )
                      if _want_stream_deltas:
                          def _stream_delta_cb(text: str) -> None:
-@@ -4372,7 +4492,7 @@ class TurnRunner:
+@@ -4409,7 +4529,7 @@ class TurnRunner:
                                  _stream_consumer.on_delta(text)
                                  # Tee to the streaming-TTS consumer (#60671).
                                  if _stts_consumer_ref is not None:
@@ -1109,7 +1109,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                      ctx.stream_consumer_holder[0] = _stream_consumer
              except Exception as _sc_err:
                  logger.debug("Could not set up stream consumer: %s", _sc_err)
-@@ -4383,12 +4503,16 @@ class TurnRunner:
+@@ -4420,12 +4540,16 @@ class TurnRunner:
          if _stream_delta_cb is None and _stts_consumer_ref is not None:
              def _stream_delta_cb(text: str) -> None:
                  if ctx._run_still_current():
@@ -1128,7 +1128,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
              if _stream_consumer is not None:
                  if already_streamed:
                      _stream_consumer.on_segment_break()
-@@ -4958,7 +5082,22 @@ class TurnRunner:
+@@ -4995,7 +5119,22 @@ class TurnRunner:
                  agent_history = strip_stale_dangerous_confirmations(
                      _selected, now=time.time()
                  )
@@ -1152,7 +1152,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
          # Collect MEDIA paths already in history so we can exclude them
          # from the current turn's extraction. This is compression-safe:
          # even if the message list shrinks, we know which paths are old.
-@@ -5218,26 +5357,28 @@ class TurnRunner:
+@@ -5255,26 +5394,28 @@ class TurnRunner:
              # content list. Consume-and-clear so subsequent turns on the same
              # runner instance don't re-attach stale images.
              _native_imgs = self._runner._consume_pending_native_image_paths(ctx.session_key)
@@ -1185,7 +1185,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                          _img_exc,
                      )
                      _run_message = ctx.message
-@@ -5406,6 +5547,10 @@ class TurnRunner:
+@@ -5443,6 +5584,10 @@ class TurnRunner:
              final_response = _sanitize_gateway_final_response(ctx.source.platform, final_response)
              if not final_response:
                  final_response = f"⚠️ {result['error']}" if result.get("error") else ""
@@ -1196,7 +1196,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
              return {
                  "final_response": final_response,
                  "messages": result.get("messages", []),
-@@ -8837,7 +8982,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -8906,7 +9051,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return True  # interrupt sent (if not queue), ack already delivered recently
  
          from gateway.display_config import resolve_display_setting
@@ -1205,7 +1205,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  
          # In steer mode the user's text has already been injected into the
          # active run. Some mobile chat setups want that steering to be silent,
-@@ -8869,7 +9014,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -8938,7 +9083,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -1214,7 +1214,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                  "busy_ack_detail",
                  True,
              )
-@@ -15405,6 +15550,41 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15833,6 +15978,41 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  message_text = f"{_note}\n\n{message_text}"
  
@@ -1256,7 +1256,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
          if video_paths:
              from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
              for _vpath in video_paths:
-@@ -15429,6 +15609,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15857,6 +16037,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from tools.credential_files import to_agent_visible_cache_path
  
              _TEXT_EXTENSIONS = {".txt", ".md", ".csv", ".log", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
@@ -1266,7 +1266,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
              for i, path in enumerate(event.media_urls):
                  # Per-attachment document handling. Skip anything already routed
                  # as image / audio / video by the buckets above — only genuine
-@@ -15468,8 +15651,47 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15896,8 +16079,47 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # cache directories are auto-mounted at /root/.hermes/cache/* by get_cache_directory_mounts().
                  agent_path = to_agent_visible_cache_path(path)
  
@@ -1316,7 +1316,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  
          # Discord: surface the triggering message id per-turn on the user
          # message rather than in the cached system prompt. message_id changes
-@@ -15497,7 +15719,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -15925,7 +16147,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # is referencing. History can contain the same or similar text
              # multiple times, and without an explicit pointer the agent has to
              # guess (or answer for both subjects). Token overhead is minimal.
@@ -1332,7 +1332,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
              if getattr(event, "reply_to_is_own_message", False):
                  message_text = (
                      f'[Replying to your previous message: "{reply_snippet}"]\n\n'
-@@ -15658,6 +15887,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16086,6 +16315,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          state.persistent.native_image_paths = []
          return paths
  
@@ -1345,7 +1345,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -16993,6 +17228,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17488,6 +17723,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -1357,7 +1357,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -17034,7 +17274,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17529,7 +17769,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -1366,7 +1366,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -17064,7 +17304,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17559,7 +17799,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          from gateway.display_config import resolve_display_setting
                          _reasoning_style = resolve_display_setting(
                              _load_gateway_config(),
@@ -1375,7 +1375,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                              "reasoning_style",
                              "code",
                          )
-@@ -17095,7 +17335,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -17590,7 +17830,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -1384,7 +1384,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -18745,7 +18985,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19240,7 +19480,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -1393,7 +1393,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -18824,6 +19064,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19319,6 +19559,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not response and result and result.get("error"):
                  response = f"Error: {result['error']}"
  
@@ -1405,7 +1405,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
              # Extract media files from the response
              if response:
                  media_files, response = adapter.extract_media(response)
-@@ -18831,8 +19076,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19326,8 +19571,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  media_files = BasePlatformAdapter.filter_media_delivery_paths(media_files)
                  images, text_content = adapter.extract_images(response)
  
@@ -1417,7 +1417,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
  
                  if text_content:
                      await adapter.send(
-@@ -18850,6 +19096,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19345,6 +19591,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # Send extracted images
                  for image_url, alt_text in (images or []):
                      try:
@@ -1426,7 +1426,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                          await adapter.send_image(
                              chat_id=source.chat_id,
                              image_url=image_url,
-@@ -18897,19 +19145,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19392,19 +19640,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      except Exception:
                          pass
              else:
@@ -1451,7 +1451,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                      metadata=_thread_metadata,
                  )
              except Exception:
-@@ -20565,6 +20815,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21077,6 +21327,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -1462,7 +1462,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
              chat_id=context.source.chat_id,
              chat_type=(
                  str(context.source.chat_type) if context.source.chat_type else ""
-@@ -20641,11 +20895,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21154,11 +21408,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -1478,7 +1478,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -20701,6 +20957,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21214,6 +21470,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  resolved_model,
                  cfg,
                  requested_provider=resolved_requested_provider,
@@ -1486,7 +1486,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
              )
          except Exception as exc:
              logger.debug("image_routing: decision failed, falling back to text — %s", exc)
-@@ -23120,7 +23377,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23648,7 +23905,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -1495,7 +1495,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -23153,6 +23410,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23681,6 +23938,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -1508,7 +1508,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -23505,7 +23768,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24033,7 +24296,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -1518,7 +1518,7 @@ index 905a7763c5f9d402081a77e54db993a7fb7b4c72..74bc527937b30d51eb66fc99e661c681
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
 diff --git a/gateway/session.py b/gateway/session.py
-index 2d5cebd32026c90a2617a23bc442a0bc3238672f..84349bd2d67349322952e7e0bc440b12fc91a70f 100644
+index 92e2a5ae099dd2ba18a426caed3d6f201bf86a5c..3f64e46a08f2feb2dfacbff2a9b9bb89dc07f9a4 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
 @@ -13,6 +13,7 @@ import hashlib
@@ -1529,7 +1529,7 @@ index 2d5cebd32026c90a2617a23bc442a0bc3238672f..84349bd2d67349322952e7e0bc440b12
  import threading
  import uuid
  from pathlib import Path
-@@ -464,6 +465,481 @@ def neutralize_untrusted_inline_text(value: Any, *, max_chars: int = _MAX_PROMPT
+@@ -476,6 +477,481 @@ def neutralize_untrusted_inline_text(value: Any, *, max_chars: int = _MAX_PROMPT
      return text
  
  
@@ -2011,7 +2011,7 @@ index 2d5cebd32026c90a2617a23bc442a0bc3238672f..84349bd2d67349322952e7e0bc440b12
  def build_session_context_prompt(
      context: SessionContext,
      *,
-@@ -562,12 +1038,26 @@ def build_session_context_prompt(
+@@ -574,12 +1050,26 @@ def build_session_context_prompt(
      # changes per-turn and would bust the prompt cache.  Instead, note that
      # this is a multi-user session; individual sender names are prefixed on
      # each user message by the gateway.
@@ -2038,7 +2038,7 @@ index 2d5cebd32026c90a2617a23bc442a0bc3238672f..84349bd2d67349322952e7e0bc440b12
      elif context.source.user_name:
          lines.append(
              f"**User:** {_format_untrusted_prompt_value(context.source.user_name)}"
-@@ -578,6 +1068,56 @@ def build_session_context_prompt(
+@@ -590,6 +1080,56 @@ def build_session_context_prompt(
              uid = _hash_sender_id(uid)
          lines.append(f"**User ID:** {_format_untrusted_prompt_value(uid)}")
  
@@ -2096,7 +2096,7 @@ index 2d5cebd32026c90a2617a23bc442a0bc3238672f..84349bd2d67349322952e7e0bc440b12
      if context.source.platform == Platform.SLACK:
          # Inject the Slack capability note only when the agent actually has
 diff --git a/gateway/session_context.py b/gateway/session_context.py
-index c742a024e698ecd5351a8e1aca966c53f208fbb1..95ec826ce5a6de9b06e00fb65e4b270527adcf81 100644
+index 0cf35ef229d1be7bce99f93ba4ce0fb78ad9203a..1c4faaac5487b87f1cd8ed92b3e91d2bf895f534 100644
 --- a/gateway/session_context.py
 +++ b/gateway/session_context.py
 @@ -72,6 +72,7 @@ def session_context_engaged() -> bool:
@@ -2107,7 +2107,7 @@ index c742a024e698ecd5351a8e1aca966c53f208fbb1..95ec826ce5a6de9b06e00fb65e4b2705
  _SESSION_SOURCE: ContextVar = ContextVar("HERMES_SESSION_SOURCE", default=_UNSET)
  _SESSION_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
  _SESSION_CHAT_TYPE: ContextVar = ContextVar("HERMES_SESSION_CHAT_TYPE", default=_UNSET)
-@@ -123,6 +124,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
+@@ -129,6 +130,7 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
  
  _VAR_MAP = {
      "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
@@ -2115,7 +2115,7 @@ index c742a024e698ecd5351a8e1aca966c53f208fbb1..95ec826ce5a6de9b06e00fb65e4b2705
      "HERMES_SESSION_SOURCE": _SESSION_SOURCE,
      "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
      "HERMES_SESSION_CHAT_TYPE": _SESSION_CHAT_TYPE,
-@@ -198,6 +200,7 @@ def scoped_current_session_id(session_id: str | None = None) -> Iterator[None]:
+@@ -205,6 +207,7 @@ def scoped_current_session_id(session_id: str | None = None) -> Iterator[None]:
  
  def set_session_vars(
      platform: str = "",
@@ -2123,7 +2123,7 @@ index c742a024e698ecd5351a8e1aca966c53f208fbb1..95ec826ce5a6de9b06e00fb65e4b2705
      source: str = "",
      chat_id: str = "",
      chat_type: str = "",
-@@ -235,6 +238,7 @@ def set_session_vars(
+@@ -247,6 +250,7 @@ def set_session_vars(
      _session_context_engaged = True
      tokens = [
          _SESSION_PLATFORM.set(platform),
@@ -2131,7 +2131,7 @@ index c742a024e698ecd5351a8e1aca966c53f208fbb1..95ec826ce5a6de9b06e00fb65e4b2705
          _SESSION_SOURCE.set(source),
          _SESSION_CHAT_ID.set(chat_id),
          _SESSION_CHAT_TYPE.set(chat_type),
-@@ -271,6 +275,7 @@ def clear_session_vars(tokens: list) -> None:
+@@ -284,6 +288,7 @@ def clear_session_vars(tokens: list) -> None:
      """
      for var in (
          _SESSION_PLATFORM,
@@ -2325,7 +2325,7 @@ index 58c0aebdaad4867f57ea86dabe7f034ac3348025..5397fbe9766b0d4780d051f5411313d8
                      metadata=self._metadata_for_send(
                          final=finalize,
 diff --git a/hermes_cli/auth.py b/hermes_cli/auth.py
-index c08c973045e8187915c25a03360d369de9f6009a..0eef3b002bd9cfe6f60c06c12878182ac69f06c5 100644
+index 82eb5ee7db5eeba02f9f2b81f79a550e59369e86..5643573d7242951829c8161dba4941179e24a13e 100644
 --- a/hermes_cli/auth.py
 +++ b/hermes_cli/auth.py
 @@ -498,6 +498,24 @@ except Exception:
@@ -2497,10 +2497,10 @@ index 285f4e3f2b357f6cbf5a371c4911d6825bd82448..6213e30e9ab87366f5f6728ee732370b
          requested_provider=requested_provider,
          explicit_api_key=explicit_api_key,
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index 257eb0b72f6b875936d9b713db13884e49050dec..f6f42585990cd42605858fd80e46e8cec3775886 100644
+index 7be692fcad6904f0ad4d51c24fccc6ca80d0c1f5..26f4c7c7ec270b7fa6c20c59a282091959a05fd5 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
-@@ -2372,38 +2372,49 @@ def _get_platform_tools(
+@@ -2376,38 +2376,49 @@ def _get_platform_tools(
      # checklist or in a user-saved config.  Must run in BOTH branches —
      # otherwise saving via `hermes tools` (which flips has_explicit_config
      # to True) silently drops them.
@@ -2720,7 +2720,7 @@ index a63aa2b68c27652c17a30b5e300664781a53933c..2ae71eeaabb84e2f62f3b7cda4bf481c
 +
 +register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904ada325910 100644
+index c21bb42e9011c7860c20236ab0829528b8b8bf58..27417f3e6b01e5bcf145302cea0bb4c7df070fcd 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -60,6 +60,7 @@ import os
@@ -2755,7 +2755,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
      FEISHU_DOMAIN = None  # type: ignore[assignment]
      LARK_DOMAIN = None  # type: ignore[assignment]
  
-@@ -175,6 +179,10 @@ _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+@@ -199,6 +203,10 @@ _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
  _MARKDOWN_FENCE_OPEN_RE = re.compile(r"^```([^\n`]*)\s*$")
  _MARKDOWN_FENCE_CLOSE_RE = re.compile(r"^```\s*$")
  _MENTION_RE = re.compile(r"@_user_\d+")
@@ -2766,7 +2766,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
  _POST_CONTENT_INVALID_RE = re.compile(r"content format of the post type is incorrect", re.IGNORECASE)
  # ---------------------------------------------------------------------------
-@@ -203,6 +211,8 @@ _FEISHU_DOC_UPLOAD_TYPES = {
+@@ -227,6 +235,8 @@ _FEISHU_DOC_UPLOAD_TYPES = {
  # ---------------------------------------------------------------------------
  
  _MAX_TEXT_INJECT_BYTES = 100 * 1024
@@ -2775,7 +2775,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  _FEISHU_CONNECT_ATTEMPTS = 3
  _FEISHU_SEND_ATTEMPTS = 3
  _FEISHU_APP_LOCK_SCOPE = "feishu-app-id"
-@@ -269,6 +279,30 @@ _FEISHU_REACTION_FAILURE = "CrossMark"
+@@ -293,6 +303,30 @@ _FEISHU_REACTION_FAILURE = "CrossMark"
  _FEISHU_PROCESSING_REACTION_CACHE_SIZE = 1024
  _FEISHU_MESSAGE_TEXT_CACHE_SIZE = 512       # LRU cap for reply-context message text lookups
  
@@ -2806,7 +2806,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  # QR onboarding constants
  _ONBOARD_ACCOUNTS_URLS = {
      "feishu": "https://accounts.feishu.cn",
-@@ -347,6 +381,7 @@ class FeishuPostMediaRef:
+@@ -371,6 +405,7 @@ class FeishuPostMediaRef:
  class FeishuMentionRef:
      name: str = ""
      open_id: str = ""
@@ -2814,7 +2814,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
      is_all: bool = False
      is_self: bool = False
  
-@@ -387,6 +422,12 @@ class FeishuNormalizedMessage:
+@@ -411,6 +446,12 @@ class FeishuNormalizedMessage:
      metadata: Dict[str, Any] = field(default_factory=dict)
  
  
@@ -2827,7 +2827,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  @dataclass(frozen=True)
  class FeishuAdapterSettings:
      app_id: str  # Canonical bot/app identifier (credential, not from event payloads)
-@@ -422,6 +463,16 @@ class FeishuAdapterSettings:
+@@ -446,6 +487,16 @@ class FeishuAdapterSettings:
      group_rules: Dict[str, FeishuGroupRule] = field(default_factory=dict)
      allow_bots: str = "none"  # "none" | "mentions" | "all"
      require_mention: bool = True
@@ -2844,7 +2844,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  
  
  @dataclass
-@@ -451,6 +502,7 @@ RejectReason = Literal[
+@@ -475,6 +526,7 @@ RejectReason = Literal[
      "self_ids_unknown",
      "bots_disabled",
      "bot_not_mentioned",
@@ -2852,7 +2852,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
      "group_policy_rejected",
  ]
  
-@@ -570,13 +622,146 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
+@@ -594,13 +646,146 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
      return default if parsed is None else parsed
  
  
@@ -3000,7 +3000,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
      return json.dumps(
          {
              "zh_cn": {
-@@ -1239,6 +1424,7 @@ def _build_mentions_map(
+@@ -1263,6 +1448,7 @@ def _build_mentions_map(
          result[key] = FeishuMentionRef(
              name=name,
              open_id=open_id,
@@ -3008,7 +3008,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
              is_self=bot.matches(open_id=open_id, user_id=user_id, name=name),
          )
      return result
-@@ -1383,11 +1569,13 @@ def check_feishu_requirements() -> bool:
+@@ -1407,11 +1593,13 @@ def check_feishu_requirements() -> bool:
      def _import():
          import lark_oapi as lark
          from lark_oapi.api.application.v6 import GetApplicationRequest
@@ -3022,7 +3022,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
              P2ImMessageMessageReadV1,
              ReplyMessageRequest, ReplyMessageRequestBody,
              UpdateMessageRequest, UpdateMessageRequestBody,
-@@ -1403,6 +1591,7 @@ def check_feishu_requirements() -> bool:
+@@ -1427,6 +1615,7 @@ def check_feishu_requirements() -> bool:
          return {
              "lark": lark,
              "GetApplicationRequest": GetApplicationRequest,
@@ -3030,7 +3030,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
              "CreateFileRequest": CreateFileRequest,
              "CreateFileRequestBody": CreateFileRequestBody,
              "CreateImageRequest": CreateImageRequest,
-@@ -1412,6 +1601,7 @@ def check_feishu_requirements() -> bool:
+@@ -1436,6 +1625,7 @@ def check_feishu_requirements() -> bool:
              "GetChatRequest": GetChatRequest,
              "GetMessageRequest": GetMessageRequest,
              "GetMessageResourceRequest": GetMessageResourceRequest,
@@ -3038,7 +3038,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
              "P2ImMessageMessageReadV1": P2ImMessageMessageReadV1,
              "ReplyMessageRequest": ReplyMessageRequest,
              "ReplyMessageRequestBody": ReplyMessageRequestBody,
-@@ -1494,6 +1684,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1518,6 +1708,9 @@ class FeishuAdapter(BasePlatformAdapter):
          self._sent_message_id_order: List[str] = []  # LRU order for _sent_message_ids_to_chat
          self._chat_info_cache: Dict[str, Dict[str, Any]] = {}
          self._message_text_cache: "OrderedDict[str, Optional[str]]" = OrderedDict()
@@ -3048,7 +3048,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
          self._app_lock_identity: Optional[str] = None
          self._text_batch_state = FeishuBatchState()
          self._pending_text_batches = self._text_batch_state.events
-@@ -1550,6 +1743,28 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1574,6 +1767,28 @@ class FeishuAdapter(BasePlatformAdapter):
                  allow_bots,
              )
              allow_bots = "none"
@@ -3077,7 +3077,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  
          return FeishuAdapterSettings(
              app_id=str(extra.get("app_id") or os.getenv("FEISHU_APP_ID", "")).strip(),
-@@ -1613,6 +1828,46 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1637,6 +1852,46 @@ class FeishuAdapter(BasePlatformAdapter):
              require_mention=_to_boolean(
                  extra.get("require_mention", os.getenv("FEISHU_REQUIRE_MENTION", "true"))
              ),
@@ -3124,7 +3124,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
          )
  
      def _apply_settings(self, settings: FeishuAdapterSettings) -> None:
-@@ -1645,6 +1900,16 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1669,6 +1924,16 @@ class FeishuAdapter(BasePlatformAdapter):
          self._ws_ping_timeout = settings.ws_ping_timeout
          self._allow_bots = settings.allow_bots
          self._require_mention = settings.require_mention
@@ -3141,7 +3141,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  
      def _build_event_handler(self) -> Any:
          if EventDispatcherHandler is None:
-@@ -3282,30 +3547,137 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3306,30 +3571,137 @@ class FeishuAdapter(BasePlatformAdapter):
          is_bot: bool = False,
      ) -> None:
          text, inbound_type, media_urls, media_types, mentions = await self._extract_message_content(message)
@@ -3290,7 +3290,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  
          sender_primary = (
              getattr(sender_id, "open_id", None)
-@@ -3325,13 +3697,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3349,13 +3721,11 @@ class FeishuAdapter(BasePlatformAdapter):
              len(media_urls),
          )
  
@@ -3305,7 +3305,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3351,8 +3721,423 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3375,8 +3745,423 @@ class FeishuAdapter(BasePlatformAdapter):
              channel_prompt=self._resolve_channel_prompt(chat_id, thread_id or None),
              timestamp=datetime.now(),
          )
@@ -3729,7 +3729,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
          if event.message_type == MessageType.TEXT and not event.is_command():
-@@ -3387,6 +4172,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3411,6 +4196,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -3739,7 +3739,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3695,7 +4483,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3719,7 +4507,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -3751,7 +3751,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3814,6 +4605,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3838,6 +4629,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -3776,7 +3776,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3828,6 +4637,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3852,6 +4661,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -3887,7 +3887,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3890,6 +4803,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3914,6 +4827,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return MessageType.VOICE
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -3896,7 +3896,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4017,6 +4932,77 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4041,6 +4956,77 @@ class FeishuAdapter(BasePlatformAdapter):
                  )
          return "", ""
  
@@ -3974,7 +3974,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
      # =========================================================================
      # Static helpers — extension / media-type guessing
      # =========================================================================
-@@ -4247,11 +5233,31 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4271,11 +5257,31 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -4008,7 +4008,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
                  self._message_text_cache.popitem(last=False)
-@@ -4303,6 +5309,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4327,6 +5333,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -4020,7 +4020,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4318,7 +5329,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4342,7 +5353,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -4029,7 +4029,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4339,8 +5350,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4363,8 +5374,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -4040,7 +4040,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4438,6 +5449,167 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4462,6 +5473,167 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -4208,7 +4208,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4773,9 +5945,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4797,9 +5969,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -4224,7 +4224,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4786,34 +5962,25 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4810,34 +5986,25 @@ class FeishuAdapter(BasePlatformAdapter):
              request = self._build_reply_message_request(effective_reply_to, body)
              return await self._run_blocking(self._client.im.v1.message.reply, request)
  
@@ -4278,7 +4278,7 @@ index d86dc597a81620bb88b66eaef1d1db7bde3fee5a..bcb8ac917d4f676a27ac7eca0f23904a
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -5033,6 +6200,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -5057,6 +6224,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -8376,10 +8376,10 @@ index 7e62328b208ffd4590f14c01c928c33c7fe6fb0d..add19ec60a68a6de19aba966d6eac806
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
 diff --git a/tests/gateway/test_run_progress_topics.py b/tests/gateway/test_run_progress_topics.py
-index 1cd5da9e88c9c3c15ee3f1871d3c20cc1e570f8f..20d5e2a74c76a20bd3c1dba18a72d9141de6ff93 100644
+index 18020f0a964d7ca3530d1c5f89a20f934411e810..543d32ba6aadf3709177110fc7840be1bbc3c768 100644
 --- a/tests/gateway/test_run_progress_topics.py
 +++ b/tests/gateway/test_run_progress_topics.py
-@@ -198,6 +198,16 @@ class FakeAgent:
+@@ -210,6 +210,16 @@ class FakeAgent:
          }
  
  
@@ -8396,7 +8396,7 @@ index 1cd5da9e88c9c3c15ee3f1871d3c20cc1e570f8f..20d5e2a74c76a20bd3c1dba18a72d914
  class ThinkingAgent:
      """Agent that emits _thinking scratch text (no tool calls).
  
-@@ -513,6 +523,21 @@ class CommentaryAgent:
+@@ -600,6 +610,21 @@ class CommentaryAgent:
          }
  
  
@@ -8418,7 +8418,7 @@ index 1cd5da9e88c9c3c15ee3f1871d3c20cc1e570f8f..20d5e2a74c76a20bd3c1dba18a72d914
  class PreviewedResponseAgent:
      def __init__(self, **kwargs):
          self.interim_assistant_callback = kwargs.get("interim_assistant_callback")
-@@ -724,6 +749,81 @@ async def _run_with_agent(
+@@ -811,6 +836,81 @@ async def _run_with_agent(
      return adapter, result
  
  
@@ -8500,7 +8500,7 @@ index 1cd5da9e88c9c3c15ee3f1871d3c20cc1e570f8f..20d5e2a74c76a20bd3c1dba18a72d914
  @pytest.mark.asyncio
  async def test_retryable_overflow_edit_keeps_editable_bubble_identity(monkeypatch, tmp_path):
      """A transient split edit must retain can_edit and the current message ID."""
-@@ -776,6 +876,54 @@ async def test_display_streaming_does_not_enable_gateway_streaming(monkeypatch,
+@@ -863,6 +963,54 @@ async def test_display_streaming_does_not_enable_gateway_streaming(monkeypatch,
      assert [call["content"] for call in adapter.sent] == ["I'll inspect the repo first."]
  
  
@@ -8555,12 +8555,6 @@ index 1cd5da9e88c9c3c15ee3f1871d3c20cc1e570f8f..20d5e2a74c76a20bd3c1dba18a72d914
  class TransformedStreamAgent:
      """Streams a response, then signals the gateway that a plugin hook
      (``transform_llm_output``) modified the final text after streaming
-@@ -1316,5 +1464,3 @@ class TestSlackReplyInThreadProgressRouting:
-             event_message_id="1700000000.000100",
-             reply_in_thread=False,
-         ) is None
--
--
 diff --git a/tests/gateway/test_session.py b/tests/gateway/test_session.py
 index 5b48ddd22da524023eb03604a2a2034781838a89..1a6140313ca296263a58ba7ff3eda4710eba3b8f 100644
 --- a/tests/gateway/test_session.py
@@ -9102,10 +9096,10 @@ index 5b48ddd22da524023eb03604a2a2034781838a89..1a6140313ca296263a58ba7ff3eda471
 -
 -
 diff --git a/tests/gateway/test_session_env.py b/tests/gateway/test_session_env.py
-index dc5a530bb79e1404fe5b57575dc8c2c2a3f4a623..453904771a93d32b8d21ccc549ab92cfa643e552 100644
+index e40a5266e50ce77fbceb39e3ffa7bf11a276edbe..31c79684b6b26a055235aa52e53ea09a43decc56 100644
 --- a/tests/gateway/test_session_env.py
 +++ b/tests/gateway/test_session_env.py
-@@ -75,6 +75,41 @@ def test_set_session_env_sets_contextvars(monkeypatch):
+@@ -76,6 +76,41 @@ def test_set_session_env_sets_contextvars(monkeypatch):
      runner._clear_session_env(tokens)
  
  
@@ -9889,7 +9883,7 @@ index 129c44a8eb3ad7bed02770913493364e5412a7da..cfc9c1b20fceb7ea221b831d37797550
 +        rp.resolve_runtime_provider(requested="vertex-fallback")
 +    assert "VERTEX_FALLBACK_CREDENTIALS_PATH" in str(exc.value)
 diff --git a/tests/tools/test_approval.py b/tests/tools/test_approval.py
-index 3b6b1f797e26f3f8884f59b6b623375d52018940..d6cf1db6a7d98e87b6257e29209894aee2ade0be 100644
+index 9c4b0cbc681ba60e827e66062fe64f07082820a3..b225621b158ea3a414ad8a9615feac7a8684d7a9 100644
 --- a/tests/tools/test_approval.py
 +++ b/tests/tools/test_approval.py
 @@ -123,6 +123,26 @@ class TestDetectDangerousRm:
@@ -10334,11 +10328,11 @@ index 1a193a12e0fdd5a6ab83b42769edf47c2db08c4b..3f75349263cf3eb1cc7ec16d10a6f24d
          flat_skill = tmp_path / "legacy-skill.md"
          flat_skill.write_text(
 diff --git a/tools/approval.py b/tools/approval.py
-index 5db5065f90636fbd268938d265f995f2112fa987..a90dca1b3449eb861609eb36bb2936633b7fc8e1 100644
+index 151e53406553900baee94a53a09d8e3f92a9f7ac..d917a5c22667b7b9c0ca53054926f1f0f7ee3b3a 100644
 --- a/tools/approval.py
 +++ b/tools/approval.py
-@@ -224,6 +224,48 @@ def _get_session_platform() -> str:
-         return os.getenv("HERMES_SESSION_PLATFORM", "") or ""
+@@ -240,6 +240,48 @@ def _is_cron_approval_context() -> bool:
+         return env_var_enabled("HERMES_CRON_SESSION")
  
  
 +def _parse_session_key_chat_type(session_key: str) -> str:
@@ -10386,7 +10380,7 @@ index 5db5065f90636fbd268938d265f995f2112fa987..a90dca1b3449eb861609eb36bb293663
  def _is_gateway_approval_context() -> bool:
      """True when this call is inside a gateway/API session.
  
-@@ -2024,9 +2066,18 @@ def _is_verification_artifact_cleanup(command: str) -> bool:
+@@ -2164,9 +2206,18 @@ def _is_verification_artifact_cleanup(command: str) -> bool:
          return False
  
      operand = argv[2]
@@ -10407,7 +10401,7 @@ index 5db5065f90636fbd268938d265f995f2112fa987..a90dca1b3449eb861609eb36bb293663
          return False
  
      target = os.path.realpath(operand)
-@@ -3111,6 +3162,10 @@ def check_dangerous_command(command: str, env_type: str,
+@@ -3278,6 +3329,10 @@ def check_dangerous_command(command: str, env_type: str,
      if not is_dangerous:
          return {"approved": True, "message": None}
  
@@ -10418,7 +10412,7 @@ index 5db5065f90636fbd268938d265f995f2112fa987..a90dca1b3449eb861609eb36bb293663
      return _run_approval_gate(
          pattern_key=pattern_key,
          description=description,
-@@ -3631,6 +3686,9 @@ def check_all_command_guards(command: str, env_type: str,
+@@ -3798,6 +3853,9 @@ def check_all_command_guards(command: str, env_type: str,
      # input() flow.  The agent never sees "approval_required"; it either
      # gets the command output (approved) or a definitive "BLOCKED" message.
      if is_gateway or is_ask:
@@ -10993,10 +10987,10 @@ index 9c89e6b5c941223909505b4025a90237068ec6a2..90439f3c6949f77ff16428e66e73dfcf
  
      message = f"Skill '{name}' deleted."
 diff --git a/tools/skills_tool.py b/tools/skills_tool.py
-index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3e48c3dd0 100644
+index e38e3324690271e15e5648cdcc02c18a57f631e4..042fe48890ba8c64eb400f1ed693280a0bc1c138 100644
 --- a/tools/skills_tool.py
 +++ b/tools/skills_tool.py
-@@ -93,7 +93,8 @@ logger = logging.getLogger(__name__)
+@@ -94,7 +94,8 @@ logger = logging.getLogger(__name__)
  #   - signature = per-dir max mtime of the dir AND its immediate children
  #     (one scandir per dir; catches skill add/remove inside categories,
  #     which does NOT bump the root dir's mtime), plus the disabled-set
@@ -11006,7 +11000,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
  #   - a short TTL bounds staleness from in-place SKILL.md edits, which
  #     bump only the file's mtime, invisible to any directory signature.
  # skip_disabled True/False are cached separately.
-@@ -103,7 +104,7 @@ _SKILLS_CACHE_KEY_DISABLED = "with_disabled"
+@@ -104,7 +105,7 @@ _SKILLS_CACHE_KEY_DISABLED = "with_disabled"
  _SKILLS_CACHE_KEY_FILTERED = "filtered"
  
  
@@ -11015,7 +11009,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
      """Cheap change-signature for the skill scan inputs.
  
      O(#dirs + #categories) stat calls, not a recursive walk. Includes the
-@@ -133,7 +134,8 @@ def _skills_scan_signature(dirs_to_scan, disabled) -> tuple:
+@@ -134,7 +135,8 @@ def _skills_scan_signature(dirs_to_scan, disabled) -> tuple:
          except OSError:
              pass
          sig.append((str(d), m))
@@ -11025,7 +11019,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
  
  
  # All skills live in ~/.hermes/skills/ (seeded from bundled skills/ on install).
-@@ -626,6 +628,12 @@ def _get_disabled_skill_names() -> Set[str]:
+@@ -627,6 +629,12 @@ def _get_disabled_skill_names() -> Set[str]:
      return get_disabled_skill_names()
  
  
@@ -11038,7 +11032,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
  def _get_session_platform() -> str:
      """Resolve the current platform from gateway session context.
  
-@@ -635,7 +643,11 @@ def _get_session_platform() -> str:
+@@ -636,7 +644,11 @@ def _get_session_platform() -> str:
      """
      try:
          from gateway.session_context import get_session_env
@@ -11051,7 +11045,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
      except Exception:
          return ""
  
-@@ -649,23 +661,29 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
+@@ -650,23 +662,29 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
      3. ``HERMES_SESSION_PLATFORM`` from gateway session context
      """
      try:
@@ -11093,7 +11087,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
  def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
      """Recursively find all skills in ~/.hermes/skills/ and external dirs.
  
-@@ -685,9 +703,10 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+@@ -686,9 +704,10 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
  
      cache_key = _SKILLS_CACHE_KEY_DISABLED if skip_disabled else _SKILLS_CACHE_KEY_FILTERED
  
@@ -11106,7 +11100,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
  
      # Collect directories to scan — same resolution as the scan loop below
      # (_skills_dir() resolves the LIVE profile HERMES_HOME; the module-level
-@@ -698,7 +717,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+@@ -699,7 +718,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
          dirs_to_scan.append(active_skills_dir)
      dirs_to_scan.extend(get_external_skills_dirs())
  
@@ -11115,7 +11109,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
      now = time.monotonic()
  
      cached = _SKILLS_CACHE.get(cache_key)
-@@ -737,7 +756,9 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+@@ -738,7 +757,9 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
                  name = frontmatter.get("name", skill_dir.name)[:MAX_NAME_LENGTH]
                  if name in seen_names:
                      continue
@@ -11126,7 +11120,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
                      continue
  
                  description = frontmatter.get("description", "")
-@@ -1021,6 +1042,24 @@ def skill_view(
+@@ -1022,6 +1043,24 @@ def skill_view(
              plugin_skill_md = pm.find_plugin_skill(name)
  
              if plugin_skill_md is not None:
@@ -11151,7 +11145,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
                  if not plugin_skill_md.exists():
                      # Stale registry entry — file deleted out of band
                      pm.remove_plugin_skill(name)
-@@ -1218,6 +1257,30 @@ def skill_view(
+@@ -1219,6 +1258,30 @@ def skill_view(
                  ensure_ascii=False,
              )
  
@@ -11182,7 +11176,7 @@ index 9566b3a3b7fdc1291a79c5604b2651ee824b3279..89175141a555d7bf0399845c7dc4eca3
          # Read the file once — reused for platform check and main content below
          try:
              content = skill_md.read_text(encoding="utf-8")
-@@ -1277,6 +1340,15 @@ def skill_view(
+@@ -1278,6 +1341,15 @@ def skill_view(
  
          # Check if the skill is disabled by the user
          resolved_name = parsed_frontmatter.get("name", skill_md.parent.name)
@@ -11302,7 +11296,7 @@ index 39f6a057ebfc3df69bcf350abe788c9875edfc45..733b9bc35d39a13317a897751e1c4e11
  | `FEISHU_HOME_CHANNEL_NAME` | Display name for the Feishu home channel. |
  | `FEISHU_ALLOW_ALL_USERS` | Allow any Feishu user to trigger the bot (dev only). |
 diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
-index f27335dbd41e7d4af9223ffe720aa464a38cc7ab..35c0844cd90091efc24a70093baec268e08b2347 100644
+index 85d321335fad796bb67decc33eeccf7c81f3bf27..fb0dd4e4852566dbd2e0298b3ca3fbfa0231d106 100644
 --- a/website/docs/user-guide/configuration.md
 +++ b/website/docs/user-guide/configuration.md
 @@ -745,6 +745,56 @@ the `hermes tools` UI.

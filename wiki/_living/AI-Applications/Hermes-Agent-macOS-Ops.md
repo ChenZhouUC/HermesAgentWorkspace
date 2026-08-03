@@ -9,7 +9,7 @@ updated: 2026-08-03
 > 适用系统：macOS 13+（Apple Silicon / Intel 均可）
 > 主模型：公司 **Vertex AI**（service account 换 token，OpenAI 兼容端点）
 > Fallback：**阿里云 Qwen / DashScope**（百炼）
-> 适用版本：Hermes Agent **v0.19.1**（upstream `26e0b1c` / latest `main` as of 2026-08-02）
+> 适用版本：Hermes Agent **v0.19.1**（upstream `d1afa160` / latest `main` as of 2026-08-03）
 > 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置 Vertex + Qwen → Vertex Token 自动刷新 → 飞书接入 → 内容迁移 → 日常运维

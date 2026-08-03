@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.19.1 / main 26e0b1c, `hermes completion zsh` already emits the
+# As of v0.19.1 / main d1afa160, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -912,7 +912,7 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "$
         grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'Current-author rule' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'main subject of your response' "${SESSION_PY}" 2>/dev/null &&
-        grep -q '_with_current_author_prefix' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -qF '[New message]' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'test_bot_mention_takes_priority_over_assistant_user_mention' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_text_batch_does_not_merge_different_senders' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_group_turn_body_keeps_current_author_next_to_question' "${FEISHU_TEST_PY}" 2>/dev/null &&

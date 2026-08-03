@@ -74,7 +74,9 @@
 bash ~/.hermes/hermes-update.sh
 ```
 
-建议 background + tee 日志；外层任务超时必须大于 `agent.restart_drain_timeout`，当前配置下取 ≥ 1200s。脚本自带：preflight / 内层 patch 存档到外层 `patches/local-patches.diff` / `hermes update` 拉平内层官方 checkout / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 结构化 sentinel 验证 / 排空感知的 gateway planned restart / 用户 plugin verify / 健康检查。Step 8b sentinel 只证明关键实现锚点存在，不能替代 Step 2c 的行为回归。补丁回贴后的 Gateway 重启必须给在途任务完整的 `agent.restart_drain_timeout` 预算，并观察到 PID 从旧值替换为新值；只看到“仍有 PID”不能证明运行进程已经加载磁盘上的新代码，PID 未替换必须令脚本非零退出。
+建议 background + tee 日志；外层任务超时不要用固定数字：Step 8d 的等待预算来自脚本 `gw_restart_wait_seconds()`（新运行时 = drain + `restart_after_turn_timeout` + 余量，默认配置下约 22545s ≈ 6.3h），外层超时必须大于该函数的**当前输出**，忙时段升级前先确认在途任务量或接受长排空，不得因等待排空而误判脚本卡死、更不得强杀。脚本自带：preflight / 内层 patch 存档到外层 `patches/local-patches.diff` / `hermes update` 拉平内层官方 checkout / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 结构化 sentinel 验证 / 排空感知的 gateway planned restart / 用户 plugin verify / 健康检查。Step 8b sentinel 只证明关键实现锚点存在，不能替代 Step 2c 的行为回归。补丁回贴后的 Gateway 重启必须观察到 PID 从旧值替换为新值；只看到“仍有 PID”不能证明运行进程已经加载磁盘上的新代码，PID 未替换必须令脚本非零退出。
+
+**收敛循环**：apply 失败、gate 失败或任何修复之后，都必须**重跑脚本**而不是手工补足单项验证，直到一次完整运行 exit 0 且无 `✗`。逐项人工验证（定向测试、手动重启、单独跑 verifier）可以用于定位问题，但不能替代脚本闸门作为收尾证据——8b 哨兵与实现的漂移只有跑脚本才会暴露（2026-08-03 实例：`_with_current_author_prefix` 哨兵在一轮"定向测试 + 手动重启"收尾后失效 14 小时无人发现）。
 
 退出码 0 不代表完美。**通读输出**，特别关注：
 
@@ -167,8 +169,9 @@ cd ~/.hermes && grep -rln -E "<OLD_SHA>|<OLD_DATE>" \
 1. 现场解析 README 现有版本 row 的日期并计算 ISO week；不要按相邻行、月份或自然年周数猜测，跨年周以 Python `date.isocalendar()` 的 ISO year 为准。
 2. **当周已有 row**：重写这条 row，不新增。版本和日期更新为当周最后一次升级；upstream 范围保留该周第一次升级前的最早 SHA，只把终点推进到最新 `NEW_SHA`，不能把周度 basis 重置成本次 `OLD_SHA`。把本轮新事实合入原周摘要。
 3. **当周没有 row**：在表顶新增一条，版本/日期取本轮终态，upstream 范围从本轮 `OLD_SHA → NEW_SHA` 开始；本周后续升级继续更新此 row。
-4. 周摘要只保留五类可跨会话复用的信息：周内 upstream 首尾范围与主要主题；PATCH 新增/并入/部分吸收/归档；真实冲突及语义解决原则；周末最终回归/闭环；重大依赖、配置或运行态摩擦。重复的 clean apply、每次 Skills 数字、瞬时 PID、重复 Doctor 输出和中间测试数字不逐轮堆叠，只保留周末终态或确有诊断价值的异常→修复链。
+4. 周摘要只保留五类可跨会话复用的信息：周内 upstream 首尾范围与主要主题；PATCH 新增/并入/部分吸收/归档；真实冲突及语义解决原则；周末最终回归/闭环；重大依赖、配置或运行态摩擦。重复的 clean apply、每次 Skills 数字、瞬时 PID、重复 Doctor 输出和中间测试数字不逐轮堆叠，只保留周末终态或确有诊断价值的异常→修复链。单周 row 以约 1500 字为上界，超出即按五类信息回炉压缩，不得靠堆叠事件叙事膨胀。
 5. 已结束周 row 是历史快照，普通升级不得回写；只有事实纠错或版本记录规则本身迁移时可重整，并须在最终报告说明。`PATCHES.md` 的“最近一次升级”仍按**本轮**写 5 段，不受 README 周度聚合影响。
+6. **叙事段生命周期（防三重叙述）**：同一事件只允许一个长期容器——README 周 row。升级期外的重大运行态审计/修复可在 `PATCHES.md` § 当前版本下以带日期段落临时记录，但该段落只存续到下一次"最近一次升级"摘要重写：重写时把仍有跨会话价值的事实并入当周 README row，然后**删除**该段落，不得让审计叙事在 PATCHES.md 里无限累积、被后续 AI 误读为现状。
 
 文档对齐结束后必须在 Step 5 运行周键唯一性检查；发现重复周先合并，不能带重复 row 收尾。
 
@@ -196,6 +199,7 @@ cd ~/.hermes && grep -rln -E "<OLD_SHA>|<OLD_DATE>" \
 - **并入现有语义 PATCH**：修复与该补丁共享同一不变量、必须一起回滚/验收，且预期上游会在同一个 PR 中吸收。例如新的 Feishu strong-flanking case 归入 `PATCH-FEISHU-MARKDOWN`。更新问题/修复/验证/上游吸收判断四段与 sentinel，不创建变体编号。
 - **新增语义 PATCH**：能独立失效、独立回滚或被不同上游 PR 吸收的关注点必须拆开，即使改同一文件。例如 `PATCH-FEISHU-GROUP-APPROVAL` 与 `PATCH-APPROVAL-DARWIN-TMP` 都改 `approval.py`，但安全不变量和吸收条件完全不同。ID 使用 `PATCH-<DOMAIN>-<INVARIANT>`，禁止 A/B 子编号。
 - 工程内补丁无论新增还是并入，四处同步缺一不可：新触及文件加入 `PATCHED_FILES`（已有文件免）；sentinel 块（新增 PATCH 时含 gate 变量并纳入 8c 刷新条件）；`PATCHES.md` 对应块；`local-patches.diff` / `.local-patches.base` 用与脚本 8c 相同的命令刷新，并按 Step 3 完成闭环核对。
+- **哨兵锚点选择与共演进**：新写 grep 哨兵优先锚定**测试名或行为特征串**（测试名受 Step 2c 保护、很少被重构改名），避免锚定私有 helper 名——上游或本地重构最容易杀死后者（2026-08-03 实例：`_with_current_author_prefix` 被冲突轮重构移除，gate 误报 14 小时）。条件允许时向 PATCH-SKILL-CREATE-ROOT 的真实 import + 调用模式靠拢。**冲突解决或重构触及文件 X 后，必须核对 8b 中所有针对 X 的哨兵仍能命中**——最省事的核对方式就是按收敛循环重跑脚本。
 - 运行时补丁不进入 `PATCHED_FILES` / replay bundle，但必须在 `hermes-update.sh` 有明确步骤、可审计输出和验证口径，并在 `PATCHES.md` 登记生命周期；不要为凑 Step 8b gate 制造空源码 hunk。
 - 配置仓库用户插件补丁（当前 `PATCH-FEISHU-GROUP-SANDBOX`）不进入 `PATCHED_FILES` / `local-patches.diff`。它必须同时具备：外层 Git 跟踪的插件/配置/skill 文件；独立 `verify.sh`；`hermes-update.sh` Step 8e 固定登记；verifier 缺失、不可执行或失败时 `FINAL_RC=1`；`PATCHES.md` 对应块。verifier 至少结构化解析 YAML、解析真实平台 toolset、跑行为测试并核对**当前 Gateway PID** 的注册日志。
 
@@ -224,7 +228,7 @@ Wiki 有独立的分层与硬约束体系，**结构会演进**——layer 定�
 
 文档改完后**再跑一次** Step 4 的 grep，逐条人工确认：剩余命中应**全部**是"差量描述"或"历史 row"。任何"现状陈述"型命中漏掉 = bug，要补改。
 
-同时机械校验 README 版本记录每个 ISO week 恰好至多一条：
+同时机械校验**派生一致性**（周键唯一 + 数字/SHA 不失同步）。Step 4 的 grep 只能发现 SHA 字符串，发现不了"脚本数组 64 但快照注仍写 63"这类数字漂移（2026-08-03 实抓一起），因此以下断言每轮必跑、任一失败先修再收尾：
 
 ```bash
 python3 - <<'PY'
@@ -233,19 +237,46 @@ from datetime import date
 from pathlib import Path
 import re
 
-text = Path("README.md").read_text()
-days = re.findall(r"(?m)^\|\s*v[^|]*\|\s*(\d{4}-\d{2}-\d{2})\s*\|", text)
+# 1) README 版本记录每个 ISO week 至多一条
+readme = Path("README.md").read_text()
+days = re.findall(r"(?m)^\|\s*v[^|]*\|\s*(\d{4}-\d{2}-\d{2})\s*\|", readme)
+weeks = [f"{(iso := date.fromisoformat(d).isocalendar()).year}-W{iso.week:02d}" for d in days]
+dup = {w: c for w, c in Counter(weeks).items() if c > 1}
+assert not dup, f"duplicate README version weeks: {dup}"
 
-def iso_week(day):
-    iso = date.fromisoformat(day).isocalendar()
-    return f"{iso.year}-W{iso.week:02d}"
+# 2) PATCHED_FILES：脚本数组 == PATCHES.md 快照清单 == 快照注数字
+script = Path("hermes-update.sh").read_text()
+arr = re.findall(r'^\s+"([^"]+)"', script.split("PATCHED_FILES=(")[1].split(")")[0], re.M)
+patches = Path("patches/PATCHES.md").read_text()
+snap_sec = patches.split("受 `PATCHED_FILES` 管理的文件")[1].split("> 以上")
+snap = re.findall(r'"([^"]+)"', snap_sec[0])
+note_n = int(re.search(r"（(\d+) 文件", snap_sec[1]).group(1))
+assert arr == snap, f"array({len(arr)}) != snapshot({len(snap)}): {set(arr) ^ set(snap)}"
+assert note_n == len(arr), f"snapshot note says {note_n}, array has {len(arr)}"
 
-weeks = [iso_week(day) for day in days]
-duplicates = {week: count for week, count in Counter(weeks).items() if count > 1}
-assert not duplicates, f"duplicate README version weeks: {duplicates}"
-print(f"README weekly versions: {len(weeks)} rows, ISO weeks unique")
+# 3) 活跃 PATCH 计数：定义块数 == 注册表口径 == README 口径
+active_blocks = re.findall(r"^### \[PATCH-", patches.split("## Archive")[0], re.M)
+stated = int(re.search(r"当前共 (\d+) 个语义补丁", patches).group(1))
+readme_n = int(re.search(r"(\d+) 个按职责命名的活跃语义补丁", readme).group(1))
+assert len(active_blocks) == stated == readme_n, \
+    f"active blocks={len(active_blocks)}, PATCHES.md says {stated}, README says {readme_n}"
+
+# 4) base SHA 三处一致：.local-patches.base == PATCHES.md header == README 现状陈述 == 脚本头注释
+base_sha = Path("patches/.local-patches.base").read_text().split()[0]
+for label, pat, text in [
+    ("PATCHES.md header", r"## 当前版本：\S+ \(upstream `main` `([0-9a-f]+)`", patches),
+    ("README 补丁章", r"当前基线为上游 `([0-9a-f]+)`", readme),
+    ("脚本头注释", r"As of \S+ / main ([0-9a-f]+)", script),
+]:
+    sha = re.search(pat, text).group(1)
+    assert base_sha.startswith(sha), f"{label} SHA {sha} != base {base_sha[:12]}"
+
+print(f"derived-consistency OK: {len(weeks)} weekly rows unique; "
+      f"{len(arr)} managed files; {stated} active patches; base {base_sha[:9]}")
 PY
 ```
+
+> 断言口径变了（如快照注措辞、README 表述）就同步改这段脚本——它与被校验文本共演进，属于 Step 4 文档对齐的一部分。
 
 #### Step 5b — 终态运行屏障
 
@@ -257,7 +288,7 @@ Step 2c/4/5 期间只要修改过 `hermes-agent` 运行时代码、`config.yaml`
 
 向用户报告（**不要自动提交**）：
 
-- **完成标准**：补丁回归 **0 failed 且测试清单/关键边界未退化**、Step 3 七层仓库闭环全部成立、Step 5b 的终态 PID 晚于最后一次运行态修改、所有用户插件 verifier 绑定该当前 PID 通过、doctor 无可修而未修的 ⚠、无环境残留。达不到时不得声称完成，单列阻塞项、原因与建议
+- **完成标准**：**最后一次 `hermes-update.sh` 完整运行 exit 0 且无 `✗`，并晚于本轮最后一次 patch / gate / 脚本修改**（与 PID 屏障同构：逐项人工验证不能替代脚本闸门，哨兵漂移只有跑脚本才会暴露）、补丁回归 **0 failed 且测试清单/关键边界未退化**、Step 3 七层仓库闭环全部成立、Step 5 派生一致性断言通过、Step 5b 的终态 PID 晚于最后一次运行态修改、所有用户插件 verifier 绑定该当前 PID 通过、doctor 无可修而未修的 ⚠、无环境残留。达不到时不得声称完成，单列阻塞项、原因与建议
 - 升级 `OLD_SHA → NEW_SHA`，`+N commits`
 - 文档对齐了哪些文件（列文件名 + 改动类别一句话，不展开内容）
 - README 版本记录周键检查结果：当周是新增还是合并、当前总周数、是否存在重复 ISO week
