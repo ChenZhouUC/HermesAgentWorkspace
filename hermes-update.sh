@@ -48,7 +48,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.19.0 / main 26e0b1c, `hermes completion zsh` already emits the
+# As of v0.19.1 / main 26e0b1c, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -86,9 +86,7 @@ PATCHED_FILES=(
     "toolsets.py"
     "tools/feishu_doc_tool.py"
     "tests/tools/test_feishu_tools.py"
-    "tools/file_operations.py"
     "tools/read_extract.py"
-    "tests/tools/test_file_operations.py"
     "tests/tools/test_read_extract.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
@@ -183,6 +181,12 @@ gw_running() {
 # Allow a planned restart to use the complete configured drain budget, plus a
 # small supervisor-respawn margin. Fall back to the upstream default budget if
 # the freshly-updated runtime cannot import its config helper yet.
+# Forward-compat (upstream db3f7e4eb, post-26e0b1c): newer runtimes defer the
+# in-band restart until active turns finish and expose the combined wait via
+# resolve_restart_exit_wait_budget() (drain + restart_after_turn_timeout +
+# headroom). Prefer that native budget when present so this wrapper never
+# times out while the gateway is still patiently draining; otherwise keep the
+# drain-only formula that matches the current runtime.
 gw_restart_wait_seconds() {
     local _python="${HERMES_AGENT}/venv/bin/python"
     if [[ ! -x "${_python}" ]]; then
@@ -190,9 +194,13 @@ gw_restart_wait_seconds() {
         return
     fi
     "${_python}" -c '
-from hermes_cli.gateway import _get_restart_drain_timeout
-
-print(int(max(30.0, float(_get_restart_drain_timeout()) + 30.0)))
+try:
+    from hermes_cli.gateway import _get_restart_exit_wait_budget
+    budget = float(_get_restart_exit_wait_budget())
+except Exception:
+    from hermes_cli.gateway import _get_restart_drain_timeout
+    budget = float(_get_restart_drain_timeout())
+print(int(max(30.0, budget + 30.0)))
 ' 2>/dev/null || echo 210
 }
 
@@ -216,7 +224,11 @@ assert all(group.get(key) is False for key in disabled)
 }
 
 # ── Trap: restore patches if script dies after reverting them ────────────────
-# Set to true in step 2 after reverting; cleared once hermes update completes.
+# Set to true in step 2 after reverting; cleared only once step 8a has made its
+# apply decision (applied, or deliberately rolled back). This keeps the crash-
+# recovery window open across steps 3–7, where the tree is intentionally bare:
+# an interruption there would otherwise leave the runtime unpatched with no
+# automatic re-apply on the next manual inspection.
 _PATCHES_REVERTED=false
 _NPM_POLICY_FILE=""
 
@@ -402,9 +414,9 @@ if $_EXTRA_STASHED; then
     cd - >/dev/null
 fi
 
-# Patches have been reverted; hermes update is now complete.
-# Clear the trap flag — patches will be re-applied in step 8.
-_PATCHES_REVERTED=false
+# Patches remain reverted through steps 4–7; the EXIT-trap restore window
+# stays open until step 8a has either re-applied the bundle or deliberately
+# rolled back. Do NOT clear _PATCHES_REVERTED here.
 
 # ── 4. npm audit fix (PATCH-NPM-DEPENDENCY-HYGIENE) ──────────────────────────
 # hermes update runs `npm install --no-audit` for node-based tools (e.g.
@@ -616,6 +628,10 @@ PYEOF
 else
     warn "Could not generate completions (exit $COMP_RC)"
     add_act "Run: hermes completion zsh > ~/.hermes/completions/_hermes"
+    # PATCH-ZSH-COMPLETION-SYNTAX sentinel lives in this step: a failed
+    # generation means the sentinel could not run at all, so the upgrade must
+    # not report success (playbook: out-of-tree sentinels gate the final RC).
+    FINAL_RC=1
 fi
 
 # ── 8. Re-apply & verify local patches ───────────────────────────────────────
@@ -696,6 +712,11 @@ if [[ -f "${PATCH_FILE}" ]]; then
 else
     note "No saved patch file — skipping apply (fresh install or patches never saved)"
 fi
+
+# Step 8a has made its apply decision: the tree is either patched or was
+# deliberately restored to HEAD (poisoned bundle / failed apply, with manual
+# actions queued above). Either way the EXIT trap must no longer re-apply.
+_PATCHES_REVERTED=false
 
 # -- 8b. Patch invariant gates (structural sentinels + smoke checks) ------------
 # Archived patches retain independent regression gates. A regression in an
@@ -1129,23 +1150,22 @@ else
     warn "Could not locate PATCH-FEISHU-RESOURCE-ACCESS files"
 fi
 
-# PATCH-DOCUMENT-EXTRACTION: trusted XLSX/PDF/HTML/Office/OpenDocument parsing
-# before content reaches a sandboxed group agent.
-FILE_OPERATIONS_PY="${HERMES_AGENT}/tools/file_operations.py"
-FILE_OPERATIONS_TEST_PY="${HERMES_AGENT}/tests/tools/test_file_operations.py"
+# PATCH-DOCUMENT-EXTRACTION: trusted PDF/HTML/Office/OpenDocument parsing before
+# content reaches a sandboxed group agent. XLSX/DOCX/IPYNB extraction and its
+# read_file wiring were absorbed upstream (read_extract.py + file_tools.py at
+# 26e0b1c); the local remainder is the extra formats, the gateway inbound
+# extraction wiring, and the pypdf dependency pins.
 READ_EXTRACT_PY="${HERMES_AGENT}/tools/read_extract.py"
 READ_EXTRACT_TEST_PY="${HERMES_AGENT}/tests/tools/test_read_extract.py"
 DOCUMENT_CONTEXT_TEST_PY="${HERMES_AGENT}/tests/gateway/test_document_context_note.py"
-if [[ -f "${GATEWAY_RUN_PY}" && -f "${FILE_OPERATIONS_PY}" && -f "${FILE_OPERATIONS_TEST_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TEST_PY}" && -f "${DOCUMENT_CONTEXT_TEST_PY}" && -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
+if [[ -f "${GATEWAY_RUN_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TEST_PY}" && -f "${DOCUMENT_CONTEXT_TEST_PY}" && -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
     if grep -q 'def _extract_inbound_document' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q '_read_spreadsheet' "${FILE_OPERATIONS_PY}" 2>/dev/null &&
-        grep -q 'test_read_file_extracts_xlsx_as_text' "${FILE_OPERATIONS_TEST_PY}" 2>/dev/null &&
         grep -q 'def _extract_pdf' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'def _extract_html_file' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'class TestCommonDocumentExtraction' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'pypdf==6.14.2' "${PYPROJECT}" 2>/dev/null &&
         grep -q 'pypdf==6.14.2' "${LAZY_DEPS_PY}" 2>/dev/null; then
-        ok "PATCH-DOCUMENT-EXTRACTION active: trusted spreadsheet and common-document readers"
+        ok "PATCH-DOCUMENT-EXTRACTION active: trusted PDF/HTML/Office/OpenDocument readers + inbound wiring"
         _TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK=true
     else
         warn "PATCH-DOCUMENT-EXTRACTION inactive or partial"

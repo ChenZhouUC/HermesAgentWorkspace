@@ -98,7 +98,7 @@ Step 8: Re-apply & Verify（核心）
 Step 8d: Gateway restart（post-patch）
   └─ 前提: _PATCH_APPLY_OK == true && gateway 正在运行
       └─ 记录 old PID → drain-aware `hermes gateway restart`
-          → 按 `agent.restart_drain_timeout + 30s` 轮询 different new PID
+          → 按 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s）轮询 different new PID
           └─ 未替换或未恢复: FINAL_RC=1
       （hermes update 在 step 3 重启 gateway 时补丁尚未 apply，
        Python 进程 sys.modules 缓存旧模块，需重启才能加载补丁代码；
@@ -139,7 +139,7 @@ Step 8a 开头先扫描 `local-patches.diff` 自身是否含 conflict marker（`
 
 #### 4. EXIT trap 补丁恢复
 
-Step 2 还原 patch 后设置 `_PATCHES_REVERTED=true`。若脚本在 Step 3 之前崩溃，EXIT trap 会自动尝试 `git apply` 恢复补丁，防止因脚本中途退出导致 hermes-agent 处于裸奔状态。Step 3 完成后清除该标志。
+Step 2 还原 patch 后设置 `_PATCHES_REVERTED=true`。恢复窗口覆盖 Step 2 之后直到 Step 8a 做出 apply 决策（成功重贴或有意回滚）为止：期间任何崩溃（含 Step 4–7 的裸树阶段）EXIT trap 都会自动尝试 `git apply` 恢复补丁，防止脚本中途退出导致 hermes-agent 处于裸奔状态。Step 8a 决策后清除该标志，正常退出与失败回滚都不会重复 apply。
 
 #### 5. 额外改动保护
 
@@ -200,9 +200,7 @@ PATCHED_FILES=(
     "toolsets.py"
     "tools/feishu_doc_tool.py"
     "tests/tools/test_feishu_tools.py"
-    "tools/file_operations.py"
     "tools/read_extract.py"
-    "tests/tools/test_file_operations.py"
     "tests/tools/test_read_extract.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
@@ -214,6 +212,7 @@ PATCHED_FILES=(
     "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
     "tests/gateway/test_run_progress_topics.py"
+    "tests/gateway/test_background_command.py"
     "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
     "tests/hermes_cli/test_doctor.py"
@@ -237,7 +236,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（63 文件，2026-08-03 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（62 文件，2026-08-03 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
 
 ### 手动恢复
 
@@ -261,7 +260,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **活跃补丁**：当前共 27 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**2026-08-03 更新后运行态审计**：发现 2026-08-02 的 patch 文件在 Gateway 进程启动后才落盘，旧进程继续缓存 pre-patch modules，导致合并转发仍显示占位符、Vertex `include_thoughts` 抑制未生效并把英文 thought 写入最终 `assistant.content`。人工替换 PID 后两项既有补丁恢复；同时修复主会话 DM 纯 @ 被静默丢弃。继续真会话复测又发现完整 12 条转发虽已从 API 取回，却被 Gateway 通用 500 字符引用上限截到第 6 条中间；现已给内部标记的 Feishu merged-forward 引用设置 20,000 字符专用有界上限，真实卡片 1,073 字符及末条 `Okay 非常 make sense` 均通过送模断言。Data Pipeline Workshop 真会话随后证明纯 @ 引用图片已回填 `media=1`，但测试任务被审计重启中断；另一条 `@Gödel /` 又暴露单独 `/` 被误判 command、显式重复引用受窗口去重、DM 与 `assistant_user` 触发不走附件回填的矩阵缺口，现已一并闭合。最终回复 `content` 与模型 `reasoning` 分离且后者未透传。Data Pipeline Workshop 与 SpaceSight 救命稻草随后共同暴露第二层回归：source-aware key 虽已用于 session env，真实主 Agent 和多个 display consumer 仍直接读取 `feishu`，导致群聊外显 DM 工具链并缺失 `sandbox_group` / `feishu_doc_manage`。现统一主消息、后台、代理及 slash-command 的所有 source/event consumer；真实 `_run_agent` 回归锁定 DM 工具卡正例、双群零 send/edit 负例和群 toolset，`/verbose` 回归再证明群写回不会修改 DM 配置。画像风控复审确认 217 条真实配置均可按唯一 open_id 命中，全部描述字段进入模型可读画像且历史/合并转发标签不带私密字段；并补齐未知字段 private-by-default、技术 ID/未公开别名、下属原始计数、`/background`、interim fallback、streaming TTS 的输出脱敏，移除后台 prompt 回显，将 `people.yaml` / `groups.yaml` 设计为 owner 可读写且热加载/升级自动收敛 `0600`。流程复盘确认旧 Step 8d 的 `stop/start` 会在短宽限后强杀在途任务，现已改为排空感知 restart + PID 替换硬门禁，并新增最终运行屏障、最高有效边界及 namespace consumer 成对断言规则；Vertex hidden-thoughts 另补真实 `ChatCompletionsTransport.build_kwargs()` wire-shape 回归。受管动态集合 26 files **829 passed / 0 failed**，sandbox verifier 21 passed 并绑定新 PID。
+**2026-08-03 更新后运行态审计**：发现 2026-08-02 的 patch 文件在 Gateway 进程启动后才落盘，旧进程继续缓存 pre-patch modules，导致合并转发仍显示占位符、Vertex `include_thoughts` 抑制未生效并把英文 thought 写入最终 `assistant.content`。人工替换 PID 后两项既有补丁恢复；同时修复主会话 DM 纯 @ 被静默丢弃。继续真会话复测又发现完整 12 条转发虽已从 API 取回，却被 Gateway 通用 500 字符引用上限截到第 6 条中间；现已给内部标记的 Feishu merged-forward 引用设置 20,000 字符专用有界上限，真实卡片 1,073 字符及末条 `Okay 非常 make sense` 均通过送模断言。Data Pipeline Workshop 真会话随后证明纯 @ 引用图片已回填 `media=1`，但测试任务被审计重启中断；另一条 `@Gödel /` 又暴露单独 `/` 被误判 command、显式重复引用受窗口去重、DM 与 `assistant_user` 触发不走附件回填的矩阵缺口，现已一并闭合。最终回复 `content` 与模型 `reasoning` 分离且后者未透传。Data Pipeline Workshop 与 SpaceSight 救命稻草随后共同暴露第二层回归：source-aware key 虽已用于 session env，真实主 Agent 和多个 display consumer 仍直接读取 `feishu`，导致群聊外显 DM 工具链并缺失 `sandbox_group` / `feishu_doc_manage`。现统一主消息、后台、代理及 slash-command 的所有 source/event consumer；真实 `_run_agent` 回归锁定 DM 工具卡正例、双群零 send/edit 负例和群 toolset，`/verbose` 回归再证明群写回不会修改 DM 配置。画像风控复审确认 217 条真实配置均可按唯一 open_id 命中，全部描述字段进入模型可读画像且历史/合并转发标签不带私密字段；并补齐未知字段 private-by-default、技术 ID/未公开别名、下属原始计数、`/background`、interim fallback、streaming TTS 的输出脱敏，移除后台 prompt 回显，将 `people.yaml` / `groups.yaml` 设计为 owner 可读写且热加载/升级自动收敛 `0600`。流程复盘确认旧 Step 8d 的 `stop/start` 会在短宽限后强杀在途任务，现已改为排空感知 restart + PID 替换硬门禁，并新增最终运行屏障、最高有效边界及 namespace consumer 成对断言规则；Vertex hidden-thoughts 另补真实 `ChatCompletionsTransport.build_kwargs()` wire-shape 回归。受管动态集合 26 files **829 passed / 0 failed**，sandbox verifier 21 passed 并绑定新 PID。同日下午的全量补丁审计（对照 post-26e0b1c 上游 +251 commits）确认 27 个补丁功能正常、6 个归档哨兵未回滚；`PATCH-DOCUMENT-EXTRACTION` 因上游已自带 XLSX/DOCX/IPYNB 抽取而收缩（删除 `file_operations.py` 死代码路径，受管集合 64→62 文件），升级脚本补齐 EXIT trap 全窗口恢复、completion 生成失败非零、8d native exit-wait 预算前向兼容，并清理内层 4 个已被现补丁态覆盖的遗留 stash；people.yaml 公开面白名单以 217 条生产配置全量探针复核 0 泄漏。
 
 **最近一次升级（v0.19.0 → v0.19.1，+971 commits，basis `41a07f5b` → `26e0b1c`）要点**：
 
@@ -294,7 +293,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **验证**：Step 8b 用真实 Python import + 调用 `_resolve_skill_dir("dummy_unit_test_skill")`，断言返回路径 startswith `~/.hermes/my-skills/`。
 
-**上游吸收判断**：仅当上游 create 路径已支持把首个 external skill root 作为默认写入目录，且对应创建/删除测试覆盖不存在目录时，才可移除本补丁；当前上游仍固定写入 `SKILLS_DIR / name`。
+**上游吸收判断**：仅当上游 create 路径已支持把首个 external skill root 作为默认写入目录，且对应创建/删除测试覆盖不存在目录时，才可移除本补丁；当前上游仍固定写入 `SKILLS_DIR / name`。**语义张力提示**（2026-08-03 审计）：post-26e0b1c 上游新增 `_background_review_write_guard()`，经 `is_external_skill_path()` 将 external_dirs 视为"externally owned、对自主 curation 只读"。该 guard 目前只作用于 background review fork，与本补丁的前台 create 不互斥；但上游把 external 当只读、本补丁把它当默认写入目标，方向相反——每轮升级须复核该 guard 的作用范围未扩大到 create 路径，若扩大则需与上游治理策略重新对齐而不是静默让 create 失败。
 
 ---
 
@@ -341,11 +340,11 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。
 
-**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。Step 8d 在重启前捕获旧 PID，改走排空感知的 `hermes gateway restart`，从更新后 runtime 读取 `restart_drain_timeout` 并给 supervisor 额外 30 秒替换余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
+**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。Step 8d 在重启前捕获旧 PID，改走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀。Step 7 补全脚本生成失败（sentinel 无法运行）同样设置非零。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
 
-**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；Step 8d 必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `_get_restart_drain_timeout() + 30s`，并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`。隔离执行脚本片段时，任一 gate 为 false、restart 非零、超时或返回相同 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 PID。
+**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；Step 8d 必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s），并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`。隔离执行脚本片段时，任一 gate 为 false、restart 非零、超时或返回相同 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 PID。
 
-**上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。
+**上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。**排空子项已被上游部分替代**（2026-08-03 审计）：`db3f7e4eb`（post-26e0b1c）把排空感知重启做进 `hermes gateway restart` 主干——SIGUSR1 先拒新 turn、按 `agent.restart_after_turn_timeout`（默认 21600s）等 in-flight 归零才 stop，`restart_drain_timeout` 收窄为 stop 内强杀预算，CLI 经 `_get_restart_exit_wait_budget()` 暴露合并等待窗。本地 `gw_restart_wait_seconds()` 已前向兼容优先该预算；升级跨过该 commit 后，本补丁的排空部分退化为"信任原生排空 + 校验 PID 替换与退出码"，不得再自建平行等待逻辑。
 
 ---
 
@@ -481,7 +480,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **验证**：Step 8b 单独检查 `reply_in_thread = False`、忽略 thread metadata 的实现和回归测试；覆盖普通引用、文档回复和无引用锚点三条路径。
 
-**上游吸收判断**：上游提供明确的普通引用/话题开关并保证 generic thread metadata 不改变 Feishu 投递 lane 后可归档。
+**上游吸收判断**：上游提供明确的普通引用/话题开关并保证 generic thread metadata 不改变 Feishu 投递 lane 后可归档。**对撞警示**（2026-08-03 审计）：post-26e0b1c 上游在同一 send/reply-body 区域走**相反语义**——`reply_in_thread = bool(metadata.thread_id)`（metadata 驱动投递 lane），与本补丁"固定 `reply_in_thread=False`、忽略 generic thread metadata"直接冲突。下次升级该区域的 3-way 结果**不可信任自动合并**：必须人工按本补丁不变量重解（普通引用回复永不进 thread lane），并以现有回归测试三条路径复验后才能刷新 bundle。
 
 ---
 
@@ -540,18 +539,20 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-DOCUMENT-EXTRACTION] 可信文档文本抽取
 
-| 字段     | 内容                                                                                                                                  |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/run.py`, `tools/file_operations.py`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock` 及对应 tests |
-| **状态** | 🟡 未上游合并                                                                                                                         |
+| 字段     | 内容                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/run.py`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock` 及对应 tests |
+| **状态** | 🟡 部分吸收（XLSX/DOCX/IPYNB 抽取与 `read_file` 接线已上游合并；PDF/HTML/PPTX/ODT 与入站接线仍本地）      |
 
-**问题**：附件成功下载后，PDF/DOCX/XLSX 等二进制仍只给模型路径；群聊又不能临时执行解析脚本。通用 `read_file` 也会在二进制检测前拒绝 `.xlsx`。
+**问题**：附件成功下载后，PDF/HTML/PPTX/ODT 等二进制仍只给模型路径；群聊又不能临时执行解析脚本。上游 `tools/read_extract.py`（26e0b1c 已含）只覆盖 IPYNB/DOCX/XLSX。
 
-**修复**：`read_file` 原生抽取 XLSX sheet 文本；可信解析层支持 PDF、HTML、PPTX、ODT、IPYNB、DOCX、XLSX，移除 HTML 主动内容并对每文件/每轮文本做上界。`gateway/run.py` 在线程池中抽取，向模型明确内容是不可信参考数据；加密、扫描或损坏文档保留路径并返回可解释降级。依赖在 project extra、lazy deps 与 lockfile 中固定。
+**修复**：在上游 `read_extract.py` 抽取层上扩展 PDF（pypdf，兼容 PyMuPDF 安装）、HTML（移除主动内容）、PPTX、ODT，并对每文件/每轮文本做上界；上游 `file_tools.py` 的 `read_file` 接线按 `EXTRACTABLE_EXTENSIONS` 自动获得新格式，无需本地改动 `read_file` 主路径。`gateway/run.py` 新增 `_extract_inbound_document` 在线程池中抽取入站附件，向模型明确内容是不可信参考数据；加密、扫描或损坏文档保留路径并返回可解释降级。依赖在 project extra、lazy deps 与 lockfile 中固定。
 
-**验证**：Step 8b 单独检查 spreadsheet reader、common extractors、`_extract_inbound_document`、pypdf 双路径依赖和测试类；覆盖 PDF 页边界、HTML 清理、Office/OpenDocument 顺序、字符上界及不依赖 terminal。
+**2026-08-03 收缩**：上游在 26e0b1c 已自带 `read_extract.py`（XLSX/DOCX/IPYNB）并经 `file_tools.py` 接进 `read_file`，本地曾并存的 `file_operations.py` `_read_spreadsheet` 第二条 XLSX 路径成为死代码（抽取分支先行拦截），已连同其测试一并删除；`tools/file_operations.py`、`tests/tools/test_file_operations.py` 移出 `PATCHED_FILES`。
 
-**上游吸收判断**：上游提供等价的可信常见文档抽取和 XLSX `read_file` 支持后可归档；资源获取能力独立留在 `PATCH-FEISHU-RESOURCE-ACCESS`。
+**验证**：Step 8b 单独检查 common extractors（`_extract_pdf` / `_extract_html_file`）、`_extract_inbound_document`、pypdf 双路径依赖和 `TestCommonDocumentExtraction`；覆盖 PDF 页边界、HTML 清理、Office/OpenDocument 顺序、字符上界及不依赖 terminal。
+
+**上游吸收判断**：上游 `EXTRACTABLE_EXTENSIONS` 覆盖 PDF/HTML/PPTX/ODT（含依赖策略）且提供等价的入站附件抽取接线后可归档；资源获取能力独立留在 `PATCH-FEISHU-RESOURCE-ACCESS`。
 
 ---
 
@@ -612,7 +613,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **注**：`plugins/model-providers/gemini/__init__.py`（AI-Studio `gemini` provider）存在同构的双层写法，但本环境不走该 provider，暂不改动，待验证。
 
-**上游吸收判断**：若上游能把 Vertex OpenAI-compatible 返回的 Gemini thoughts 解析并存入隐藏 reasoning 字段，或官方 Vertex profile 默认隐藏 thoughts 且保留 thinking level，可归档本补丁。
+**上游吸收判断**：若上游能把 Vertex OpenAI-compatible 返回的 Gemini thoughts 解析并存入隐藏 reasoning 字段，或官方 Vertex profile 默认隐藏 thoughts 且保留 thinking level，可归档本补丁。**隐式合约依赖**：本补丁的单层返回形状依赖基类 `ProviderProfile.build_extra_body` 的"返回值 merge 进 extra_body"约定；每轮升级必须复核该基类合约未变（`test_vertex_transport_build_kwargs_hides_thoughts_on_wire` 穿过真实 `build_kwargs()` 锁定最终 wire 形状，合约变化会在该测试直接暴露）。2026-08-03 对 post-26e0b1c 上游复核：插件仍是双层包裹 bug 原样，未吸收。
 
 ---
 
@@ -654,7 +655,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **验证**：Step 8b grep `agent/vertex_adapter.py` 存在 `def get_vertex_fallback_config` + `apply_global_project_override`；`hermes_cli/auth.py` 存在 `"vertex-fallback"`；`agent/auxiliary_client.py` 存在 `has_vertex_fallback_credentials`；`plugins/.../vertex/__init__.py` 存在 `name="vertex-fallback"`；`hermes_cli/runtime_provider.py` 存在 `"vertex-fallback", "vertex2", "vertex-secondary"` 分支；test 存在 `test_vertex_fallback_profile_registered` + `test_resolve_runtime_provider_vertex_fallback_mints_token`。单测 23 passed（2026-07-29，含 6 条 fallback 回归：新增 runtime_provider 铸 token 与 AuthError 前进两条）。真链路：`resolve_runtime_provider(requested='vertex-fallback')` 返回 `provider="vertex-fallback"`、base_url 锁定 `projects/gen-lang-client-0217395804`、api_key 为有效 OAuth token（修复前同调用返回 `provider="openrouter"` + 空 api_key）。真链路端到端：加载 `.env` 后 `get_vertex_fallback_config()` 返回 base_url 锁定 `projects/gen-lang-client-0217395804`（未被主 project 覆盖），`resolve_provider_client("vertex-fallback", model="google/gemini-3.1-pro-preview")` 返回可用 client 且真实调用返回干净答案（无 thought 段）。第二账号 SA 直连 Vertex `/v1`+`/v1beta1` global 均 200。
 
-**上游吸收判断**：若上游为 Vertex/OAuth-token 类 provider 提供多凭证轮换池（credential pool），或让 fallback 条目原生携带 per-entry `credentials_path`/`project`，可归档本补丁改用原生机制。
+**上游吸收判断**：若上游为 Vertex/OAuth-token 类 provider 提供多凭证轮换池（credential pool），或让 fallback 条目原生携带 per-entry `credentials_path`/`project`，可归档本补丁改用原生机制。**上游已出现候选替代**（2026-08-03 审计）：post-26e0b1c 的 `agent/credential_pool.py`（`CredentialPool`/`PooledCredential`，支持 `AUTH_TYPE_OAUTH`，`hermes_cli/auth.py` 与 `runtime_provider.py` 已接入）提供同 provider 多凭证 failover，但按 token/api-key 条目存储，**尚无 per-entry SA 文件 + 独立 GCP project 语义**——本补丁"第二账号绕 per-project 配额"的需求暂不能直接表达。下轮升级跨过该机制后必须重新评估迁移；同时注意 `ca5ce1110` 已把 auxiliary-client 的 provider-key 读取改走 profile secret scope，与本补丁在 `auxiliary_client.py` 的改写区域重叠，3-way 时需按 scoped-read 形式适配本地分支。
 
 ---
 
