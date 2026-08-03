@@ -185,6 +185,7 @@ PATCHED_FILES=(
     "skills/research/llm-wiki/SKILL.md"
     "gateway/platforms/base.py"
     "gateway/run.py"
+    "gateway/slash_commands.py"
     "gateway/session.py"
     "gateway/session_context.py"
     "gateway/stream_consumer.py"
@@ -212,6 +213,8 @@ PATCHED_FILES=(
     "tests/gateway/test_feishu_bot_auth_bypass.py"
     "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
+    "tests/gateway/test_run_progress_topics.py"
+    "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_skills_config.py"
@@ -234,7 +237,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（60 文件，2026-08-03 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（63 文件，2026-08-03 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
 
 ### 手动恢复
 
@@ -258,7 +261,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **活跃补丁**：当前共 27 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**2026-08-03 更新后运行态审计**：发现 2026-08-02 的 patch 文件在 Gateway 进程启动后才落盘，旧进程继续缓存 pre-patch modules，导致合并转发仍显示占位符、Vertex `include_thoughts` 抑制未生效并把英文 thought 写入最终 `assistant.content`。人工替换 PID 后两项既有补丁恢复；同时修复主会话 DM 纯 @ 被静默丢弃。继续真会话复测又发现完整 12 条转发虽已从 API 取回，却被 Gateway 通用 500 字符引用上限截到第 6 条中间；现已给内部标记的 Feishu merged-forward 引用设置 20,000 字符专用有界上限，真实卡片 1,073 字符及末条 `Okay 非常 make sense` 均通过送模断言。Data Pipeline Workshop 真会话随后证明纯 @ 引用图片已回填 `media=1`，但测试任务被审计重启中断；另一条 `@Gödel /` 又暴露单独 `/` 被误判 command、显式重复引用受窗口去重、DM 与 `assistant_user` 触发不走附件回填的矩阵缺口，现已一并闭合。最终回复 `content` 与模型 `reasoning` 分离且后者未透传。流程复盘确认旧 Step 8d 的 `stop/start` 会在短宽限后强杀在途任务，现已改为排空感知 restart + PID 替换硬门禁，并新增最终运行屏障和最高有效边界测试规则；Vertex hidden-thoughts 另补真实 `ChatCompletionsTransport.build_kwargs()` wire-shape 回归。受管动态集合 23 files **798 passed / 0 failed**，sandbox verifier 21 passed 并绑定新 PID。
+**2026-08-03 更新后运行态审计**：发现 2026-08-02 的 patch 文件在 Gateway 进程启动后才落盘，旧进程继续缓存 pre-patch modules，导致合并转发仍显示占位符、Vertex `include_thoughts` 抑制未生效并把英文 thought 写入最终 `assistant.content`。人工替换 PID 后两项既有补丁恢复；同时修复主会话 DM 纯 @ 被静默丢弃。继续真会话复测又发现完整 12 条转发虽已从 API 取回，却被 Gateway 通用 500 字符引用上限截到第 6 条中间；现已给内部标记的 Feishu merged-forward 引用设置 20,000 字符专用有界上限，真实卡片 1,073 字符及末条 `Okay 非常 make sense` 均通过送模断言。Data Pipeline Workshop 真会话随后证明纯 @ 引用图片已回填 `media=1`，但测试任务被审计重启中断；另一条 `@Gödel /` 又暴露单独 `/` 被误判 command、显式重复引用受窗口去重、DM 与 `assistant_user` 触发不走附件回填的矩阵缺口，现已一并闭合。最终回复 `content` 与模型 `reasoning` 分离且后者未透传。Data Pipeline Workshop 与 SpaceSight 救命稻草随后共同暴露第二层回归：source-aware key 虽已用于 session env，真实主 Agent 和多个 display consumer 仍直接读取 `feishu`，导致群聊外显 DM 工具链并缺失 `sandbox_group` / `feishu_doc_manage`。现统一主消息、后台、代理及 slash-command 的所有 source/event consumer；真实 `_run_agent` 回归锁定 DM 工具卡正例、双群零 send/edit 负例和群 toolset，`/verbose` 回归再证明群写回不会修改 DM 配置。流程复盘确认旧 Step 8d 的 `stop/start` 会在短宽限后强杀在途任务，现已改为排空感知 restart + PID 替换硬门禁，并新增最终运行屏障、最高有效边界及 namespace consumer 成对断言规则；Vertex hidden-thoughts 另补真实 `ChatCompletionsTransport.build_kwargs()` wire-shape 回归。受管动态集合 25 files **818 passed / 0 failed**，sandbox verifier 21 passed 并绑定新 PID。
 
 **最近一次升级（v0.19.0 → v0.19.1，+971 commits，basis `41a07f5b` → `26e0b1c`）要点**：
 
@@ -416,16 +419,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-GROUP-SCOPE] 群聊独立 capability namespace
 
-| 字段     | 内容                                                                                                                                                       |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/session_context.py`, `gateway/run.py`, `hermes_cli/tools_config.py`, `tests/gateway/test_session_env.py`, `tests/hermes_cli/test_tools_config.py` |
-| **状态** | 🟡 未上游合并                                                                                                                                              |
+| 字段     | 内容                                                                                                                                                                                                                                                                          |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/session_context.py`, `gateway/run.py`, `gateway/slash_commands.py`, `hermes_cli/tools_config.py`, `tests/gateway/test_session_env.py`, `tests/gateway/test_run_progress_topics.py`, `tests/gateway/test_verbose_command.py`, `tests/hermes_cli/test_tools_config.py` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                 |
 
-**问题**：Feishu DM 与群聊原本都只解析 `platform=feishu`，无法对同一 bot 的 owner DM 和共享群配置不同 toolsets/skills。
+**问题**：Feishu DM 与群聊原本都只解析 `platform=feishu`，无法对同一 bot 的 owner DM 和共享群配置不同 toolsets/skills。初版补丁虽然新增了 source-aware helper，并把 session context 正确写成 `feishu_group`，但主 `_run_agent_inner`、busy ack、最终 reasoning/footer、proxy streaming、background task 和 slash commands 仍直接用 `source.platform` / `event.source.platform` 取 key。结果静态配置和 sandbox verifier 都显示群策略正确，真实群 Agent 却拿到 DM 的 terminal/drive 工具面与 `tool_progress: new`：工具调用链被发送到群里，受控文档入口 `feishu_doc_manage` 没有进入 Agent schema，模型转而调用 `terminal` / `feishu_drive_add_comment` 再被 sandbox 拦截；群内 `/verbose` 等命令还可能读写 DM 配置。
 
-**修复**：新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`；Feishu group/forum/channel/thread 映射到 `feishu_group`，DM 仍为 `feishu`。平台工具解析和保存逻辑识别该独立 key，并允许显式关闭 platform-native tool recovery，防止配置过的群工具面被默认能力补宽。
+**修复**：新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`；Feishu group/forum/channel/thread 映射到 `feishu_group`，DM 仍为 `feishu`。所有按具体会话解析 display、toolsets、busy ack、reasoning/footer、proxy streaming、background task 和 slash-command 配置的运行路径统一调用 `_platform_config_key_for_source()`；仅 helper 内部允许退回通用 `_platform_config_key(source.platform)`。平台工具解析和保存逻辑识别该独立 key，并允许显式关闭 platform-native tool recovery，防止配置过的群工具面被默认能力补宽。
 
-**验证**：Step 8b 单独检查 session context key、`return "feishu_group"`、tool recovery 开关，以及 `test_set_session_env_sets_feishu_group_config_key` / `test_get_platform_tools_feishu_group_uses_independent_config`。
+**验证**：Step 8b 单独检查 session context key、`return "feishu_group"`、`run.py` / `slash_commands.py` 所有 source/event consumer 不再绕过 source-aware helper、tool recovery 开关，以及 `test_set_session_env_sets_feishu_group_config_key` / `test_get_platform_tools_feishu_group_uses_independent_config`。`test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools` 穿过真实 `_run_agent` 边界作 DM 正例和两个群负例：DM 仍收到 `new` 工具卡并包含 `terminal`，群聊零 send/edit 且 Agent toolsets 包含承载 `feishu_doc_manage` 的 `sandbox_group`、不含 `terminal`。`test_feishu_group_updates_group_scope_without_mutating_dm` 从 `/verbose` 写回边界证明群配置独立更新、DM 值保持不变。
 
 **上游吸收判断**：上游提供等价的 per-chat-type capability namespace，且 Feishu DM/group 可以独立解析工具配置时可归档。
 
@@ -484,16 +487,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-FINAL-ONLY] Feishu 默认只展示最终回复
 
-| 字段     | 内容                                                                                                           |
-| -------- | -------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/display_config.py`, `tests/gateway/test_display_config.py`（本机 `config.yaml` 按 DM/group 显式覆盖） |
-| **状态** | 🟡 未上游合并                                                                                                  |
+| 字段     | 内容                                                                                                                                                                                                                                                |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/display_config.py`, `gateway/run.py`, `gateway/slash_commands.py`, `tests/gateway/test_display_config.py`, `tests/gateway/test_run_progress_topics.py`, `tests/gateway/test_verbose_command.py`（本机 `config.yaml` 按 DM/group 显式覆盖） |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                       |
 
-**问题**：Feishu 默认 tool progress、streaming 和 interim bubbles 会把草稿、工具进度或思考式中间态暴露到群聊；这与消息是否进入 thread 无关，应独立控制。
+**问题**：Feishu 默认 tool progress、streaming 和 interim bubbles 会把草稿、工具进度或思考式中间态暴露到群聊；这与消息是否进入 thread 无关，应独立控制。只验证 `display.platforms.feishu_group` 的静态值并不足够：运行 consumer 若错误使用 `feishu` key，群聊仍会继承 owner DM 的 `tool_progress: new`。
 
-**修复**：Feishu 内置 display tier 默认关闭 tool progress、streaming、interim assistant messages、long-running notification 和 busy detail。当前本机有意让主会话 DM 使用 `tool_progress: new`（独立工具进度卡），群聊保持 `tool_progress: false`；两者都关闭 streaming/interim/thinking progress，最终 assistant 回复只走最终内容。若 provider 把 thought 错塞进 `message.content`，由 `PATCH-VERTEX-HIDDEN-THOUGHTS` 在请求侧抑制，不能误认为 display 层会自动识别并清洗正文。
+**修复**：Feishu 内置 display tier 默认关闭 tool progress、streaming、interim assistant messages、long-running notification 和 busy detail。当前本机有意让主会话 DM 使用 `tool_progress: new`（独立工具进度卡），群聊保持 `tool_progress: false`；两者都关闭 streaming/interim/thinking progress，最终 assistant 回复只走最终内容。所有运行时 display consumer 通过 `PATCH-FEISHU-GROUP-SCOPE` 的 source-aware key 解析，避免静态策略与实际发送分叉。若 provider 把 thought 错塞进 `message.content`，由 `PATCH-VERTEX-HIDDEN-THOUGHTS` 在请求侧抑制，不能误认为 display 层会自动识别并清洗正文。
 
-**验证**：Step 8b 单独检查 Feishu display defaults 与 `test_feishu_defaults_to_final_only`；本机配置检查主会话 `tool_progress: new`、群聊 `tool_progress: false`，且两者的 `thinking_progress` / `interim_assistant_messages` 均为 false。
+**验证**：Step 8b 单独检查 Feishu display defaults 与 `test_feishu_defaults_to_final_only`；本机配置检查主会话 `tool_progress: new`、群聊 `tool_progress: false`，且两者的 `thinking_progress` / `interim_assistant_messages` 均为 false。真实 `_run_agent` 边界测试另证明 DM 会发工具进度，而两个 Feishu group 会话即使同用一个 bot 也不会产生任何 progress send/edit；`/verbose` 测试证明群聊命令只读写 `feishu_group`。
 
 **上游吸收判断**：上游 Feishu 默认 final-only，或提供等价且默认安全的 display profile 后可归档。
 
@@ -747,7 +750,7 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | 配置仓库：`config.yaml`, `plugins/sandbox/{__init__.py,config.yaml,plugin.yaml,test_sandbox.py,verify.sh}`, `my-skills/productivity/feishu-docs/{SKILL.md,scripts/create_new_doc_from_md.py,scripts/download_feishu_file.py,scripts/feishu_common.py,scripts/read_docx_to_markdown.py,scripts/read_feishu_url.py}`, `memories/MEMORY.md`, `hermes-update.sh`, `hermes-update.md`, `README.md`（均不属于内层 `PATCHED_FILES`） |
 | **状态** | 🟢 配置仓库用户插件补丁；升级保留，Step 8e 强制回归                                                                                                                                                                                                                                                                                                                                                                           |
 
-**依赖**：`PATCH-FEISHU-GROUP-SCOPE` 提供 `feishu_group` namespace，`PATCH-PLATFORM-CAPABILITY-SCOPE` 提供只读工具集，`PATCH-FEISHU-GROUP-APPROVAL` 提供审批层纵深防线。依赖缺失时 Step 8b/8e 分别失败，不允许把插件显示为健康。
+**依赖**：`PATCH-FEISHU-GROUP-SCOPE` 提供 `feishu_group` namespace，并保证真实 Gateway consumer 使用该 key；`PATCH-PLATFORM-CAPABILITY-SCOPE` 提供只读工具集，`PATCH-FEISHU-GROUP-APPROVAL` 提供审批层纵深防线。依赖缺失时 Step 8b/8e 分别失败，不允许把插件显示为健康。
 
 **问题**：旧版 sandbox 给 Feishu 群聊保留通用 `terminal`，再用命令字符串、脚本目录和下载目录 allowlist 约束用途。这个边界仍暴露 shell 解析面，无法从能力模型上禁止群成员创建脚本后执行，也无法限制被信任脚本及其子进程写入整个用户目录；`tmp` / `cache` 的用途和不同群之间的文件隔离也不明确。另一方面，群聊确实需要创建、追加、重建、删除和读取飞书文档，并需要一个可读写的临时数据区。主 Feishu DM 则必须继续获得默认完整工具面，危险命令走 owner 人工审批，不能被群聊策略误伤。
 
@@ -755,7 +758,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 `read_url` 依赖链另有一处解释器耦合：`read_feishu_url.py` 只借用 `read_docx_to_markdown.py` 的纯渲染函数 `parse_blocks`，但后者在模块顶层 `import requests`，因此任何缺 `requests` 的解释器执行该链都会整条失败（现场表现为 `ModuleNotFoundError: No module named 'requests'`，可追至 2026-05-18，与 v0.19.0 升级无关）。根因是 `SKILL.md` 长期把 `uv run --with requests python` 作为这些脚本的规范调用方式：`~/.hermes` 下没有 `pyproject.toml` / `.venv` / `.python-version`，`uv run python` 会自行拉起一个与 hermes venv 无关的临时解释器（实测 uv 0.11.32 选到 CPython 3.13.14），其中并无 `requests`，只有 `--with requests` 才被临时注入；venv 解释器本身是 3.12.13 且 `requests==2.33.0` 为 pin 死的直接依赖。因此凡是漏掉 `--with requests`（如原 `SKILL.md:188` 的裸 `python ... append_md_to_doc.py`），或该链上任何模块在顶层 import requests 时，都会退化成 `ModuleNotFoundError`。`__pycache__` 中并存 `cpython-313` / `cpython-314` 字节码正是这些非 venv 解释器执行过的物证。配套修正 `SKILL.md`：`188` 行改为 venv 绝对路径，`232` 行依赖说明改为「首选 `~/.hermes/hermes-agent/venv/bin/python`（已 pin `requests`，无需 `--with`）」并写明裸 `uv run python` 为何不可用。修复把 `import requests` 下移进 `get_tenant_access_token()` 与 `download_doc_to_md()` 两个真正联网的函数，使纯渲染路径回到 stdlib-only；同时 `_handle_feishu_doc_manage` 的 start/end 日志补记 `python=<解释器路径>`，让后续同类故障可从 `agent.log` 直接判定实际解释器。
 
-**验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset 精确且固定脚本全部存在；通过真实 `discover_plugins()` + `_get_platform_tools()` 解析，断言 owner Feishu 仍含 terminal/process/read/write/patch/execute_code/skill_manage，群聊只含 `group_cache` / `feishu_doc_manage` 与只读工具；确认 hook 名、fire site、`ctx.register_tool()` 和 `/usr/bin/sandbox-exec`；运行 21 个插件回归，覆盖跨群隔离、路径穿越/symlink、无 terminal/直接写面、真实 owner ID 全量放行、固定 action/参数、argv 无 shell、凭据错误输出脱敏、50 MB 下载上限、真实进程沙箱外写拒绝、配置加载和工具注册；另有一条源码哨兵断言 `read_docx_to_markdown.py` 不在模块顶层 `import requests` 且两个联网函数仍保留惰性导入，双向负例（提升到顶层／删除惰性导入）均已确认会失败；最后要求注册日志的 PID 与当前 gateway PID 一致、`active=True` 且包含两个结构化工具。verifier 缺失、不可执行、配置/toolset 漂移、测试失败或 runtime trace 不匹配都会设置升级 `FINAL_RC=1`。本补丁由外层 Git 保存，`hermes update` 不覆盖；`local-patches.diff` 只监管 `PATCHED_FILES` 中的工程内语义补丁，并必须与 `hermes-agent` 实际 diff（排除已知 `package-lock.json` 噪音）逐字节一致。
+**验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset 精确且固定脚本全部存在；通过真实 `discover_plugins()` + `_get_platform_tools()` 解析，断言 owner Feishu 仍含 terminal/process/read/write/patch/execute_code/skill_manage，群聊只含 `group_cache` / `feishu_doc_manage` 与只读工具；`PATCH-FEISHU-GROUP-SCOPE` 的 `_run_agent` 边界测试进一步证明真实 consumer 确实把群 toolset 交给 Agent，而不是只在独立解析器里得到正确结果；确认 hook 名、fire site、`ctx.register_tool()` 和 `/usr/bin/sandbox-exec`；运行 21 个插件回归，覆盖跨群隔离、路径穿越/symlink、无 terminal/直接写面、真实 owner ID 全量放行、固定 action/参数、argv 无 shell、凭据错误输出脱敏、50 MB 下载上限、真实进程沙箱外写拒绝、配置加载和工具注册；另有一条源码哨兵断言 `read_docx_to_markdown.py` 不在模块顶层 `import requests` 且两个联网函数仍保留惰性导入，双向负例（提升到顶层／删除惰性导入）均已确认会失败；最后要求注册日志的 PID 与当前 gateway PID 一致、`active=True` 且包含两个结构化工具。verifier 缺失、不可执行、配置/toolset 漂移、测试失败或 runtime trace 不匹配都会设置升级 `FINAL_RC=1`。本补丁由外层 Git 保存，`hermes update` 不覆盖；`local-patches.diff` 只监管 `PATCHED_FILES` 中的工程内语义补丁，并必须与 `hermes-agent` 实际 diff（排除已知 `package-lock.json` 噪音）逐字节一致。
 
 **上游吸收判断**：如果上游原生提供按会话隔离的可写工作区、无 shell 的固定动作工具、子进程写范围沙箱和 owner-DM/group 独立工具面，可迁移到上游能力并归档本补丁；在此之前不得恢复群聊通用 terminal。
 

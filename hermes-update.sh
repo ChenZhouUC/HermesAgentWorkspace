@@ -71,6 +71,7 @@ PATCHED_FILES=(
     "skills/research/llm-wiki/SKILL.md"
     "gateway/platforms/base.py"
     "gateway/run.py"
+    "gateway/slash_commands.py"
     "gateway/session.py"
     "gateway/session_context.py"
     "gateway/stream_consumer.py"
@@ -98,6 +99,8 @@ PATCHED_FILES=(
     "tests/gateway/test_feishu_bot_auth_bypass.py"
     "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
+    "tests/gateway/test_run_progress_topics.py"
+    "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_skills_config.py"
@@ -849,6 +852,7 @@ fi
 
 FEISHU_PY="${HERMES_AGENT}/plugins/platforms/feishu/adapter.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
+SLASH_COMMANDS_PY="${HERMES_AGENT}/gateway/slash_commands.py"
 SESSION_CONTEXT_PY="${HERMES_AGENT}/gateway/session_context.py"
 SESSION_PY="${HERMES_AGENT}/gateway/session.py"
 GATEWAY_CONFIG_PY="${HERMES_AGENT}/gateway/config.py"
@@ -858,6 +862,8 @@ FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admi
 FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
 SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
 SESSION_ENV_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session_env.py"
+RUN_PROGRESS_TEST_PY="${HERMES_AGENT}/tests/gateway/test_run_progress_topics.py"
+VERBOSE_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_verbose_command.py"
 TOOLS_CONFIG_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
 LLM_WIKI_SKILL_MD="${HERMES_AGENT}/skills/research/llm-wiki/SKILL.md"
 
@@ -901,13 +907,21 @@ fi
 
 # PATCH-FEISHU-GROUP-SCOPE: the group capability namespace. Group sessions resolve tools and
 # skill policy through feishu_group while owner DMs remain on feishu.
-if [[ -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${SESSION_ENV_TEST_PY}" && -f "${TOOLS_CONFIG_TEST_PY}" ]]; then
+if [[ -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SLASH_COMMANDS_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${SESSION_ENV_TEST_PY}" && -f "${RUN_PROGRESS_TEST_PY}" && -f "${VERBOSE_COMMAND_TEST_PY}" && -f "${TOOLS_CONFIG_TEST_PY}" ]]; then
     if grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
         grep -q 'return "feishu_group"' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'platform_key = _platform_config_key_for_source(source)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'platform_key = _platform_config_key_for_source(event.source)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        [[ "$(grep -F -c '_platform_config_key(source.platform)' "${GATEWAY_RUN_PY}" 2>/dev/null || true)" -eq 1 ]] &&
+        ! grep -F -q '_platform_config_key(event.source.platform)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        ! grep -F -q '_platform_config_key(source.platform)' "${SLASH_COMMANDS_PY}" 2>/dev/null &&
+        ! grep -F -q '_platform_config_key(event.source.platform)' "${SLASH_COMMANDS_PY}" 2>/dev/null &&
         grep -q 'recover_platform_tools' "${TOOLS_CONFIG_PY}" 2>/dev/null &&
         grep -q 'test_set_session_env_sets_feishu_group_config_key' "${SESSION_ENV_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_updates_group_scope_without_mutating_dm' "${VERBOSE_COMMAND_TEST_PY}" 2>/dev/null &&
         grep -q 'test_get_platform_tools_feishu_group_uses_independent_config' "${TOOLS_CONFIG_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-FEISHU-GROUP-SCOPE active: feishu_group isolated from owner DM"
+        ok "PATCH-FEISHU-GROUP-SCOPE active: runtime display/tools use feishu_group, owner DM stays feishu"
         _FEISHU_GROUP_SCOPE_PATCH_OK=true
     else
         warn "PATCH-FEISHU-GROUP-SCOPE inactive or partial"
@@ -985,9 +999,11 @@ fi
 # config deliberately enables separate `new` tool cards only in the owner DM;
 # groups keep every progress/interim/thinking surface off. Provider-side thought
 # suppression remains the separate PATCH-VERTEX-HIDDEN-THOUGHTS contract.
-if [[ -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" ]]; then
+if [[ -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" && -f "${RUN_PROGRESS_TEST_PY}" && -f "${VERBOSE_COMMAND_TEST_PY}" ]]; then
     if grep -q '"feishu":          {' "${DISPLAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'test_feishu_defaults_to_final_only' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_updates_group_scope_without_mutating_dm' "${VERBOSE_COMMAND_TEST_PY}" 2>/dev/null &&
         _verify_feishu_display_policy; then
         ok "PATCH-FEISHU-FINAL-ONLY active: DM new-tool cards; groups final-only; thinking hidden"
         _FEISHU_FINAL_ONLY_PATCH_OK=true
