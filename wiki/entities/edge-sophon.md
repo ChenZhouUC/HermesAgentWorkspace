@@ -1,7 +1,7 @@
 ---
 title: SOPHGO Edge SoC Platforms
 created: 2026-05-14
-updated: 2026-07-15
+updated: 2026-08-05
 type: entity
 tags:
   - edge-inference
@@ -9,6 +9,7 @@ tags:
   - tpu
 sources:
   - _living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md
+  - _living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations.md
 confidence: high
 ---
 
@@ -29,3 +30,5 @@ CV186AH、BM1688 与 BM1684X 是 SOPHGO（算能）生态中的边缘 SoC / TPU 
 TPU-MLIR 源码表明内部目标 CV186X 与 BM1688 共用 BM1688 backend：CV186X 强制按单 TPU core 编译，BM1688 后端最多支持双 core。这支持“CV186AH 是同平台低档 SKU”的判断，但官方规格同时存在 6/8 个 CPU 核、7.2/16 TOPS 和 8/16 路视频分析等差异；公开资料不足以证明两者使用完全相同的物理 die、仅由软件或 eFuse 锁定，或可以安全解锁。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
 
 各档位与 Rockchip RK3576 的工具链、精度、视频能力和适用场景差异见 [[rk3576-vs-sophon-edge-platforms|RK3576 与 SOPHGO 边缘平台对比]]。具体盒子的 OS、SDK、预留内存、温度和存储占用属于实机状态，保留在来源 living 文档中。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
+
+SpaceSight AI Hub 的容量台账把历史记录中的 7.2T / 7.5T 统一收敛到 CV186AH，并把 CV186AH、BM1688 和 BM1684X 作为 SoC 主键处理。CV186AH 与 BM1688 已有标准客流和视线店内版本的测试记录，但 BM1684X 目前没有可直接作为固定 [[edge-algo|Edge ALGO]] 路数承诺的容量矩阵；厂商标称视频分析路数也不能替代 SpaceSight 业务压测结果。^[[[_living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations|AI-Hub-ALGO-Capacity-and-Combinations]]]

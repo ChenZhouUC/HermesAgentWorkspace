@@ -1,10 +1,12 @@
 ---
 title: Edge AI Deployment Stack
 created: 2026-07-15
-updated: 2026-07-16
+updated: 2026-08-05
 type: concept
 tags: [edge-inference, edge-computing, architecture, pipeline]
-sources: [_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md]
+sources:
+  - _living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md
+  - _living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations.md
 confidence: high
 ---
 
@@ -59,6 +61,10 @@ RTSP → VPU 解码 → VPP / RGA 预处理 → NPU / TPU 推理
 ```
 
 ISP 负责摄像头原始图像处理，VPU / JPU 负责视频或 JPEG 编解码，VPP / BMCV / RGA 负责 resize、crop 和色彩空间转换，加速器执行模型，CPU 负责任务编排和后处理。因此，峰值 TOPS 不能单独推导整机并发路数；视频解码、预处理吞吐、内存带宽、模型输入和后处理都可能成为瓶颈。^[[[_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon|Edge-Compute-Boxes-RK3576-Sophon]]]
+
+## 应用容量台账
+
+边缘部署栈的应用层还需要维护一份容量台账，把硬件、模型包、输入码流、端侧功能组合、接入拓扑和长稳条件绑定在同一条记录里。以 SpaceSight AI Hub 为例，[[edge-algo|Edge ALGO]] 的出入口、标准店内、视线店内和端侧 ReID 是不同负载；版本升级、相同总路数的不同混合比例、NVR / IPC 接入方式变化或离线缓存模式变化，都需要重新验证，不能只替换版本号或按 TOPS 线性外推。^[[[_living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations|AI-Hub-ALGO-Capacity-and-Combinations]]]
 
 ## 模型包最小契约
 

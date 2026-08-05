@@ -1,7 +1,7 @@
 ---
 title: Edge Compute Boxes RK3576 Sophon
 created: 2026-05-14
-updated: 2026-07-16
+updated: 2026-08-05
 ---
 
 # AI 边缘计算盒子：RK3576 与算能系列
@@ -311,6 +311,8 @@ PyTorch / ONNX / TFLite / Caffe / Hugging Face 模型
 - ARM CPU：负责协议接入、任务编排、轻量前后处理、业务规则、缓存和网络上传。
 
 一个典型的 AI Hub 数据路径是：`RTSP → VPU 解码 → VPP/RGA 预处理 → NPU/TPU 推理 → CPU 后处理与上传`。只看 TOPS 无法判断整机能跑多少路，视频解码能力、预处理吞吐、内存带宽、模型输入尺寸和后处理开销同样可能成为瓶颈。
+
+SpaceSight ALGO 的版本树、业务能力归属、实测路数、支持组合和未验证边界统一维护在 `AI-Hub-ALGO-Capacity-and-Combinations.md`；本文不按业务名称重复维护容量数字。
 
 ### 4.7 AI Hub 模型包应记录什么
 

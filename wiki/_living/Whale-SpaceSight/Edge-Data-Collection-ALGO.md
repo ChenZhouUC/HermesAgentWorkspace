@@ -1,13 +1,15 @@
 ---
 title: Edge Data Collection ALGO
 created: 2026-07-02
-updated: 2026-07-02
+updated: 2026-08-05
 ---
 
 # 边缘端数据采集算法 (Edge Data Collection ALGO)
 
 本文记录 SpaceSight 产品线中运行在边缘计算盒子（如 RK3576, Sophon 平台）上的核心算法工程库。
 这是整个 ReID 与客流分析流水线的**最前置节点**。
+
+不同硬件、ALGO 版本序列、功能归属和实测路数统一维护在 `AI-Hub-ALGO-Capacity-and-Combinations.md`；本文不重复维护版本树或容量数字。
 
 ## 1. 系统定位与职责
 

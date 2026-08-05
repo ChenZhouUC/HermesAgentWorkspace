@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-07-16
+updated: 2026-08-05
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,45 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-08-05] daily | SpaceSight AI Hub ALGO capacity consolidation
+
+### consolidation | Single-source capacity and combination ledger
+
+- Trigger: 用户要求读取 SpaceSight 的 AI Hub / ALGO living 文档，并结合视线配置规则和不同盒子的测试报告，校对不同盒子、算法包、路数与支持组合；随后进一步要求同一知识点收束到同一篇文档，便于后续更新对齐且不遗漏。
+- Actions:
+  - 新建 `_living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations.md`，作为这组知识的唯一维护入口；用稳定的 `PKG-*`、`CAP-*` 和 `TOP-*` 编号分别维护包版本、容量组合与 NVR/IPC 拓扑。
+  - 将所有容量数字集中到同页唯一的能力主台账；配置、风险和选型章节只引用记录编号，不重复抄写路数。补充逐条替代/复测规则、测试时间口径和变更记录，保证后续版本升级不会只替换孤立数字。
+  - 校正 7.2T / 7.5T 名称混用，以 `CV186AH` 为容量主键；将端侧 ALGO 收敛为出入口、标准店内和视线店内三条版本序列，出入口支持脚部/头肩划线，标准店内默认带可关闭的试乘试驾/试乘试坐能力，视线店内使用独立版本序列。
+  - 明确排队和看车属于云端 Airflow 业务处理，不形成 ALGO 包型或盒子路数；压测报告中的“试乘试驾 + 看车”是端云业务组合标签，端侧负载只归到试乘试驾/试乘试坐这一个店内 ALGO 能力。
+  - 将版本序列与测试报告时间分开维护：标准容量绑定 `algo 3.1.0.37` 的 2025-08-26 测试，后续 `3.1.1.9` 只记录发布状态；视线版本使用独立序列，不能继承标准店内容量。
+  - 根据 RK3576 测试报告补入双 NPU 的 9 路出入口 + 店内混合上限、7 路店内 + 车门试乘识别组合、72 小时监控数据及断网/离线缓存缺陷；BM1684X 仍没有可用于固定路数承诺的测试记录。
+  - 在 `_living/Whale-SpaceSight/Edge-Compute-Boxes-RK3576-Sophon.md` 和 `_living/Whale-SpaceSight/Edge-Data-Collection-ALGO.md` 增加无数字的纯文本入口；将 `_living/Whale-SpaceSight/SpaceSight-QA-List.md` 中原有端侧 ReID 估算数字迁入主台账，QA 只保留负载区别与入口。
+- Boundary: 未修改 Active Layer 2、index、SCHEMA、lint 或 Obsidian 配置；未把厂商标称视频能力改写成 SpaceSight 业务路数；未根据 TOPS、同总路数或空缺测试报告自行插值。`SpaceSight-QA-List.md` 中本轮开始前已有的其他未提交内容保持不变。
+- Verification: `python3 scripts/wiki_lint.py` 全部 18 项通过；新增和更新的四篇 living 文档通过 Pandoc GFM 解析；全文去重检索确认本轮涉及的版本与容量数字只在容量专题页维护；`git diff --check` 通过。
+
+### digest | Active Layer 2 capacity and SpaceSight sync
+
+- Trigger: 用户要求读取当前 schema 后，对 wiki 新增内容完成 digest，并特别要求连接严谨、没有明显证据时不要随意新增连接。
+- Actions:
+  - 新建 `queries/how-to-size-spacesight-edge-algo-capacity.md`，把 AI Hub / Edge ALGO 包型、容量选型、跨负载禁用替换、验收边界和交付口径提炼成问题型 SOP；该节点只维护决策方法，不复制 `_living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations.md` 的完整 `CAP-*` 数字台账。
+  - 更新 `entities/edge-algo.md`、`concepts/edge-ai-deployment-stack.md` 和 `concepts/customer-flow-post-processing.md`，把出入口 / 标准店内 / 视线店内 / 端侧 ReID 的负载边界，以及排队、看车属于云端 Airflow 后处理的关系收束到已有节点。
+  - 更新 `entities/edge-rk3576.md` 与 `entities/edge-sophon.md`，只记录有来源支撑的平台容量边界：RK3576 仅绑定特定融合测试，CV186AH / BM1688 有当前台账记录，BM1684X 暂无可承诺固定路数矩阵；不按厂商标称或 TOPS 外推。
+  - 更新 `entities/spacesight.md`，digest 新增 Q&A 中的新店多能力布点、单相机覆盖相邻入口、自动画线与平面图、AI 巡检和洞察报告、多语言词条维护、生成类视频需求转派、顾客旅程验证与隐私边界。
+  - 更新 `index.md`，登记新增 query，并将 Active Layer 2 总数从 43 调整为 44。
+- Boundary: 未修改 `SCHEMA.md`、`scripts/wiki_lint.py` 或 Obsidian 配置；未创建 Alivia、Adam、SAM、Stardust 等单点出现或项目内工具节点；未给无明确谓词的对象补“相关概念”式 wikilink；新增连接均在相邻正文中说明了关系谓词并带来源溯源。
+- Verification: `python3 scripts/wiki_lint.py` 全部 18 项通过；`git diff --check` 通过；人工检索新增/更新节点中的 wikilink，确认新增语义边只指向已有 Active Layer 2 节点，来源关系使用 `_living` 紧凑脚注。
+
+### audit | Whole-wiki schema conformance before commit
+
+- Trigger: 用户要求对整体 wiki 的内容和结构进行审计，确保严格遵守 schema，并完成 commit。
+- Actions:
+  - 完整读取 `SCHEMA.md`，按入口检查将本轮归类为全库审计、Layer 2 / Meta 复核和 commit 工作；未触发 schema/lint 共演进或 Obsidian 配置维护。
+  - 运行 `python3 scripts/wiki_lint.py` 与 `python3 scripts/wiki_lint.py --json`，确认 18 项机械规则全部无 issue。
+  - 全库检索 active wikilink、普通 Markdown 本地文档链接、页尾 Related 清单、TODO / FIXME / 待确认标记、frontmatter 关键字段和当前 unstaged diff；人工复核本轮新增/更新节点中的关系谓词与相邻溯源。
+  - 审阅当前未提交 diff 与新增文件全文，确认 Layer 1 仅使用普通文本入口，不含图谱 wikilink 或语义 frontmatter；新增 query 已登记到 `index.md`，`Total pages` 更新为 44。
+- Boundary: 未新增无证据节点或弱连接；未修改 `SCHEMA.md`、`scripts/wiki_lint.py` 或 `.obsidian/`；未把历史日志中的纯文本旧记录改写为新规则口径。
+- Verification: `python3 scripts/wiki_lint.py`、`python3 scripts/wiki_lint.py --json`、`git diff --check` 均通过；Obsidian 本地启用插件清单与 manifest 一致性由 lint 第 16 项覆盖。
 
 ## [2026-07-16] daily | Edge box memory model clarification
 

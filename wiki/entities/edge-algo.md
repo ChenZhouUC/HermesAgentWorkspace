@@ -1,10 +1,12 @@
 ---
 title: Edge ALGO (边缘端算法服务)
 created: 2026-07-02
-updated: 2026-07-11
+updated: 2026-08-05
 type: entity
 tags: [edge-inference, computer-vision, pipeline]
-sources: [_living/Whale-SpaceSight/Edge-Data-Collection-ALGO.md]
+sources:
+  - _living/Whale-SpaceSight/Edge-Data-Collection-ALGO.md
+  - _living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations.md
 confidence: high
 ---
 
@@ -21,6 +23,12 @@ Edge ALGO 负责直接拉取门店相机的 RTSP 流，执行轻量级的目标�
 - 提取出入口 (Entrance/Exit) 与空间驻留与关注 (Approach/Front/Passby) 轨迹事件，支持 AreaMap 与多边形虚拟线圈配置；
 - 抓取轨迹图像与坐标时间戳序列，内置 `BlurImpl` 算子执行合规化人脸局部打码脱敏；
 - 提取预估年龄、性别、是否戴口罩等基础属性，并在端侧结合轨迹向量判定“纯路过”等伪进店噪音。
+
+## AI Hub 包型与容量口径
+
+在 SpaceSight AI Hub 中，Edge ALGO 的业务负载至少要区分出入口版本、标准店内版本和视线店内版本：出入口版本支持脚部划线与头肩划线，标准店内版本默认包含可关闭的试乘试驾 / 试乘试坐能力，视线检测则使用独立的店内版本序列。不同版本序列的并发路数不能互相替换，端侧检测 + ReID 也属于不同于标准客流的研发负载。^[[[_living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations|AI-Hub-ALGO-Capacity-and-Combinations]]]
+
+排队和看车不是 Edge ALGO 包型，而是下游 [[customer-flow-post-processing|Airflow 客流后处理]]消费端侧轨迹与区域数据后生成的业务逻辑；它们可以与店内或视线能力组成同一项目方案，但不应折算为盒子上的 ALGO 视频路数。^[[[_living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations|AI-Hub-ALGO-Capacity-and-Combinations]]]
 
 ## 弱网缓存机制
 

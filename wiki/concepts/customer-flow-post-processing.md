@@ -1,10 +1,12 @@
 ---
 title: Customer Flow Post-Processing (客流后处理与指标加工)
 created: 2026-05-25
-updated: 2026-07-11
+updated: 2026-08-05
 type: concept
 tags: [computer-vision, spacesight, pipeline]
-sources: [_living/Whale-SpaceSight/Customer-Flow-Post-Processing.md]
+sources:
+  - _living/Whale-SpaceSight/Customer-Flow-Post-Processing.md
+  - _living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations.md
 confidence: high
 ---
 
@@ -42,3 +44,5 @@ confidence: high
   - 无人接待与深度接待批次。
 - **在店与区域驻留 (Shop Stay & ROI)**：合并同批次内多次捕捉，计算顾客生命周期的在店总时长，并映射至具体展区（AreaMap）生成漏斗。
 - **路过与进店率 (Outside Traffic)**：提取店外视野客群，计算最终的门店进店率。^[[[_living/Whale-SpaceSight/Customer-Flow-Post-Processing|Customer-Flow-Post-Processing]]]
+
+排队与看车也属于这类云端业务处理：它们消费 [[edge-algo|Edge ALGO]] 上报的店内轨迹、区域或基础事件，再由 Airflow 侧生成业务结果。它们可以依赖店内或视线相机配置，但不应被登记为端侧 ALGO 包型，也不应折算为 AI Box 的视频推理路数。^[[[_living/Whale-SpaceSight/AI-Hub-ALGO-Capacity-and-Combinations|AI-Hub-ALGO-Capacity-and-Combinations]]]
