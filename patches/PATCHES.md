@@ -70,6 +70,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-FEISHU-SOCKS-DEPENDENCY: Feishu extra 与 lazy deps 均声明 python-socks
   │   ├─ PATCH-OPENCLAW-TOKEN-MIGRATION: 迁移器不再生成废弃 gateway token
   │   ├─ PATCH-FEISHU-GROUP-ADMISSION: 群触发/上下文/当前发言人/显式 wiki 路径
+  │   ├─ PATCH-FEISHU-MISSED-EVENT-BACKFILL: 断线/重连漏消息补偿与 quote 覆盖去重
   │   ├─ PATCH-FEISHU-GROUP-SCOPE: feishu_group capability namespace 与 DM 隔离
   │   ├─ PATCH-PLATFORM-CAPABILITY-SCOPE: 平台 skill allowlist + 只读 skill/file toolset
   │   ├─ PATCH-FEISHU-GROUP-APPROVAL: 群聊危险命令审批硬拦
@@ -260,7 +261,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 ## 当前版本：v0.20.0 (upstream `main` `36cb5ae55`，2026-08-05)
 
-**活跃补丁**：当前共 28 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 29 个语义补丁。23 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
 **最近一次升级（v0.19.1 → v0.20.0，+332 commits，basis `d1afa160` → `36cb5ae55`，2026-08-05）要点**：
 
@@ -269,6 +270,8 @@ cat ~/.hermes/patches/.local-patches.base
 - 依赖：无 venv 重建，现有 185 个 Python 包及 `python-socks==2.8.1` / `pypdf==6.14.2` / pytest 工具链保留；Skills mirror 恢复轮 `+70/~1/-0` 补回失败轮误删，最终幂等复跑为 `+0/~1/-0`，8c 后 llm-wiki baseline 正常。npm 自动 fix 仍被上游 lock/range 阻塞：root 2 high、Web 3 high、TUI 1 high；未用 `--force`，`package.json` / `package-lock.json` 无本地 drift，待 upstream lockfile bump。
 - 已知摩擦：`.env` 的 LLM 代理以 `override=True` 载入，PyPI/GitHub TLS EOF 已通过精确 `NO_PROXY` 处理；新增 `PATCH-UPDATE-GIT-FETCH-RETRY`，只对早期 GitHub fetch transport 错误最多重试 3 次，隔离 fake 覆盖 2/3/1 次分支，认证/安装等错误不重试。脚本同时新增只读等待预算入口、source 拒绝和保护同名 untracked 的逐路径恢复；最终完整运行 exit 0 且无 `✗`。以上恢复知识均已落盘。
 - 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`、无需 `--fix`；未登录 provider / 未配置可选工具非升级缺口，npm 3 项为上述 lock 阻塞，Gemini 直连仍偶发 TLS EOF。Gateway plist 匹配当前安装，终轮 planned restart `14936 → 17123`；sandbox verifier 21 passed 绑定 PID `17123`，owner Feishu DM 保持完整工具面，群聊限制为结构化工具 + 只读 file/skill 工具。
+
+**2026-08-05 运行态追加**：新增 `PATCH-FEISHU-MISSED-EVENT-BACKFILL`，用于 Feishu 断线/重连后主动补偿漏触发消息，并避免手动 quote+@ 已回答后的旧消息重复回答。当前活跃补丁由 28 增至 29；新增回归 `tests/gateway/test_feishu.py` 132 passed、`tests/gateway/test_config.py` 57 passed。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -422,6 +425,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b 独立 gate 检查 trigger/settings/history/bare-mention/wiki sentinels、DM 纯 @ 回归、group allowlist、current-author system prompt（本地）与 `[New message]` 上游 body-prefix 回归锚点、bot 优先级和跨发送者不合并测试。定向测试覆盖未 @ 静默、第三方 @本人代答、本人 @bot 不自我介绍、群聊与 DM 的纯 @ 引用/历史意图、DM 不被群 allowlist 放开，以及历史末位发言人与当前提问者不同时仍正确锚定当前作者。（2026-08-03 修正：旧哨兵 `_with_current_author_prefix` 在 v0.19.1 冲突解决轮已被重构移除，gate grep 一直误报 inactive；现改为真实锚点。）
 
 **上游吸收判断**：上游同时具备等价的 Feishu 多触发 admission、群历史/纯 @ 意图、按发送者隔离的 batching 和多用户 current-author 契约后可归档；工具权限隔离不属于本补丁。body-prefix 子项已吸收（见修复段）；system prompt current-author 块与 Feishu admission 机制仍为本地。
+
+---
+
+### [PATCH-FEISHU-MISSED-EVENT-BACKFILL] Feishu 断线/重连漏消息补偿
+
+| 字段     | 内容                                                                                                                                                                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `tests/gateway/test_feishu.py`, `website/docs/user-guide/messaging/feishu.md`, `website/docs/user-guide/configuration.md`（本机 `config.yaml` 启用 6h 窗口与 60s/30s/10s WebSocket 恢复参数） |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                             |
+
+**问题**：Feishu `history_backfill` 只在 Hermes 已收到一条触发消息后补上下文，不能主动发现断网、睡眠或 stale WebSocket 期间漏掉的 `@Hermes` 触发事件。SDK 内部自动重连成功也不会通知 adapter 做补偿扫描，导致漏消息可能等 Feishu 服务端迟迟推送旧事件后才被回复；用户手动 quote 原消息再 @Hermes 触发回答后，旧事件晚到又会让 Hermes 重复回答同一问题。
+
+**修复**：新增 `missed_event_backfill` 独立恢复路径：启动、gateway reconnect 和 Lark SDK `on_reconnected` 后，在主 asyncio loop 上调度一次有界扫描。扫描目标只来自 `missed_event_backfill_chats`、Feishu home channel、显式 `group_rules` 以及 `~/.hermes/groups.yaml`，不把通配符 `group_rules: "*"` 当作租户枚举来源；每个目标 chat 通过 `im.v1.message.list` 拉取最近窗口，按时间正序只重放未见且通过原 `_admit()` 的消息，随后进入同一 `_handle_message_event_data()` / `_process_inbound_message()` 管道。手动 quote/reply 已触发的消息在 dispatch 后把 `parent_id` / `upper_message_id` / `root_id` 标记为已覆盖，使后续 delayed push 或恢复扫描命中原消息 ID 时被 dedup 跳过。配置桥接同时支持 `missed_event_backfill*` 和 `ws_reconnect_*` / `ws_ping_*` 顶层 `feishu:` 键。
+
+**验证**：Step 8b 单独检查 missed-event runner、per-chat backfill、SDK reconnected hook、quote-covered dedup helper、`ListMessageRequest is not None` fallback、config 桥接、用户文档和三条回归测试。新增测试覆盖：已知群里的未见 @ 消息会在 backfill 中触发一次 dispatch；quote+@ 覆盖的 parent 后续 backfill 不再 dispatch；SDK `on_reconnected` hook 保留原 callback 并调度 backfill。规范 runner 结果：`tests/gateway/test_feishu.py` 132 passed / 0 failed，`tests/gateway/test_config.py` 57 passed / 0 failed（2026-08-05）。
+
+**上游吸收判断**：上游 Feishu adapter 若提供等价的启动/重连后 missed trigger replay、SDK 内部 reconnect 通知接线、已 quote 触发回答的原消息 ID 覆盖去重、以及受控目标 chat 发现策略，可归档本补丁；单纯加强 WebSocket ping/reconnect 或上下文 `history_backfill` 不构成吸收。
 
 ---
 

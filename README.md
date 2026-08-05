@@ -1108,7 +1108,7 @@ hermes gateway status
 
 ## 本地补丁记录
 
-本项目维护 28 个按职责命名的活跃语义补丁：22 个工程内补丁、5 个升级期运行时补丁和 1 个外层配置仓库插件补丁。完整责任边界、依赖、验证 gate 和上游吸收条件见 [`patches/PATCHES.md`](patches/PATCHES.md)。工程内改动仍以单一 full-index `local-patches.diff` 作为原子 replay bundle，但每个语义补丁在 Step 8b 独立验收；`PATCH-FEISHU-GROUP-SANDBOX` 不进入内层 diff，由 Step 8e 强制 verifier 管理。当前基线为上游 `36cb5ae55`，62 个受管文件的内层 diff 与外层 bundle（排除已知 `package-lock.json` 噪音）逐字节一致；最近完整回归为 797 passed / 0 failed，sandbox plugin verifier 每轮绑定运行时当前 Gateway PID 通过。
+本项目维护 29 个按职责命名的活跃语义补丁：23 个工程内补丁、5 个升级期运行时补丁和 1 个外层配置仓库插件补丁。完整责任边界、依赖、验证 gate 和上游吸收条件见 [`patches/PATCHES.md`](patches/PATCHES.md)。工程内改动仍以单一 full-index `local-patches.diff` 作为原子 replay bundle，但每个语义补丁在 Step 8b 独立验收；`PATCH-FEISHU-GROUP-SANDBOX` 不进入内层 diff，由 Step 8e 强制 verifier 管理。当前基线为上游 `36cb5ae55`，62 个受管文件的内层 diff 与外层 bundle（排除已知 `package-lock.json` 噪音）逐字节一致；最近完整回归为 797 passed / 0 failed，sandbox plugin verifier 每轮绑定运行时当前 Gateway PID 通过。
 
 补丁由 `hermes-update.sh` 全自动管理：Step 2/8c 以 full-index 保存 replay bundle，Step 3/4 执行 `PATCH-NPM-DEPENDENCY-HYGIENE`，Step 4b 执行 `PATCH-SKILLS-MIRROR-METADATA`，Step 7 保留已上游合并的 completion 回归 sentinel，Step 8 回放工程内 diff 并逐个验证语义 gate，Step 8d 排空在途任务后重启 gateway 并要求 PID 替换，Step 8e 强制回归 `PATCH-FEISHU-GROUP-SANDBOX`。若 Step 8d 后又修了运行时代码/配置，`hermes-update.md` Step 5b 要求再次执行同样的终态运行屏障并把 verifier 绑定到最终 PID。`PATCH-UPDATE-GATE-EXIT-STATUS` 保证 apply、sentinel、冲突、空 bundle、runtime sync、Gateway 未实际重载或外层 verifier 任一失败都令升级非零且不得误报成功；常规更新禁止用短宽限 `stop/start` 强杀来换取新 PID。
 

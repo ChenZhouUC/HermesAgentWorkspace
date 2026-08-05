@@ -814,6 +814,7 @@ _SKILL_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
 _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=false
 _FEISHU_GROUP_ADMISSION_PATCH_OK=false
+_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK=false
 _FEISHU_GROUP_SCOPE_PATCH_OK=false
 _PLATFORM_CAPABILITY_SCOPE_PATCH_OK=false
 _FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK=false
@@ -965,6 +966,7 @@ AUTHZ_MIXIN_PY="${HERMES_AGENT}/gateway/authz_mixin.py"
 TOOLS_CONFIG_PY="${HERMES_AGENT}/hermes_cli/tools_config.py"
 FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admission.py"
 FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
+FEISHU_MESSAGING_DOC="${HERMES_AGENT}/website/docs/user-guide/messaging/feishu.md"
 SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
 SESSION_ENV_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session_env.py"
 RUN_PROGRESS_TEST_PY="${HERMES_AGENT}/tests/gateway/test_run_progress_topics.py"
@@ -1008,6 +1010,32 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "$
     fi
 else
     warn "Could not locate PATCH-FEISHU-GROUP-ADMISSION files"
+fi
+
+# PATCH-FEISHU-MISSED-EVENT-BACKFILL: startup/reconnect scans known chats for
+# missed trigger messages and treats quote-covered parent IDs as answered so
+# delayed pushes cannot duplicate a manual quote+@ recovery.
+if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_MESSAGING_DOC}" ]]; then
+    if grep -q 'def _run_missed_event_backfill' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _backfill_missed_events_for_chat' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _install_ws_reconnected_backfill_hook' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _mark_related_message_ids_covered' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _has_seen_message_id' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'ListMessageRequest is not None' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'missed_event_backfill_chats' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'ws_ping_timeout' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'test_missed_event_backfill_dispatches_unseen_mentions_from_known_chat' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_quote_covered_parent_is_marked_seen_for_missed_backfill' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ws_reconnected_hook_schedules_missed_event_backfill' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'Missed Event Backfill' "${FEISHU_MESSAGING_DOC}" 2>/dev/null; then
+        ok "PATCH-FEISHU-MISSED-EVENT-BACKFILL active: reconnect replay + quote-covered dedup"
+        _FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK=true
+    else
+        warn "PATCH-FEISHU-MISSED-EVENT-BACKFILL inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-MISSED-EVENT-BACKFILL]"
+    fi
+else
+    warn "Could not locate PATCH-FEISHU-MISSED-EVENT-BACKFILL files"
 fi
 
 # PATCH-FEISHU-GROUP-SCOPE: the group capability namespace. Group sessions resolve tools and
@@ -1493,7 +1521,7 @@ fi
 # Regenerating the diff captures any upstream changes that touched our patched
 # files but did not conflict. Only do this once ALL patches are confirmed live
 # and the patched files are conflict-marker-free.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_IMAGE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_IMAGE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

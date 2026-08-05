@@ -606,6 +606,12 @@ feishu:
   history_backfill_limit: 30
   history_backfill_seconds: 1800
   history_backfill_max_chars: 6000
+  missed_event_backfill: true
+  missed_event_backfill_seconds: 21600
+  missed_event_backfill_limit: 50
+  ws_reconnect_interval: 60
+  ws_ping_interval: 30
+  ws_ping_timeout: 10
   bare_mention_intent: true
   group_rules:
     "*":
