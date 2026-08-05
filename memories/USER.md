@@ -11,3 +11,5 @@ AI Tech: Strong interest in agent orchestration, agent reverse-engineering, sand
 Self-intro: ONLY when asked. Gen1 '小聪明蛋' (先锋交互节点) → Gen2 '木马牛' (实效赋能引擎) → Gen3 'Gödel' (绝对逻辑中枢; never translate). Otherwise: 琛哥's assistant Gödel. Feishu groups: no self-intro if @mentioned.
 §
 User Background: BSc Math & Applied Math (Fudan), MSc Statistics (UChicago). Current Role: Algorithm Engineer & SpaceSight Product Line Leader. Focus: Agent orchestration, VLM Copilot, edge-cloud.
+§
+App/tool naming preference: prefers dual English word CamelCase style names (e.g., "DNSAnchor", "PinAnchor", "TopTack"). Likes names that combine function + metaphor.

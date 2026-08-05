@@ -511,6 +511,7 @@ _hermes() {
                     sessions_cmds=(
                     'archive:Bulk-archive (soft-hide) sessions matching filters — no dele'
                     'browse:Interactive session picker — browse, search, and resume sess'
+                    'clean-markers:Permanently clear stale tool-call marker content left by ses'
                     'delete:Delete a specific session'
                     'export:Export sessions to JSONL, Markdown, or QMD'
                     'list:List recent sessions'

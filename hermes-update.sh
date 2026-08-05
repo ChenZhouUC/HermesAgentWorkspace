@@ -6,8 +6,8 @@
 #
 # Covers:
 #   1. Preflight checks
-#   2. Save & clean local patches  → patches/local-patches.diff + git checkout
-#   3. hermes update               (pull · deps · web · skills · config migration · restart)
+#   2. Save & clean local patches  → patches/local-patches.diff + scoped git restore
+#   3. hermes update               (bounded GitHub-fetch retry · pull · deps · web · skills · config migration · restart)
 #   4. npm audit fix               (fix known npm vulnerabilities after deps install)
 #   4b. Skills mirror sync         (rsync --delete upstream content; preserve runtime metadata)
 #   5. Gateway launchd plist refresh (hermes gateway install --force, if needed)
@@ -36,7 +36,16 @@
 #
 # Usage:
 #   bash ~/.hermes/hermes-update.sh
+#   bash ~/.hermes/hermes-update.sh --print-restart-wait-seconds
 #   chmod +x ~/.hermes/hermes-update.sh && ~/.hermes/hermes-update.sh
+
+# This file is an executable workflow, not a function library. Reject both
+# bash and zsh source attempts before enabling strict mode or mutating state.
+if [[ (-n "${ZSH_EVAL_CONTEXT:-}" && "${ZSH_EVAL_CONTEXT}" == *:file) ||
+    (-n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" != "$0") ]]; then
+    printf 'hermes-update.sh must be executed, not sourced.\n' >&2
+    return 2
+fi
 
 set -euo pipefail
 
@@ -48,7 +57,7 @@ PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.19.1 / main d1afa160, `hermes completion zsh` already emits the
+# As of v0.20.0 / main 36cb5ae55, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -165,6 +174,69 @@ _has_conflict_markers() {
     return 1
 }
 
+# Restore only replay-managed paths to HEAD. Run path-by-path so one file that
+# upstream deleted cannot prevent the remaining conflict/index state from being
+# cleaned up. A managed file absent from HEAD can only have been created by the
+# replay attempt, so remove that exact path from both index and worktree.
+_restore_patched_files_to_head() {
+    local _restore_rc=0
+    local _f
+    for _f in "$@"; do
+        if git cat-file -e "HEAD:${_f}" 2>/dev/null; then
+            git restore --source=HEAD --staged --worktree -- "${_f}" 2>/dev/null || _restore_rc=1
+        else
+            # Delete only a path that the failed apply actually placed in the
+            # index. Leave an unrelated untracked file untouched and fail
+            # closed so the user can recover it explicitly.
+            if git ls-files --error-unmatch -- "${_f}" >/dev/null 2>&1; then
+                git rm -f --cached --ignore-unmatch -- "${_f}" >/dev/null 2>&1 || _restore_rc=1
+                rm -f -- "${_f}" || _restore_rc=1
+            elif [[ -e "${_f}" || -L "${_f}" ]]; then
+                _restore_rc=1
+            fi
+        fi
+    done
+    return "${_restore_rc}"
+}
+
+# Run the upstream updater, retrying only its pre-mutation GitHub fetch
+# transport failure. The command is passed as argv so this helper can be
+# verified with an isolated fake without touching the real checkout.
+_run_hermes_update_with_retry() {
+    local _update_log="$1"
+    shift
+    local _max_attempts=3
+    local _attempt=1
+
+    while true; do
+        : >"${_update_log}"
+        set +e
+        env "${_NPM_POLICY_ENV[@]}" "$@" >"${_update_log}" 2>&1
+        UPDATE_RC=$?
+        set -e
+
+        if [[ ${UPDATE_RC} -eq 0 ]]; then
+            cat "${_update_log}"
+            return 0
+        fi
+
+        # hermes update performs its scoped fetch before checkout/dependency
+        # mutations. Authentication, divergence, install, migration and every
+        # other failure remain single-attempt and are surfaced verbatim.
+        if ((_attempt < _max_attempts)) &&
+            grep -qiE \
+                'Network error — cannot reach the remote repository|unable to access .*github\.com|Failed to connect to github\.com|Could not resolve host: github\.com|SSL_ERROR_SYSCALL.*github\.com|tls handshake eof.*github\.com' \
+                "${_update_log}"; then
+            note "Transient GitHub fetch failure (attempt ${_attempt}/${_max_attempts}) — retrying"
+            _attempt=$((_attempt + 1))
+            continue
+        fi
+
+        cat "${_update_log}"
+        return 0
+    done
+}
+
 # Print the active gateway PID, accepting both the older JSON-like status
 # output and the current "Gateway is supervised by <service> (PID NNN)".
 gw_pid() {
@@ -203,6 +275,15 @@ except Exception:
 print(int(max(30.0, budget + 30.0)))
 ' 2>/dev/null || echo 210
 }
+
+# This script is executable, not a shell function library. Give the playbook
+# and external supervisors a side-effect-free way to obtain the restart budget;
+# sourcing the whole script would otherwise start an update while merely trying
+# to call gw_restart_wait_seconds().
+if [[ "${1:-}" == "--print-restart-wait-seconds" ]]; then
+    gw_restart_wait_seconds
+    exit 0
+fi
 
 # Personal display contract: the owner DM may show each newly-started tool as
 # a separate progress card, while Feishu groups expose no tool/interim/thinking
@@ -263,10 +344,11 @@ if [[ ! -d "${HERMES_AGENT}/.git" ]]; then
 fi
 ok "Repo: ${HERMES_AGENT}"
 
-# Network sanity check (non-fatal)
+# Network sanity check (non-fatal). The scoped, bounded fetch retry below is
+# authoritative; do not leave a stale final warning when this cheap probe loses
+# a transient race but the real update succeeds.
 if ! curl -sf --connect-timeout 5 --max-time 8 https://github.com >/dev/null 2>&1; then
-    warn "github.com unreachable — git fetch may stall"
-    add_warn "Network: github.com unreachable. Check connectivity if update hangs."
+    note "Initial github.com probe unavailable — the update fetch will retry transient network failures"
 fi
 
 PRE_VERSION=$(hermes --version 2>/dev/null | head -1 || echo "unknown")
@@ -292,7 +374,11 @@ if [[ ${#_CHANGED_PATCH_FILES[@]} -gt 0 ]]; then
     git --no-pager diff --full-index HEAD -- "${_CHANGED_PATCH_FILES[@]}" >"${PATCH_FILE}.tmp" &&
         mv -f "${PATCH_FILE}.tmp" "${PATCH_FILE}"
     ok "Saved ${#_CHANGED_PATCH_FILES[@]} patched file(s) → patches/local-patches.diff"
-    git checkout HEAD -- "${_CHANGED_PATCH_FILES[@]}"
+    if ! _restore_patched_files_to_head "${_CHANGED_PATCH_FILES[@]}"; then
+        fail "Could not restore every patched file to HEAD after saving the replay bundle"
+        add_act "Inspect the managed paths and index: cd ${HERMES_AGENT} && git status --short"
+        exit 1
+    fi
     _PATCHES_REVERTED=true
     ok "Reverted patched files to HEAD (clean tree for git pull)"
     # Warn if OTHER unrelated changes exist — step 3 will auto-clean them.
@@ -357,10 +443,7 @@ if [[ "${_NPM_MAJOR}" =~ ^[0-9]+$ ]] && ((_NPM_MAJOR >= 12)); then
 fi
 
 _UPDATE_LOG=$(mktemp -t hermes-update.XXXXXX)
-set +e
-env "${_NPM_POLICY_ENV[@]}" hermes update 2>&1 | tee "${_UPDATE_LOG}"
-UPDATE_RC=${PIPESTATUS[0]}
-set -e
+_run_hermes_update_with_retry "${_UPDATE_LOG}" hermes update
 echo ""
 
 # uv-pyenv recovery: on machines where uv (≥0.11) is installed but Python is
@@ -663,7 +746,7 @@ if [[ -f "${PATCH_FILE}" ]]; then
             if git apply "${PATCH_FILE}" 2>/dev/null; then
                 _PATCH_MODE="clean"
             else
-                git restore --source=HEAD --staged --worktree -- "${PATCHED_FILES[@]}" 2>/dev/null || true
+                _restore_patched_files_to_head "${PATCHED_FILES[@]}" || true
                 warn "Patches passed --check but apply failed unexpectedly"
                 add_warn "Local patches were NOT applied — some customizations inactive"
                 add_act "Retry manually: cd ${HERMES_AGENT} && git apply ${PATCH_FILE}"
@@ -673,7 +756,7 @@ if [[ -f "${PATCH_FILE}" ]]; then
             if git apply --unidiff-zero "${PATCH_FILE}" 2>/dev/null; then
                 _PATCH_MODE="clean (zero-context)"
             else
-                git restore --source=HEAD --staged --worktree -- "${PATCHED_FILES[@]}" 2>/dev/null || true
+                _restore_patched_files_to_head "${PATCHED_FILES[@]}" || true
                 warn "Patches passed --unidiff-zero --check but apply failed unexpectedly"
                 add_warn "Local patches were NOT applied — some customizations inactive"
                 add_act "Retry manually: cd ${HERMES_AGENT} && git apply --unidiff-zero ${PATCH_FILE}"
@@ -682,7 +765,7 @@ if [[ -f "${PATCH_FILE}" ]]; then
         elif git apply --3way "${PATCH_FILE}" 2>/dev/null; then
             _PATCH_MODE="3-way"
         else
-            git restore --source=HEAD --staged --worktree -- "${PATCHED_FILES[@]}" 2>/dev/null || true
+            _restore_patched_files_to_head "${PATCHED_FILES[@]}" || true
             warn "Patches could not be applied (upstream conflict)"
             add_warn "Local patches were NOT applied — some customizations inactive"
             add_act "Manual fix: cd ${HERMES_AGENT} && git apply --reject ${PATCH_FILE}"
@@ -691,7 +774,7 @@ if [[ -f "${PATCH_FILE}" ]]; then
 
         if [[ -n "${_PATCH_MODE}" ]]; then
             if _has_conflict_markers "${PATCHED_FILES[@]}"; then
-                git restore --source=HEAD --staged --worktree -- "${PATCHED_FILES[@]}" 2>/dev/null || true
+                _restore_patched_files_to_head "${PATCHED_FILES[@]}" || true
                 warn "${_PATCH_MODE} apply introduced conflict markers — restored patched files to HEAD"
                 add_warn "Patch re-apply produced conflicts; patched files were restored to clean upstream state"
                 add_act "Inspect drift: cd ${HERMES_AGENT} && git apply --reject ${PATCH_FILE}"

@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent macOS Ops
 created: 2026-05-14
-updated: 2026-08-03
+updated: 2026-08-05
 ---
 
 # Hermes Agent macOS 安装与运维手册
@@ -9,7 +9,7 @@ updated: 2026-08-03
 > 适用系统：macOS 13+（Apple Silicon / Intel 均可）
 > 主模型：公司 **Vertex AI**（service account 换 token，OpenAI 兼容端点）
 > Fallback：**阿里云 Qwen / DashScope**（百炼）
-> 适用版本：Hermes Agent **v0.19.1**（upstream `d1afa160` / latest `main` as of 2026-08-03）
+> 适用版本：Hermes Agent **v0.20.0**（upstream `36cb5ae55` / latest `main` as of 2026-08-05）
 > 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置 Vertex + Qwen → Vertex Token 自动刷新 → 飞书接入 → 内容迁移 → 日常运维
@@ -68,7 +68,7 @@ brew install pyenv git uv ripgrep
 xcode-select --install 2>/dev/null || echo "✓ Xcode CLT 已安装"
 ```
 
-> Hermes 的 Python 版本以 `hermes-agent/pyproject.toml` 的 `requires-python` 为准；当前上游 v0.16.0 为 `>=3.11,<3.14`（自 v0.16.0 起加上 3.14 上界），本机使用 pyenv `3.12.7`。
+> Hermes 的 Python 版本以 `hermes-agent/pyproject.toml` 的 `requires-python` 为准；当前上游 v0.20.0 为 `>=3.11,<3.14`（自 v0.16.0 起加上 3.14 上界），本机 venv 使用 Python `3.12.13`。
 > `uv` 是 Astral 出品的高速 Python 包管理器，`hermes update` 会用到。
 > Xcode CLT 用于编译 Vertex 唤醒监听器（Swift 脚本）。
 
@@ -187,7 +187,7 @@ git clone https://github.com/NousResearch/hermes-agent.git ~/.hermes/hermes-agen
 cd ~/.hermes/hermes-agent
 ```
 
-> 本手册当前基于 v0.17.0（upstream `b1b20270`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
+> 本手册当前基于 v0.20.0（upstream `36cb5ae55`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
 
 ### 3.2 创建虚拟环境并安装依赖
 
@@ -199,7 +199,7 @@ source venv/bin/activate
 uv pip install -e ".[all,feishu]"
 ```
 
-> 这套安装组合覆盖：上游 `[all]` 的常用 CLI / Gateway / Web / MCP / PTY 能力，以及本机常驻需要的飞书集成。Python 版本不要写死，按当前 `pyproject.toml` 的 `requires-python` 与本机可用版本选择；本机持续运行的是 pyenv `3.12.7`。
+> 这套安装组合覆盖：上游 `[all]` 的常用 CLI / Gateway / Web / MCP / PTY 能力，以及本机常驻需要的飞书集成。Python 版本不要写死，按当前 `pyproject.toml` 的 `requires-python` 与本机可用版本选择；本机 venv 当前使用 Python `3.12.13`。
 > 想启用本地 STT / 语音消息时再追加 `voice` extra；想启用 Computer Use 时再追加 `computer-use`（需要后续 `hermes tools` 装 cua-driver）。
 >
 > **关于 `python-socks`（飞书 + 代理网络必装，`PATCH-FEISHU-SOCKS-DEPENDENCY`）**：上游 v0.16.0 的 `feishu` extra 与 `tools/lazy_deps.py` 的 Feishu lazy backend 都仍未声明 `python-socks`。本机通过 `PATCH-FEISHU-SOCKS-DEPENDENCY` 同时补到 `pyproject.toml` 和 `tools/lazy_deps.py`，因此不要再手动安装宽松区间约束；补丁固定为当前验证过的 `python-socks==2.8.1`。
@@ -857,6 +857,6 @@ launchd
 ---
 
 _文档更新时间：2026-06-22_
-_对应 Hermes Agent 版本：**v0.17.0**（upstream `b1b20270` / latest `main` as of 2026-06-22）_
+_对应 Hermes Agent 版本：**v0.20.0**（upstream `36cb5ae55` / latest `main` as of 2026-08-05）_
 _主模型：Vertex AI（公司 SA）Fallback：阿里云 Qwen / DashScope（`qwen3.6-plus`）_
 _本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_

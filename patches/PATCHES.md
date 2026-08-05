@@ -34,12 +34,13 @@
 ```
 Step 2: Save & Clean
   ├─ git diff --full-index HEAD -- PATCHED_FILES → local-patches.diff（原子写：先 .tmp 再 mv）
-  ├─ git checkout HEAD -- PATCHED_FILES  ← 还原到干净状态
+  ├─ _restore_patched_files_to_head PATCHED_FILES  ← 逐路径还原且保护同名 untracked 文件
   └─ 设置 _PATCHES_REVERTED=true（EXIT trap 用）
 
 Step 3: hermes update
   ├─ 先 stash PATCHED_FILES 之外的额外改动（含 untracked）
   ├─ 在干净工作区上跑 git pull + deps + web build + restart
+  ├─ 仅早期 GitHub fetch transport 失败最多重试 3 次（PATCH-UPDATE-GIT-FETCH-RETRY）
   └─ update 后 pop 回额外改动；若冲突则保留 stash 供手动恢复
 
 Step 4b: Skills 镜像同步
@@ -237,7 +238,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（62 文件，2026-08-03 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（62 文件，2026-08-05 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
 
 ### 手动恢复
 
@@ -257,25 +258,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.19.1 (upstream `main` `d1afa160`，2026-08-03)
+## 当前版本：v0.20.0 (upstream `main` `36cb5ae55`，2026-08-05)
 
-**活跃补丁**：当前共 27 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 28 个语义补丁。22 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.19.1 → v0.19.1，+261 commits，basis `26e0b1c` → `d1afa160`，2026-08-03）要点**：
+**最近一次升级（v0.19.1 → v0.20.0，+332 commits，basis `d1afa160` → `36cb5ae55`，2026-08-05）要点**：
 
-- 上游主线（261 commits，间隔 1 天）：**安全 / secrets scope**——约 20 条把凭据读取统一改走 profile secret scope（Feishu/WeCom/Photon/Buzz `f4b268b78`、authz/pairing `dbbfcff56`、auxiliary-client `ca5ce1110`、tier-3 读取 `ebd61ce5a`）；**Gateway 生命周期**——排空感知重启进入主干（`db3f7e4eb`：SIGUSR1 拒新 turn + `restart_after_turn_timeout` 默认 6h 等 in-flight 归零）、session activity watchdog / stall notify / compress timeout 系列（`c2088efe9` + 十余条 re-review）、超时 turn 显式硬停（`4ea379ca2`）、delivery ledger I/O offload（`498800a22`）；**Tools**——`read_file` 默认上限 500→2000（`af27e6060`）、`write_file` 落盘校验（`2c8a932f8`）、patch 已应用检测 no-op（`99d6f55e3`）、search 零命中探针/多行模式（`5797b5028` 等）、terminal blocked-command 自救脚本（`6f5d6b1f5`）、`skill_view` 重复调用 dedup（`2a3a7e6f5`）；**协议/集成**——a2a 插件整套落地并默认 OFF（`64a50ed50`）、outbound webhooks（`3829e34e2`）；**cron / approval**——cron approval per-session scope（`fb6446fc9`）、one-shot 任务保留（`d1afa1605`）、审批超时独立于显式拒绝（`aac74be2f`）、引号内换行不再误判命令起点（`d127fb219`）。
-- patch apply / registry：首轮 bundle 整体 apply 失败，按摩擦表预案手工 `git apply --3way`：**仅 `tools/approval.py` 1 处真冲突**（上游 `_is_cron_approval_context` 与本地 GROUP-APPROVAL 函数同点插入，"并存"型双保留），其余 61 文件 3-way 干净——预判的 adapter settings / skill_view / `_VAR_MAP` 三个热点全部自动并存成功，NORMAL-REPLY 对撞未实际触发且 `reply_in_thread=False` 不变量保持。第二轮脚本暴露 GROUP-ADMISSION gate 的陈旧哨兵 `_with_current_author_prefix`（该 helper 在 v0.19.1 冲突轮已被重构移除，gate 自 `417283b` 起持续误报 inactive）：定性为 **body-prefix 子项已上游吸收**（shared multi-user sender 前缀 + `[New message]` 拼接现属 `_prepare_inbound_message_text` 主干），哨兵改为真实锚点、注册表登记部分吸收。第三轮全绿：62 files clean apply、base=`d1afa160`、bundle 逐字节一致、正反向 apply 通过、Gateway PID `67301 → 71207` 排空替换。27 个活跃 PATCH 全部保留（GROUP-ADMISSION 部分吸收收缩）；UPDATE-GATE 排空子项确认由上游原生排空接管，`gw_restart_wait_seconds()` 实测读到 native 预算 22545s。功能回归动态集合 25 files **790 passed / 0 failed**（对比上轮 26 files/829：−46 为 test_file_operations.py 随收缩移出且在上游侧仍通过，+7 为上游对受管测试文件的新增）。锚点漂移 `26e0b1c` → `d1afa160`。
-- 依赖：无 venv 重建；根 workspace `npm audit` **0 vulnerabilities**；Skills mirror `+0/~1/-0`（llm-wiki 已知振荡，8c 后回同步补丁版并 re-baseline），`.bundled_manifest` / `.curator_state` 保留。
-- 已知摩擦：陈旧 grep 哨兵首次真实兑现"行为化验证依赖特征字符串"已知局限——上游/本地重构移除 helper 后 gate 长期误报，本轮改为真实锚点并在补丁块验证段登记修正；单文件 3-way 冲突恢复路径（Edit 解冲突 → `git add` → `git reset` → 重跑脚本）按摩擦表执行顺畅。
-- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`，无需 `--fix`；Gateway plist 匹配当前安装，launchd 监管 PID `71207`，sandbox verifier 21 passed 绑定同一 PID；owner Feishu DM 保持完整工具面，群聊仍限制为结构化工具 + 只读 file/skill 工具。
-
-**上一次升级（v0.19.0 → v0.19.1，+971 commits，basis `41a07f5b` → `26e0b1c`）要点**：
-
-- 上游主线（971 commits，间隔 4 天，期间发布 Hermes v0.19.1 / tag `v2026.7.30`）：**Desktop / Photon**——最大变更面（109 fix + 40 feat + 10 refactor + 7 perf），持续打磨 UI 与流稳定性；**Gateway / Sessions**——abandoned-turn 后台进程回收范围收窄到该轮真正创建的进程（`80e4fb599`）、跨轮 reap 竞态关闭并覆盖 API-server 断连（`a35691781`）、空 `task_id` reap 防护与优先取已完成 worker 结果（`eb4772ec2`）；**Cron**——`run` 不再阻塞调用轮（`2314abcbb`）、心跳上限加固（`8fd1a6810` / `0cd26ce9a`）；**安全 / 多路复用隔离**——Docker passthrough 快照隔离（`fc61608a1`）、passthrough env 按路由 profile 收敛（`7138b9587`）、model tools / Camofox / Matrix / WhatsApp 全面按 multiplex profile 隔离 secret scope（`76cf19fee` / `3d9a146d8` / `153442dd5` / `4f4ea9a6d`）、冷 profile secret 源 hydration（`6ab390a47`）；**CLI / 迁移**——`hermes import-agent` 不再破坏不可读 `config.yaml`（`981a59864`）、迁移脚本原子写保留 symlink 目标（`e75336d59`）、openclaw EXDEV fallback 吞掉 fsync 错误（`0a62610f1`）；**Skills**——skill 安装拒绝覆盖 category bucket（`75e85ef6b`）、hybrid skill-dir 嵌套与文件冲突防护加宽（`881ac5242`）。
-- patch apply / registry：`git apply` 在 971 commits 跨度上失败，按 playbook fallback 走 `git apply --3way`，15 个文件出现 41 处冲突（`gateway/run.py` 22 处、测试文件 19 处）。冲突解决后逐项复核补丁不变量，修复 session isolation、thread flag、`platform_config_key`、toolset 预期和 test fusion 共 5 个失败。原 24 个活跃 PATCH 均仍需保留，无部分吸收或归档；收尾审计新增 `PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-SKILLS-MIRROR-METADATA` 三个运行时 PATCH，当前共 27 个。终态 60 files clean apply；bundle 改用 full-index 后与 live diff `cmp` 逐字节一致，正向 cached / 反向 worktree apply check 通过、base=`26e0b1c`、index 干净、注册表/执行链唯一、外层插件未混入 bundle。功能回归按动态集合为 23 files **793 passed / 0 failed**。锚点漂移 `41a07f5b` → `26e0b1c`。
-- 依赖：本轮**无 venv 重建**，19 个 active backend 全部 current，无 `.venv` / `venv.stale.*` 残留；根 workspace 与 website `npm audit` 均为 **0 vulnerabilities**。Skills 源文件镜像现场 dry-run 为 `+0/~0/-0`，`.bundled_manifest` / `.curator_state` 已从 delete 集合排除。
-- 已知摩擦：3-way 解冲突阶段的并行报告曾遗漏 `platform_config_key` 并制造杂交测试，已按逐 hunk 复核和规范 runner 收敛。收尾审计另发现默认 Git SHA 缩写会让无语义变化的 bundle `cmp` 失败、Step 8 gate 失败仍可能退出 0、Skills rsync 会删除 runtime metadata 且吞掉错误；三项分别落盘到上述新运行时 PATCH，脚本与 playbook 已闭环。
-- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`，无需 `--fix`；未登录 provider、未配置可选工具不属于升级缺口。Gateway plist 匹配当前安装并由 launchd 监管 PID `75422`；sandbox verifier 21 passed 且绑定同一 PID，owner Feishu DM 保持完整工具面，群聊仍限制为结构化工具 + 只读 file/skill 工具。
+- 上游主线（332 commits，跨入 v0.20.0）：**Gateway / Relay**——修复 overlap turn scope、SSE writer、压缩与 drain 生命周期（`9a9b670e2`、`7098862d`、`3b0bb3b8`）；**State / SQLite**——turn 批写、WAL 恢复与 CJK migration fail-closed（`06ae5b6f`、`67d4bbb8`、`a5ce909b`）；**模型 / Provider / Observability**——v0.20.0 发布（`3c27eb62`），新增 bounded model/tool metrics（`dc4714b1e`、`8b0c3da8c`）、credential-pool 稳定性与模型 ID 诊断；**Profiles / Desktop**——profile archive/import/export（`d1196750c`、`bde8c4e10`、`6e7eafc7e`）、session workspace move/read-state 与多 tab 移动；**Feishu**——SDK 延迟导入与 None 判定上游化（`b51c4e6a`、`e80b7aeda`）；**Tools / Skills**——file write/patch、lazy deps 与性能持续演进。
+- patch apply / registry：`d1afa160 → 42708f8bb` 在 Feishu eager→lazy SDK import 两处发生 3-way 冲突，保留上游 loader/None 判定并仅叠加 `PATCH-FEISHU-RESOURCE-ACCESS` 所需 SDK 类型；`42708f8bb → 36cb5ae55` 仅 `tests/tools/test_approval.py` 增量重叠，保留上游 timeout/notify-failure 生命周期测试与本地群聊审批硬拦测试。终态 62 个受管文件 clean apply，live full-index diff 与 bundle 逐字节一致，cached 正向 / worktree 反向回放及 index-clean 均通过，base=`36cb5ae55`。28 个活跃 PATCH 全部继续保留，其中新增 `PATCH-UPDATE-GIT-FETCH-RETRY`；既有两个部分吸收判断不变，无新增归档。动态 25 files **797 passed / 0 failed**（上一终态 796，+1 为保留的上游 approval 测试）。锚点漂移 `d1afa160 → 36cb5ae55`。
+- 依赖：无 venv 重建，现有 185 个 Python 包及 `python-socks==2.8.1` / `pypdf==6.14.2` / pytest 工具链保留；Skills mirror 恢复轮 `+70/~1/-0` 补回失败轮误删，最终幂等复跑为 `+0/~1/-0`，8c 后 llm-wiki baseline 正常。npm 自动 fix 仍被上游 lock/range 阻塞：root 2 high、Web 3 high、TUI 1 high；未用 `--force`，`package.json` / `package-lock.json` 无本地 drift，待 upstream lockfile bump。
+- 已知摩擦：`.env` 的 LLM 代理以 `override=True` 载入，PyPI/GitHub TLS EOF 已通过精确 `NO_PROXY` 处理；新增 `PATCH-UPDATE-GIT-FETCH-RETRY`，只对早期 GitHub fetch transport 错误最多重试 3 次，隔离 fake 覆盖 2/3/1 次分支，认证/安装等错误不重试。脚本同时新增只读等待预算入口、source 拒绝和保护同名 untracked 的逐路径恢复；最终完整运行 exit 0 且无 `✗`。以上恢复知识均已落盘。
+- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`、无需 `--fix`；未登录 provider / 未配置可选工具非升级缺口，npm 3 项为上述 lock 阻塞，Gemini 直连仍偶发 TLS EOF。Gateway plist 匹配当前安装，终轮 planned restart `14936 → 17123`；sandbox verifier 21 passed 绑定 PID `17123`，owner Feishu DM 保持完整工具面，群聊限制为结构化工具 + 只读 file/skill 工具。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -337,13 +330,30 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `hermes-update.sh`                   |
 | **状态** | 🟢 自动化（Step 8 transaction gate） |
 
-**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。
+**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。另有两个可重入缺口：把可执行脚本 `source` 后调用预算函数会直接启动整轮升级；3-way apply 失败后的单次批量 restore 会因任一上游已删除 path 令整个 pathspec 失败，遗留 staged/conflict index。
 
-**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。Step 8d 在重启前捕获旧 PID，改走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀。Step 7 补全脚本生成失败（sentinel 无法运行）同样设置非零。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
+**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。Step 8d 在重启前捕获旧 PID，改走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀。Step 7 补全脚本生成失败（sentinel 无法运行）同样设置非零。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。脚本新增 side-effect-free `--print-restart-wait-seconds`，并在任何状态变更前拒绝 bash/zsh source；patch rollback 改为逐路径恢复，HEAD 已删除的受管文件只在 apply 确实把它放入 index 时才清除，遇到同名 untracked 文件 fail closed。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
 
-**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；Step 8d 必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s），并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`。隔离执行脚本片段时，任一 gate 为 false、restart 非零、超时或返回相同 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 PID。
+**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；Step 8d 必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s），并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`。隔离执行脚本片段时，任一 gate 为 false、restart 非零、超时或返回相同 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。`bash hermes-update.sh --print-restart-wait-seconds` 只打印预算且不改变仓库/Gateway；bash/zsh source 返回非零且不开始升级；逐路径 restore 的 present/deleted/untracked 三种路径分别恢复、删除 apply 产物、保护用户文件。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 PID。
 
 **上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。**排空子项已被上游替代并完成对接**（2026-08-03，本轮升级已跨过 `db3f7e4eb`）：`hermes gateway restart` 原生排空——SIGUSR1 先拒新 turn、按 `agent.restart_after_turn_timeout`（默认 21600s）等 in-flight 归零才 stop，`restart_drain_timeout` 收窄为 stop 内强杀预算。本地 `gw_restart_wait_seconds()` 经 `_get_restart_exit_wait_budget()` 读取原生合并预算（本轮实测 22545s = 900 + 21600 + 15 + 30），不再自建平行等待逻辑；本补丁剩余职责为退出码总闸门与 PID 替换硬校验。
+
+---
+
+### [PATCH-UPDATE-GIT-FETCH-RETRY] 升级 fetch 瞬时网络故障有界重试
+
+| 字段     | 内容                                                   |
+| -------- | ------------------------------------------------------ |
+| **文件** | `hermes-update.sh`                                     |
+| **状态** | 🟢 自动化（Step 3 早期 GitHub fetch 网络错误有界重试） |
+
+**问题**：`hermes update` 在任何 checkout 或依赖变更前先 fetch `origin/main`，但本机到 GitHub 的直连与 LLM 专用代理都可能瞬时超时、TLS EOF 或 `SSL_ERROR_SYSCALL`。单次失败会让完整升级非零，即使下一次同一路径立即恢复；反过来无条件重跑整个 updater 又可能把认证、分叉、安装或迁移这类确定性错误重复三次，扩大副作用并掩盖根因。
+
+**修复**：Step 3 捕获每次 `hermes update` 的完整输出，只在上游 CLI 明确打印早期 `Network error — cannot reach the remote repository` 或对应 GitHub transport 特征时，最多重试整条命令 3 次。该失败点位于上游 fetch 阶段、尚未改变 checkout/venv/config，动作可安全重入；认证失败、local divergence、依赖安装、配置迁移及所有非 GitHub 网络错误均不重试。中间失败只显示简短 attempt 提示并保留到 update log，最终成功只输出成功轮内容，使“最后一次完整脚本无 `✗`”仍可机械判定；远端 URL、Git config 和代理设置不在重试中持久修改。
+
+**验证**：隔离替换 `hermes` 为序列化 fake：`network-fail → success` 必须调用 2 次、输出重试提示且 exit 0；连续 3 次 network-fail 必须调用 3 次并保留最终错误/exit 非零；authentication/install fake 必须只调用 1 次。真实终轮还须 fetch/fast-forward 到现场 `origin/main`，并满足完整脚本 exit 0、输出无 `✗`。
+
+**上游吸收判断**：当上游 `hermes update` 自身对 scoped Git fetch 提供等价的瞬时 transport 有界重试，且不会重试认证/安装/迁移错误时，可删除外层 Step 3 重试并归档。
 
 ---
 
@@ -528,11 +538,11 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：群聊媒体与 @mention 常分成两条消息，引用里的 `/file/<token>` 也不是 IM 附件；普通 gateway 工具调用没有 comment thread-local client 时，tenant 凭据明明存在却无法读取飞书文档。旧附件补丁还只允许群 `trigger_kind == bot` 且非 command 的回填：DM 显式引用、群 `@配置本人账号`、Feishu command composer 遗留的单独 `/` 均会只留下缓存路径而不把图片/视频交给模型；显式再次引用同一资源又会被本应只约束滑动窗口的去重缓存错误抑制。另外，被引用的合并转发消息在 webhook payload 里不带子消息体，上游只把它归一化成 `[Merged forward message]` 占位符，因此群里"引用合并记录 + @Bot"只能看到占位符，而私聊直发同一条合并记录却能正常展开。初次补上展开后仍有第二层截断：Gateway 对所有 `reply_to_text` 硬编码 `[:500]`，真实卡片的 12 条子消息虽已全部从 Feishu API 取回，送模时却在第 6 条中间静默截断，导致机器人错误声称后续内容不存在。
 
-**修复**：将显式引用恢复与群聊同发送者滑动窗口回看拆开：DM 和已准入的 `bot`/`assistant_user` 群触发始终可恢复引用附件，显式重复引用不受窗口去重限制；窗口扫描仍仅限群聊并保持有界去重。把单独 `/` 归一为无实际命令的 bare mention，使引用主题进入同一意图链。扫描正文/引用中最多三个 Drive file token，以 tenant 身份下载并保留 MIME/文件名；普通网页链接原文保留。`feishu_doc_read` 缺 comment client 时从 env/`.env` 构建 tenant client。引用目标是 `merge_forward` 时，`_fetch_message_text` 复用直发路径的 `_expand_merge_forward_message` 展开子消息；`_collect_reply_attachments` 同时接受 `upper_message_id` 指向引用目标的子消息，使转发记录内的图片/文件也被下载。Gateway 识别仅由该展开器生成的 `[Merged forwarded messages]` 内部标记，把 Feishu 引用上下文上限从通用 500 提高到有界 20,000 字符；普通 Feishu 引用与其他平台仍保持 500，避免无关扩权。该补丁只负责取得资源字节/API 文本并完整交给模型，不负责解析文件格式。
+**修复**：将显式引用恢复与群聊同发送者滑动窗口回看拆开：DM 和已准入的 `bot`/`assistant_user` 群触发始终可恢复引用附件，显式重复引用不受窗口去重限制；窗口扫描仍仅限群聊并保持有界去重。把单独 `/` 归一为无实际命令的 bare mention，使引用主题进入同一意图链。扫描正文/引用中最多三个 Drive file token，以 tenant 身份下载并保留 MIME/文件名；普通网页链接原文保留。`feishu_doc_read` 缺 comment client 时从 env/`.env` 构建 tenant client。引用目标是 `merge_forward` 时，`_fetch_message_text` 复用直发路径的 `_expand_merge_forward_message` 展开子消息；`_collect_reply_attachments` 同时接受 `upper_message_id` 指向引用目标的子消息，使转发记录内的图片/文件也被下载。Gateway 识别仅由该展开器生成的 `[Merged forwarded messages]` 内部标记，把 Feishu 引用上下文上限从通用 500 提高到有界 20,000 字符；普通 Feishu 引用与其他平台仍保持 500，避免无关扩权。该补丁只负责取得资源字节/API 文本并完整交给模型，不负责解析文件格式。2026-08-05 对上游 `b51c4e6a7` / `e80b7aeda` 融合时，保留其线程锁保护的 SDK 延迟导入与 None 判定，删除重复 loader 形状，只在上游 `_load_lark_oapi()`/None 初始化集合中增加本补丁独有的 `DownloadFileRequest` / `ListMessageRequest`；资源访问的 admission、下载、展开、上界与 tenant fallback 均未被吸收。
 
 **验证**：Step 8b 单独检查 sender/reply backfill、显式重复引用不被去重、单独 `/`、DM/两类群触发、Drive URL/download、tenant client fallback、引用 merge_forward 展开（`is_forward_child` + `_fetch_message_text` 展开分支）、Gateway 20,000 字符专用上限及对应测试。`test_quoted_resource_matrix_reaches_event_across_dm_and_group_triggers` 从完整入站路由覆盖群图片、群视频、DM 网页链接和 DM Drive 链接；`test_explicit_requote_is_not_suppressed_and_media_video_is_preserved` 锁定重复引用与视频 MIME。`test_feishu_merge_forward_reply_context_is_not_cut_at_generic_500_chars` 同时证明 12 条长转发的尾条保留、普通引用仍在 500 截断。真实 API 卡片返回 13 items（1 parent + 12 children、正文 915 字符），修复前 DB turn 在第 6 条中间止于 500 字符，修复后完整文本落入 user turn。
 
-**上游吸收判断**：上游同时支持分离消息附件回看、Drive 正文链接下载、引用合并转发的子消息展开及完整有界送模、无 comment-context 的 tenant doc client 时可归档。
+**上游吸收判断**：上游同时支持分离消息附件回看、Drive 正文链接下载、引用合并转发的子消息展开及完整有界送模、无 comment-context 的 tenant doc client 时可归档；SDK 延迟导入本身不是该补丁的语义吸收条件。
 
 ---
 
@@ -699,7 +709,7 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `agent/replay_cleanup.py`, `gateway/run.py`, `tests/agent/test_replay_cleanup.py`, `tests/gateway/test_stale_confirmation_expiry.py`（配置键 `gateway.history_retention` 在 `~/.hermes/config.yaml`，非 PATCHED_FILES） |
 | **状态** | 🟡 未上游合并                                                                                                                                                                                                           |
 
-**问题**（2026-07-14 复盘 SpaceSight Tech Sharing Group 历史污染）：共享群 session 每轮把**全量** transcript 回放给模型（`load_transcript` → `_build_gateway_agent_history`），唯一的历史收敛机制是按 token 触发的 hygiene/压缩——大上下文模型（Gemini 3.1 Pro）上 94 条消息远够不到 85% 阈值，从不触发；且压缩是摘要不是丢弃。结果是 7 月 10 日 随消息入库的一次性 `[Feishu assistant mode]` 指令块 + 模型照做的范例，在 7 月 14 日 第三方 @bot（零注入分支）轮次里仍然整段可见，模型据此模式补全出「我是琛哥的赛博小助手…琛哥可能在忙」的代答口吻。缺一个与 token 无关的、按**墙钟时间和条数**的回放上界。
+**问题**：（2026-07-14 复盘 SpaceSight Tech Sharing Group 历史污染）共享群 session 每轮把**全量** transcript 回放给模型（`load_transcript` → `_build_gateway_agent_history`），唯一的历史收敛机制是按 token 触发的 hygiene/压缩——大上下文模型（Gemini 3.1 Pro）上 94 条消息远够不到 85% 阈值，从不触发；且压缩是摘要不是丢弃。结果是 7 月 10 日 随消息入库的一次性 `[Feishu assistant mode]` 指令块 + 模型照做的范例，在 7 月 14 日 第三方 @bot（零注入分支）轮次里仍然整段可见，模型据此模式补全出「我是琛哥的赛博小助手…琛哥可能在忙」的代答口吻。缺一个与 token 无关的、按**墙钟时间和条数**的回放上界。
 
 **修复**：`agent/replay_cleanup.py` 新增 `apply_history_retention(history, now, max_age_seconds, max_messages)`（sentinel `history-retention`）：视图级过滤——state.db 完整保留（审计 / `/resume` / 搜索不受影响），只裁剪发给模型的回放。语义：切点只落在**轮边界**（普通 user 行，`_retention_turn_starts`），绝不切断 assistant(tool_calls)→tool 配对；时间窗按整轮的开头 user 行 `timestamp` 判断，无时间戳的行视为"新"（兼容旧转录与内存脚手架，防止配置误伤成批丢历史）；条数上限向轮边界**向上取整**；最新一轮无论多旧/多长永远保留；两个限制同时配置取更严格的切点；无 user 行的退化历史原样返回。`gateway/run.py` 新增 `_history_retention_limits_for_source()`：从 `gateway.history_retention.<platform-key>` 读取限额，platform-key 复用工具/skill 配置同款 chat-scope 拆分（飞书群=`feishu_group`、私聊=`feishu`），未配置或值非法一律 fail-open 返回 None。注入点在 `_run_agent_inner` 的 cached-agent 守卫（`_select_cached_agent_history`）**之后**，单点同时覆盖「盘上转录」与「内存活转录」两条路径。本机 `config.yaml` 配置 `feishu_group: {max_age_seconds: 21600, max_messages: 30}`（6 小时 / 30 条），私聊与 CLI 不配置、行为不变。
 
