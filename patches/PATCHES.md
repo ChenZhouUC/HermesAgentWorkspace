@@ -281,17 +281,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.0 (upstream `main` `6564f319a647b47de391cab2f608660323804a2b`，2026-08-06)
+## 当前版本：v0.20.0 (upstream `main` `863e31318553cda8ad61df681d08175364d4164b`，2026-08-06)
 
 **活跃补丁**：当前共 30 个语义补丁。23 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.20.0 → v0.20.0，+87 commits，basis `36cb5ae55` → `6564f319a647b47de391cab2f608660323804a2b`，2026-08-06）要点**：
+**最近一次升级（v0.20.0 → v0.20.0，+58 commits，basis `6564f319a` → `863e31318553cda8ad61df681d08175364d4164b`，2026-08-06）要点**：
 
-- 上游主线前 45 个提交沿用既有 v0.20.0 收敛轮；随后旧流程的审计复跑又前进 25 commits（`4aeffb89c → 0531aad55`），加入 **Relay skill metrics / tool telemetry**、Desktop backend terminal receipts、in-app browser 与 remote PDF preview、wake-word client capture；后续复跑再次拉取 17 commits（`0531aad55 → 6564f319a`），集中于 Relay client-resource / active-install metrics 与 observability schema/docs。完整范围为 87 commits（`36cb5ae55 → 6564f319a`），无新的本地语义补丁被上游整体替代；这种“审计改变目标”的行为已定性为事务幂等缺口，不再作为正确收敛方式。
-- patch apply / registry：62 个受管文件全部 clean apply，无 3-way 冲突。完整 87-commit 范围与受管文件交集共 7 个：早段 `agent/auxiliary_client.py`、`agent/prompt_builder.py`，中段 `tools/skill_manager_tool.py`、`tests/tools/test_skill_manager_tool.py`、`tools/skills_tool.py`、`tests/tools/test_skills_tool.py`、`toolsets.py`；末段 17 commits 与受管集合零交集。早段 cache/steer 与中段 skill 生命周期/使用遥测、preview toolset 扩展均和本地 external skill 创建路由、平台 allowlist、只读 toolset 等不变量正交，逐文件复核后无吸收、无冲突、无须删减 hunk。live full-index diff 与 bundle 逐字节一致，cached 正向 / worktree 反向回放及 index-clean 均通过，base=`6564f319a647b47de391cab2f608660323804a2b`。新增运行时 `PATCH-UPDATE-TRANSACTION-PIN`，把一次官方获取和后续固定 SHA reconcile 分离；30 个活跃 PATCH 全部保留，无新增归档。动态 25 files **803 passed / 0 failed**（上游新增遥测测试已纳入同一动态清单，无覆盖退化）。
-- 依赖：无 venv 重建（仅 editable 包自重装，19 个 lazy backend 全 current），`python-socks==2.8.1` / `pypdf==6.14.2` / pytest 工具链 / `lark-oapi==1.6.8` 全部在位，无 `venv.stale.*` / 误建 `.venv` 残留。倒数第二次同 SHA 复跑的 Skills mirror 曾为 `+70/~1/-0`，最终复跑已收敛到固定源码振荡 `+0/~1/-0`；源树与 runtime tree 的 619 个非 runtime-state 文件精确一致，`.bundled_manifest` / `.curator_state` 保持。后续审计发现 `.usage.json` / `.usage.json.lock` 也属于 curator/usage runtime sidecar，已补入 Step 4b 排除集合。npm audit fix 非零但未产生 tracked lock drift，完整输出报告 4 个 high（brace-expansion、electron、undici，包含下游 workspace 依赖），已归为 P2 上游阻挡/非飞书主链路：仅 Electron/undici 的越界升级需要 `--force`，故保留上游 lock/range 并将 `npm audit --json` 作为人工定性动作。
-- 已知摩擦：`hermes update` 网络正常，无 fetch 重试触发；但同一审计任务多次完整运行 updater，先后取得 25、17 个新提交并产生额外 Gateway 重启，暴露“演进幂等有定义、单次事务幂等缺失”的规则冲突，现由 `PATCH-UPDATE-TRANSACTION-PIN` 固化一次获取 + 固定 SHA reconcile。`test_vertex_provider.py` 的 13 passed 与注册表旧文 "23 passed (2026-07-29)" 仍是历史遥测快照差异，非本轮覆盖退化。最终同 SHA 复跑补回 70 个 bundled skill；复跑后的完整 25-file 回归前后 runtime skills 均为 619 files 且内容哈希不变，已排除本回归套件越界写入，现有日志没有足够证据归因更早的外部删减。`PATCH-SKILLS-MIRROR-METADATA` 已保证每轮自动收敛、保留 metadata，并把 added/deleted 精确路径写入成功日志；下一次复发应以该清单与同期 gateway/curator 日志继续归因。收尾审计补强的部分 overlay fail-closed、裸树接管 trap、3-way index 清理及 bundle 自动 byte/cached/reverse gate 均归并原运行时 PATCH。
-- 配置漂移：`hermes doctor` 仍报告 3 组已知 npm advisory（Browser 2 high、Web 3 high、UI-TUI 1 high），均按 P2 留案等待上游 lock/range bump，不影响飞书主链路；未登录 provider / 未配置可选工具属 P3，非升级缺口，Gemini 直连仍偶发 TLS EOF。Gateway plist 与 sandbox verifier 均在最终新 PID 上通过；owner Feishu DM 保持完整工具面，群聊限制为结构化工具 + 只读 file/skill 工具。8-05 23:57 真实飞书 WS keepalive 超时断连后的补偿扫描验证继续有效。
+- 上游主线：Dashboard/Web 增加 events WebSocket backoff reconnect（`fb402106f`）；脚本/评测新增 toolperf A/B harness（`ced8e3021`）；cache/compression 增加 durable prune runway 与 model-config merge helper（`bf6a210a` / `241605d1` / `565b2c42`）；模型侧新增 Actual Computer provider 与 setup skill/docs（`a9acb400` / `e79f16c` / `5aa798f`）；Gateway 修复 split-delivery final swallow、empty fallback deleted-head 计数、session-hygiene cooldown（`c46027b` / `392e3a8` / `68ebb19` / `c0d974b`）；sessions/CLI/utils 补 LIKE escaping 与 atomic write 权限边界（`1d2dabc` / `52a5fc0` / `67827dd` / `43fc865`）；read_file 上游扩展 anydoc 格式与 init/size cap（`b2598b4` / `997a913` / `ffdbc88` / `ff3793f`）；新增 Goals quality gates、Heartbeat、Refine（`6e041d` / `6518aa` / `8f2712`）；cron lifecycle guard 改为 ingestion sanitize + total path handling（`c8d48b8` / `863e313`）。
+- patch apply / registry：62 个受管文件全部 clean apply，无 3-way 冲突。`PATCH-DOCUMENT-EXTRACTION` 被 `b2598b41e` 部分吸收 anydoc-only 格式、失败重试与 anydoc size cap；本地剩余 hunk 已收缩为 native PDF/HTML/PPTX/ODT、pypdf/PyMuPDF fallback、zip/文本上界、入站附件抽取与对应测试。接管时完整回归先暴露 `tests/tools/test_read_extract.py` 的陈旧断言（PDF/ODT 仍按 anydoc 缺失不可抽取），已改为 anydoc-only 与 native-overlap 分离；受影响文件 27 passed，完整动态 25 files **815 passed / 0 failed**。30 个活跃 PATCH 全部保留，无新增/归档；bundle/base/full-index、cached 正向、worktree 反向和 index-clean 闭环随 `--reconcile` 重新生成。
+- 依赖：无 venv 重建；`python-socks==2.8.1` / `pypdf==6.14.2` / pytest 工具链 / `lark-oapi==1.6.8` 保持在位，无 `venv.stale.*` 或误建 `.venv` 残留。`npm audit fix` 仍非零并报告 4 high（brace-expansion、electron、undici，含下游 workspace 依赖），已归为 P2 上游 lock/range 阻挡，禁止 `--force`。Skills mirror 在测试后曾把源树 `__pycache__/` / `*.pyc` 同步成 `+70` 噪音；本轮已把字节码缓存加入 Step 4b 排除集合并清理误镜像缓存，后续以排除 metadata 与 bytecode 后的源码/runtime 内容一致为终态。
+- 已知摩擦：本轮无 GitHub fetch retry；事务文件不存在时按接管规则只使用 no-network `--reconcile`，固定当前 HEAD `863e31318553`，未再次推进 upstream。脚本侧新增两项演进幂等修复：`_NPM_POLICY_ENV` 在 nounset + 空数组时使用安全展开，避免 npm<12 无 policy entry 时中断；Skills mirror 不再受测试/运行时 Python 字节码缓存影响，避免相同 SHA 因执行顺序不同产生 `+70` 假漂移。
+- 配置漂移：`hermes doctor` 终态报告 Browser 2 high、Web 3 high 与 UI-TUI 1 high 三组 npm workspace/tooling advisory，均为 P2 上游阻挡且不影响飞书 gateway 主链路；未登录 provider / 未配置可选工具属 P3。Gateway planned restart 已完成并观察到 PID 替换，sandbox verifier 21 passed 绑定新 PID；owner Feishu DM 保持完整工具面，Feishu 群聊限制为结构化工具 + 只读 file/skill 工具。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -404,13 +404,13 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `hermes-update.sh`, `~/.hermes/skills/` |
 | **状态** | 🟢 自动化（Step 4b rsync gate）         |
 
-**问题**：Step 4b 原先用裸 `rsync -a --delete` 把上游 skills 镜像到运行目录，会删除源树中不存在的 `.bundled_manifest`、`.curator_state`、`.usage.json` / `.usage.json.lock`、`.hub` 和 `.archive` 等本地运行态。前者被迫反复重建，`.curator_state` 会丢失 curator 的 pause/run count/last-run 状态，`.usage.json` 会丢失每个 skill 的 usage、pin、sync 和 curator 生命周期记录；同时 `|| true` 吞掉 rsync 非零，复制失败也可能被显示成“已同步”。
+**问题**：Step 4b 原先用裸 `rsync -a --delete` 把上游 skills 镜像到运行目录，会删除源树中不存在的 `.bundled_manifest`、`.curator_state`、`.usage.json` / `.usage.json.lock`、`.hub` 和 `.archive` 等本地运行态。前者被迫反复重建，`.curator_state` 会丢失 curator 的 pause/run count/last-run 状态，`.usage.json` 会丢失每个 skill 的 usage、pin、sync 和 curator 生命周期记录；同时 `|| true` 吞掉 rsync 非零，复制失败也可能被显示成“已同步”。测试或运行时在 `hermes-agent/skills` 下生成的 `__pycache__/` / `*.pyc` 也会被误当作上游内容镜像到 runtime skills，导致同一 SHA 因执行顺序不同出现 `+70` 这类假漂移。
 
-**修复**：从 delete 集合排除根级 `.bundled_manifest` / `.curator_state` / `.usage.json` / `.usage.json.lock` / `.curator_backups` / `.curator_suppressed` / `.hub` / `.archive`，只镜像上游拥有的 skill 内容；显式捕获 rsync 退出码，失败时记录输出、设置 `FINAL_RC=1`，成功时继续报告 `+/~/-` 并确认 runtime state 保留策略生效。（2026-08-06 并入）成功路径把 `--itemize-changes` 中每条新文件 `>f+++` 与删除 `*deleting` 分别以 `+ added:` / `- deleted:` 留存到升级日志：此前同日两轮各出现 `-94`、终态同 SHA 复跑又出现 `+70` 而无路径记录，事后无法判定具体变更集合；双向清单让下一位无状态 AI 能把批量消失/恢复与同期进程日志关联。
+**修复**：从 delete 集合排除根级 `.bundled_manifest` / `.curator_state` / `.usage.json` / `.usage.json.lock` / `.curator_backups` / `.curator_suppressed` / `.hub` / `.archive`，并排除 `__pycache__/` / `*.pyc`，只镜像上游拥有的 skill 内容；显式捕获 rsync 退出码，失败时记录输出、设置 `FINAL_RC=1`，成功时继续报告 `+/~/-` 并确认 runtime state 与可再生 bytecode cache 保留/排除策略生效。（2026-08-06 并入）成功路径把 `--itemize-changes` 中每条新文件 `>f+++` 与删除 `*deleting` 分别以 `+ added:` / `- deleted:` 留存到升级日志：此前同日两轮各出现 `-94`、终态同 SHA 复跑又出现 `+70` 而无路径记录，事后无法判定具体变更集合；双向清单让下一位无状态 AI 能把批量消失/恢复与同期进程日志关联。
 
-**验证**：在隔离临时目录预置完整 runtime state、一个待新增文件与一个上游孤儿，执行脚本同款 rsync 后必须保留 runtime state、复制新增项、删除孤儿并保持内容不变；把源目录改为不可读或传入无效 rsync 参数时必须走非零 gate。现场 dry-run 不得再出现删除 `.bundled_manifest` / `.curator_state` / `.usage.json` / `.usage.json.lock` / `.hub` / `.archive` 等本地状态。清单分支以模拟 `>f+++` / `*deleting` 混合输出隔离验证：`_ADDED` / `_DELETED` 计数与逐行 `+ added:` / `- deleted:` 输出一致，updated/目录行不误报。
+**验证**：在隔离临时目录预置完整 runtime state、一个待新增文件、一个上游孤儿和 `__pycache__` / `.pyc` 缓存，执行脚本同款 rsync 后必须保留 runtime state、复制新增项、删除孤儿、不复制 bytecode cache 并保持内容不变；把源目录改为不可读或传入无效 rsync 参数时必须走非零 gate。现场 dry-run 不得再出现删除 `.bundled_manifest` / `.curator_state` / `.usage.json` / `.usage.json.lock` / `.hub` / `.archive` 等本地状态，也不得把 `__pycache__` / `.pyc` 计入 `+/~/-`。清单分支以模拟 `>f+++` / `*deleting` 混合输出隔离验证：`_ADDED` / `_DELETED` 计数与逐行 `+ added:` / `- deleted:` 输出一致，updated/目录行不误报。
 
-**上游吸收判断**：当上游同步器原生提供“官方 skill 内容镜像 + 本地 manifest/curator/usage/hub state 保留 + 失败非零”的等价行为，外层不再需要 Step 4b wrapper 时可归档。
+**上游吸收判断**：当上游同步器原生提供“官方 skill 内容镜像 + 本地 manifest/curator/usage/hub state 保留 + bytecode cache 排除 + 失败非零”的等价行为，外层不再需要 Step 4b wrapper 时可归档。
 
 ---
 
@@ -605,20 +605,20 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-DOCUMENT-EXTRACTION] 可信文档文本抽取
 
-| 字段     | 内容                                                                                                      |
-| -------- | --------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/run.py`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock` 及对应 tests |
-| **状态** | 🟡 部分吸收（XLSX/DOCX/IPYNB 抽取与 `read_file` 接线已上游合并；PDF/HTML/PPTX/ODT 与入站接线仍本地）      |
+| 字段     | 内容                                                                                                                          |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/run.py`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock` 及对应 tests                     |
+| **状态** | 🟡 部分吸收（XLSX/DOCX/IPYNB 抽取、`read_file` 接线和 anydoc-only 扩展已上游合并；native PDF/HTML/PPTX/ODT 与入站接线仍本地） |
 
-**问题**：附件成功下载后，PDF/HTML/PPTX/ODT 等二进制仍只给模型路径；群聊又不能临时执行解析脚本。上游 `tools/read_extract.py`（26e0b1c 已含）只覆盖 IPYNB/DOCX/XLSX。
+**问题**：附件成功下载后，PDF/HTML/PPTX/ODT 等二进制仍只给模型路径；群聊又不能临时执行解析脚本。上游 `tools/read_extract.py` 已覆盖 IPYNB/DOCX/XLSX，并在 `b2598b41e` 后通过可选 anydoc 覆盖 legacy Office/ODF/RTF/EPUB/PDF，但这些路径依赖可选转换器且没有替代本地 native PDF/HTML/PPTX/ODT、pypdf pin 与 Gateway 入站抽取。
 
 **修复**：在上游 `read_extract.py` 抽取层上扩展 PDF（pypdf，兼容 PyMuPDF 安装）、HTML（移除主动内容）、PPTX、ODT，并对每文件/每轮文本做上界；上游 `file_tools.py` 的 `read_file` 接线按 `EXTRACTABLE_EXTENSIONS` 自动获得新格式，无需本地改动 `read_file` 主路径。`gateway/run.py` 新增 `_extract_inbound_document` 在线程池中抽取入站附件，向模型明确内容是不可信参考数据；加密、扫描或损坏文档保留路径并返回可解释降级。依赖在 project extra、lazy deps 与 lockfile 中固定。
 
-**2026-08-03 收缩**：上游在 26e0b1c 已自带 `read_extract.py`（XLSX/DOCX/IPYNB）并经 `file_tools.py` 接进 `read_file`，本地曾并存的 `file_operations.py` `_read_spreadsheet` 第二条 XLSX 路径成为死代码（抽取分支先行拦截），已连同其测试一并删除；`tools/file_operations.py`、`tests/tools/test_file_operations.py` 移出 `PATCHED_FILES`。
+**2026-08-03 收缩**：上游在 26e0b1c 已自带 `read_extract.py`（XLSX/DOCX/IPYNB）并经 `file_tools.py` 接进 `read_file`，本地曾并存的 `file_operations.py` `_read_spreadsheet` 第二条 XLSX 路径成为死代码（抽取分支先行拦截），已连同其测试一并删除；`tools/file_operations.py`、`tests/tools/test_file_operations.py` 移出 `PATCHED_FILES`。**2026-08-06 收缩**：上游 `b2598b41e` / `997a913` / `ffdbc88` 吸收 anydoc-only 格式、失败重试和 anydoc size cap；本地测试已把 anydoc-only 可用性（RTF/EPUB/DOC）与 native-overlap 可用性（PDF/PPTX/ODT）分离，防止上游 anydoc 语义重新压住本地 native 抽取。
 
-**验证**：Step 8b 单独检查 common extractors（`_extract_pdf` / `_extract_html_file`）、`_extract_inbound_document`、pypdf 双路径依赖和 `TestCommonDocumentExtraction`；覆盖 PDF 页边界、HTML 清理、Office/OpenDocument 顺序、字符上界及不依赖 terminal。
+**验证**：Step 8b 单独检查 common extractors（`_extract_pdf` / `_extract_html_file`）、`_extract_inbound_document`、pypdf 双路径依赖和 `TestCommonDocumentExtraction`；覆盖 PDF 页边界、HTML 清理、Office/OpenDocument 顺序、字符上界及不依赖 terminal。`tests/tools/test_read_extract.py` 还锁定 anydoc-only 格式随 anydoc 可用性变化，而 native PDF/PPTX/ODT 在 anydoc 缺失时仍可识别。
 
-**上游吸收判断**：上游 `EXTRACTABLE_EXTENSIONS` 覆盖 PDF/HTML/PPTX/ODT（含依赖策略）且提供等价的入站附件抽取接线后可归档；资源获取能力独立留在 `PATCH-FEISHU-RESOURCE-ACCESS`。
+**上游吸收判断**：上游 `EXTRACTABLE_EXTENSIONS` 以 native 或同等无需 prompt 的依赖策略覆盖 PDF/HTML/PPTX/ODT，并提供等价的 Gateway 入站附件抽取接线、prompt 上界和错误降级后可归档；仅有 anydoc 可选转换不构成本地 native/inbound 语义吸收。资源获取能力独立留在 `PATCH-FEISHU-RESOURCE-ACCESS`。
 
 ---
 
