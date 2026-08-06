@@ -56,6 +56,8 @@ people.yaml.bak*
 processes.json
 cron/jobs.json
 .update_check
+.hermes-update-transaction
+.hermes-update-transaction.lock/
 .tick.lock
 .hermes_history
 .clean_shutdown

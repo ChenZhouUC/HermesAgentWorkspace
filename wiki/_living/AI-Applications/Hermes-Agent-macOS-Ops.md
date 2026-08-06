@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent macOS Ops
 created: 2026-05-14
-updated: 2026-08-05
+updated: 2026-08-06
 ---
 
 # Hermes Agent macOS 安装与运维手册
@@ -9,7 +9,7 @@ updated: 2026-08-05
 > 适用系统：macOS 13+（Apple Silicon / Intel 均可）
 > 主模型：公司 **Vertex AI**（service account 换 token，OpenAI 兼容端点）
 > Fallback：**阿里云 Qwen / DashScope**（百炼）
-> 适用版本：Hermes Agent **v0.20.0**（upstream `36cb5ae55` / latest `main` as of 2026-08-05）
+> 适用版本：Hermes Agent **v0.20.0**（upstream `6564f319a647b47de391cab2f608660323804a2b` / latest `main` as of 2026-08-06）
 > 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置 Vertex + Qwen → Vertex Token 自动刷新 → 飞书接入 → 内容迁移 → 日常运维
@@ -187,7 +187,7 @@ git clone https://github.com/NousResearch/hermes-agent.git ~/.hermes/hermes-agen
 cd ~/.hermes/hermes-agent
 ```
 
-> 本手册当前基于 v0.20.0（upstream `36cb5ae55`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
+> 本手册当前基于 v0.20.0（upstream `6564f319a647b47de391cab2f608660323804a2b`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
 
 ### 3.2 创建虚拟环境并安装依赖
 
@@ -224,16 +224,16 @@ chmod 600 ~/.hermes/credentials/*.json
 
 ### 3.5 修复 npm 依赖已知漏洞（等价于本地 `PATCH-NPM-DEPENDENCY-HYGIENE`）
 
-`hermes` 在装 Node 工具时使用 `npm install --no-audit`，所以已知漏洞不会被自动修复。装完 / 每次更新代码后跑一次 `npm audit fix` 把可自动修复的全部解决（不能动的会输出"need force"提示，谨慎处理）：
+`hermes` 在装 Node 工具时使用 `npm install --no-audit`，所以已知漏洞不会被自动修复。装完后可先尝试一次非破坏性的 `npm audit fix`；若非零，必须保留输出并用 `npm audit --json` 定性，禁止用 `--force` 越过上游 lock/range：
 
 ```bash
 cd ~/.hermes/hermes-agent
-npm audit fix --quiet || true
+npm audit fix --quiet || npm audit --json
 cd -
 ```
 
-> 历史背景：`basic-ftp ≤5.2.2` 曾报 GHSA-rp42-5vxx-qpwr（高危 DoS），`hermes doctor` 会显示 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。`npm audit fix` 会一次性升级到无漏洞版本。
-> 这条做完不需要 commit 任何文件 —— `node_modules/` 是 gitignored，`hermes update` 也不会回滚它。
+> 历史背景：`basic-ftp ≤5.2.2` 曾报 GHSA-rp42-5vxx-qpwr（高危 DoS），当时 `npm audit fix` 可直接消除。当前上游仍可能有只能通过越界升级 Electron/undici 才能处理的 advisory，应等待上游 lockfile/range 更新；不要把“仍有 high”误判为应执行 `--force`。
+> `node_modules/` 是 gitignored，但 audit 可能合法修改 tracked `package-lock.json`；若发生 drift，必须审查实际版本变化并留在 replay bundle 之外，不能默认当作无害噪音。
 
 ### 3.6 验证安装
 
@@ -242,7 +242,7 @@ hermes --version
 hermes doctor
 ```
 
-应能看到 `Hermes Agent v0.16.0 (2026.6.5)` 或更新版本；`hermes doctor` 此时会提示缺 token / fallback key（下一章解决）。
+应能看到 `Hermes Agent v0.20.0 (2026.8.3)` 或更新版本；`hermes doctor` 此时会提示缺 token / fallback key（下一章解决）。
 
 ---
 
@@ -749,10 +749,10 @@ hermes tools list
 
 ### 9.10 升级 hermes-agent 到最新
 
-日常升级优先使用本仓库封装脚本，而不是直接跑裸 `hermes update`。封装脚本会保存/恢复本地补丁、保护 PATCHED_FILES 之外的额外 untracked 改动、执行 `npm audit fix`、镜像同步 upstream skills、刷新补全并在补丁重放后重启 gateway。
+日常升级优先使用本仓库封装脚本，而不是直接跑裸 `hermes update`。封装脚本会保存/恢复本地补丁、保护 PATCHED_FILES 之外的额外 untracked 改动、尝试非破坏性的 `npm audit fix` 并在失败时保留完整审计输出、镜像同步 upstream skills、刷新补全并在补丁重放后重启 gateway；禁止用 `--force` 越过上游 lock/range。
 
 ```bash
-bash ~/.hermes/hermes-update.sh
+bash ~/.hermes/hermes-update.sh --update
 ```
 
 > 封装脚本会在 Step 8 验证 `PATCH-FEISHU-SOCKS-DEPENDENCY`：`pyproject.toml` 和 `tools/lazy_deps.py` 都必须包含 `python-socks==2.8.1`，否则会提示重新应用补丁。
@@ -766,7 +766,7 @@ cd ~/.hermes/hermes-agent
 git checkout <commit-sha>     # 或 git checkout v0.12.0
 source venv/bin/activate
 uv pip install -e ".[all,feishu]"
-npm audit fix --quiet || true
+npm audit fix --quiet || npm audit --json
 deactivate
 hermes gateway restart
 ```
@@ -857,6 +857,6 @@ launchd
 ---
 
 _文档更新时间：2026-06-22_
-_对应 Hermes Agent 版本：**v0.20.0**（upstream `36cb5ae55` / latest `main` as of 2026-08-05）_
+_对应 Hermes Agent 版本：**v0.20.0**（upstream `6564f319a647b47de391cab2f608660323804a2b` / latest `main` as of 2026-08-06）_
 _主模型：Vertex AI（公司 SA）Fallback：阿里云 Qwen / DashScope（`qwen3.6-plus`）_
 _本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_

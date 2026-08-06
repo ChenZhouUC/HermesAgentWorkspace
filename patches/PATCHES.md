@@ -22,33 +22,44 @@
 
 四类补丁走不同管道：
 
-| 类型                 | 代表                                   | 管理方式                                                                                                                                  |
-| -------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **工程内补丁**       | 当前清单中标记为“未上游合并”的源码补丁 | 统一 replay bundle (`local-patches.diff`) + `PATCHED_FILES` + 每补丁独立 invariant gate；完整行为由 playbook Step 2c 回归证明             |
-| **配置仓库用户插件** | `PATCH-FEISHU-GROUP-SANDBOX`           | 外层 Git 跟踪 `config.yaml` / `plugins/` / `my-skills/`；Step 8e 强制校验配置、真实 toolset、行为测试和运行时注册，失败则整次升级非零退出 |
-| **运行时补丁**       | `PATCH-NPM-DEPENDENCY-HYGIENE` 等      | 由 `hermes-update.sh` 的明确步骤重建并验证；不进入 replay bundle，失败必须使整轮 update 非零退出                                          |
-| **已上游合并**       | 文末 Archive                           | 保留吸收来源和回归 sentinel；不计入活跃补丁清单                                                                                           |
+| 类型                 | 代表                                   | 管理方式                                                                                                                                                                                                 |
+| -------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **工程内补丁**       | 当前清单中标记为“未上游合并”的源码补丁 | 统一 replay bundle (`local-patches.diff`) + `PATCHED_FILES` + 每补丁独立 invariant gate；完整行为由 playbook Step 2c 回归证明                                                                            |
+| **配置仓库用户插件** | `PATCH-FEISHU-GROUP-SANDBOX`           | 外层 Git 跟踪 `config.yaml` / `plugins/` / `my-skills/`；Step 8e 强制校验配置、真实 toolset、行为测试和运行时注册，失败则整次升级非零退出                                                                |
+| **运行时补丁**       | `PATCH-NPM-DEPENDENCY-HYGIENE` 等      | 由 `hermes-update.sh` 的明确步骤重建并验证，不进入 replay bundle；事务/完整性 gate 失败必须令整轮非零，npm audit 被上游 lock/range 阻塞且不影响飞书主链路时归为 P2，保留明确 warning/action 并在摘要定性 |
+| **已上游合并**       | 文末 Archive                           | 保留吸收来源和回归 sentinel；不计入活跃补丁清单                                                                                                                                                          |
 
 ### 更新生命周期（关键步骤）
 
 ```
-Step 2: Save & Clean
-  ├─ git diff --full-index HEAD -- PATCHED_FILES → local-patches.diff（原子写：先 .tmp 再 mv）
-  ├─ _restore_patched_files_to_head PATCHED_FILES  ← 逐路径还原且保护同名 untracked 文件
-  └─ 设置 _PATCHES_REVERTED=true（EXIT trap 用）
+Transaction: fixed upstream snapshot（PATCH-UPDATE-TRANSACTION-PIN）
+  ├─ `--update`：仅在无未完成事务时允许一次 scoped official fetch
+  ├─ fetch 写专用事务 ref 后立即固定 TARGET_SHA；失败/中断以 0600 状态文件持久化
+  ├─ 官方 updater 经临时 Git 代理消费 TARGET_SHA（内置 fetch no-op，origin/main 被替换）
+  ├─ 默认/`--reconcile`：只围绕 TARGET_SHA 做本地收敛，禁止网络获取
+  ├─ 未完成事务存在时，即使再次传 `--update` 也只接管固定 SHA
+  └─ 仅整支脚本 exit 0 删除事务状态；origin/main 后续前进留给下一次用户升级
 
-Step 3: hermes update
+Step 2: Save & Clean
+  ├─ 要求 index 干净；若仅部分 PATCHED_FILES 有 diff，fail closed，不覆盖完整旧 bundle
+  ├─ git diff --full-index HEAD -- PATCHED_FILES → .tmp
+  ├─ .tmp 必须通过 cached 正向 + worktree 反向 replay check，才原子替换 local-patches.diff
+  ├─ _restore_patched_files_to_head PATCHED_FILES  ← 逐路径还原且保护同名 untracked 文件
+  └─ 设置 _PATCHES_REVERTED=true（包括接管“裸 worktree + 完整 bundle”的中断现场）
+
+Step 3: acquire once or reconcile pinned target
   ├─ 先 stash PATCHED_FILES 之外的额外改动（含 untracked）
-  ├─ 在干净工作区上跑 git pull + deps + web build + restart
-  ├─ 仅早期 GitHub fetch transport 失败最多重试 3 次（PATCH-UPDATE-GIT-FETCH-RETRY）
-  └─ update 后 pop 回额外改动；若冲突则保留 stash 供手动恢复
+  ├─ 新事务 `--update`：在干净工作区上执行唯一一次 upstream update
+  │   └─ 仅尚未取得目标 SHA 的早期 GitHub fetch transport 失败最多重试 3 次
+  ├─ 未完成事务/`--reconcile`：校验或本地 fast-forward 到 TARGET_SHA，不 fetch/pull
+  └─ 随后 pop 回额外改动；若冲突则保留 stash 供手动恢复
 
 Step 4b: Skills 镜像同步
   └─ rsync -a --delete hermes-agent/skills/ → ~/.hermes/skills/
       ├─ 新增 skill：自动复制到本地
       ├─ 更新 skill：覆盖本地旧版本
       ├─ 删除 skill：清理上游已移除但本地残留的孤儿
-      ├─ 排除 .bundled_manifest / .curator_state，保留本地 runtime metadata
+      ├─ 排除 .bundled_manifest / .curator_state / .usage.json / .hub / .archive 等本地 runtime state
       └─ rsync 非零：FINAL_RC=1
       （my-skills/ 为独立目录，不受此步骤影响）
 
@@ -57,6 +68,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ 前置检查：patch 文件自身是否含 conflict marker → 含则跳过
   │   ├─ 尝试 1: git apply --check + git apply（干净 apply）
   │   ├─ 尝试 2: git apply --3way（上游改了同区域但无冲突）
+  │   ├─ 3-way 成功后立即 restore --staged，终态 index 不干净也视为失败
   │   ├─ 失败: git restore --source=HEAD 回滚所有 PATCHED_FILES
   │   └─ 成功后: _has_conflict_markers() 扫描 → 含标记则回滚
   │
@@ -94,15 +106,18 @@ Step 8: Re-apply & Verify（核心）
   └─ 8c. Refresh saved diff
       ├─ 前提: _PATCH_APPLY_OK && 全部 _*_PATCH_OK 为 true
       ├─ 再次 _has_conflict_markers() → 不干净则拒绝刷新
-      ├─ 干净且有 diff: 用 --full-index 原子写 local-patches.diff + 写 .local-patches.base
+      ├─ 每个 PATCHED_FILES 都必须有 live diff；部分/全部为零均阻断并要求吸收归类
+      ├─ 用 --full-index 生成临时 bundle，自动执行逐字节/cached 正向/worktree 反向/index-clean 闭环
+      ├─ 全绿后才原子写 local-patches.diff + .local-patches.base
       ├─ 干净但无 diff: 提示 "patches may have been absorbed" 并返回非零
       └─ apply / sentinel / conflict 任一失败: FINAL_RC=1
 
 Step 8d: Gateway restart（post-patch）
-  └─ 前提: _PATCH_APPLY_OK == true && gateway 正在运行
+  └─ 前提: _PATCH_APPLY_OK == true && transaction runtime_dirty == 1 && gateway 正在运行
       └─ 记录 old PID → drain-aware `hermes gateway restart`
           → 按 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s）轮询 different new PID
-          └─ 未替换或未恢复: FINAL_RC=1
+          ├─ 成功后清 runtime_dirty；未替换或未恢复: FINAL_RC=1
+          └─ HEAD/overlay 均未变化的 reconcile 明确跳过重启，不制造 PID
       （hermes update 在 step 3 重启 gateway 时补丁尚未 apply，
        Python 进程 sys.modules 缓存旧模块，需重启才能加载补丁代码；
        planned restart 给在途 agent run 完整排空预算；macOS stop 路径短宽限后
@@ -132,7 +147,7 @@ grep -qE '^(<<<<<<<($| )|=======$|>>>>>>>($| ))' "$_f"
 
 #### 2. 原子写入 patch 文件
 
-所有写 `local-patches.diff` 的路径（Step 2 保存 + Step 8c 刷新）都走 `> file.tmp && mv -f file.tmp file`。原因：如果 `git diff` 过程中脚本被中断（Ctrl-C、OOM、磁盘满），直接 `>` 重定向会先截断文件再写入，导致 patch 文件被清空且无法恢复。
+所有写 `local-patches.diff` 的路径（Step 2 保存 + Step 8c 刷新）都先写 `file.tmp`；临时 bundle 通过 conflict-marker、cached 正向和 worktree 反向 replay check 后才 `mv -f` 替换 canonical 文件，Step 8c 还会复核 full-index live diff 逐字节一致与 index-clean。这样 `git diff` 中断、磁盘写失败或半套 overlay 都不会静默截断/降级已知完整的 replay bundle。
 
 #### 3. Patch 文件毒化检测
 
@@ -142,7 +157,7 @@ Step 8a 开头先扫描 `local-patches.diff` 自身是否含 conflict marker（`
 
 #### 4. EXIT trap 补丁恢复
 
-Step 2 还原 patch 后设置 `_PATCHES_REVERTED=true`。恢复窗口覆盖 Step 2 之后直到 Step 8a 做出 apply 决策（成功重贴或有意回滚）为止：期间任何崩溃（含 Step 4–7 的裸树阶段）EXIT trap 都会自动尝试 `git apply` 恢复补丁，防止脚本中途退出导致 hermes-agent 处于裸奔状态。Step 8a 决策后清除该标志，正常退出与失败回滚都不会重复 apply。
+Step 2 还原 patch 后设置 `_PATCHES_REVERTED=true`；接管“worktree 已经等于 HEAD、但完整 bundle 仍存在”的中断现场时也会重新武装该标志。恢复窗口覆盖 Step 2 之后直到 Step 8a 做出 apply 决策（成功重贴或有意回滚）为止：期间任何崩溃（含 Step 4–7 的裸树阶段）EXIT trap 都会自动尝试 clean/3-way replay；3-way 成功会清 staged index，失败或出现 conflict marker 会把所有受管路径恢复到确定的裸 upstream 状态，同时保留 canonical bundle 供下一轮 AI 重解，避免遗留半合并 index。Step 8a 决策后清除该标志，正常退出与失败回滚都不会重复 apply。
 
 #### 5. 额外改动保护
 
@@ -160,7 +175,13 @@ cd ~/.hermes/hermes-agent && git log --oneline ${BASE}..HEAD -- tools/skill_mana
 
 #### 7. 上游吸收检测
 
-Step 8c 中，如果所有 `PATCHED_FILES` 与上游 HEAD 无差异（`_REFRESHED` 为空），说明补丁可能已被上游合并。脚本会提示清理 `PATCHED_FILES` 列表和本文档中的对应条目，避免后续更新反复 apply 一个空 diff。
+Step 2 若发现 canonical bundle 已存在、但只有部分 `PATCHED_FILES` 相对 HEAD 有 diff，会在写 bundle 前 fail closed，防止中断现场把完整包降级为残缺快照。Step 8c 对逐文件覆盖再做一次硬门禁：全部无差异表示补丁可能整体被吸收；只有部分无差异则逐条报告 zero-diff path，要求按语义块判断“完全吸收 / 部分吸收 / 补丁丢失”并同步 `PATCHED_FILES`/注册表后再刷新，不能静默把该文件从物理包里漏掉。
+
+#### 8. 单次 upstream 快照与事务恢复
+
+官方仓库获取和本地 patch 收敛使用两个不同入口：只有显式 `--update` 可以在新事务中执行一次 scoped fetch；获得 commit 后立即写专用事务 ref 和状态文件，再让官方 updater 通过临时 Git 代理只消费固定 SHA（其强制 fetch 变成成功 no-op，`origin/main` 参数被替换为 `TARGET_SHA`）。默认无参数和 `--reconcile` 均不得执行网络探测、fetch 或 pull。脚本不调用带隐式 update-check 的 `hermes --version`，而直接从 checkout 读取版本元数据。
+
+失败/中断时，`.hermes-update-transaction` 保存 `old_sha`、`origin_before`、固定 `target_sha`、阶段和 `runtime_dirty`。文件用 temp + rename 原子发布、权限 `0600`、内容逐字段验证且永不 source。若进程在 fetch 更新专用 ref 后、正常状态发布之前退出，下一次从该 ref 重建目标；已有目标时任何复跑（包括误传 `--update`）都走 no-network reconcile。只有完整 exit 0 才删除状态与专用 ref。这样一轮升级面对的是不可变输入，远端后续提交不会让回归审计无限续跑。
 
 ### 已知局限
 
@@ -239,16 +260,17 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（62 文件，2026-08-05 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（62 文件，2026-08-06 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
 ```bash
 cd ~/.hermes/hermes-agent && git apply ~/.hermes/patches/local-patches.diff
 # 若有冲突（推荐）：git apply --3way 留下 <<<<<<< 标记逐处解决（多为"并存"型冲突），
-#   然后 git add <冲突文件> && git reset 清索引，再重跑 hermes-update.sh 走完整验证
+#   然后 git add <冲突文件> && git restore --staged -- <冲突文件> 清索引，
+#   再运行 bash ~/.hermes/hermes-update.sh --reconcile，固定 TARGET_SHA 走完整验证
 #   （2026-07-13 轮实测流程；注意 git apply 输出别接 head 截断，SIGPIPE 会中断 apply）
-# 或：git apply --reject && 手动解决 .rej，再重跑 hermes-update.sh
+# 或：git apply --reject && 手动解决 .rej，再运行 --reconcile
 
 # 若 patch 文件自身已被 conflict marker 污染，可先恢复入库版本
 cd ~/.hermes && git restore --source=HEAD -- patches/local-patches.diff
@@ -259,19 +281,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.0 (upstream `main` `36cb5ae55`，2026-08-05)
+## 当前版本：v0.20.0 (upstream `main` `6564f319a647b47de391cab2f608660323804a2b`，2026-08-06)
 
-**活跃补丁**：当前共 29 个语义补丁。23 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 30 个语义补丁。23 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.19.1 → v0.20.0，+332 commits，basis `d1afa160` → `36cb5ae55`，2026-08-05）要点**：
+**最近一次升级（v0.20.0 → v0.20.0，+87 commits，basis `36cb5ae55` → `6564f319a647b47de391cab2f608660323804a2b`，2026-08-06）要点**：
 
-- 上游主线（332 commits，跨入 v0.20.0）：**Gateway / Relay**——修复 overlap turn scope、SSE writer、压缩与 drain 生命周期（`9a9b670e2`、`7098862d`、`3b0bb3b8`）；**State / SQLite**——turn 批写、WAL 恢复与 CJK migration fail-closed（`06ae5b6f`、`67d4bbb8`、`a5ce909b`）；**模型 / Provider / Observability**——v0.20.0 发布（`3c27eb62`），新增 bounded model/tool metrics（`dc4714b1e`、`8b0c3da8c`）、credential-pool 稳定性与模型 ID 诊断；**Profiles / Desktop**——profile archive/import/export（`d1196750c`、`bde8c4e10`、`6e7eafc7e`）、session workspace move/read-state 与多 tab 移动；**Feishu**——SDK 延迟导入与 None 判定上游化（`b51c4e6a`、`e80b7aeda`）；**Tools / Skills**——file write/patch、lazy deps 与性能持续演进。
-- patch apply / registry：`d1afa160 → 42708f8bb` 在 Feishu eager→lazy SDK import 两处发生 3-way 冲突，保留上游 loader/None 判定并仅叠加 `PATCH-FEISHU-RESOURCE-ACCESS` 所需 SDK 类型；`42708f8bb → 36cb5ae55` 仅 `tests/tools/test_approval.py` 增量重叠，保留上游 timeout/notify-failure 生命周期测试与本地群聊审批硬拦测试。终态 62 个受管文件 clean apply，live full-index diff 与 bundle 逐字节一致，cached 正向 / worktree 反向回放及 index-clean 均通过，base=`36cb5ae55`。28 个活跃 PATCH 全部继续保留，其中新增 `PATCH-UPDATE-GIT-FETCH-RETRY`；既有两个部分吸收判断不变，无新增归档。动态 25 files **797 passed / 0 failed**（上一终态 796，+1 为保留的上游 approval 测试）。锚点漂移 `d1afa160 → 36cb5ae55`。
-- 依赖：无 venv 重建，现有 185 个 Python 包及 `python-socks==2.8.1` / `pypdf==6.14.2` / pytest 工具链保留；Skills mirror 恢复轮 `+70/~1/-0` 补回失败轮误删，最终幂等复跑为 `+0/~1/-0`，8c 后 llm-wiki baseline 正常。npm 自动 fix 仍被上游 lock/range 阻塞：root 2 high、Web 3 high、TUI 1 high；未用 `--force`，`package.json` / `package-lock.json` 无本地 drift，待 upstream lockfile bump。
-- 已知摩擦：`.env` 的 LLM 代理以 `override=True` 载入，PyPI/GitHub TLS EOF 已通过精确 `NO_PROXY` 处理；新增 `PATCH-UPDATE-GIT-FETCH-RETRY`，只对早期 GitHub fetch transport 错误最多重试 3 次，隔离 fake 覆盖 2/3/1 次分支，认证/安装等错误不重试。脚本同时新增只读等待预算入口、source 拒绝和保护同名 untracked 的逐路径恢复；最终完整运行 exit 0 且无 `✗`。以上恢复知识均已落盘。
-- 配置漂移：`hermes doctor` 显示 `Config version up to date (v33)`、无需 `--fix`；未登录 provider / 未配置可选工具非升级缺口，npm 3 项为上述 lock 阻塞，Gemini 直连仍偶发 TLS EOF。Gateway plist 匹配当前安装，终轮 planned restart `14936 → 17123`；sandbox verifier 21 passed 绑定 PID `17123`，owner Feishu DM 保持完整工具面，群聊限制为结构化工具 + 只读 file/skill 工具。
-
-**2026-08-05 运行态追加**：新增 `PATCH-FEISHU-MISSED-EVENT-BACKFILL`，用于 Feishu 断线/重连后主动补偿漏触发消息，并避免手动 quote+@ 已回答后的旧消息重复回答。当前活跃补丁由 28 增至 29；新增回归 `tests/gateway/test_feishu.py` 132 passed、`tests/gateway/test_config.py` 57 passed。
+- 上游主线前 45 个提交沿用既有 v0.20.0 收敛轮；随后旧流程的审计复跑又前进 25 commits（`4aeffb89c → 0531aad55`），加入 **Relay skill metrics / tool telemetry**、Desktop backend terminal receipts、in-app browser 与 remote PDF preview、wake-word client capture；后续复跑再次拉取 17 commits（`0531aad55 → 6564f319a`），集中于 Relay client-resource / active-install metrics 与 observability schema/docs。完整范围为 87 commits（`36cb5ae55 → 6564f319a`），无新的本地语义补丁被上游整体替代；这种“审计改变目标”的行为已定性为事务幂等缺口，不再作为正确收敛方式。
+- patch apply / registry：62 个受管文件全部 clean apply，无 3-way 冲突。完整 87-commit 范围与受管文件交集共 7 个：早段 `agent/auxiliary_client.py`、`agent/prompt_builder.py`，中段 `tools/skill_manager_tool.py`、`tests/tools/test_skill_manager_tool.py`、`tools/skills_tool.py`、`tests/tools/test_skills_tool.py`、`toolsets.py`；末段 17 commits 与受管集合零交集。早段 cache/steer 与中段 skill 生命周期/使用遥测、preview toolset 扩展均和本地 external skill 创建路由、平台 allowlist、只读 toolset 等不变量正交，逐文件复核后无吸收、无冲突、无须删减 hunk。live full-index diff 与 bundle 逐字节一致，cached 正向 / worktree 反向回放及 index-clean 均通过，base=`6564f319a647b47de391cab2f608660323804a2b`。新增运行时 `PATCH-UPDATE-TRANSACTION-PIN`，把一次官方获取和后续固定 SHA reconcile 分离；30 个活跃 PATCH 全部保留，无新增归档。动态 25 files **803 passed / 0 failed**（上游新增遥测测试已纳入同一动态清单，无覆盖退化）。
+- 依赖：无 venv 重建（仅 editable 包自重装，19 个 lazy backend 全 current），`python-socks==2.8.1` / `pypdf==6.14.2` / pytest 工具链 / `lark-oapi==1.6.8` 全部在位，无 `venv.stale.*` / 误建 `.venv` 残留。倒数第二次同 SHA 复跑的 Skills mirror 曾为 `+70/~1/-0`，最终复跑已收敛到固定源码振荡 `+0/~1/-0`；源树与 runtime tree 的 619 个非 runtime-state 文件精确一致，`.bundled_manifest` / `.curator_state` 保持。后续审计发现 `.usage.json` / `.usage.json.lock` 也属于 curator/usage runtime sidecar，已补入 Step 4b 排除集合。npm audit fix 非零但未产生 tracked lock drift，完整输出报告 4 个 high（brace-expansion、electron、undici，包含下游 workspace 依赖），已归为 P2 上游阻挡/非飞书主链路：仅 Electron/undici 的越界升级需要 `--force`，故保留上游 lock/range 并将 `npm audit --json` 作为人工定性动作。
+- 已知摩擦：`hermes update` 网络正常，无 fetch 重试触发；但同一审计任务多次完整运行 updater，先后取得 25、17 个新提交并产生额外 Gateway 重启，暴露“演进幂等有定义、单次事务幂等缺失”的规则冲突，现由 `PATCH-UPDATE-TRANSACTION-PIN` 固化一次获取 + 固定 SHA reconcile。`test_vertex_provider.py` 的 13 passed 与注册表旧文 "23 passed (2026-07-29)" 仍是历史遥测快照差异，非本轮覆盖退化。最终同 SHA 复跑补回 70 个 bundled skill；复跑后的完整 25-file 回归前后 runtime skills 均为 619 files 且内容哈希不变，已排除本回归套件越界写入，现有日志没有足够证据归因更早的外部删减。`PATCH-SKILLS-MIRROR-METADATA` 已保证每轮自动收敛、保留 metadata，并把 added/deleted 精确路径写入成功日志；下一次复发应以该清单与同期 gateway/curator 日志继续归因。收尾审计补强的部分 overlay fail-closed、裸树接管 trap、3-way index 清理及 bundle 自动 byte/cached/reverse gate 均归并原运行时 PATCH。
+- 配置漂移：`hermes doctor` 仍报告 3 组已知 npm advisory（Browser 2 high、Web 3 high、UI-TUI 1 high），均按 P2 留案等待上游 lock/range bump，不影响飞书主链路；未登录 provider / 未配置可选工具属 P3，非升级缺口，Gemini 直连仍偶发 TLS EOF。Gateway plist 与 sandbox verifier 均在最终新 PID 上通过；owner Feishu DM 保持完整工具面，群聊限制为结构化工具 + 只读 file/skill 工具。8-05 23:57 真实飞书 WS keepalive 超时断连后的补偿扫描验证继续有效。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -301,9 +321,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：`hermes update` 用 `npm install --no-audit` 装 npm 依赖，不会自动修已知漏洞。例如 `basic-ftp ≤5.2.2` 的高危 DoS（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。Node 26 / npm 12 进一步默认阻止未经审核的 dependency lifecycle scripts；本仓 update 的 root + ui-tui/web 安装会反复提示 `agent-browser@0.26.0`、`esbuild@0.28.1`、`fsevents@2.3.3`、`unicode-animations@1.0.3` 未被 `allowScripts` 覆盖。四个包当前产物实际可用，但每次升级重复告警；用 `dangerously-allow-all-scripts` 会把未来任意传递依赖也放行，不可接受。
 
-**修复**：保留 Step 4 的 `npm audit fix --quiet`；同时在调用 `hermes update` 前为 npm ≥12 创建权限为 0600 的临时 global-config，仅写入四个已审核且**版本钉死**的 allow 条目，并通过 `NPM_CONFIG_GLOBALCONFIG` 只传给本轮 `hermes update` / audit，结束或异常退出均删除。不会修改 `~/.npmrc`，不会影响其他项目，也不会继承未来版本的脚本权限。`agent-browser` postinstall 只校验/准备对应平台 binary，`esbuild` 校验平台 binary，`fsevents` 提供 macOS native watcher，`unicode-animations` 在上游强制的 `CI=1` 环境中 no-op。
+**修复**：保留 Step 4 的 `npm audit fix --quiet`；同时在调用 `hermes update` 前为 npm ≥12 创建权限为 0600 的临时 global-config，仅写入四个已审核且**版本钉死**的 allow 条目，并通过 `NPM_CONFIG_GLOBALCONFIG` 只传给本轮 `hermes update` / audit，结束或异常退出均删除。不会修改 `~/.npmrc`，不会影响其他项目，也不会继承未来版本的脚本权限。`agent-browser` postinstall 只校验/准备对应平台 binary，`esbuild` 校验平台 binary，`fsevents` 提供 macOS native watcher，`unicode-animations` 在上游强制的 `CI=1` 环境中 no-op。audit 非零时完整输出进入升级日志，action 改为 `npm audit --json` 定性且明确禁止 `--force`；不再建议机械重跑刚刚失败的同一 fix 命令。上游 lock/range 暂无非破坏解且不影响飞书主链路时归为 P2，允许 warning + 落盘摘要收敛；命令未执行、产物缺失、影响飞书主链路或出现不可解释 drift 才是事务失败。
 
-**验证**：以相同临时 policy 实跑 root `npm ci --workspaces=false` 与 ui-tui/web workspace `npm ci`，均无 `install scripts blocked` / `not covered by allowScripts`；随后 audit 恢复完整 workspace 产物，`agent-browser 0.26.0`、`esbuild 0.28.1`、`require("fsevents")`、`require("unicode-animations")` 全部可用，package.json / lockfile 无 tracked drift。
+**验证**：以相同临时 policy 实跑 root `npm ci --workspaces=false` 与 ui-tui/web workspace `npm ci`，均无 `install scripts blocked` / `not covered by allowScripts`；随后 audit 恢复完整 workspace 产物，`agent-browser 0.26.0`、`esbuild 0.28.1`、`require("fsevents")`、`require("unicode-animations")` 全部可用，package.json / lockfile 无 tracked drift。隔离 fake 令 audit 非零时，日志必须保留原始诊断、action 只建议 `npm audit --json` 且包含 `do not use --force`，不得再次建议无条件 `npm audit fix`。
 
 **上游吸收判断**：这是本地升级流程的依赖安全策略；只有上游升级器同时提供等价的 scoped install-script allowlist、自动清理临时配置和漏洞修复流程后，才可移除本补丁。
 
@@ -318,9 +338,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：`git diff` 默认按对象库规模自动决定 `index` 行的 SHA 缩写长度。bundle 生成后即使源码 hunk 完全不变，后续 fetch/apply 增加对象也可能让 live diff 从 9 位变成 10 位，导致 playbook 要求的逐字节 `cmp` 失败；只刷新一次默认缩写 bundle 仍会复发。
 
-**修复**：Step 2 保存与 Step 8c 刷新统一使用 `git diff --full-index`，playbook 的 live-diff 核验也固定同一参数。bundle 的对象 ID 始终写完整 SHA，不再依赖仓库当前的自动缩写宽度。
+**修复**：Step 2 保存与 Step 8c 刷新统一使用 `git diff --full-index`，playbook 的 live-diff 核验也固定同一参数。bundle 的对象 ID 始终写完整 SHA，不再依赖仓库当前的自动缩写宽度。2026-08-06 收尾审计把原先仅由 playbook 人工执行的物理闭环下沉进两个 bundle 发布点：临时包必须通过 conflict-marker、index-clean、cached 正向、worktree 反向检查，Step 8c 再与现场 full-index diff 逐字节比较；只有全绿才替换 canonical bundle/base。Step 2 另要求已有 bundle 时 62/62 受管路径都有 live diff，禁止用中断产生的部分 overlay 覆盖完整旧包。
 
-**验证**：动态解析 `PATCHED_FILES` 后，`cmp -s <(git -C hermes-agent diff --full-index HEAD -- "${PATCHED_FILES[@]}") patches/local-patches.diff` 必须返回 0；正向 cached 与反向 worktree apply check 仍须同时通过。
+**验证**：`bash hermes-update.sh --print-patched-files` 输出必须与 bundle path 集合、live modified 集合一一相等；脚本 Step 2/8c 日志必须明确报告完整文件数，Step 8c 报 `refreshed and replay-verified`。独立复核时，`cmp -s <(git -C hermes-agent diff --full-index HEAD -- "${PATCHED_FILES[@]}") patches/local-patches.diff`、正向 cached、反向 worktree 与两次 index-clean check 必须同时通过。隔离构造 61/62 的部分 overlay 时 Step 2 必须在写 canonical bundle 前非零退出；Step 8c 的单个 zero-diff path 也必须阻断刷新并点名该路径。
 
 **上游吸收判断**：这是外层 replay bundle 的本地持久化格式；只有未来迁移到不含动态缩写元数据的等价稳定格式，或不再维护本地 replay bundle 时，才可归档。
 
@@ -333,11 +353,11 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `hermes-update.sh`                   |
 | **状态** | 🟢 自动化（Step 8 transaction gate） |
 
-**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。另有两个可重入缺口：把可执行脚本 `source` 后调用预算函数会直接启动整轮升级；3-way apply 失败后的单次批量 restore 会因任一上游已删除 path 令整个 pathspec 失败，遗留 staged/conflict index。
+**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。可重入审计又发现四个同类缺口：把可执行脚本 `source` 后调用预算函数会直接启动整轮升级；3-way apply 失败后的单次批量 restore 会因任一上游已删除 path 令整个 pathspec 失败；3-way 成功隐式留下 staged index；以及接管“bundle 存在、worktree 已裸”的中断现场时没有重新武装 EXIT trap。更严重的是，Step 2 会把仅部分受管文件存在的 diff 当成新 canonical bundle，可能把完整本地不变量集合永久降级为残缺快照。
 
-**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker 或全部受管 diff 意外为空也设置非零。Step 8d 在重启前捕获旧 PID，改走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀。Step 7 补全脚本生成失败（sentinel 无法运行）同样设置非零。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。脚本新增 side-effect-free `--print-restart-wait-seconds`，并在任何状态变更前拒绝 bash/zsh source；patch rollback 改为逐路径恢复，HEAD 已删除的受管文件只在 apply 确实把它放入 index 时才清除，遇到同名 untracked 文件 fail closed。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
+**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker、部分或全部受管 diff 意外为空、byte/cached/reverse replay 任一失败也设置非零。Step 8d 仅在事务 `runtime_dirty=1` 时捕获旧 PID、走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载并清脏标记。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀；HEAD/overlay 未变化的 reconcile 明确跳过重启。Step 7 补全脚本生成失败（sentinel 无法运行）同样设置非零。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。脚本新增 side-effect-free `--print-restart-wait-seconds` / `--print-patched-files` / `--print-patched-tests` / `--transaction-status` 与隔离事务 self-test，并在任何状态变更前拒绝 bash/zsh source 及 dirty index；patch rollback 改为逐路径恢复，HEAD 已删除的受管文件只在 apply 确实把它放入 index 时才清除，遇到同名 untracked 文件 fail closed。自动 3-way 成功后立即清 staged index；EXIT trap 在裸树接管时保持武装，恢复失败会清理半合并态并保留 bundle。Step 2 对部分 overlay fail closed，只有完整且可正反向 replay 的临时包才允许替换 canonical bundle。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
 
-**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker 分支和空 `_REFRESHED` 分支都包含 `FINAL_RC=1`；Step 8d 必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s），并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`。隔离执行脚本片段时，任一 gate 为 false、restart 非零、超时或返回相同 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。`bash hermes-update.sh --print-restart-wait-seconds` 只打印预算且不改变仓库/Gateway；bash/zsh source 返回非零且不开始升级；逐路径 restore 的 present/deleted/untracked 三种路径分别恢复、删除 apply 产物、保护用户文件。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 PID。
+**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker、partial/empty `_REFRESHED` 和 replay-integrity 分支都包含 `FINAL_RC=1`；Step 8d 在 `runtime_dirty=1` 时必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s），并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`；`runtime_dirty=0` 必须跳过 PID churn。隔离执行脚本片段时，任一 gate 为 false、restart 非零、超时或返回相同 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。所有只读入口只输出现场状态且不改变仓库/Gateway；bash/zsh source 和 dirty index 在任何 update mutation 前返回非零；逐路径 restore 的 present/deleted/untracked 三种路径分别恢复、删除 apply 产物、保护用户文件。另以临时 Git repo 覆盖完整 overlay、61/62 部分 overlay、裸树 + bundle、3-way staged/冲突清理及 bundle byte/cached/reverse gate。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 PID。
 
 **上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。**排空子项已被上游替代并完成对接**（2026-08-03，本轮升级已跨过 `db3f7e4eb`）：`hermes gateway restart` 原生排空——SIGUSR1 先拒新 turn、按 `agent.restart_after_turn_timeout`（默认 21600s）等 in-flight 归零才 stop，`restart_drain_timeout` 收窄为 stop 内强杀预算。本地 `gw_restart_wait_seconds()` 经 `_get_restart_exit_wait_budget()` 读取原生合并预算（本轮实测 22545s = 900 + 21600 + 15 + 30），不再自建平行等待逻辑；本补丁剩余职责为退出码总闸门与 PID 替换硬校验。
 
@@ -352,11 +372,28 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：`hermes update` 在任何 checkout 或依赖变更前先 fetch `origin/main`，但本机到 GitHub 的直连与 LLM 专用代理都可能瞬时超时、TLS EOF 或 `SSL_ERROR_SYSCALL`。单次失败会让完整升级非零，即使下一次同一路径立即恢复；反过来无条件重跑整个 updater 又可能把认证、分叉、安装或迁移这类确定性错误重复三次，扩大副作用并掩盖根因。
 
-**修复**：Step 3 捕获每次 `hermes update` 的完整输出，只在上游 CLI 明确打印早期 `Network error — cannot reach the remote repository` 或对应 GitHub transport 特征时，最多重试整条命令 3 次。该失败点位于上游 fetch 阶段、尚未改变 checkout/venv/config，动作可安全重入；认证失败、local divergence、依赖安装、配置迁移及所有非 GitHub 网络错误均不重试。中间失败只显示简短 attempt 提示并保留到 update log，最终成功只输出成功轮内容，使“最后一次完整脚本无 `✗`”仍可机械判定；远端 URL、Git config 和代理设置不在重试中持久修改。
+**修复**：只在新事务首次 `--update` 尚未取得目标 SHA 时，Step 3 才捕获 `hermes update` 完整输出，并仅对上游 CLI 明确打印的早期 `Network error — cannot reach the remote repository` 或对应 GitHub transport 特征最多重试整条命令 3 次。该失败点位于上游 fetch 阶段、尚未改变 checkout/venv/config，动作可安全重入；一旦取得 `TARGET_SHA`，任何后续错误都必须进入 no-network reconcile，不能用重试推进目标。认证失败、local divergence、依赖安装、配置迁移及所有非 GitHub 网络错误均不重试。中间失败只显示简短 attempt 提示，远端 URL、Git config 和代理设置不在重试中持久修改。
 
-**验证**：隔离替换 `hermes` 为序列化 fake：`network-fail → success` 必须调用 2 次、输出重试提示且 exit 0；连续 3 次 network-fail 必须调用 3 次并保留最终错误/exit 非零；authentication/install fake 必须只调用 1 次。真实终轮还须 fetch/fast-forward 到现场 `origin/main`，并满足完整脚本 exit 0、输出无 `✗`。
+**验证**：隔离替换 `hermes` 为序列化 fake：`network-fail → success` 必须调用 2 次、输出重试提示且 exit 0；连续 3 次 network-fail 必须调用 3 次并保留最终错误/exit 非零；authentication/install fake 必须只调用 1 次。取得目标后再次执行必须走固定 SHA reconcile，fake upstream updater 调用数保持不变。
 
 **上游吸收判断**：当上游 `hermes update` 自身对 scoped Git fetch 提供等价的瞬时 transport 有界重试，且不会重试认证/安装/迁移错误时，可删除外层 Step 3 重试并归档。
+
+---
+
+### [PATCH-UPDATE-TRANSACTION-PIN] 单次升级固定 upstream 快照
+
+| 字段     | 内容                                                                              |
+| -------- | --------------------------------------------------------------------------------- |
+| **文件** | `hermes-update.sh`, `.gitignore`, `hermes-update.md`, `README.md`, macOS 运维文档 |
+| **状态** | 🟢 自动化（显式 `--update` 获取一次；默认/`--reconcile` 固定 SHA、no-network）    |
+
+**问题**：旧 playbook 同时要求 Step 1 先 `git fetch origin main`、Step 2 再执行自带 fetch 的 `hermes update`，又规定任何 patch/gate/脚本修复后必须重跑完整 updater。上游 main 持续前进时，同一次审计会依次纳入新的 commit，既不断改变 patch 基线，也触发重复依赖安装和 Gateway 重启；所谓“幂等复跑”实际变成一串新升级，无法定义本轮完成。`hermes --version` 还会隐式执行 update-check/fetch，使只读预检也可能越过获取边界。
+
+**修复**：把官方获取和本地收敛拆为两个脚本模式。只有显式 `--update` 能在没有未完成事务时执行一次 `git fetch --force origin main:refs/hermes-update/target`，立即把专用 ref 固定为 `TARGET_SHA`；随后官方 updater 仍负责 merge、依赖、迁移、skills 和原生 restart，但通过临时 Git 代理执行——其内置 `fetch origin main` 成功 no-op，命令参数中的 `origin/main` 被替换为固定 SHA，因此不会发生第二次网络获取或目标竞态。默认无参数和 `--reconcile` 只校验/本地 fast-forward 到固定 `TARGET_SHA`，绝不做网络探测、fetch 或 pull。`.hermes-update-transaction` 以原子写 + `0600` 保存阶段、`old_sha`、`origin_before`、`target_sha` 和 `runtime_dirty`，逐字段验证且永不 source；失败/中断保留，完整 exit 0 才删除状态与专用 ref。若进程在 fetch 更新 ref 后、状态发布前退出，下一轮从专用 ref 重建目标；已有未完成事务时，即使误传 `--update` 也只能接管已有 SHA。无变化 reconcile 跳过 Gateway restart；HEAD/overlay 改变或失败事务留下运行态脏证据时才执行排空重载。版本摘要直接读取 checkout 的 `hermes_cli/__init__.py`，消除 `hermes --version` 的隐藏 fetch。
+
+**验证**：`bash -n hermes-update.sh` 与 `bash hermes-update.sh --self-test-transaction` 必须通过；self-test 在临时文件 round-trip 全部字段并断言权限 `0600`，还用 fake real-git 证明 wrapper 的 fetch 不下传、`HEAD..origin/main` 被改写为固定 SHA。`--transaction-status` 无状态输出 `none`，有状态只打印经校验字段。静态检查默认/`--reconcile` 分支不调用 acquisition fetch、curl 或 `hermes --version`；只有 `_ACQUIRE_UPSTREAM=true` 能写专用 ref。隔离 fake 覆盖：首次 `--update` 固定目标、失败保留状态、相同事务再次 `--update` 不增加 fetch 计数、`--reconcile` 在 remote-tracking ref 前进后仍保持原目标、exit 0 删除状态/ref、非法/符号链接状态 fail closed。现场 no-change reconcile 必须明确输出 `no fetch/pull` 与 restart skipped，且 HEAD/PID 不变。
+
+**上游吸收判断**：这是外层升级事务边界。只有未来官方 updater/wrapper 原生支持“单次获取后返回不可变 target token、失败跨进程恢复、后续 no-network reconcile、成功清理事务、无变化不重启”，并且 playbook 不再需要本地状态层时，才可归档。
 
 ---
 
@@ -367,13 +404,13 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `hermes-update.sh`, `~/.hermes/skills/` |
 | **状态** | 🟢 自动化（Step 4b rsync gate）         |
 
-**问题**：Step 4b 原先用裸 `rsync -a --delete` 把上游 skills 镜像到运行目录，会删除源树中不存在的 `.bundled_manifest` 和 `.curator_state`。前者被迫反复重建，后者会丢失 curator 的 pause/run count/last-run 状态；同时 `|| true` 吞掉 rsync 非零，复制失败也可能被显示成“已同步”。
+**问题**：Step 4b 原先用裸 `rsync -a --delete` 把上游 skills 镜像到运行目录，会删除源树中不存在的 `.bundled_manifest`、`.curator_state`、`.usage.json` / `.usage.json.lock`、`.hub` 和 `.archive` 等本地运行态。前者被迫反复重建，`.curator_state` 会丢失 curator 的 pause/run count/last-run 状态，`.usage.json` 会丢失每个 skill 的 usage、pin、sync 和 curator 生命周期记录；同时 `|| true` 吞掉 rsync 非零，复制失败也可能被显示成“已同步”。
 
-**修复**：从 delete 集合排除根级 `.bundled_manifest` / `.curator_state`，只镜像上游拥有的 skill 内容；显式捕获 rsync 退出码，失败时记录输出、设置 `FINAL_RC=1`，成功时继续报告 `+/~/-` 并确认 runtime metadata 保留策略生效。
+**修复**：从 delete 集合排除根级 `.bundled_manifest` / `.curator_state` / `.usage.json` / `.usage.json.lock` / `.curator_backups` / `.curator_suppressed` / `.hub` / `.archive`，只镜像上游拥有的 skill 内容；显式捕获 rsync 退出码，失败时记录输出、设置 `FINAL_RC=1`，成功时继续报告 `+/~/-` 并确认 runtime state 保留策略生效。（2026-08-06 并入）成功路径把 `--itemize-changes` 中每条新文件 `>f+++` 与删除 `*deleting` 分别以 `+ added:` / `- deleted:` 留存到升级日志：此前同日两轮各出现 `-94`、终态同 SHA 复跑又出现 `+70` 而无路径记录，事后无法判定具体变更集合；双向清单让下一位无状态 AI 能把批量消失/恢复与同期进程日志关联。
 
-**验证**：在隔离临时目录预置两份 metadata 与一个上游孤儿，执行脚本同款 rsync 后必须保留 metadata、删除孤儿并保持内容不变；把源目录改为不可读或传入无效 rsync 参数时必须走非零 gate。现场 dry-run 不得再出现删除 `.bundled_manifest` / `.curator_state`。
+**验证**：在隔离临时目录预置完整 runtime state、一个待新增文件与一个上游孤儿，执行脚本同款 rsync 后必须保留 runtime state、复制新增项、删除孤儿并保持内容不变；把源目录改为不可读或传入无效 rsync 参数时必须走非零 gate。现场 dry-run 不得再出现删除 `.bundled_manifest` / `.curator_state` / `.usage.json` / `.usage.json.lock` / `.hub` / `.archive` 等本地状态。清单分支以模拟 `>f+++` / `*deleting` 混合输出隔离验证：`_ADDED` / `_DELETED` 计数与逐行 `+ added:` / `- deleted:` 输出一致，updated/目录行不误报。
 
-**上游吸收判断**：当上游同步器原生提供“官方 skill 内容镜像 + 本地 manifest/curator state 保留 + 失败非零”的等价行为，外层不再需要 Step 4b wrapper 时可归档。
+**上游吸收判断**：当上游同步器原生提供“官方 skill 内容镜像 + 本地 manifest/curator/usage/hub state 保留 + 失败非零”的等价行为，外层不再需要 Step 4b wrapper 时可归档。
 
 ---
 
