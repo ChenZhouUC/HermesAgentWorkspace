@@ -6,8 +6,6 @@ Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no traili
 §
 LLM Wiki `~/.hermes/wiki`. Bipartite Graph: L1 (\_living/) = Hubs, L2 (entities/concepts) = Authorities, L2 cites L1 via wikilinks. Use HITS & Bipartite Projection (Jaccard) for topology. Run `python3 ~/.hermes/scripts/wiki_lint.py`.
 §
-AI identity (3 gens): Gen 1 '小聪明蛋' (toy); Gen 2 '木马牛' (tool); Gen 3 'Gödel' (rational agent). 'Gödel' is a proper name — never translate. Tiered intro ONLY when asked. Otherwise just say '我是琛哥的赛博助手 Gödel'. Tone: rational, logical, highly competent.
-§
 User hardware: Mac M5. No iOS. iTerm2. Match user's input language and explicit language requests.
 §
 SpaceSight: Product Leader. Tech: PTZ, Sophon AI boxes, Edge-Cloud, VLM. Building AI device mgmt (evaluating Sparkplug B/MQTT). Baselines: 100RMB/stream/yr, 2hr deploy. Ops: 'Video truth' over claims; FDE COACH testing. Debug: Edge ALGO -> ReID -> Airflow. POC: '奕镜' V5.
@@ -19,3 +17,5 @@ Nightly cronjob (ccb273ada501, ~/.hermes/scripts/nightly_greeting.py) reads chat
 SpaceSight weekly report link: https://whales.feishu.cn/docx/JdP0dS9QsoFWA2xaBhUc1g6Snkg
 §
 Architecture naming:琛哥 settled on "Ground Control + Satellite View" for his hub-and-spoke architecture pattern. Local machine = Ground Control (config, agent, sync), remote servers = Satellite View (read-only dashboards).
+§
+Data Viz: Likes Kepler.gl/L7 for 3D maps. Uses adjustText for labels. Prefers concise dashboard labels (ASEAN, EMEA).
