@@ -82,6 +82,7 @@ PATCHED_FILES=(
     "tools/lazy_deps.py"
     "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
     "website/docs/guides/migrate-from-openclaw.md"
+    "website/i18n/zh-Hans/docusaurus-plugin-content-docs/current/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
     "gateway/config.py"
     "gateway/display_config.py"
@@ -133,6 +134,7 @@ PATCHED_FILES=(
     "agent/auxiliary_client.py"
     "agent/image_routing.py"
     "tests/agent/test_image_routing.py"
+    "tests/gateway/test_image_input_routing_runtime.py"
     "agent/replay_cleanup.py"
     "tests/agent/test_replay_cleanup.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
@@ -256,9 +258,16 @@ _acquire_upstream_target_with_retry() {
             return 0
         fi
 
+        # Retry only GitHub transport failures. Auth/permission errors are
+        # deterministic and must fail immediately; generic connection errors
+        # only count when the same line names github.com (this is a raw
+        # scoped `git fetch`, so upstream-CLI error strings never appear).
         if ((_attempt < _max_attempts)) &&
+            ! grep -qiE \
+                'Authentication failed|could not read Username|Invalid username or password|Permission denied \(publickey\)|returned error: 40[137]' \
+                "${_fetch_log}" &&
             grep -qiE \
-                'Network error — cannot reach the remote repository|unable to access .*github\.com|Failed to connect to github\.com|Could not resolve host: github\.com|SSL_ERROR_SYSCALL.*github\.com|tls handshake eof.*github\.com|Connection timed out|Connection reset by peer' \
+                'Failed to connect to github\.com|Could not resolve host: github\.com|github\.com.*(SSL_ERROR_SYSCALL|tls handshake eof|Connection timed out|Connection reset by peer|Operation timed out|Recv failure|Send failure|Empty reply from server|Couldn.t connect to server)|(SSL_ERROR_SYSCALL|tls handshake eof|Connection timed out|Connection reset by peer).*github\.com' \
                 "${_fetch_log}"; then
             note "Transient GitHub fetch failure (attempt ${_attempt}/${_max_attempts}) — retrying"
             _attempt=$((_attempt + 1))
@@ -478,9 +487,39 @@ _self_test_transaction() {
     _TX_RUNTIME_DIRTY="0"
     _load_transaction
     [[ "${_TX_PHASE}" == "upstream_applied" ]]
+    [[ "${_TX_OLD_SHA}" == "1111111111111111111111111111111111111111" ]]
+    [[ "${_TX_ORIGIN_BEFORE}" == "2222222222222222222222222222222222222222" ]]
     [[ "${_TX_TARGET_SHA}" == "3333333333333333333333333333333333333333" ]]
+    [[ "${_TX_STARTED_AT}" == "2026-01-02T03:04:05Z" ]]
     [[ "${_TX_RUNTIME_DIRTY}" == "1" ]]
     [[ "$(stat -f '%Lp' "${TRANSACTION_FILE}" 2>/dev/null || stat -c '%a' "${TRANSACTION_FILE}")" == "600" ]]
+
+    # Fail-closed negatives: a symlinked state file and a tampered file with
+    # an extra line must both be rejected by _load_transaction.
+    local _decoy_file
+    _decoy_file=$(mktemp -t hermes-update-transaction-decoy.XXXXXX)
+    mv -- "${TRANSACTION_FILE}" "${_decoy_file}"
+    ln -s "${_decoy_file}" "${TRANSACTION_FILE}"
+    if _load_transaction 2>/dev/null; then
+        printf 'self-test: symlinked transaction state was not rejected\n' >&2
+        return 1
+    fi
+    rm -f -- "${TRANSACTION_FILE}"
+    mv -- "${_decoy_file}" "${TRANSACTION_FILE}"
+    chmod 600 "${TRANSACTION_FILE}"
+    printf 'extra_key=tampered\n' >>"${TRANSACTION_FILE}"
+    if _load_transaction 2>/dev/null; then
+        printf 'self-test: tampered transaction state (extra line) was not rejected\n' >&2
+        return 1
+    fi
+    # Restore a valid state file for the remaining assertions/cleanup.
+    _TX_PHASE="upstream_applied"
+    _TX_OLD_SHA="1111111111111111111111111111111111111111"
+    _TX_ORIGIN_BEFORE="2222222222222222222222222222222222222222"
+    _TX_TARGET_SHA="3333333333333333333333333333333333333333"
+    _TX_STARTED_AT="2026-01-02T03:04:05Z"
+    _TX_RUNTIME_DIRTY="1"
+    _write_transaction
 
     _wrapper_dir=$(mktemp -d -t hermes-pinned-git-test.XXXXXX)
     _fake_log="${_wrapper_dir}/calls"
@@ -620,8 +659,13 @@ gw_running() {
 # drain-only formula that matches the current runtime.
 gw_restart_wait_seconds() {
     local _python="${HERMES_AGENT}/venv/bin/python"
+    # Last-resort fallback when the venv interpreter is unavailable: local
+    # config pins agent.restart_drain_timeout=900, +30s supervisor margin.
+    # Keep this in sync with config.yaml — a too-small value here would time
+    # out while the gateway is still legitimately draining.
+    local _fallback=930
     if [[ ! -x "${_python}" ]]; then
-        echo 210
+        echo "${_fallback}"
         return
     fi
     "${_python}" -c '
@@ -632,7 +676,7 @@ except Exception:
     from hermes_cli.gateway import _get_restart_drain_timeout
     budget = float(_get_restart_drain_timeout())
 print(int(max(30.0, budget + 30.0)))
-' 2>/dev/null || echo 210
+' 2>/dev/null || echo "${_fallback}"
 }
 
 # This script is executable, not a shell function library. Give the playbook
@@ -978,7 +1022,8 @@ if [[ ${#_CHANGED_PATCH_FILES[@]} -gt 0 ]]; then
         fail "Could not generate replay bundle; previous canonical bundle was preserved"
         exit 1
     fi
-    if ! _bundle_matches_patched_files "${PATCH_FILE}.tmp" ||
+    if ! git diff --cached --quiet 2>/dev/null ||
+        ! _bundle_matches_patched_files "${PATCH_FILE}.tmp" ||
         grep -nE '^\+?(<<<<<<<|=======|>>>>>>>)' "${PATCH_FILE}.tmp" >/dev/null 2>&1 ||
         ! git apply --cached --check "${PATCH_FILE}.tmp" 2>/dev/null ||
         ! git apply --check --reverse "${PATCH_FILE}.tmp" 2>/dev/null; then
@@ -1074,8 +1119,12 @@ _NPM_MAJOR=$(npm --version 2>/dev/null | cut -d. -f1 || true)
 if [[ "${_NPM_MAJOR}" =~ ^[0-9]+$ ]] && ((_NPM_MAJOR >= 12)); then
     _NPM_POLICY_FILE=$(mktemp -t hermes-npm-policy.XXXXXX)
     chmod 600 "${_NPM_POLICY_FILE}"
+    # Pins must be re-derived from package-lock.json hasInstallScript entries
+    # (root copy is fsevents@2.3.2; tsx/vite nest 2.3.3), never from memory.
+    # electron / electron-winstaller / node-pty are desktop-workspace-only and
+    # outside the root+ui-tui/web install paths hermes update runs.
     printf '%s\n' \
-        'allow-scripts=agent-browser@0.26.0,esbuild@0.28.1,fsevents@2.3.3,unicode-animations@1.0.3' \
+        'allow-scripts=agent-browser@0.26.0,esbuild@0.28.1,fsevents@2.3.2,fsevents@2.3.3,unicode-animations@1.0.3' \
         >"${_NPM_POLICY_FILE}"
     _NPM_POLICY_ENV=("NPM_CONFIG_GLOBALCONFIG=${_NPM_POLICY_FILE}")
 fi
@@ -1281,8 +1330,13 @@ if [[ -d "${BUNDLED_SKILLS_DIR}" ]]; then
         ok "Skills runtime state preserved (.bundled_manifest, .curator_state, .usage.json, .hub/.archive, bytecode caches)"
     fi
 else
+    # Missing bundled skills = the mirror did not run at all. That is a
+    # "command not executed / artifact missing" transaction failure, not a
+    # skippable warning — downstream Step 8c llm-wiki re-seed would also be
+    # silently skipped by its file guard.
     warn "Bundled skills dir not found: ${BUNDLED_SKILLS_DIR}"
     add_act "Check hermes-agent installation — skills directory missing"
+    FINAL_RC=1
 fi
 
 # ── 5. Refresh gateway launchd plist ─────────────────────────────────────────
@@ -1545,10 +1599,12 @@ if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
         cd "${HERMES_AGENT}" &&
             "${VENV_PY}" - <<'PYEOF' 2>/dev/null
 import sys
+from pathlib import Path
 sys.path.insert(0, ".")
 from tools.skill_manager_tool import _resolve_skill_dir
 result = str(_resolve_skill_dir("_patch_test"))
-print("ok" if "my-skills" in result or "/skills/_patch_test" not in result else "native")
+expected_root = str(Path.home() / ".hermes" / "my-skills") + "/"
+print("ok" if result.startswith(expected_root) else "native")
 PYEOF
     )
     if [[ "${_SKILL_CHECK}" == "ok" ]]; then
@@ -1650,8 +1706,9 @@ fi
 
 OPENCLAW_MIGRATOR="${HERMES_AGENT}/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
 OPENCLAW_MIGRATION_DOC="${HERMES_AGENT}/website/docs/guides/migrate-from-openclaw.md"
-if [[ -f "${OPENCLAW_MIGRATOR}" && -f "${OPENCLAW_MIGRATION_DOC}" ]]; then
-    if ! grep -Eq 'HERMES_GATEWAY_TOKEN|gateway\.auth\.token|Gateway auth token' "${OPENCLAW_MIGRATOR}" "${OPENCLAW_MIGRATION_DOC}" 2>/dev/null; then
+OPENCLAW_MIGRATION_DOC_ZH="${HERMES_AGENT}/website/i18n/zh-Hans/docusaurus-plugin-content-docs/current/guides/migrate-from-openclaw.md"
+if [[ -f "${OPENCLAW_MIGRATOR}" && -f "${OPENCLAW_MIGRATION_DOC}" && -f "${OPENCLAW_MIGRATION_DOC_ZH}" ]]; then
+    if ! grep -Eq 'HERMES_GATEWAY_TOKEN|gateway\.auth\.token|Gateway auth token|Gateway 认证 token' "${OPENCLAW_MIGRATOR}" "${OPENCLAW_MIGRATION_DOC}" "${OPENCLAW_MIGRATION_DOC_ZH}" 2>/dev/null; then
         ok "OpenClaw gateway token patch: active (unused HERMES_GATEWAY_TOKEN not migrated)"
         _OPENCLAW_GATEWAY_TOKEN_PATCH_OK=true
     else
@@ -1671,6 +1728,7 @@ GATEWAY_CONFIG_PY="${HERMES_AGENT}/gateway/config.py"
 AUTHZ_MIXIN_PY="${HERMES_AGENT}/gateway/authz_mixin.py"
 TOOLS_CONFIG_PY="${HERMES_AGENT}/hermes_cli/tools_config.py"
 FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admission.py"
+FEISHU_BOT_AUTH_BYPASS_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_auth_bypass.py"
 FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
 FEISHU_MESSAGING_DOC="${HERMES_AGENT}/website/docs/user-guide/messaging/feishu.md"
 SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
@@ -1683,7 +1741,7 @@ LLM_WIKI_SKILL_MD="${HERMES_AGENT}/skills/research/llm-wiki/SKILL.md"
 # PATCH-FEISHU-GROUP-ADMISSION: group admission, context backfill and current-
 # speaker integrity. Trigger priority,
 # per-sender batching and prompt attribution are one admission/identity contract.
-if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_TEST_PY}" && -f "${SESSION_TEST_PY}" && -f "${LLM_WIKI_SKILL_MD}" ]]; then
+if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" && -f "${FEISHU_TEST_PY}" && -f "${SESSION_TEST_PY}" && -f "${LLM_WIKI_SKILL_MD}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_sender_is_configured_assistant_user' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
@@ -1691,6 +1749,7 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "$
         grep -q 'never omit search_files.path' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'retry with the explicit allowed path' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'FEISHU_GROUP_ALLOWED_CHATS' "${AUTHZ_MIXIN_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_allowed_chats_wildcard_authorizes_groups_only' "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" 2>/dev/null &&
         grep -q 'history_backfill_max_chars' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'explicit path under ~/.hermes/wiki' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
@@ -1733,6 +1792,7 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${FEISHU_TEST_PY}" &
         grep -q 'test_missed_event_backfill_dispatches_unseen_mentions_from_known_chat' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quote_covered_parent_is_marked_seen_for_missed_backfill' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ws_reconnected_hook_schedules_missed_event_backfill' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_startup_backfill_runs_in_boot_window_then_throttles' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'Missed Event Backfill' "${FEISHU_MESSAGING_DOC}" 2>/dev/null; then
         ok "PATCH-FEISHU-MISSED-EVENT-BACKFILL active: reconnect replay + quote-covered dedup"
         _FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK=true
@@ -1787,10 +1847,11 @@ if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_P
         grep -q 'test_qualified_local_skill_allowed_by_bare_name' "${SKILLS_TOOL_TEST_PY}" 2>/dev/null &&
         grep -q 'skills_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'file_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
-        grep -q 'skill_view' "${TOOLSETS_PY}" 2>/dev/null &&
-        grep -q 'skills_list' "${TOOLSETS_PY}" 2>/dev/null &&
-        grep -q 'read_file' "${TOOLSETS_PY}" 2>/dev/null &&
-        grep -q 'search_files' "${TOOLSETS_PY}" 2>/dev/null; then
+        (cd "${HERMES_AGENT}" && "${VENV_PY}" -c '
+import toolsets as t
+assert t.TOOLSETS["skills_readonly"]["tools"] == ["skills_list", "skill_view"], t.TOOLSETS["skills_readonly"]["tools"]
+assert t.TOOLSETS["file_readonly"]["tools"] == ["read_file", "search_files"], t.TOOLSETS["file_readonly"]["tools"]
+' 2>/dev/null); then
         ok "PATCH-PLATFORM-CAPABILITY-SCOPE active: allowlist + read-only toolsets"
         _PLATFORM_CAPABILITY_SCOPE_PATCH_OK=true
     else
@@ -1805,7 +1866,12 @@ fi
 # privilege escalation. Owner Feishu DMs retain the normal manual approval path.
 if [[ -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
     if grep -q '_is_restricted_feishu_approval_session' "${APPROVAL_PY}" 2>/dev/null &&
-        grep -q 'test_feishu_group_dangerous_command_does_not_send_approval_card' "${APPROVAL_TEST_PY}" 2>/dev/null; then
+        grep -q 'restricted_chat' "${APPROVAL_PY}" 2>/dev/null &&
+        grep -q 'PATCH-FEISHU-GROUP-APPROVAL hard floor' "${APPROVAL_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_dangerous_command_does_not_send_approval_card' "${APPROVAL_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_block_precedes_allowlist_and_prior_approvals' "${APPROVAL_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_execute_code_guard_blocked' "${APPROVAL_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_chat_type_from_context_when_key_not_canonical' "${APPROVAL_TEST_PY}" 2>/dev/null; then
         ok "PATCH-FEISHU-GROUP-APPROVAL active: approval escalation hard-blocked"
         _FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK=true
     else
@@ -1823,6 +1889,9 @@ DISPLAY_CONFIG_TEST_PY="${HERMES_AGENT}/tests/gateway/test_display_config.py"
 if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
     if grep -q 'reply_in_thread = False' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'Ignore generic thread metadata on Feishu' "${FEISHU_PY}" 2>/dev/null &&
+        ! grep -q 'reply_in_thread = bool' "${FEISHU_PY}" 2>/dev/null &&
+        ! grep -qF '_build_create_message_request("thread_id"' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_send_never_replies_in_thread_even_with_thread_metadata' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_send_ignores_thread_metadata_when_no_reply_anchor' "${FEISHU_TEST_PY}" 2>/dev/null; then
         ok "PATCH-FEISHU-NORMAL-REPLY active: replies stay in the normal chat lane"
         _FEISHU_NO_THREAD_PATCH_OK=true
@@ -1900,6 +1969,7 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q '_PEOPLE_SOURCE_LITERALS' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'test_address_is_public_and_usable_for_reply' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_private_profile_redactor_keeps_public_fields' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_private_profile_redactor_leaves_dm_text_untouched' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_unlisted_fields_are_internal_and_identity_values_are_redacted' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_people_file_remains_owner_editable_while_removing_other_access' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_groups_file_remains_owner_editable_while_removing_other_access' "${SESSION_TEST_PY}" 2>/dev/null &&
@@ -1934,7 +2004,8 @@ fi
 # to PATCH-DOCUMENT-EXTRACTION.
 FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
 FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
-if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" ]]; then
+PLATFORMS_BASE_PY="${HERMES_AGENT}/gateway/platforms/base.py"
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${PLATFORMS_BASE_PY}" ]]; then
     if grep -q 'def _backfill_sender_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
@@ -1950,6 +2021,7 @@ if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" 
         grep -q 'if normalized.raw_type == "merge_forward":' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_MERGE_FORWARD_REPLY_CONTEXT_MAX_CHARS' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q '_client_from_env' "${FEISHU_DOC_TOOL_PY}" 2>/dev/null &&
+        grep -q '"\.odt": "application/vnd.oasis.opendocument.text"' "${PLATFORMS_BASE_PY}" 2>/dev/null &&
         grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_explicit_requote_is_not_suppressed_and_media_video_is_preserved' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quoted_resource_matrix_reaches_event_across_dm_and_group_triggers' "${FEISHU_TEST_PY}" 2>/dev/null &&
@@ -1980,6 +2052,9 @@ if [[ -f "${GATEWAY_RUN_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TE
         grep -q 'def _extract_pdf' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'def _extract_html_file' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'class TestCommonDocumentExtraction' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_native_overlap_formats_remain_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_anydoc_only_formats_not_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_extract_inbound_html_without_terminal_access' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
         grep -q 'pypdf==6.14.2' "${PYPROJECT}" 2>/dev/null &&
         grep -q 'pypdf==6.14.2' "${LAZY_DEPS_PY}" 2>/dev/null; then
         ok "PATCH-DOCUMENT-EXTRACTION active: trusted PDF/HTML/Office/OpenDocument readers + inbound wiring"
@@ -2008,6 +2083,7 @@ fi
 if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
     if grep -q 'def _promote_block_markdown' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _fix_strong_flanking' "${FEISHU_PY}" 2>/dev/null &&
+        ! grep -q 'convert_table_to_bullets' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'test_promote_block_markdown_fixes_strong_flanking' "${FEISHU_TEST_PY}" 2>/dev/null; then
         ok "Feishu markdown render patch: active (ATX heading/quote promoted, strong flanking fixed)"
         _FEISHU_MARKDOWN_PATCH_OK=true
@@ -2028,7 +2104,8 @@ fi
 # regression then cannot reach 0 failed. The patch pins the test hermetic by
 # also patching httpx._utils.getproxies to {}.
 if [[ -f "${FEISHU_TEST_PY}" ]]; then
-    if grep -q 'httpx._utils.getproxies' "${FEISHU_TEST_PY}" 2>/dev/null; then
+    if grep -q 'httpx._utils.getproxies' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'def test_download_remote_document_blocks_connect_time_rebind' "${FEISHU_TEST_PY}" 2>/dev/null; then
         ok "Feishu SSRF-test sysproxy patch: active (rebind test hermetic to host system proxy)"
         _FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK=true
     else
@@ -2071,6 +2148,7 @@ if [[ -f "${DOCTOR_PY}" && -f "${DOCTOR_TEST_PY}" ]]; then
     if grep -q '_get_provider_profile' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q 'GOOGLE_APPLICATION_CREDENTIALS' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q '"vertex"' "${DOCTOR_PY}" 2>/dev/null &&
+        grep -q '"vertex-fallback"' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q 'test_run_doctor_accepts_vertex_provider_and_google_model_slugs' "${DOCTOR_TEST_PY}" 2>/dev/null; then
         ok "Vertex doctor patch: active (provider profile + google/* model slug accepted)"
         _VERTEX_DOCTOR_PATCH_OK=true
@@ -2100,6 +2178,7 @@ if [[ -f "${VERTEX_ADAPTER_PY}" && -f "${AUTH_PY}" && -f "${AUX_CLIENT_PY}" && -
         grep -q 'name="vertex-fallback"' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
         grep -q '"vertex-fallback", "vertex2", "vertex-secondary"' "${RUNTIME_PROVIDER_PY}" 2>/dev/null &&
         grep -q 'test_resolve_runtime_provider_vertex_fallback_mints_token' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_resolve_provider_client_alias_mints_fallback_credentials' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null &&
         grep -q 'test_vertex_fallback_profile_registered' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null; then
         ok "Vertex fallback provider patch: active (vertex-fallback = 2nd account, quota failover)"
         _VERTEX_FALLBACK_PATCH_OK=true
@@ -2115,6 +2194,7 @@ fi
 # dynamic model catalog has not learned a preview slug yet.
 IMAGE_ROUTING_PY="${HERMES_AGENT}/agent/image_routing.py"
 IMAGE_ROUTING_TEST_PY="${HERMES_AGENT}/tests/agent/test_image_routing.py"
+IMAGE_ROUTING_RUNTIME_TEST_PY="${HERMES_AGENT}/tests/gateway/test_image_input_routing_runtime.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
 if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" ]]; then
     if grep -q 'def _known_provider_model_supports_vision' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
@@ -2133,10 +2213,14 @@ fi
 
 # PATCH-VERTEX-VIDEO-ROUTING: user videos use native data-URI parts and bounded
 # gateway buffering instead of relying on terminal/ffprobe access.
-if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${GATEWAY_RUN_PY}" ]]; then
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" ]]; then
     if grep -q 'def decide_video_input_mode' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q '_pending_native_video_paths_by_session' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q 'test_auto_native_for_vertex_gemini_3' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'return decide_video_input_mode(' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '_consume_pending_native_video_paths(session_key)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'test_auto_text_for_non_video_capable_models' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_gateway_kind_video_routes_through_video_decision_table' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_prepare_resets_stale_video_buffer_per_turn' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_video_attached_as_data_url_part' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
         ok "PATCH-VERTEX-VIDEO-ROUTING active: Gemini videos route natively"
         _VERTEX_VIDEO_ROUTING_PATCH_OK=true
@@ -2207,8 +2291,14 @@ fi
 # survives updates; rebuild only needed when upstream changes fts5_cjk.c.
 FTS5_CJK_BUILD_SH="${HERMES_AGENT}/native/fts5_cjk/build.sh"
 if [[ -f "${FTS5_CJK_BUILD_SH}" ]]; then
-    if grep -q 'dynamic_lookup' "${FTS5_CJK_BUILD_SH}" 2>/dev/null &&
-        grep -q 'Ivendor' "${FTS5_CJK_BUILD_SH}" 2>/dev/null; then
+    # Anchor the Darwin branch itself: bare upstream already contains a
+    # conditional -Ivendor fallback, so "Ivendor exists" cannot discriminate.
+    # The patch's invariant is "on Darwin, vendored headers are FORCED and the
+    # link defers sqlite3_* resolution" — assert both branch tokens together.
+    if grep -q 'uname -s.*Darwin' "${FTS5_CJK_BUILD_SH}" 2>/dev/null &&
+        grep -q 'LDFLAGS_EXTRA="-undefined dynamic_lookup"' "${FTS5_CJK_BUILD_SH}" 2>/dev/null &&
+        grep -q 'CFLAGS_EXTRA="-Ivendor"' "${FTS5_CJK_BUILD_SH}" 2>/dev/null &&
+        grep -q 'o libfts5_cjk.so \$LDFLAGS_EXTRA' "${FTS5_CJK_BUILD_SH}" 2>/dev/null; then
         if [[ -f "${HERMES_HOME}/lib/libfts5_cjk.so" ]]; then
             ok "fts5_cjk Darwin build patch: active (vendored headers + dynamic_lookup; extension installed)"
         else
@@ -2339,7 +2429,7 @@ if $_PATCH_APPLY_OK && [[ "${_TX_RUNTIME_DIRTY}" == "1" ]]; then
     if [[ -n "${_GW_OLD_PID:-}" ]]; then
         _GW_RESTART_WAIT=$(gw_restart_wait_seconds)
         if [[ ! "${_GW_RESTART_WAIT}" =~ ^[0-9]+$ ]]; then
-            _GW_RESTART_WAIT=210
+            _GW_RESTART_WAIT=930 # keep in sync with gw_restart_wait_seconds fallback
         fi
         step "Restarting gateway after draining in-flight runs (up to ${_GW_RESTART_WAIT}s)"
         hermes gateway restart
@@ -2366,6 +2456,13 @@ if $_PATCH_APPLY_OK && [[ "${_TX_RUNTIME_DIRTY}" == "1" ]]; then
             add_act "Inspect in-flight work and gateway logs, then rerun: hermes gateway restart (the replacement PID must differ from ${_GW_OLD_PID})"
             FINAL_RC=1
         fi
+    else
+        # runtime_dirty with no running gateway: the dirty runtime cannot be
+        # verified as replaced. Keep the flag and fail the transaction rather
+        # than silently skipping the reload evidence.
+        warn "Runtime is dirty but no gateway PID found — patched modules not verified as loaded"
+        add_act "Start the gateway (hermes gateway start), then rerun: bash ~/.hermes/hermes-update.sh --reconcile"
+        FINAL_RC=1
     fi
     set -e
 elif $_PATCH_APPLY_OK; then

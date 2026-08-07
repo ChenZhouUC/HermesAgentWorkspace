@@ -162,6 +162,10 @@ expected_scripts = {
     "read_feishu_url.py",
     "download_feishu_file.py",
     "feishu_common.py",
+    # Not a mapped action itself, but read_url's renderer dependency; listed
+    # so its absence fails with the friendly message instead of a bare
+    # FileNotFoundError from the lazy-import sentinel below.
+    "read_docx_to_markdown.py",
 }
 assert python_executable.is_file(), f"configured Python is missing: {python_executable}"
 missing_scripts = sorted(name for name in expected_scripts if not (scripts_root / name).is_file())
@@ -175,7 +179,10 @@ renderer = (scripts_root / "read_docx_to_markdown.py").read_text(encoding="utf-8
 assert re.search(
     r"^import requests\b", renderer, re.MULTILINE
 ) is None, "read_docx_to_markdown.py must not import requests at module scope"
-assert "    import requests\n" in renderer, "network helpers must still import requests lazily"
+assert renderer.count("    import requests\n") == 2, (
+    "both network helpers (get_tenant_access_token / download_doc_to_md) "
+    "must import requests lazily"
+)
 PY
     echo "OK   owner-DM/group YAML contract and fixed Feishu script map are valid"
 else
