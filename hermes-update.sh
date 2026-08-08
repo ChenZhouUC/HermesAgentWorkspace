@@ -1787,14 +1787,19 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${FEISHU_TEST_PY}" &
         grep -q 'def _mark_related_message_ids_covered' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _has_seen_message_id' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'ListMessageRequest is not None' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '"raw_mode": raw_chat_mode or None' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'chat_info.get("raw_mode") == "p2p"' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'missed_event_backfill_chats' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'ws_ping_timeout' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'test_missed_event_backfill_dispatches_unseen_mentions_from_known_chat' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quote_covered_parent_is_marked_seen_for_missed_backfill' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_missed_event_backfill_dispatches_unseen_dm_from_home_chat' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_missed_event_backfill_dm_quote_covered_parent_not_redispatched' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_missed_event_backfill_unknown_chat_mode_falls_back_to_group_admission' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ws_reconnected_hook_schedules_missed_event_backfill' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_startup_backfill_runs_in_boot_window_then_throttles' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'Missed Event Backfill' "${FEISHU_MESSAGING_DOC}" 2>/dev/null; then
-        ok "PATCH-FEISHU-MISSED-EVENT-BACKFILL active: reconnect replay + quote-covered dedup"
+        ok "PATCH-FEISHU-MISSED-EVENT-BACKFILL active: reconnect replay (group+DM) + quote-covered dedup"
         _FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK=true
     else
         warn "PATCH-FEISHU-MISSED-EVENT-BACKFILL inactive or partial"

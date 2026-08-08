@@ -2,7 +2,7 @@
 §
 Dependency installs: Requires explicit user approval (system/user-level). Non-environment-changing commands (no installs, no data deletion) don't need approval.
 §
-Feishu: Max 9-row tables, skip H1, POST index rel, DELETE 404 (batch), no trailing dots in MD URLs, nested bold in lists→400. Bot: ou_0091f5c50226a4ee0dc8a6d51665db0f. Docx: feishu_doc_read. Sheets: API w/ tenant token. Emoji: ONLY Unicode. Diagnostic: empty body + high revision_id = deleted.
+Feishu: Max 9-row tables, no H1/trailing URL dots, nested bold in lists→400. Bot: ou_0091f5c5. Docx: feishu_doc_read. Sheets: API w/ tenant token. Emoji: Unicode. Diagnostic: empty body + high revision_id = deleted.
 §
 LLM Wiki `~/.hermes/wiki`. Bipartite Graph: L1 (\_living/) = Hubs, L2 (entities/concepts) = Authorities, L2 cites L1 via wikilinks. Use HITS & Bipartite Projection (Jaccard) for topology. Run `python3 ~/.hermes/scripts/wiki_lint.py`.
 §
