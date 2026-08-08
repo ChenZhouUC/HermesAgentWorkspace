@@ -65,6 +65,7 @@ _hermes() {
                 'model:Select default model and provider'
                 'monitoring:Inspect gateway monitoring (health & diagnostics export)'
                 'pairing:Manage DM pairing codes for user authorization'
+                'pause:Emergency stop: pause cron/kanban dispatch and new gateway t'
                 'pets:Browse, install, and select petdex animated pets'
                 'plugins:Manage plugins — install, update, remove, list'
                 'portal:Set up Nous Portal (login, model pick, Tool Gateway); see al'
@@ -72,6 +73,7 @@ _hermes() {
                 'project:Manage projects (named, multi-folder workspaces)'
                 'prompt-size:Show a byte breakdown of the system prompt + tool schemas'
                 'proxy:Local OpenAI-compatible proxy to OAuth providers'
+                'resume:Lift the emergency stop set by `hermes pause`'
                 'secrets:Manage external secret sources (Bitwarden, 1Password)'
                 'security:Supply-chain audit (OSV.dev) for venv, plugins, and MCP serv'
                 'send:Send a message to a configured platform (scripts, cron jobs,'
@@ -86,6 +88,7 @@ _hermes() {
                 'tools:Configure which tools are enabled per platform'
                 'uninstall:Uninstall Hermes Agent'
                 'update:Update Hermes Agent to the latest version'
+                'verify:Detect a projects run recipe and smoke-test it'
                 'version:Show version information'
                 'webhook:Manage dynamic webhook subscriptions'
                 'whatsapp:Set up WhatsApp integration'
@@ -99,6 +102,7 @@ _hermes() {
                     local -a approvals_cmds
                     approvals_cmds=(
                     'suggest:Propose command_allowlist entries from past approvals'
+                    'test:Dry-run the approval verdict for a command (never executes i'
                     )
                     _describe 'approvals command' approvals_cmds
                     ;;
@@ -176,6 +180,7 @@ _hermes() {
                     'create:Create a scheduled job'
                     'edit:Edit an existing scheduled job'
                     'list:List scheduled jobs'
+                    'notepad:Read/write a jobs durable notepad (persistent KV across runs'
                     'pause:Pause a scheduled job'
                     'remove:Remove a scheduled job'
                     'resume:Resume a paused job'

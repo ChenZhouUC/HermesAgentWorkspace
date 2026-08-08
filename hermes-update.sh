@@ -66,7 +66,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.0 / main 863e31318553cda8ad61df681d08175364d4164b, `hermes completion zsh` already emits the
+# As of v0.20.0 / main cd9fbf9f19d937024bde2fce16b07f5400099723, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -1106,28 +1106,15 @@ if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
 fi
 cd - >/dev/null
 
-# npm 12 blocks unreviewed dependency lifecycle scripts by default.  Keep the
-# PATCH-NPM-DEPENDENCY-HYGIENE: keep install-script approval scoped to this
-# Hermes update via a temporary global-config file:
-# project-scoped --allow-scripts/env flags are rejected by npm, while changing
-# ~/.npmrc would broaden the policy to unrelated projects.  Versions are pinned
-# so an upstream bump becomes a deliberate re-review instead of inheriting
-# executable permission silently.  unicode-animations is harmless under CI=1;
-# fsevents ships the native artifact used on macOS.
+# PATCH-NPM-DEPENDENCY-HYGIENE, install-script policy piece: absorbed upstream.
+# package.json ships a committed `allowScripts` allowlist (pinned entries incl.
+# agent-browser/esbuild/fsevents; unicode-animations blocked) which npm >= 12
+# treats as authoritative and which overrides any .npmrc/global allow-scripts
+# setting ("being ignored" warning).  The temporary-global-config branch that
+# lived here was therefore retired on 2026-08-08; the audit-fix piece below
+# stays local.  If upstream ever drops `allowScripts` from package.json, the
+# retired branch is in git history (outer repo, pre-2026-08-08).
 _NPM_POLICY_ENV=()
-_NPM_MAJOR=$(npm --version 2>/dev/null | cut -d. -f1 || true)
-if [[ "${_NPM_MAJOR}" =~ ^[0-9]+$ ]] && ((_NPM_MAJOR >= 12)); then
-    _NPM_POLICY_FILE=$(mktemp -t hermes-npm-policy.XXXXXX)
-    chmod 600 "${_NPM_POLICY_FILE}"
-    # Pins must be re-derived from package-lock.json hasInstallScript entries
-    # (root copy is fsevents@2.3.2; tsx/vite nest 2.3.3), never from memory.
-    # electron / electron-winstaller / node-pty are desktop-workspace-only and
-    # outside the root+ui-tui/web install paths hermes update runs.
-    printf '%s\n' \
-        'allow-scripts=agent-browser@0.26.0,esbuild@0.28.1,fsevents@2.3.2,fsevents@2.3.3,unicode-animations@1.0.3' \
-        >"${_NPM_POLICY_FILE}"
-    _NPM_POLICY_ENV=("NPM_CONFIG_GLOBALCONFIG=${_NPM_POLICY_FILE}")
-fi
 
 _UPDATE_LOG=$(mktemp -t hermes-update.XXXXXX)
 UPDATE_RC=0

@@ -262,7 +262,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（64 文件，2026-08-07 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（64 文件，2026-08-08 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -283,21 +283,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.0 (upstream `main` `863e31318553cda8ad61df681d08175364d4164b`，2026-08-06)
+## 当前版本：v0.20.0 (upstream `main` `cd9fbf9f19d937024bde2fce16b07f5400099723`，2026-08-08)
 
 **活跃补丁**：当前共 30 个语义补丁。23 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.20.0 → v0.20.0，+58 commits，basis `6564f319a` → `863e31318553cda8ad61df681d08175364d4164b`，2026-08-06）要点**：
+**最近一次升级（v0.20.0 → v0.20.0，+349 commits，basis `863e31318` → `cd9fbf9f19d937024bde2fce16b07f5400099723`，2026-08-08）要点**：
 
-- 上游主线：Dashboard/Web 增加 events WebSocket backoff reconnect（`fb402106f`）；脚本/评测新增 toolperf A/B harness（`ced8e3021`）；cache/compression 增加 durable prune runway 与 model-config merge helper（`bf6a210a` / `241605d1` / `565b2c42`）；模型侧新增 Actual Computer provider 与 setup skill/docs（`a9acb400` / `e79f16c` / `5aa798f`）；Gateway 修复 split-delivery final swallow、empty fallback deleted-head 计数、session-hygiene cooldown（`c46027b` / `392e3a8` / `68ebb19` / `c0d974b`）；sessions/CLI/utils 补 LIKE escaping 与 atomic write 权限边界（`1d2dabc` / `52a5fc0` / `67827dd` / `43fc865`）；read_file 上游扩展 anydoc 格式与 init/size cap（`b2598b4` / `997a913` / `ffdbc88` / `ff3793f`）；新增 Goals quality gates、Heartbeat、Refine（`6e041d` / `6518aa` / `8f2712`）；cron lifecycle guard 改为 ingestion sanitize + total path handling（`c8d48b8` / `863e313`）。
-- patch apply / registry：62 个受管文件全部 clean apply，无 3-way 冲突。`PATCH-DOCUMENT-EXTRACTION` 被 `b2598b41e` 部分吸收 anydoc-only 格式、失败重试与 anydoc size cap；本地剩余 hunk 已收缩为 native PDF/HTML/PPTX/ODT、pypdf/PyMuPDF fallback、zip/文本上界、入站附件抽取与对应测试。接管时完整回归先暴露 `tests/tools/test_read_extract.py` 的陈旧断言（PDF/ODT 仍按 anydoc 缺失不可抽取），已改为 anydoc-only 与 native-overlap 分离；受影响文件 27 passed，完整动态 25 files **815 passed / 0 failed**。30 个活跃 PATCH 全部保留，无新增/归档；bundle/base/full-index、cached 正向、worktree 反向和 index-clean 闭环随 `--reconcile` 重新生成。
-- 依赖：无 venv 重建；`python-socks==2.8.1` / `pypdf==6.14.2` / pytest 工具链 / `lark-oapi==1.6.8` 保持在位，无 `venv.stale.*` 或误建 `.venv` 残留。`npm audit fix` 仍非零并报告 4 high（brace-expansion、electron、undici，含下游 workspace 依赖），已归为 P2 上游 lock/range 阻挡，禁止 `--force`。Skills mirror 在测试后曾把源树 `__pycache__/` / `*.pyc` 同步成 `+70` 噪音；本轮已把字节码缓存加入 Step 4b 排除集合并清理误镜像缓存，后续以排除 metadata 与 bytecode 后的源码/runtime 内容一致为终态。
-- 已知摩擦：本轮无 GitHub fetch retry；事务文件不存在时按接管规则只使用 no-network `--reconcile`，固定当前 HEAD `863e31318553`，未再次推进 upstream。脚本侧新增两项演进幂等修复：`_NPM_POLICY_ENV` 在 nounset + 空数组时使用安全展开，避免 npm<12 无 policy entry 时中断；Skills mirror 不再受测试/运行时 Python 字节码缓存影响，避免相同 SHA 因执行顺序不同产生 `+70` 假漂移。
-- 配置漂移：`hermes doctor` 终态报告 Browser 2 high、Web 3 high 与 UI-TUI 1 high 三组 npm workspace/tooling advisory，均为 P2 上游阻挡且不影响飞书 gateway 主链路；未登录 provider / 未配置可选工具属 P3。Gateway planned restart 已完成并观察到 PID 替换，sandbox verifier 21 passed 绑定新 PID；owner Feishu DM 保持完整工具面，Feishu 群聊限制为结构化工具 + 只读 file/skill 工具。
-
-**2026-08-07 逐补丁全量审计（升级期外，下次升级摘要重写时并入当周 README row 后删除本段）**：对 30 个活跃 PATCH 逐个核验上游吸收判断、hunk 冗余、哨兵判别力与验证覆盖，吸收判定全部维持（无新增归档；`PATCH-VERTEX-FALLBACK` 的上游 credential_pool 仍无 SA-file/project 语义，`PATCH-SKILL-CREATE-ROOT` 的 background-review guard 未扩大到 create）。修复三类问题：① **生产缺陷**——gateway 图片/视频路由 wrapper 的 `kind=` 接线断裂（TypeError 被吞、全部退化 text，视频补丁生产路径完全失效）、视频 buffer 缺每轮重置、群审批硬拦位于 yolo/allowlist/is_approved/smart 短路之后（配置漂移可绕过，现三入口早期硬地板 + ContextVar chat_type 防非规范 key fail-open）、vertex2/vertex-secondary 别名铸主账号凭据、backfill 启动节流在开机 30s 窗口内静默跳过、doctor 缺 vertex-fallback vendor-slug、zh-Hans 迁移文档残留 `HERMES_GATEWAY_TOKEN` 行；② **闸门判别力**——SKILL-CREATE-ROOT fail-open 析取、FTS5 `Ivendor` 无判别力、CAPABILITY-SCOPE 四个永真 grep、NORMAL-REPLY/MARKDOWN 补负向锚点、VIDEO 补接线锚点、SSRF/DOC-EXTRACTION/ADMISSION 补测试锚点、sandbox verifier 惰性导入计数收紧；③ **脚本演进**——fetch-retry 正则去死分支/限定 github/排除认证错误、8d 无 PID 时不再静默通过、210s 假 fallback 改 930、Step 2 显式 index-clean、skills 源目录缺失转事务失败、事务 self-test 补全字段与 symlink/篡改负例、npm allowlist 补 fsevents@2.3.2 并登记推导规则。受管文件 62 → 64（新增 zh-Hans 迁移文档、`test_image_input_routing_runtime.py`），补丁测试 25 → 26 文件，新写回归 12 条（含视频 buffer 每轮重置、doctor vertex-fallback slug、redactor DM 原样返回的补测），fetch-retry 正则另做 9 例隔离分类取证；终态 26 files **829 passed / 0 failed**。
-
-**2026-08-08 主会话 DM 回放并入 PATCH-FEISHU-MISSED-EVENT-BACKFILL（升级期外，下次升级摘要重写时并入当周 README row 后删除本段）**：修复回放事件按 `oc_` 前缀误判 chat_type 的主会话盲区（详见该补丁定义块），`get_chat_info` 补采 `chat_mode` 作判别、失败 fail-closed 按群准入；新增 3 条 DM 回归测试与 Step 8b `raw_mode` 锚点，26 files **832 passed / 0 failed**，bundle 经 `--reconcile` 刷新（base 2026-08-08T12:27:14Z）、gateway PID 替换后启动扫描实测 `chats=6 admitted=0` 零误回放。
+- 上游主线：安全/工具侧 terminal 错误结果与 ACP stderr 脱敏（`530d37820` / `72eda946b`）、自仓 git 变更硬拦与 live-checkout guard（`ecbe6ef0d` / `206531a1e` / `f0a3e8fbd`）、bash 选项文法先解析再取 `-c`（`bb311b395` / `c8e558c72`）、fail-closed hook 语义（`1dee73400`）；Gateway turn-lease 超时 fail-closed 与 yaml 可配（`29af112cd` / `b3e9e9170`）、unclean exit 精确恢复 + active turn marker 生命周期（`6774760b6` / `59a128c6f` / `5ff328cc7`）、关机中断全部在途 API turn（`d9ddfb23d`）、agent cache 按内存上界（`6bbe55dd0`）、`hermes pause/resume` 全局急停（`5db1b72b1`）；read_file/extraction 新增 bytes 边界 `extract_document_bytes` 与扫描版 PDF 覆盖率警告（`8de3ddb9e` / `89c14aeb9` / `765940df7`）；doctor 新增 state.db 健康统计 / journal-mode / DB size 与 `--live` 探针（`64c342c1c` / `658329708` / `a96a4621f` / `1006faa6f`）；honcho 401 恢复链统一（`864035b24` 等）；agent 续写 fragment 分离（`4cc3ea01f` / `c8cf8bfdb`）；MCP config context vars 与 AGENTS.md 目录链（`a978f769b` / `2e2fcc09f`）；skills 新增 email-inbox-triage / github-issue-to-pr，删除 polymarket；模型侧新增 FAL NB2 与新视频族（`2b16a6b03` / `70c6cf8e7`）。
+- patch apply / registry：64 个受管文件 3-way 回贴，唯一真冲突在 `tools/read_extract.py`，两处均为并存型（import 块合并上游 shutil/subprocess/tempfile 与本地 re；上游 `extract_document_bytes` 与本地 `_check_document_size` 并列保留）。`PATCH-DOCUMENT-EXTRACTION` 维持部分吸收态：上游新增 bytes API / 覆盖率警告与本地 native 抽取、zip/文本上界、path-based 入站接线正交，无冗余 hunk 可删。`PATCH-NPM-DEPENDENCY-HYGIENE` 本轮部分吸收：上游 `package.json` 自带 `allowScripts` 钉版允许清单（npm ≥12 视为权威并忽略 global-config），本地临时 policy 分支 2026-08-08 退役，audit-fix 与 P2 定性片段保留。30 个活跃 PATCH 无新增/归档；bundle/base/full-index、cached 正向、worktree 反向和 index-clean 闭环随 `--reconcile` 全绿。
+- 依赖：无 venv 重建；python-socks 2.8.1 / pypdf 6.14.2 / pytest 9.0.2 与 lazy features 全部 current。本机 npm 观测为 12.0.2（此前 11，policy 分支由此激活并暴露上游 allowScripts 覆盖）。`npm audit` 残余 8 vulnerabilities（3 moderate 5 high：Browser 2H、Web 3H 含新增 Mermaid CSS-injection advisory、UI-TUI 1H1M），P2 上游 lock/range 阻挡，禁止 `--force`。Skills mirror：update 轮 `-4`（上游删除 polymarket），reconcile 轮 `~1`（llm-wiki 固定振荡）。
+- 已知摩擦：官方 updater 正常消费固定 SHA，无 GitHub fetch retry。清除 2026-08-06 轮官方 updater 遗留 autostash（patch overlay 中间态快照，经与外层历史 bundle 对照冗余后 drop，可恢复 SHA `e2919ebad`）。完整回归 26 files **847 passed / 0 failed**（+15 全部来自上游 `test_read_extract.py` 扩展，无用例丢失/改名）。
+- 配置漂移：doctor 终态与上轮一致（Browser/Web/UI-TUI 三组 P2 advisory 不影响飞书主链路；未登录 provider 与可选工具 P3）。裸窗口期 doctor 一次性出现 vendor-slug 对 vertex 的误报，补丁回贴后消失（该 lint 的 vertex/vertex-fallback 白名单来自 `PATCH-VERTEX-DOCTOR`）。Gateway 两次 PID 替换（updater 轮 59520 → 63644，reconcile 排空重启 63644 → 68781），sandbox verifier 21 passed 绑定终态 PID 68781；owner DM 全工具面、群聊结构化 + 只读工具边界不变。
 
 > 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
 
@@ -320,18 +316,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-NPM-DEPENDENCY-HYGIENE] npm 漏洞修复与 install-script policy
 
-| 字段     | 内容                                                       |
-| -------- | ---------------------------------------------------------- |
-| **文件** | `hermes-update.sh` + `node_modules/`（gitignored）         |
-| **状态** | 🟢 自动化（Step 3 scoped policy + Step 4 `npm audit fix`） |
+| 字段     | 内容                                                                                 |
+| -------- | ------------------------------------------------------------------------------------ |
+| **文件** | `hermes-update.sh` + `node_modules/`（gitignored）                                   |
+| **状态** | 🟢 自动化（Step 4 `npm audit fix`；install-script 策略已由上游 `allowScripts` 吸收） |
 
-**问题**：`hermes update` 用 `npm install --no-audit` 装 npm 依赖，不会自动修已知漏洞。例如 `basic-ftp ≤5.2.2` 的高危 DoS（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。Node 26 / npm 12 进一步默认阻止未经审核的 dependency lifecycle scripts；本仓 update 的 root + ui-tui/web 安装会反复提示 `agent-browser@0.26.0`、`esbuild@0.28.1`、`fsevents@2.3.3`、`unicode-animations@1.0.3` 未被 `allowScripts` 覆盖。四个包当前产物实际可用，但每次升级重复告警；用 `dangerously-allow-all-scripts` 会把未来任意传递依赖也放行，不可接受。
+**问题**：`hermes update` 用 `npm install --no-audit` 装 npm 依赖，不会自动修已知漏洞。例如 `basic-ftp ≤5.2.2` 的高危 DoS（GHSA-rp42-5vxx-qpwr），`hermes doctor` 会报 `Browser tools (agent-browser) has 1 npm vulnerability(ies)`。Node 26 / npm 12 进一步默认阻止未经审核的 dependency lifecycle scripts；历史上本仓 update 的 root + ui-tui/web 安装会反复提示 `agent-browser` / `esbuild` / `fsevents` / `unicode-animations` 未被允许清单覆盖。
 
-**修复**：保留 Step 4 的 `npm audit fix --quiet`；同时在调用 `hermes update` 前为 npm ≥12 创建权限为 0600 的临时 global-config，仅写入已审核且**版本钉死**的 allow 条目——条目集合的推导规则是"`package-lock.json` 中 root+ui-tui/web 安装路径可达的全部 `hasInstallScript` 包"，不得凭记忆维护（2026-08-07 审计：root 的 fsevents 实为 2.3.2、tsx/vite 嵌套 2.3.3，allowlist 已同时钉两版；`electron`/`electron-winstaller`/`node-pty` 属 Desktop workspace、不在 `hermes update` 的安装路径内，明确排除不放行；本机 npm 11 时整个 policy 分支为待命状态，不影响行为），并通过 `NPM_CONFIG_GLOBALCONFIG` 只传给本轮 `hermes update` / audit，结束或异常退出均删除。不会修改 `~/.npmrc`，不会影响其他项目，也不会继承未来版本的脚本权限。`agent-browser` postinstall 只校验/准备对应平台 binary，`esbuild` 校验平台 binary，`fsevents` 提供 macOS native watcher，`unicode-animations` 在上游强制的 `CI=1` 环境中 no-op。audit 非零时完整输出进入升级日志，action 改为 `npm audit --json` 定性且明确禁止 `--force`；不再建议机械重跑刚刚失败的同一 fix 命令。上游 lock/range 暂无非破坏解且不影响飞书主链路时归为 P2，允许 warning + 落盘摘要收敛；命令未执行、产物缺失、影响飞书主链路或出现不可解释 drift 才是事务失败。
+**修复**：保留 Step 4 的 `npm audit fix --quiet`。audit 非零时完整输出进入升级日志，action 改为 `npm audit --json` 定性且明确禁止 `--force`；不再建议机械重跑刚刚失败的同一 fix 命令。上游 lock/range 暂无非破坏解且不影响飞书主链路时归为 P2，允许 warning + 落盘摘要收敛；命令未执行、产物缺失、影响飞书主链路或出现不可解释 drift 才是事务失败。**install-script 策略片段已退役（2026-08-08）**：上游 `package.json` 自带钉版 `allowScripts` 允许清单（agent-browser/esbuild/fsevents 双版/node-pty/electron\*，`unicode-animations` 显式 false），npm ≥12 将其视为权威并以 "being ignored" 警告忽略任何 .npmrc/global `allow-scripts`；本地临时 global-config 分支因此从 Step 3 删除（退役实现见外层 Git pre-2026-08-08 历史），仅保留空 `_NPM_POLICY_ENV` 声明与惰性清理守卫。
 
-**验证**：以相同临时 policy 实跑 root `npm ci --workspaces=false` 与 ui-tui/web workspace `npm ci`，均无 `install scripts blocked` / `not covered by allowScripts`；随后 audit 恢复完整 workspace 产物，`agent-browser 0.26.0`、`esbuild 0.28.1`、`require("fsevents")`、`require("unicode-animations")` 全部可用，package.json / lockfile 无 tracked drift。隔离 fake 令 audit 非零时，日志必须保留原始诊断、action 只建议 `npm audit --json` 且包含 `do not use --force`，不得再次建议无条件 `npm audit fix`。
+**验证**：`hermes update` 的 root + workspace 安装在上游 `allowScripts` 下无 `install scripts blocked` / `not covered by allowScripts`，且日志不再出现本地 policy 的 "being ignored" 警告；audit 恢复完整 workspace 产物，`agent-browser`、`esbuild`、`require("fsevents")` 可用，package.json / lockfile 无 tracked drift。隔离 fake 令 audit 非零时，日志必须保留原始诊断、action 只建议 `npm audit --json` 且包含 `do not use --force`，不得再次建议无条件 `npm audit fix`。
 
-**上游吸收判断**：这是本地升级流程的依赖安全策略；只有上游升级器同时提供等价的 scoped install-script allowlist、自动清理临时配置和漏洞修复流程后，才可移除本补丁。
+**上游吸收判断**：install-script allowlist 片段已由上游 `package.json.allowScripts` 吸收（≤`863e31318` 引入，本机 npm 升至 12 后生效确认）。剩余本地不变量只有"升级后自动 `npm audit fix` + 失败分级定性"；上游升级器原生提供等价的 audit/修复流程后可整体归档本补丁。若上游未来移除 `allowScripts`，从外层 Git 历史恢复临时 policy 分支。
 
 ---
 
@@ -620,7 +616,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：在上游 `read_extract.py` 抽取层上扩展 PDF（pypdf，兼容 PyMuPDF 安装）、HTML（移除主动内容）、PPTX、ODT，并对每文件/每轮文本做上界；上游 `file_tools.py` 的 `read_file` 接线按 `EXTRACTABLE_EXTENSIONS` 自动获得新格式，无需本地改动 `read_file` 主路径。`gateway/run.py` 新增 `_extract_inbound_document` 在线程池中抽取入站附件，向模型明确内容是不可信参考数据；加密、扫描或损坏文档保留路径并返回可解释降级。依赖在 project extra、lazy deps 与 lockfile 中固定。设计留观：`pypdf` pin 落在 `LAZY_DEPS["platform.feishu"]` 而非 `tool.doc_extract`（后者上游仍 anydoc-only）——本机 Feishu 栈必装故等价；非 Feishu 部署走 `read_file` 读 PDF 时不会触发懒装，若上游重写 feishu extra 需把 pin 迁到 `tool.doc_extract`。
 
-**2026-08-03 收缩**：上游在 26e0b1c 已自带 `read_extract.py`（XLSX/DOCX/IPYNB）并经 `file_tools.py` 接进 `read_file`，本地曾并存的 `file_operations.py` `_read_spreadsheet` 第二条 XLSX 路径成为死代码（抽取分支先行拦截），已连同其测试一并删除；`tools/file_operations.py`、`tests/tools/test_file_operations.py` 移出 `PATCHED_FILES`。**2026-08-06 收缩**：上游 `b2598b41e` / `997a913` / `ffdbc88` 吸收 anydoc-only 格式、失败重试和 anydoc size cap；本地测试已把 anydoc-only 可用性（RTF/EPUB/DOC）与 native-overlap 可用性（PDF/PPTX/ODT）分离，防止上游 anydoc 语义重新压住本地 native 抽取。
+**2026-08-03 收缩**：上游在 26e0b1c 已自带 `read_extract.py`（XLSX/DOCX/IPYNB）并经 `file_tools.py` 接进 `read_file`，本地曾并存的 `file_operations.py` `_read_spreadsheet` 第二条 XLSX 路径成为死代码（抽取分支先行拦截），已连同其测试一并删除；`tools/file_operations.py`、`tests/tools/test_file_operations.py` 移出 `PATCHED_FILES`。**2026-08-06 收缩**：上游 `b2598b41e` / `997a913` / `ffdbc88` 吸收 anydoc-only 格式、失败重试和 anydoc size cap；本地测试已把 anydoc-only 可用性（RTF/EPUB/DOC）与 native-overlap 可用性（PDF/PPTX/ODT）分离，防止上游 anydoc 语义重新压住本地 native 抽取。**2026-08-08 并存记录**：上游 `8de3ddb9e` / `89c14aeb9` / `765940df7` 新增 bytes 边界 `extract_document_bytes`（file backend 传输字节 → 私有 temp 文件物化）与扫描版 PDF 覆盖率警告（pdftotext 逐页计数、空页占比阈值提示）——与本地 hunk **正交不吸收**：本地入站接线（`_extract_inbound_document`）是 path-based（飞书媒体先落本地缓存），本地 native 抽取器/上界/zip 安全均不被替代。本轮 3-way 唯一真冲突即在该文件的 import 块与函数插入点，按并存解决（两侧全保留）；上游同轮为该文件新增约 15 条测试与本地测试并存运行。
 
 **验证**：Step 8b 单独检查 common extractors（`_extract_pdf` / `_extract_html_file`）、`_extract_inbound_document`、pypdf 双路径依赖和 `TestCommonDocumentExtraction`，并锚定两条 2026-08-06 收缩测试（`test_native_overlap_formats_remain_extractable_without_anydoc` / `test_anydoc_only_formats_not_extractable_without_anydoc`）与入站路径测试 `test_extract_inbound_html_without_terminal_access`（2026-08-07 起——此前 gate 对收缩语义与 `test_document_context_note.py` 均无锚点）；覆盖 PDF 页边界、HTML 清理、Office/OpenDocument 顺序、字符上界及不依赖 terminal。已知留观（P3，本机不可达）：native 抽取失败时不回落 anydoc——`.pdf` 等双集合扩展名在 pypdf 缺失 ∧ anydoc 存在的配置下会直接报缺包而非尝试 anydoc；本机 pypdf 由 feishu lazy 栈钉死安装、anydoc 未装，路径死代码，待上游动该区域时一并处理。
 
