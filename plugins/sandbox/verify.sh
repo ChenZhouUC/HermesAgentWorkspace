@@ -89,7 +89,6 @@ plugin = yaml.safe_load(plugin_path.read_text(encoding="utf-8")) or {}
 
 expected_group_toolsets = {
     "web",
-    "vision_tools",
     "clarify",
     "feishu_doc",
     "skills_readonly",

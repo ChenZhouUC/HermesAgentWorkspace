@@ -526,6 +526,7 @@ _hermes() {
                     'recover:Rebuild canonical session data into a separate clean databas'
                     'rename:Set or change a sessions title'
                     'repair:Repair a malformed state.db schema so hidden sessions reappe'
+                    'repair-routing:Re-stamp gateway sessions that lost their routing identity'
                     'retitle-skills:Re-title sessions whose auto-title came from a /skills own t'
                     'stats:Show session store statistics'
                     )

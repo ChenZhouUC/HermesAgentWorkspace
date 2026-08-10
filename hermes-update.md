@@ -318,11 +318,20 @@ Step 2c/4/5 期间只要修改过 `hermes-agent` 运行时代码、`config.yaml`
 
 禁止用 `hermes gateway stop && hermes gateway start` 代替 planned restart：macOS stop 路径在短固定宽限后会强杀进程，可能把正在处理的飞书 turn 变成中断恢复任务并产生非预期回复。若排空超过预算或 PID 未替换，本轮必须非零/阻塞收尾，保留旧进程与日志供诊断，不能为了得到新 PID 直接强杀。
 
+#### Step 5c — Playbook 持续演进自审（每轮必做）
+
+Step 6 报告前，以本轮实际执行为镜，对照 § 持久化演进幂等与跨会话收敛 审计本 playbook 自身，确保下一轮任何无会话记忆的 AI 仍能只凭磁盘状态完美接管：
+
+1. **新现象清点**：列出本轮出现而 playbook / 摩擦表未预见或描述不准的现象（新 doctor 检查、新迁移形态、新冲突型、新警告类别、脚本或官方 updater 的新行为、测试口径变化）。逐项按"权威源不分叉"判定归属——执行行为 → `hermes-update.sh`，PATCH 生命周期 → `PATCHES.md`，物理改动 → replay bundle，决策/恢复规则与摩擦 → 本 playbook——并**当轮落盘**；只写进最终报告或会话总结等同于未修复。
+2. **验收自问**：换一个没有会话记忆的 AI，面对任意后继 upstream，仅从当前磁盘状态和本文件出发，能否重建本轮全部判断（含本轮新增的判定规则）？任何"必须靠本次会话记忆才能答对"的知识点，都必须补写进对应权威文件后本步骤才算通过。
+3. **规则时效核查**：抽查本 playbook 引用的锚点、命令、路径、默认值与当前脚本/上游是否仍一致（如 `--print-*` 只读入口、gate 名称、doctor 输出口径、wiki SCHEMA 路径映射）；失效即当轮修订本 playbook，不留给下一轮撞上。
+4. **结果入报告**：Step 6 报告必须单列本步骤结论——修订了什么/为何，或写明"无需修订"及依据；该结论缺失视为升级未完成。
+
 ### Step 6 — 收尾报告
 
 向用户报告（**不要自动提交**）：
 
-- **完成标准**：首次官方获取至多调用一次 `--update`；**最后一次 `hermes-update.sh --reconcile` 完整本地收敛运行 exit 0 且无 `✗`，并晚于本轮最后一次 patch / gate / 脚本修改**（逐项人工验证不能替代 reconcile 闸门，哨兵漂移只有跑脚本才会暴露），且日志/事务证据证明所有复跑固定同一 `TARGET_SHA`、未再次 fetch/pull；补丁回归 **0 failed 且测试清单/关键边界未退化**、Step 3 八层仓库闭环全部成立、Step 5 派生一致性断言通过、Step 5b 的终态 PID 晚于最后一次运行态修改、所有用户插件 verifier 绑定该当前 PID 通过、doctor/npm warning 已按 P0/P1/P2/P3 分级且无可修而未修的 P0/P1、无环境残留。达不到时不得声称完成，单列阻塞项、原因与建议
+- **完成标准**：首次官方获取至多调用一次 `--update`；**最后一次 `hermes-update.sh --reconcile` 完整本地收敛运行 exit 0 且无 `✗`，并晚于本轮最后一次 patch / gate / 脚本修改**（逐项人工验证不能替代 reconcile 闸门，哨兵漂移只有跑脚本才会暴露），且日志/事务证据证明所有复跑固定同一 `TARGET_SHA`、未再次 fetch/pull；补丁回归 **0 failed 且测试清单/关键边界未退化**、Step 3 八层仓库闭环全部成立、Step 5 派生一致性断言通过、Step 5b 的终态 PID 晚于最后一次运行态修改、所有用户插件 verifier 绑定该当前 PID 通过、doctor/npm warning 已按 P0/P1/P2/P3 分级且无可修而未修的 P0/P1、无环境残留，且 **Step 5c playbook 自审已执行、结论已落盘**。达不到时不得声称完成，单列阻塞项、原因与建议
 - 升级 `OLD_SHA → NEW_SHA`，`+N commits`
 - 问题分级结果：P0 修复项与验证、P1 已修或决策项、P2 上游等待项、P3 可选缺口；P2/P3 必须说明是否影响飞书主链路
 - 文档对齐了哪些文件（列文件名 + 改动类别一句话，不展开内容）
@@ -366,6 +375,10 @@ Step 2c/4/5 期间只要修改过 `hermes-agent` 运行时代码、`config.yaml`
 | `skills_tool.py` `skill_view` 同函数双意图冲突                                    | 已知预案（post-26e0b1c `2a3a7e6f5`）：上游给 `skill_view` 加 repeat-call dedup 存根，本地 `PATCH-PLATFORM-CAPABILITY-SCOPE` 在同一函数做 platform allowlist 过滤。3-way 大概率真冲突：人工融合时保持"先 allowlist 过滤、后 dedup 存根"顺序，确保被 allowlist 拒绝的 skill 不会因 dedup 缓存返回旧内容；融合后跑 `test_skills_tool.py` 全量。                                                                                                                                                                                                                                                                        |
 | `session_context.py` `_VAR_MAP` / set/clear 列表相邻行冲突                        | 已知预案（post-26e0b1c `fb6446fc9`）：上游 cron approval scope 与本地 `PATCH-FEISHU-GROUP-SCOPE` 都向 `_VAR_MAP`、`set_session_vars`、`clear_session_vars` 注册新 ContextVar，属列表相邻行的"并存"型冲突：两边条目机械并列保留即可，无语义取舍；解决后由 `test_session_env.py` 回归覆盖。                                                                                                                                                                                                                                                                                                                           |
 | Feishu 普通引用回复 lane 与上游 metadata 驱动语义对撞                             | **高危语义冲突**（post-26e0b1c）：上游 `reply_in_thread = bool(metadata.thread_id)`（metadata 驱动投递 lane）与 `PATCH-FEISHU-NORMAL-REPLY` 的"固定 False、忽略 generic thread metadata"方向相反，同一 send/reply-body 区域的 3-way 结果不可信任自动合并。必须人工按本地不变量重解（普通引用永不进 thread lane），复验补丁自有三条路径回归后才能刷新 bundle；详见 PATCHES.md 该补丁块对撞警示。                                                                                                                                                                                                                     |
+
+| config 迁移一次性重置用户可见状态（如 v34 personality reset） | 迁移本身属 P0 当轮执行（`hermes doctor --fix`），但遇到"上游有意重置用户状态"的迁移时**不回写旧值**——那会复活迁移要消灭的歧义态。记录旧值与官方恢复命令，在最终报告显著提示由用户决定是否恢复。v34 实例（2026-08-10）：`display.personality: kawaii → none`（该值自 2026-04-15 初始提交未变），恢复用 `/personality kawaii`；迁移伴随的 YAML 引号/列表风格重排为语义无变化噪音。 |
+| `hermes doctor --fix` 报 `platform 'X' references unknown toolset` | 该校验（`hermes_cli/toolset_validation.py`，#38798 动机）仅在 `--fix`/迁移路径运行，普通 doctor 不报。先分流：**插件运行时注册名**（如 `sandbox_group`）在 CLI 上下文未加载网关插件属预期误报，不修；**真实死条目**（如 `vision_tools`——注册名实为 `vision`，`resolve_toolset` 恒返回空）按群聊工具两层一致原则处置——沙箱 allowlist 本就不放行的能力直接删条目（运行时行为零变化），确需该能力才改正名并同步 allowlist。凡触及 `plugins/sandbox/verify.sh` 期望契约的改动必须复跑 Step 8e verifier。2026-08-10 已删 `vision_tools` 死条目。 |
+| `test_read_extract.py` 报 3 skipped（firecrawl-anydoc not installed） | 上游 real-binding 测试类按设计在可选包 `firecrawl-anydoc` 缺失时跳过；本机未装，**3 skipped 是预期基线、不是回归**（2026-08-10 起）。安装该包属引入全新依赖，不在常设授权内；上游将 anydoc 转为必需依赖、或用户明确决定安装后，删除本 row 并更新基线。 |
 
 > 这张表是**可扩展**的：发现新摩擦就追加 row。
 
