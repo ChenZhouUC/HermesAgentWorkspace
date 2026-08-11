@@ -1,6 +1,6 @@
 # Hermes 升级 Playbook
 
-> **用法**：在 Claude Code 会话中说一句 `阅读 ~/.hermes/hermes-update.md 按计划做`，agent 即按本 playbook 一条龙完成"升级内层官方源码 checkout + 回贴本地 patch + 依赖自愈 + 补丁回归修到全绿 + 对齐外层监管记录/文档"，中途不打断、不追问，**收尾零遗留**。
+> **用法**：在 Claude Code 会话中说一句 `阅读 ~/.hermes/hermes-update.md 按计划做`，agent 即按本 playbook 一条龙完成"升级内层官方源码 checkout + 回贴本地 patch + 依赖自愈 + 补丁回归修到全绿 + 对齐外层监管记录/文档 + playbook 自身增补/清理/修订自审"，中途不打断、不追问，**收尾零遗留**。
 >
 > **权威来源分工**：`hermes-update.sh` 是升级执行与回放 gate 的权威，`patches/PATCHES.md` 是语义 PATCH 注册表的权威，`patches/local-patches.diff` 是工程内补丁的唯一物理回放包。三者必须闭环一致；本 playbook 用**发现规则 + 决策规则**驱动，不复制一份会过期的补丁清单。
 
@@ -328,6 +328,35 @@ Step 6 报告前，以本轮实际执行为镜，把本 playbook（含摩擦表�
 4. **验收自问**：换一个没有会话记忆的 AI，面对任意后继 upstream，仅从当前磁盘状态和本文件出发，能否重建本轮全部判断（含本轮新增的判定规则）？任何"必须靠本次会话记忆才能答对"的知识点，都必须补写进对应权威文件后本步骤才算通过。
 5. **结果入报告**：Step 6 报告必须单列本步骤结论——增补、清理、修订各做了什么/为何，任一类为空时写明"审计后无该类变更"及依据；该结论缺失视为升级未完成。
 
+清理与修订的机械下界由下面的 playbook-hygiene 断言块保证（在 `~/.hermes` 下运行，每轮必跑、任一失败先修再收尾）；它只能抓"引用已不存在的事物"这类硬失效，语义级的过时判断仍靠上面 1–4 条人工审计。断言口径与被校验文本共演进——新增引用形态时同步扩展本块：
+
+```bash
+cd ~/.hermes && python3 - <<'PY'
+from pathlib import Path
+import re
+pb = Path("hermes-update.md").read_text()
+patches = Path("patches/PATCHES.md").read_text()
+script = Path("hermes-update.sh").read_text()
+
+# 1) playbook 引用的 PATCH ID 必须存在于 PATCHES.md（教学示例 PATCH-FOO-BAR 除外）
+known = set(re.findall(r"^### \[(PATCH-[A-Z0-9-]+)\]", patches, re.M))
+refs = set(re.findall(r"PATCH-[A-Z0-9][A-Z0-9-]*[A-Z0-9]", pb)) - {"PATCH-FOO-BAR"}
+dangling = refs - known
+assert not dangling, f"playbook references unknown PATCH ids: {sorted(dangling)}"
+
+# 2) playbook 引用的脚本只读入口/函数必须仍存在于 hermes-update.sh
+entries = set(re.findall(r"--(?:print-[a-z-]+|transaction-status)\b", pb))
+entries |= {"gw_restart_wait_seconds", "_get_restart_exit_wait_budget"}
+missing = {e for e in entries if e not in script}
+assert not missing, f"playbook references missing script entries: {sorted(missing)}"
+
+# 3) playbook 反引号内的具体仓库路径必须存在（模板路径如 plugins/<name>/… 天然跳过）
+for p in set(re.findall(r"`((?:plugins|patches|scripts|wiki)/[A-Za-z0-9_./-]+)`", pb)):
+    assert Path(p).exists() or Path("hermes-agent", p).exists(), f"missing path: {p}"
+print("playbook-hygiene OK")
+PY
+```
+
 ### Step 6 — 收尾报告
 
 向用户报告（**不要自动提交**）：
@@ -339,6 +368,7 @@ Step 6 报告前，以本轮实际执行为镜，把本 playbook（含摩擦表�
 - README 版本记录周键检查结果：当周是新增还是合并、当前总周数、是否存在重复 ISO week
 - Gateway / Doctor 现状（异常项展开，正常项一行带过）；安全插件需报告 verifier 对照的当前 PID，以及 owner 主会话与群聊实际 toolset 是否仍满足边界
 - 持久化演进接管性：报告活跃 PATCH 的未吸收 / 部分吸收 / 完全吸收判定及相应状态变化；列出本轮新发现的冲突、摩擦或规则缺口分别落盘到哪个权威文件，如没有新增经验也明确写“无”。确认不存在下一轮升级必需、但只保留在本次会话或临时日志中的恢复知识
+- Step 5c playbook 自审结论：增补 / 清理 / 修订三类各做了什么及依据，任一类为空写明"审计后无该类变更"；playbook-hygiene 断言块运行结果
 - 工作树里哪些是“升级相关”、哪些是“用户先前在编辑的其他东西”，提示后者保持不动；明确说明内层受管 modified files 是预期 patch overlay，外层 bundle 才是待提交记录
 - 若 Step 2/3 中发现脚本侧的新兼容性问题，单列一节描述给用户决策
 - 提醒：若用户随后明确要求提交，只提交外层 `~/.hermes` 仓库里的升级监管改动；不要在 `~/.hermes/hermes-agent` 创建 commit
@@ -388,4 +418,4 @@ Step 6 报告前，以本轮实际执行为镜，把本 playbook（含摩擦表�
 - **不要触碰**已 modified 但与升级无关的工作树文件（如 `memories/USER.md` 的用户编辑、未跟踪笔记）
 - **不要后台跑** `gh copilot` / `claude` / `codex` 等 AI CLI
 - **不要中途追问**用户，也**不要把可修的问题留到报告里等确认**。回归失败、依赖缺口、doctor 可修 P0/P1 一律当轮按 Step 2b/2c 的分支修复到位（依赖自愈与回归所需的本地补丁均已常设授权）。只有两类允许留案并在最终报告单列：① 本地确实不可修且不影响飞书主链路的 P2 上游阻塞（如 npm lock/range 高危待上游 bump）；② 引入全新依赖或改变安全边界的决策
-- **不要扩大范围**。本 playbook 仅做"对齐到新上游"；任何顺手优化 / 重构 / 文档大改都不要做，留给用户单独发起（Step 2b/2c 的依赖自愈与为回归全绿所需的本地补丁属份内事，不算扩大范围）
+- **不要扩大范围**。本 playbook 仅做"对齐到新上游"；任何顺手优化 / 重构 / 文档大改都不要做，留给用户单独发起（Step 2b/2c 的依赖自愈、为回归全绿所需的本地补丁，以及 **Step 5c 对本 playbook 自身的增补 / 清理 / 修订**属份内事，不算扩大范围——本条约束的对象是工程与用户文档，不是 playbook 的自维护）
