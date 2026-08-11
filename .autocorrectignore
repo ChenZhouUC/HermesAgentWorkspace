@@ -1,0 +1,9 @@
+# AutoCorrect 会破坏 people*.yaml 的语义，必须排除：
+#   - aliases 的英文逗号被改成全角「，」→ 4 个别名被合并成 3 个，兜底匹配失效
+#   - name 里的 `张三(Nickname)` 被加空格成 `张三 (Nickname)` → 破坏别名拆分约定
+#   - tenure `7.2年` 被改成 `7.2 年`
+# 该文件的格式由 scripts/pull_feishu_people.py check --fix + Prettier 统一维护。
+people.yaml
+people.yaml.bak
+people.draft.yaml
+people.merged.yaml

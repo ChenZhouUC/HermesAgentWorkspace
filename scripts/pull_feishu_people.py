@@ -12,6 +12,9 @@ pull can never clobber the subjective fields you set by hand:
          for review. With --apply, write the result back into people.yaml (.bak
          kept). Owner pinned to the top, everyone else sorted by employee_no.
 
+  check  Audit people.yaml formatting only (exit 1 when it deviates); --fix
+         rewrites it in canonical form after verifying the data is unchanged.
+
 Field policy on merge:
   Feishu-backed — refreshed when present in the draft; when Feishu omits a
   field, keep the existing value:
@@ -26,10 +29,19 @@ Field policy on merge:
 Subordinate counts come from the management graph (each user's leader_user_id);
 employee_no + join_date reveal tenure / seniority.
 
+Formatting: every write ends with the canonical style — fields in FIELD_ORDER,
+aliases as a flow list `[a, b, c]`, placeholder hints only on empty fields — and
+is then piped through Prettier with the same options VS Code uses on save
+(settings.json maps `[yaml]` to esbenp.prettier-vscode), so opening the file and
+saving it produces no diff. NOTE: AutoCorrect must not touch people*.yaml — it
+rewrites `别名, Nickname` into `别名，Nickname` and merges aliases; see .autocorrectignore.
+
 Usage:
     python scripts/pull_feishu_people.py pull
     python scripts/pull_feishu_people.py merge            # → people.merged.yaml (review)
     python scripts/pull_feishu_people.py merge --apply     # → people.yaml (.bak kept)
+    python scripts/pull_feishu_people.py check             # audit formatting
+    python scripts/pull_feishu_people.py check --fix       # normalize in place
 
 Requires a published app version granting:
     contact:department.base:readonly   → department names
@@ -44,6 +56,7 @@ import datetime as dt
 import io
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -90,6 +103,21 @@ ALWAYS_REFRESH = [
 ]
 # Purely human-set — created blank for new people, never overwritten.
 SUBJECTIVE = ["address", "background", "behavior", "stance", "risks"]
+
+# Canonical trailing comments, so every entry reads the same way. `role` carries
+# a different hint depending on whether Feishu supplied a job title.
+ROLE_COMMENT_FILLED = "职务（飞书自动，可改）"
+ROLE_COMMENT_EMPTY = "岗位（待填）"
+SUBJECTIVE_COMMENTS = {
+    "address": "称呼（待填）",
+    "background": "职业背景（待填）",
+    "behavior": "行为模式（待填）",
+    "stance": "你的态度（待填）",
+    "risks": "风险注意（待填）",
+}
+# Every comment this script owns — anything else on these keys is hand-written
+# and must be left alone.
+ALL_COMMENTS = {ROLE_COMMENT_FILLED, ROLE_COMMENT_EMPTY, *SUBJECTIVE_COMMENTS.values()}
 
 
 # --------------------------------------------------------------------------- #
@@ -376,6 +404,104 @@ def aliases_from_name(name: str) -> list[str]:
     return aliases
 
 
+def canonical_comments(ent) -> dict:
+    """The trailing comment each field of this entry should carry ("" = none).
+
+    Placeholder hints mark fields still waiting to be filled in, so a field that
+    already holds a value gets no hint. `role` is the exception: it is populated
+    from Feishu, so it keeps a note saying the value is auto-filled but editable.
+    """
+    wanted = {}
+    if "role" in ent:
+        wanted["role"] = ROLE_COMMENT_FILLED if ent.get("role") not in (None, "") else ROLE_COMMENT_EMPTY
+    for key, comment in SUBJECTIVE_COMMENTS.items():
+        if key in ent:
+            wanted[key] = "" if ent.get(key) not in (None, "") else comment
+    return wanted
+
+
+def normalize_entry(ent) -> None:
+    """Make one entry's formatting canonical (idempotent, value-preserving).
+
+    Keeps hand-edited files and script-generated ones byte-identical in style:
+      * fields ordered per FIELD_ORDER;
+      * aliases as a flow sequence — `[a, b, c]`, not a block list;
+      * the canonical trailing comment on role + the subjective fields.
+    """
+    from ruamel.yaml.comments import CommentedSeq
+
+    # Field order: rebuild in canonical order, unknown keys keep their tail spot.
+    desired = [k for k in FIELD_ORDER if k in ent] + [k for k in ent if k not in FIELD_ORDER]
+    if list(ent.keys()) != desired:
+        for key in desired:
+            ent.move_to_end(key)
+
+    # aliases: always the compact flow form.
+    val = ent.get("aliases")
+    if isinstance(val, list):
+        seq = val if isinstance(val, CommentedSeq) else CommentedSeq(val)
+        seq.fa.set_flow_style()
+        ent["aliases"] = seq
+
+    # Trailing hints. A "（待填）" note is a prompt to fill the field in, so it
+    # belongs only on empty ones — never append it to content you already wrote.
+    for key, comment in canonical_comments(ent).items():
+        existing = ent.ca.items.get(key)
+        existing_text = existing[2].value.lstrip("#").strip() if existing and existing[2] else ""
+        # Only ever rewrite our own boilerplate; a hand-written note is yours.
+        if existing_text and existing_text not in ALL_COMMENTS:
+            continue
+        if existing_text == comment:
+            continue
+        ent.ca.items.pop(key, None)
+        if comment:
+            ent.yaml_add_eol_comment(comment, key)
+
+
+def prettier_format(text: str, label: str) -> str:
+    """Run the text through Prettier — the formatter VS Code uses on save.
+
+    settings.json maps `[yaml]` to esbenp.prettier-vscode with formatOnSave, so
+    emitting anything Prettier would rewrite means the file drifts the next time
+    you save it in the editor. Matching it here keeps the diff empty. Prettier is
+    optional: without it the output is already valid, just possibly two spaces
+    before a trailing comment where Prettier wants one.
+    """
+    exe = shutil.which("prettier")
+    if not exe:
+        print(f"  note: prettier not found — skipped final format of {label}", file=sys.stderr)
+        return text
+    # --ignore-path pins the extension's behaviour: it honours .prettierignore
+    # only, while the Prettier 3 CLI would also skip people.yaml for being
+    # gitignored. Options mirror the `prettier.*` keys in VS Code settings.json.
+    cmd = [
+        exe,
+        "--ignore-path",
+        str(HERMES_HOME / ".prettierignore"),
+        "--parser",
+        "yaml",
+        "--print-width",
+        "120",
+        "--tab-width",
+        "2",
+        "--prose-wrap",
+        "preserve",
+    ]
+    try:
+        # check=False: a Prettier failure must not lose the merge — fall back to
+        # the unformatted text and say so.
+        done = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"  note: prettier failed ({exc}) — kept unformatted {label}", file=sys.stderr)
+        return text
+    if done.returncode != 0:
+        print(f"  note: prettier exited {done.returncode} — kept unformatted {label}", file=sys.stderr)
+        if done.stderr.strip():
+            print(f"        {done.stderr.strip().splitlines()[0]}", file=sys.stderr)
+        return text
+    return done.stdout
+
+
 def dump_sorted(yaml, doc) -> str:
     """Sort entries (owner first, then employee_no asc) and return YAML text."""
     seq = doc["people"]
@@ -394,6 +520,9 @@ def dump_sorted(yaml, doc) -> str:
 
     items.sort(key=key)
     seq[:] = items
+    for it in items:
+        if isinstance(it, dict):
+            normalize_entry(it)
 
     buf = io.StringIO()
     yaml.dump(doc, buf)
@@ -427,8 +556,11 @@ def cmd_pull(args):
     doc["people"] = seq
     text = dump_sorted(yaml, doc)
     DRAFT_FILE.write_text(
-        "# OBJECTIVE SNAPSHOT from Feishu — do not hand-edit; run `merge` to combine\n"
-        "# with people.yaml. This file never affects production until you merge.\n" + text,
+        prettier_format(
+            "# OBJECTIVE SNAPSHOT from Feishu — do not hand-edit; run `merge` to combine\n"
+            "# with people.yaml. This file never affects production until you merge.\n" + text,
+            DRAFT_FILE.name,
+        ),
         encoding="utf-8",
     )
     have_mgr = sum(1 for e in people.values() if e.get("manager_name"))
@@ -488,11 +620,14 @@ def cmd_merge(args):
     if args.apply:
         if PEOPLE_FILE.exists():
             shutil.copy2(PEOPLE_FILE, PEOPLE_FILE.with_suffix(".yaml.bak"))
-        PEOPLE_FILE.write_text(text, encoding="utf-8")
+        PEOPLE_FILE.write_text(prettier_format(text, PEOPLE_FILE.name), encoding="utf-8")
     else:
         MERGED_FILE.write_text(
-            "# MERGE PREVIEW — objective fields from people.draft.yaml refreshed,\n"
-            "# your subjective fields preserved. Re-run with --apply to write people.yaml.\n" + text,
+            prettier_format(
+                "# MERGE PREVIEW — objective fields from people.draft.yaml refreshed,\n"
+                "# your subjective fields preserved. Re-run with --apply to write people.yaml.\n" + text,
+                MERGED_FILE.name,
+            ),
             encoding="utf-8",
         )
 
@@ -504,14 +639,77 @@ def cmd_merge(args):
         print("Review it, then: python scripts/pull_feishu_people.py merge --apply", file=sys.stderr)
 
 
+def cmd_check(args):
+    """Audit people.yaml formatting; with --fix, rewrite it in canonical form."""
+    if not PEOPLE_FILE.exists():
+        sys.exit(f"{PEOPLE_FILE} not found.")
+    yaml = make_yaml()
+    original = PEOPLE_FILE.read_text(encoding="utf-8")
+    doc = yaml.load(original)
+    people = [e for e in (doc.get("people") or []) if isinstance(e, dict)]
+
+    # Count deviations before normalizing, so the report names what changed.
+    block_aliases, bad_order, bad_comment = [], [], []
+    for ent in people:
+        name = str(ent.get("name") or ent.get("open_id") or "?")
+        seq = ent.get("aliases")
+        if isinstance(seq, list) and not seq.fa.flow_style():
+            block_aliases.append(name)
+        keys = [k for k in ent if k in FIELD_ORDER]
+        if keys != sorted(keys, key=FIELD_ORDER.index):
+            bad_order.append(name)
+        for key, comment in canonical_comments(ent).items():
+            token = ent.ca.items.get(key)
+            got = token[2].value.lstrip("#").strip() if token and token[2] else ""
+            if got != comment and (not got or got in ALL_COMMENTS):
+                bad_comment.append(f"{name}.{key}")
+                break
+
+    rewritten = prettier_format(dump_sorted(yaml, doc), PEOPLE_FILE.name)
+    clean = rewritten == original
+
+    print(f"people.yaml: {len(people)} entries", file=sys.stderr)
+    for label, hits in (
+        ("aliases in block form (want flow [a, b, c])", block_aliases),
+        ("fields out of canonical order", bad_order),
+        ("missing/incorrect trailing comment", bad_comment),
+    ):
+        if hits:
+            shown = ", ".join(hits[:5]) + (f", … (+{len(hits) - 5})" if len(hits) > 5 else "")
+            print(f"  ✗ {len(hits):3} {label}: {shown}", file=sys.stderr)
+        else:
+            print(f"  ✓   0 {label}", file=sys.stderr)
+
+    if clean:
+        print("Format is canonical — nothing to do.", file=sys.stderr)
+        return
+    if not args.fix:
+        print("Formatting differs. Re-run with --fix to normalize (.bak kept).", file=sys.stderr)
+        sys.exit(1)
+
+    # Values must survive verbatim — a formatter that edits content is a bug.
+    import yaml as _pyyaml
+
+    before = _pyyaml.safe_load(original)
+    after = _pyyaml.safe_load(rewritten)
+    if before != after:
+        sys.exit("ABORTED: normalization would change data, not just formatting.")
+
+    shutil.copy2(PEOPLE_FILE, PEOPLE_FILE.with_suffix(".yaml.bak"))
+    PEOPLE_FILE.write_text(rewritten, encoding="utf-8")
+    print(f"Normalized → {PEOPLE_FILE} (backup: people.yaml.bak); data verified identical.", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Sync Feishu org directory into people.yaml (pull → merge).")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("pull", help="fetch objective org data → people.draft.yaml (never touches production)")
     mp = sub.add_parser("merge", help="combine draft + people.yaml → people.merged.yaml (or people.yaml with --apply)")
     mp.add_argument("--apply", action="store_true", help="write the merge result into people.yaml (.bak kept)")
+    cp = sub.add_parser("check", help="audit people.yaml formatting (exit 1 if it differs)")
+    cp.add_argument("--fix", action="store_true", help="rewrite people.yaml in canonical form (.bak kept)")
     args = ap.parse_args()
-    {"pull": cmd_pull, "merge": cmd_merge}[args.cmd](args)
+    {"pull": cmd_pull, "merge": cmd_merge, "check": cmd_check}[args.cmd](args)
 
 
 if __name__ == "__main__":
