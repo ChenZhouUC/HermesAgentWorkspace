@@ -52,7 +52,7 @@ index 13bce3f884199c96fcfba0b760860af1b031f6c9..ac550bde5baa6a87737a9863fbd43db5
  
          default_model = "google/gemini-3-flash-preview"
 diff --git a/agent/image_routing.py b/agent/image_routing.py
-index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120aced31ec2 100644
+index a8337c9ac6adb612d31e93557a3bc4e16588a17a..fdbf0e5c36ccab38016a01d2ed91f3f456e45af3 100644
 --- a/agent/image_routing.py
 +++ b/agent/image_routing.py
 @@ -347,6 +347,29 @@ def _should_probe_ollama_vision(provider: str, base_url: str) -> bool:
@@ -96,7 +96,7 @@ index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120a
      base_url = _resolve_inference_base_url(cfg, provider)
      if not base_url and (provider or "").strip().lower() == "ollama":
          base_url = "http://localhost:11434/v1"
-@@ -506,6 +533,60 @@ def decide_image_input_mode(
+@@ -506,6 +533,116 @@ def decide_image_input_mode(
      return "text"
  
  
@@ -117,6 +117,62 @@ index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120a
 +    if p in {"vertex", "vertex-fallback", "google-vertex", "vertex-ai", "vertexai"}:
 +        if "gemini-3" in m or "gemini-pro-3" in m or "gemini-flash-3" in m:
 +            return True
++    return None
++
++
++def pick_video_sidecar_route(
++    cfg: Optional[Dict[str, Any]],
++) -> Optional[Tuple[str, str]]:
++    """Return the first ``(provider, model)`` in the configured chain that can
++    read video, or ``None`` when no link can.
++
++    Used when the *main* model cannot take video (``decide_video_input_mode``
++    returned ``"text"``) but some fallback link can. The caller runs that link
++    as a one-shot sidecar — video plus the quoted context only — and feeds the
++    resulting text back into the main session, instead of switching the whole
++    turn's provider. Switching providers mid-session would replay the entire
++    transcript to a second backend; the sidecar sends one self-contained
++    request and keeps the main model's identity, tools, and history intact.
++
++    Order follows the effective fallback chain (``get_fallback_chain``) so the
++    sidecar honours the same provider preference the user already configured
++    for degraded operation, rather than a second hardcoded allowlist. The main
++    provider/model is checked first — when it can read video there is no
++    sidecar to pick and the native path handles it.
++    """
++    if not isinstance(cfg, dict):
++        return None
++
++    candidates: List[Tuple[str, str]] = []
++    model_cfg = cfg.get("model")
++    if isinstance(model_cfg, dict):
++        candidates.append(
++            (
++                str(model_cfg.get("provider") or "").strip(),
++                str(model_cfg.get("default") or "").strip(),
++            )
++        )
++    try:
++        from hermes_cli.fallback_config import get_fallback_chain
++
++        for entry in get_fallback_chain(cfg):
++            if isinstance(entry, dict):
++                candidates.append(
++                    (
++                        str(entry.get("provider") or "").strip(),
++                        str(entry.get("model") or "").strip(),
++                    )
++                )
++    except Exception:
++        # A malformed fallback chain must not break video handling; the main
++        # entry above is still a valid candidate.
++        pass
++
++    for provider, model in candidates:
++        if not provider or not model:
++            continue
++        if _known_provider_model_supports_video(provider, model) is True:
++            return provider, model
 +    return None
 +
 +
@@ -157,7 +213,7 @@ index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120a
  # Image size handling is REACTIVE rather than proactive: we attempt native
  # attachment at full size regardless of provider, and rely on
  # ``run_agent._try_shrink_image_parts_in_messages`` to shrink + retry if
-@@ -725,10 +806,132 @@ def _file_to_data_url(path: Path) -> Optional[str]:
+@@ -725,10 +862,132 @@ def _file_to_data_url(path: Path) -> Optional[str]:
      return f"data:{mime};base64,{b64}"
  
  
@@ -290,7 +346,7 @@ index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120a
  ) -> Tuple[List[Dict[str, Any]], List[str]]:
      """Build an OpenAI-style ``content`` list for a user turn.
  
-@@ -767,6 +970,7 @@ def build_native_content_parts(
+@@ -767,6 +1026,7 @@ def build_native_content_parts(
      image_parts: List[Dict[str, Any]] = []
      attached_paths: List[str] = []
      attached_urls: List[str] = []
@@ -298,7 +354,7 @@ index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120a
  
      for raw_path in image_paths:
          p = Path(raw_path)
-@@ -783,6 +987,27 @@ def build_native_content_parts(
+@@ -783,6 +1043,27 @@ def build_native_content_parts(
          })
          attached_paths.append(str(raw_path))
  
@@ -326,7 +382,7 @@ index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120a
      for url in image_urls or []:
          url = (url or "").strip()
          if not url:
-@@ -797,11 +1022,17 @@ def build_native_content_parts(
+@@ -797,11 +1078,17 @@ def build_native_content_parts(
  
      # If at least one image attached, build a single text part that combines
      # the user's caption (or a neutral default) with one hint per image.
@@ -346,7 +402,7 @@ index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120a
          combined_text = f"{base_text}\n\n" + "\n".join(hint_lines)
          parts: List[Dict[str, Any]] = [{"type": "text", "text": combined_text}]
          parts.extend(image_parts)
-@@ -816,6 +1047,8 @@ def build_native_content_parts(
+@@ -816,6 +1103,8 @@ def build_native_content_parts(
  
  __all__ = [
      "decide_image_input_mode",
@@ -355,6 +411,25 @@ index a8337c9ac6adb612d31e93557a3bc4e16588a17a..cc92a13781d5cd7f4e0a3faa2956120a
      "extract_image_refs",
 +    "NATIVE_VIDEO_MAX_BYTES",
  ]
+diff --git a/agent/models_dev.py b/agent/models_dev.py
+index 71af78625a42d12c86c873a285e5a3e94b30ae07..e81dde3e0452ccc2e5f6f7055fc3b48e2e884b8b 100644
+--- a/agent/models_dev.py
++++ b/agent/models_dev.py
+@@ -188,6 +188,14 @@ PROVIDER_TO_MODELS_DEV: Dict[str, str] = {
+     "perplexity": "perplexity",
+     "cohere": "cohere",
+     "ollama-cloud": "ollama-cloud",
++    # Azure AI Foundry serves the same model catalog models.dev publishes under
++    # "azure" (a strict superset of "azure-cognitive-services": +14 models, -0).
++    # Without this entry get_model_capabilities() returns None for every
++    # azure-foundry model, so image_routing's auto mode cannot confirm vision
++    # and silently downgrades a vision-capable main model (e.g. gpt-5.5,
++    # modalities.input text/image/pdf) to auxiliary text pre-analysis.
++    # See PATCH-IMAGE-NATIVE-ROUTING.
++    "azure-foundry": "azure",
+ }
+ 
+ # Reverse mapping: models.dev → Hermes (built lazily)
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
 index f234c98c02da94977db4cf17ed354f023da82021..ef4889940ade8e34519cf47b9d05686b3659725c 100644
 --- a/agent/prompt_builder.py
@@ -808,10 +883,10 @@ index 144cb50431f4e058a358ef545c0709b15275a3da..5e564b16ddbe83c9ce857de42ce7874b
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index 3d385e33ed88698b59da0194955b4114369cfe29..c8651a31966347bc6e7cc46fe5b19439fd4db5d1 100644
+index a00fa0f9a1ca0d8a274a67e62c9b3a8f4f1ed38c..940713753c2d206fee53a02bdd2b20be8c5d017d 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
-@@ -1582,6 +1582,31 @@ def load_gateway_config() -> GatewayConfig:
+@@ -1654,6 +1654,31 @@ def load_gateway_config() -> GatewayConfig:
                      bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
                  if "group_user_allowed_commands" in platform_cfg:
                      bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
@@ -877,7 +952,7 @@ index e58e6e82b22d41b99a4a1ab3c40025d20acd7af3..29fd9234e12d293d8141c720cb1278e4
          Display setting name (e.g. ``"tool_progress"``, ``"show_reasoning"``).
      fallback : Any
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index 683a0cf6cb1a10a609df5bcbbd6c353a86654a3d..be8294196f982087abacfffb994113943b878135 100644
+index f224aab323fcd87c98f900de5dd31ed901905684..ee5ac8fa5b3e4b67af11eb8a622f513d2d90ad06 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
 @@ -1782,6 +1782,8 @@ def _log_safe_path(path: str) -> str:
@@ -899,10 +974,10 @@ index 683a0cf6cb1a10a609df5bcbbd6c353a86654a3d..be8294196f982087abacfffb99411394
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243bcd80af7a 100644
+index 11e6fd7f0fbfb0d1fa4c196ead9b1b985508fae1..630c5ef4340057951b81211cac99d3532559286f 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -104,6 +104,26 @@ _USER_BOUNDARY_END_REASONS = (
+@@ -104,6 +104,33 @@ _USER_BOUNDARY_END_REASONS = (
  # on timeout the latch stays clear and the next tick retries).
  _STALL_NOTIFY_SEND_TIMEOUT_SECONDS = 15.0
  _GATEWAY_PROXY_SSE_BUFFER_MAX_CHARS = 16 * 1024 * 1024
@@ -915,6 +990,13 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
 +# upper bound for pathological forwards.
 +_FEISHU_MERGE_FORWARD_REPLY_CONTEXT_MAX_CHARS = 20_000
 +_FEISHU_MERGE_FORWARD_CONTEXT_PREFIX = "[Merged forwarded messages]"
++# PATCH-VIDEO-SIDECAR: the sidecar request carries the video plus only the
++# caption/quoted context already prepended to this turn — never the session
++# transcript. Bound that context so a merged-forward card cannot dominate the
++# request, and give the call a deadline well above the image default (a 14 MB
++# video upload plus multi-frame analysis routinely exceeds 120s).
++_VIDEO_SIDECAR_CONTEXT_MAX_CHARS = 4_000
++_VIDEO_SIDECAR_TIMEOUT_SECONDS = 420.0
 +_PLAIN_TEXT_ATTACHMENT_EXTENSIONS = frozenset({
 +    ".txt", ".md", ".markdown", ".csv", ".tsv", ".log", ".json", ".jsonl",
 +    ".ndjson", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
@@ -929,7 +1011,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  _TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
  _GATEWAY_HYGIENE_PLATFORM = "gateway_hygiene"
  
-@@ -1569,6 +1589,7 @@ from agent.replay_cleanup import (  # noqa: E402
+@@ -1569,6 +1596,7 @@ from agent.replay_cleanup import (  # noqa: E402
      strip_interrupted_tool_tails,
      strip_dangling_tool_call_tail,
      strip_stale_dangerous_confirmations,
@@ -937,7 +1019,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  )
  
  
-@@ -2429,6 +2450,7 @@ from gateway.session import (
+@@ -2441,6 +2469,7 @@ from gateway.session import (
      build_session_key,
      is_shared_multi_user_session,
      neutralize_untrusted_inline_text,
@@ -945,7 +1027,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  )
  from gateway.delivery import (
      DeliveryRouter,
-@@ -2813,33 +2835,72 @@ def _build_media_placeholder(event) -> str:
+@@ -2825,33 +2854,72 @@ def _build_media_placeholder(event) -> str:
      return "\n".join(parts)
  
  
@@ -1031,7 +1113,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  def _format_duration(seconds: float) -> str:
      total = int(round(seconds))
      if total < 0:
-@@ -3215,6 +3276,52 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -3227,6 +3295,52 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -1084,7 +1166,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -4649,6 +4756,13 @@ class TurnRunner:
+@@ -4661,6 +4775,13 @@ class TurnRunner:
          # reads it via ``streaming_tts_consumer_holder[0]`` for delta
          # callback wiring.
          _stts_consumer_ref = ctx.streaming_tts_consumer_holder[0]
@@ -1098,7 +1180,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
          _scfg = getattr(getattr(self._runner, 'config', None), 'streaming', None)
          if _scfg is None:
              from gateway.config import StreamingConfig
-@@ -4693,6 +4807,12 @@ class TurnRunner:
+@@ -4705,6 +4826,12 @@ class TurnRunner:
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=ctx.event_message_id,
                          run_still_current=ctx._run_still_current,
@@ -1111,7 +1193,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                      )
                      if _want_stream_deltas:
                          def _stream_delta_cb(text: str) -> None:
-@@ -4700,7 +4820,7 @@ class TurnRunner:
+@@ -4712,7 +4839,7 @@ class TurnRunner:
                                  _stream_consumer.on_delta(text)
                                  # Tee to the streaming-TTS consumer (#60671).
                                  if _stts_consumer_ref is not None:
@@ -1120,7 +1202,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                      ctx.stream_consumer_holder[0] = _stream_consumer
              except Exception as _sc_err:
                  logger.debug("Could not set up stream consumer: %s", _sc_err)
-@@ -4711,12 +4831,16 @@ class TurnRunner:
+@@ -4723,12 +4850,16 @@ class TurnRunner:
          if _stream_delta_cb is None and _stts_consumer_ref is not None:
              def _stream_delta_cb(text: str) -> None:
                  if ctx._run_still_current():
@@ -1139,7 +1221,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
              if _stream_consumer is not None:
                  if already_streamed:
                      _stream_consumer.on_segment_break()
-@@ -5306,7 +5430,22 @@ class TurnRunner:
+@@ -5318,7 +5449,22 @@ class TurnRunner:
                  agent_history = strip_stale_dangerous_confirmations(
                      _selected, now=time.time()
                  )
@@ -1163,7 +1245,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
          # Collect MEDIA paths already in history so we can exclude them
          # from the current turn's extraction. This is compression-safe:
          # even if the message list shrinks, we know which paths are old.
-@@ -5566,26 +5705,28 @@ class TurnRunner:
+@@ -5578,26 +5724,28 @@ class TurnRunner:
              # content list. Consume-and-clear so subsequent turns on the same
              # runner instance don't re-attach stale images.
              _native_imgs = self._runner._consume_pending_native_image_paths(ctx.session_key)
@@ -1196,7 +1278,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                          _img_exc,
                      )
                      _run_message = ctx.message
-@@ -5754,6 +5895,10 @@ class TurnRunner:
+@@ -5766,6 +5914,10 @@ class TurnRunner:
              final_response = _sanitize_gateway_final_response(ctx.source.platform, final_response)
              if not final_response:
                  final_response = f"⚠️ {result['error']}" if result.get("error") else ""
@@ -1207,7 +1289,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
              return {
                  "final_response": final_response,
                  "messages": result.get("messages", []),
-@@ -9255,7 +9400,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9346,7 +9498,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return True  # interrupt sent (if not queue), ack already delivered recently
  
          from gateway.display_config import resolve_display_setting
@@ -1216,7 +1298,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  
          # In steer mode the user's text has already been injected into the
          # active run. Some mobile chat setups want that steering to be silent,
-@@ -9287,7 +9432,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -9378,7 +9530,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -1225,7 +1307,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                  "busy_ack_detail",
                  True,
              )
-@@ -16265,6 +16410,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16416,6 +16568,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # Reset only this session's per-call buffer; other sessions may be
          # concurrently preparing multimodal turns on the same runner.
          self._consume_pending_native_image_paths(session_key)
@@ -1235,7 +1317,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  
          _is_shared_multi_user = is_shared_multi_user_session(
              source,
-@@ -16429,6 +16577,41 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16580,6 +16735,82 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  message_text = f"{_note}\n\n{message_text}"
  
@@ -1274,10 +1356,51 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
 +            # Oversized / non-native videos keep the path-note flow below.
 +            video_paths = [p for p in video_paths if p not in _native_vids]
 +
++            if video_paths and _vid_mode != "native":
++                # PATCH-VIDEO-SIDECAR: the main model cannot read video, but a
++                # configured fallback link may be able to. Delegate just the
++                # video read to that link and inject its description as text,
++                # instead of routing the whole turn (and its transcript) to a
++                # second provider. Without this the agent is told to inspect a
++                # path with tools the group sandbox blocks, so the video is
++                # simply unreadable there.
++                from agent.image_routing import pick_video_sidecar_route
++
++                _sidecar = pick_video_sidecar_route(_load_gateway_config())
++                if _sidecar:
++                    _sc_provider, _sc_model = _sidecar
++                    # Include the quoted/reply text: it is injected further
++                    # below, so it is not yet part of message_text, but it is
++                    # exactly the context the user expects the video read to
++                    # take into account.
++                    _sc_context = message_text
++                    _sc_quote = getattr(event, "reply_to_text", None)
++                    if _sc_quote:
++                        _sc_context = (
++                            f'[Replying to: "{_sc_quote[:_REPLY_CONTEXT_MAX_CHARS]}"]'
++                            f"\n\n{message_text}"
++                        )
++                    message_text, _described = await self._enrich_message_with_video_sidecar(
++                        message_text,
++                        video_paths,
++                        provider=_sc_provider,
++                        model=_sc_model,
++                        context_text=_sc_context,
++                    )
++                    if _described:
++                        logger.info(
++                            "Video routing: sidecar (%s/%s described %d video(s); "
++                            "main model %s cannot read video).",
++                            _sc_provider, _sc_model, len(_described), _vid_mode,
++                        )
++                    # Described videos are represented in-text already; the rest
++                    # fall through to the path-note flow below.
++                    video_paths = [p for p in video_paths if p not in _described]
++
          if video_paths:
              from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
              for _vpath in video_paths:
-@@ -16453,6 +16636,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16604,6 +16835,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from tools.credential_files import to_agent_visible_cache_path
  
              _TEXT_EXTENSIONS = {".txt", ".md", ".csv", ".log", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
@@ -1287,7 +1410,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
              for i, path in enumerate(event.media_urls):
                  # Per-attachment document handling. Skip anything already routed
                  # as image / audio / video by the buckets above — only genuine
-@@ -16492,8 +16678,47 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16643,8 +16877,47 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # cache directories are auto-mounted at /root/.hermes/cache/* by get_cache_directory_mounts().
                  agent_path = to_agent_visible_cache_path(path)
  
@@ -1337,7 +1460,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  
          # Discord: surface the triggering message id per-turn on the user
          # message rather than in the cached system prompt. message_id changes
-@@ -16521,7 +16746,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16672,7 +16945,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # is referencing. History can contain the same or similar text
              # multiple times, and without an explicit pointer the agent has to
              # guess (or answer for both subjects). Token overhead is minimal.
@@ -1353,7 +1476,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
              if getattr(event, "reply_to_is_own_message", False):
                  message_text = (
                      f'[Replying to your previous message: "{reply_snippet}"]\n\n'
-@@ -16682,6 +16914,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -16833,6 +17113,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          state.persistent.native_image_paths = []
          return paths
  
@@ -1366,7 +1489,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -18204,6 +18442,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18355,6 +18641,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -1378,7 +1501,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -18245,7 +18488,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18396,7 +18687,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -1387,7 +1510,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -18275,7 +18518,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18426,7 +18717,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          from gateway.display_config import resolve_display_setting
                          _reasoning_style = resolve_display_setting(
                              _load_gateway_config(),
@@ -1396,7 +1519,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                              "reasoning_style",
                              "code",
                          )
-@@ -18306,7 +18549,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18457,7 +18748,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -1405,7 +1528,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -20126,7 +20369,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20277,7 +20568,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -1414,7 +1537,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  
              from hermes_cli.tools_config import _get_platform_tools
              enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-@@ -20205,6 +20448,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20356,6 +20647,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not response and result and result.get("error"):
                  response = f"Error: {result['error']}"
  
@@ -1426,7 +1549,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
              # Extract media files from the response
              if response:
                  media_files, response = adapter.extract_media(response)
-@@ -20212,8 +20460,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20363,8 +20659,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  media_files = BasePlatformAdapter.filter_media_delivery_paths(media_files)
                  images, text_content = adapter.extract_images(response)
  
@@ -1438,7 +1561,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
  
                  if text_content:
                      await adapter.send(
-@@ -20231,6 +20480,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20382,6 +20679,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # Send extracted images
                  for image_url, alt_text in (images or []):
                      try:
@@ -1447,7 +1570,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                          await adapter.send_image(
                              chat_id=source.chat_id,
                              image_url=image_url,
-@@ -20278,19 +20529,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20429,19 +20728,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      except Exception:
                          pass
              else:
@@ -1472,7 +1595,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                      metadata=_thread_metadata,
                  )
              except Exception:
-@@ -21988,6 +22241,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22139,6 +22440,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -1483,7 +1606,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
              chat_id=context.source.chat_id,
              chat_type=(
                  str(context.source.chat_type) if context.source.chat_type else ""
-@@ -22066,11 +22323,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22217,11 +22522,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -1499,7 +1622,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -22080,7 +22339,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22231,7 +22538,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          only the persisted default model.
          """
          try:
@@ -1508,7 +1631,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
              from agent.auxiliary_client import _read_main_model, _read_main_provider
              from hermes_cli.config import load_config
  
-@@ -22121,6 +22380,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22272,6 +22579,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not resolved_model:
                  resolved_model = _read_main_model()
  
@@ -1524,7 +1647,149 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
              return decide_image_input_mode(
                  resolved_provider,
                  resolved_model,
-@@ -24819,7 +25087,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22353,6 +22669,141 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             return prefix
+         return user_text
+ 
++    async def _enrich_message_with_video_sidecar(
++        self,
++        user_text: str,
++        video_paths: List[str],
++        *,
++        provider: str,
++        model: str,
++        context_text: Optional[str] = None,
++    ) -> tuple[str, List[str]]:
++        """Describe videos on a video-capable fallback link, in-text.
++
++        PATCH-VIDEO-SIDECAR. Used when the session's main model cannot read
++        video but a configured fallback link can (see
++        ``pick_video_sidecar_route``). Each video is sent to that link as ONE
++        self-contained request — the video bytes plus ``user_text`` (which at
++        this point already carries the quoted/reply context the gateway
++        prepended, and nothing else) — and the returned description is
++        prepended to the message the main model receives.
++
++        Why a sidecar instead of routing the turn to the video-capable
++        provider: the turn's provider switch would replay the whole session
++        transcript to a second backend, mixing api_modes and reasoning
++        payloads across issuers. Here the main model keeps the session,
++        its identity, and its tools; only the video read is delegated, and
++        its output enters the main session as plain text.
++
++        Returns ``(enriched_text, described_paths)``. Videos that fail keep
++        the caller's path-note flow, so nothing is silently dropped.
++        """
++        from agent.image_routing import NATIVE_VIDEO_MAX_BYTES, _guess_video_mime
++        from agent.memory_manager import sanitize_context
++        from agent.auxiliary_client import async_call_llm
++
++        # The caption/quoted context is the only history the sidecar sees.
++        # Bound it so a long merge-forward block can't dominate the request.
++        _ctx = (
++            context_text if context_text is not None else user_text
++        ) or ""
++        _ctx = _ctx.strip()[:_VIDEO_SIDECAR_CONTEXT_MAX_CHARS]
++        _prompt = (
++            "Describe this video concisely (4-8 sentences). Cover what happens, "
++            "the main subjects, any visible on-screen text/data, and the overall "
++            "setting. If it shows a UI, chart, or code, report the important "
++            "labels and values. Reply in the language of the user's message "
++            "below; if it has no text, reply in Chinese."
++        )
++        if _ctx:
++            _prompt = f"{_prompt}\n\nThe user's message accompanying this video:\n{_ctx}"
++
++        enriched_parts: List[str] = []
++        described: List[str] = []
++        for path in video_paths:
++            try:
++                _size = os.path.getsize(path)
++            except OSError:
++                logger.debug("Video sidecar: cannot stat %s, keeping path note", path)
++                continue
++            if _size > NATIVE_VIDEO_MAX_BYTES:
++                logger.info(
++                    "Video sidecar: %s is %.1f MB (> %.0f MB inline cap), keeping path note.",
++                    os.path.basename(path),
++                    _size / (1024 * 1024),
++                    NATIVE_VIDEO_MAX_BYTES / (1024 * 1024),
++                )
++                continue
++            try:
++                import base64
++
++                _mime = _guess_video_mime(Path(path))
++                _b64 = await asyncio.to_thread(
++                    lambda p=path: base64.b64encode(Path(p).read_bytes()).decode("ascii")
++                )
++                # ``image_url`` with a data:video/... URL is the wire shape the
++                # Vertex OpenAI-compat endpoint accepts for inline media; a
++                # ``video_url`` part is rejected there with HTTP 400
++                # "Unrecognized 'type' field ... found: 'video_url'".
++                _messages = [
++                    {
++                        "role": "user",
++                        "content": [
++                            {"type": "text", "text": _prompt},
++                            {
++                                "type": "image_url",
++                                "image_url": {"url": f"data:{_mime};base64,{_b64}"},
++                            },
++                        ],
++                    }
++                ]
++                logger.info(
++                    "Video sidecar: describing %s (%.1f MB) via %s/%s",
++                    os.path.basename(path), _size / (1024 * 1024), provider, model,
++                )
++                _resp = await async_call_llm(
++                    task="vision",
++                    provider=provider,
++                    model=model,
++                    messages=_messages,
++                    temperature=0.1,
++                    max_tokens=1500,
++                    timeout=_VIDEO_SIDECAR_TIMEOUT_SECONDS,
++                )
++                from agent.auxiliary_client import extract_content_or_reasoning
++
++                _analysis = (extract_content_or_reasoning(_resp) or "").strip()
++                if not _analysis:
++                    logger.warning("Video sidecar returned empty analysis for %s", path)
++                    continue
++                _analysis = sanitize_context(_analysis)
++                from tools.credential_files import to_agent_visible_cache_path
++
++                _agent_path = to_agent_visible_cache_path(path)
++                enriched_parts.append(
++                    f"[The user sent a video. It was read by {model} — here is "
++                    f"what it shows:\n{_analysis}]\n"
++                    f"[The file is at: {_agent_path}. This description came from "
++                    f"a video-capable model, so treat it as your own reading of "
++                    f"the video and answer the user directly. Only use a media "
++                    f"tool on that path if you need a detail the description "
++                    f"does not cover.]"
++                )
++                described.append(path)
++            except Exception as exc:
++                logger.warning(
++                    "Video sidecar failed for %s (%s); keeping path note.",
++                    path, exc,
++                )
++                continue
++
++        if enriched_parts:
++            prefix = "\n\n".join(enriched_parts)
++            if user_text:
++                return f"{prefix}\n\n{user_text}", described
++            return prefix, described
++        return user_text, described
++
+     async def _enrich_message_with_transcription(
+         self,
+         user_text: str,
+@@ -24970,7 +25421,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -1533,7 +1798,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -24852,6 +25120,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25003,6 +25454,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -1546,7 +1811,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -25204,7 +25478,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25375,7 +25832,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -1556,7 +1821,7 @@ index 35cbd7a0408bcb6182e40449c77baa0d84462fc4..bbd54474971c83504916fe850b77243b
          from hermes_cli.tools_config import _get_platform_tools
          enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
 diff --git a/gateway/session.py b/gateway/session.py
-index f88eb1de4301d47e3733b972e5ca9ed733334b9d..51f1880f61bc967a8b5a2a0fa9131b10b5e03bb9 100644
+index d2c63aefdc4922fedfa8339c92eab7fac1d66713..cbdf173defcfc586929d73528f6c3894f9763974 100644
 --- a/gateway/session.py
 +++ b/gateway/session.py
 @@ -13,6 +13,7 @@ import hashlib
@@ -1567,7 +1832,7 @@ index f88eb1de4301d47e3733b972e5ca9ed733334b9d..51f1880f61bc967a8b5a2a0fa9131b10
  import threading
  import uuid
  from pathlib import Path
-@@ -476,6 +477,487 @@ def neutralize_untrusted_inline_text(value: Any, *, max_chars: int = _MAX_PROMPT
+@@ -479,6 +480,487 @@ def neutralize_untrusted_inline_text(value: Any, *, max_chars: int = _MAX_PROMPT
      return text
  
  
@@ -2055,7 +2320,7 @@ index f88eb1de4301d47e3733b972e5ca9ed733334b9d..51f1880f61bc967a8b5a2a0fa9131b10
  def build_session_context_prompt(
      context: SessionContext,
      *,
-@@ -574,12 +1056,26 @@ def build_session_context_prompt(
+@@ -577,12 +1059,26 @@ def build_session_context_prompt(
      # changes per-turn and would bust the prompt cache.  Instead, note that
      # this is a multi-user session; individual sender names are prefixed on
      # each user message by the gateway.
@@ -2082,7 +2347,7 @@ index f88eb1de4301d47e3733b972e5ca9ed733334b9d..51f1880f61bc967a8b5a2a0fa9131b10
      elif context.source.user_name:
          lines.append(
              f"**User:** {_format_untrusted_prompt_value(context.source.user_name)}"
-@@ -590,6 +1086,56 @@ def build_session_context_prompt(
+@@ -593,6 +1089,56 @@ def build_session_context_prompt(
              uid = _hash_sender_id(uid)
          lines.append(f"**User ID:** {_format_untrusted_prompt_value(uid)}")
  
@@ -2398,20 +2663,30 @@ index 0ecd267513b6273013b039c8a135e30acc166830..dec2886f5782501959c721bab68ffcb6
  # Anthropic Key Helper
  # =============================================================================
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 88ce3ecba73bffb323aba15440083bb4c46d2153..5234c478a8fe0c036bee4e267cc9553426b59983 100644
+index 88ce3ecba73bffb323aba15440083bb4c46d2153..d82bb019ba73e4d7cc8ffd53304eb2047c5946df 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -65,6 +65,9 @@ _PROVIDER_ENV_HINTS = (
+@@ -65,6 +65,19 @@ _PROVIDER_ENV_HINTS = (
      "OPENCODE_GO_API_KEY",
      "XIAOMI_API_KEY",
      "TOKENHUB_API_KEY",
++    "AZURE_FOUNDRY_API_KEY",
 +    "GOOGLE_APPLICATION_CREDENTIALS",
 +    "VERTEX_PROJECT_ID",
++    # VERTEX_REGION is the name agent.vertex_adapter actually reads;
++    # VERTEX_LOCATION is kept for older .env files that still carry it.
++    "VERTEX_REGION",
 +    "VERTEX_LOCATION",
++    # Second Vertex account (PATCH-VERTEX-FALLBACK). A profile whose only
++    # Google auth is the fallback account has no GOOGLE_APPLICATION_CREDENTIALS
++    # / VERTEX_PROJECT_ID at all, so without these two it reads as "no provider
++    # auth configured".
++    "VERTEX_FALLBACK_CREDENTIALS_PATH",
++    "VERTEX_FALLBACK_PROJECT_ID",
  )
  
  
-@@ -1181,6 +1184,10 @@ def run_doctor(args):
+@@ -1181,6 +1194,10 @@ def run_doctor(args):
                  _custom_provider_aliases = None
                  _normalize_catalog_provider = None
                  _resolve_provider_full = None
@@ -2422,7 +2697,7 @@ index 88ce3ecba73bffb323aba15440083bb4c46d2153..5234c478a8fe0c036bee4e267cc95534
  
              custom_providers = []
              if _compatible_custom_providers is not None:
-@@ -1207,8 +1214,20 @@ def run_doctor(args):
+@@ -1207,8 +1224,20 @@ def run_doctor(args):
                          _custom_provider_aliases(name, provider_key)
                      )
  
@@ -2443,7 +2718,7 @@ index 88ce3ecba73bffb323aba15440083bb4c46d2153..5234c478a8fe0c036bee4e267cc95534
              if _normalize_catalog_provider is not None:
                  for known_provider in known_providers:
                      try:
-@@ -1228,16 +1247,18 @@ def run_doctor(args):
+@@ -1228,16 +1257,18 @@ def run_doctor(args):
                  except Exception:
                      runtime_provider = provider
  
@@ -2465,7 +2740,7 @@ index 88ce3ecba73bffb323aba15440083bb4c46d2153..5234c478a8fe0c036bee4e267cc95534
  
              if provider and provider != "auto":
                  if catalog_provider is None or (
-@@ -1260,8 +1281,11 @@ def run_doctor(args):
+@@ -1260,8 +1291,11 @@ def run_doctor(args):
              # Vendor/model slugs are valid on aggregator-style providers and on any custom
              # provider — bare "custom" or a named "custom:<name>" that fronts an OpenAI-compatible
              # aggregator (e.g. custom:hpc-ai serving deepseek/deepseek-v4-flash) requires the prefix.
@@ -2479,7 +2754,7 @@ index 88ce3ecba73bffb323aba15440083bb4c46d2153..5234c478a8fe0c036bee4e267cc95534
              providers_accepting_vendor_slugs = {
                  "openrouter",
                  "auto",
-@@ -1280,16 +1304,21 @@ def run_doctor(args):
+@@ -1280,16 +1314,21 @@ def run_doctor(args):
                  # is exclusively ``vendor/model`` slugs (Qwen/Qwen3.5-…,
                  # meta-llama/Llama-3-…, anthropic/claude-opus-4-7, …).
                  "deepinfra",
@@ -4867,10 +5142,10 @@ index a7a03d422b1308de6ffe596501ee4d03bdee42a7..2381eb26d4b501523b24b7cdc1e4ae4d
  
  ## Pitfalls
 diff --git a/tests/agent/test_image_routing.py b/tests/agent/test_image_routing.py
-index b86fd4145e421650170ce0d7a647606c47462257..f394fc793fbba59715456d8391b6a571b98a8e16 100644
+index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c2693bbfee0a 100644
 --- a/tests/agent/test_image_routing.py
 +++ b/tests/agent/test_image_routing.py
-@@ -11,10 +11,12 @@ from agent.image_routing import (
+@@ -11,11 +11,14 @@ from agent.image_routing import (
      _coerce_capability_bool,
      _coerce_mode,
      _explicit_aux_vision_override,
@@ -4881,9 +5156,11 @@ index b86fd4145e421650170ce0d7a647606c47462257..f394fc793fbba59715456d8391b6a571
      decide_image_input_mode,
 +    decide_video_input_mode,
      extract_image_refs,
++    pick_video_sidecar_route,
  )
  
-@@ -80,6 +82,19 @@ class TestDecideImageInputMode:
+ 
+@@ -80,6 +83,72 @@ class TestDecideImageInputMode:
  
  
  
@@ -4900,10 +5177,63 @@ index b86fd4145e421650170ce0d7a647606c47462257..f394fc793fbba59715456d8391b6a571
 +                == "native"
 +            )
 +
++    def test_auto_native_for_azure_foundry_gpt55_from_catalog(self):
++        """azure-foundry must resolve capabilities through the models.dev catalog.
++
++        Regression for PATCH-IMAGE-NATIVE-ROUTING's azure-foundry unit: the
++        provider had no PROVIDER_TO_MODELS_DEV entry, so
++        get_model_capabilities() returned None and ``auto`` mode downgraded a
++        vision-capable main model to auxiliary text pre-analysis. No override in
++        cfg — the catalog mapping alone must carry the decision.
++        """
++        from agent import models_dev
++
++        # The mapping is the actual invariant; assert it directly so the test
++        # fails on a dropped entry rather than on catalog availability.
++        assert models_dev.PROVIDER_TO_MODELS_DEV.get("azure-foundry") == "azure"
++
++        # HERMES_HOME is sandboxed per-test (tests/conftest.py), so the real
++        # disk cache is intentionally invisible. Feed the catalog shape
++        # models.dev publishes for azure/gpt-5.5 instead of depending on it.
++        catalog = {
++            "azure": {
++                "models": {
++                    "gpt-5.5": {
++                        "modalities": {
++                            "input": ["text", "image", "pdf"],
++                            "output": ["text"],
++                        },
++                        "attachment": True,
++                        "reasoning": True,
++                        "tool_call": True,
++                        "limit": {"context": 1050000, "output": 128000},
++                        "family": "gpt",
++                    }
++                }
++            }
++        }
++        with patch.object(models_dev, "fetch_models_dev", return_value=catalog):
++            caps = models_dev.get_model_capabilities("azure-foundry", "gpt-5.5")
++            assert caps is not None, "azure-foundry must map to a models.dev provider"
++            assert caps.supports_vision is True
++
++            with patch(
++                "agent.image_routing._should_probe_ollama_vision", return_value=False
++            ):
++                assert (
++                    decide_image_input_mode(
++                        "azure-foundry",
++                        "gpt-5.5",
++                        {},
++                        requested_provider="azure-foundry",
++                    )
++                    == "native"
++                )
++
  
  # ─── _coerce_capability_bool ─────────────────────────────────────────────────
  
-@@ -158,6 +173,32 @@ class TestLookupSupportsVisionOverride:
+@@ -158,6 +227,32 @@ class TestLookupSupportsVisionOverride:
              assert _lookup_supports_vision("openrouter", "x", None) is None
  
  
@@ -4936,7 +5266,7 @@ index b86fd4145e421650170ce0d7a647606c47462257..f394fc793fbba59715456d8391b6a571
  # ─── decide_image_input_mode with auto + override ────────────────────────────
  
  
-@@ -506,3 +547,141 @@ class TestCustomProviderVisionAlias:
+@@ -506,3 +601,235 @@ class TestCustomProviderVisionAlias:
              ]
          }
          assert _supports_vision_override(cfg, "custom:my-vllm", "other") is None
@@ -4976,6 +5306,100 @@ index b86fd4145e421650170ce0d7a647606c47462257..f394fc793fbba59715456d8391b6a571
 +        assert (
 +            decide_video_input_mode("vertex", "google/gemini-3.1-pro-preview", cfg)
 +            == "text"
++        )
++
++
++class TestPickVideoSidecarRoute:
++    """PATCH-VIDEO-SIDECAR: pick the first video-capable link in the chain."""
++
++    def test_picks_fallback_when_main_model_cannot_read_video(self):
++        cfg = {
++            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
++            "fallback_providers": [
++                {"provider": "vertex-fallback", "model": "google/gemini-3.1-pro-preview"},
++                {"provider": "alibaba", "model": "qwen3.7-plus"},
++            ],
++        }
++        assert pick_video_sidecar_route(cfg) == (
++            "vertex-fallback",
++            "google/gemini-3.1-pro-preview",
++        )
++
++    def test_none_when_no_link_can_read_video(self):
++        """No sidecar must be invented — the path-note flow stays in charge."""
++        cfg = {
++            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
++            "fallback_providers": [{"provider": "alibaba", "model": "qwen3.7-plus"}],
++        }
++        assert pick_video_sidecar_route(cfg) is None
++
++    def test_main_entry_wins_when_it_is_video_capable(self):
++        cfg = {
++            "model": {"provider": "vertex", "default": "google/gemini-3.1-pro-preview"},
++            "fallback_providers": [
++                {"provider": "vertex-fallback", "model": "google/gemini-3.1-pro-preview"}
++            ],
++        }
++        assert pick_video_sidecar_route(cfg) == (
++            "vertex",
++            "google/gemini-3.1-pro-preview",
++        )
++
++    def test_chain_order_is_honoured(self):
++        """First capable entry wins, not the last or an alphabetical pick."""
++        cfg = {
++            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
++            "fallback_providers": [
++                {"provider": "vertex", "model": "google/gemini-3-flash-preview"},
++                {"provider": "vertex-fallback", "model": "google/gemini-3.1-pro-preview"},
++            ],
++        }
++        assert pick_video_sidecar_route(cfg) == (
++            "vertex",
++            "google/gemini-3-flash-preview",
++        )
++
++    def test_legacy_fallback_model_key_is_considered(self):
++        """The legacy mapping form feeds the same get_fallback_chain reader."""
++        cfg = {
++            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
++            "fallback_model": {
++                "provider": "vertex-fallback",
++                "model": "google/gemini-3.1-pro-preview",
++            },
++        }
++        assert pick_video_sidecar_route(cfg) == (
++            "vertex-fallback",
++            "google/gemini-3.1-pro-preview",
++        )
++
++    def test_malformed_config_never_raises(self):
++        assert pick_video_sidecar_route(None) is None
++        assert pick_video_sidecar_route({}) is None
++        assert pick_video_sidecar_route({"model": "not-a-dict"}) is None
++        assert (
++            pick_video_sidecar_route(
++                {
++                    "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
++                    "fallback_providers": "garbage",
++                }
++            )
++            is None
++        )
++
++    def test_incomplete_entries_are_skipped(self):
++        """A provider without a model (or vice versa) cannot be called."""
++        cfg = {
++            "model": {"provider": "", "default": ""},
++            "fallback_providers": [
++                {"provider": "vertex-fallback", "model": ""},
++                {"provider": "", "model": "google/gemini-3.1-pro-preview"},
++                {"provider": "vertex", "model": "google/gemini-3.1-pro-preview"},
++            ],
++        }
++        assert pick_video_sidecar_route(cfg) == (
++            "vertex",
++            "google/gemini-3.1-pro-preview",
 +        )
 +
 +
@@ -5278,10 +5702,10 @@ index ccf7833b1991393a14eb5f9bca0573cb51da9520..6b1689bc1aed188cb2d74ff8b894da93
          assert agent_kwargs["checkpoints_enabled"] is True
          assert agent_kwargs["checkpoint_max_snapshots"] == 8
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index aeec8fca9ae4b0b8160ab5874773e14c9ee8c6ec..d12aa1aaacd77fbeabb968a3595cb887e6002f06 100644
+index 29c71a387bc4003e702fea745e1cab60139a023b..a498a4f6a90579dfa7d0741ea34b8821519e8872 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
-@@ -775,19 +775,67 @@ class TestLoadGatewayConfig:
+@@ -794,19 +794,67 @@ class TestLoadGatewayConfig:
          )
  
          monkeypatch.setenv("HERMES_HOME", str(hermes_home))
@@ -10448,10 +10872,10 @@ index 7e62328b208ffd4590f14c01c928c33c7fe6fb0d..add19ec60a68a6de19aba966d6eac806
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
 diff --git a/tests/gateway/test_image_input_routing_runtime.py b/tests/gateway/test_image_input_routing_runtime.py
-index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..42474bda1a6ebcee0f8988bc664681311d068900 100644
+index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..28fb444f4e81d60cdc3f8da856acf1eb2775b972 100644
 --- a/tests/gateway/test_image_input_routing_runtime.py
 +++ b/tests/gateway/test_image_input_routing_runtime.py
-@@ -81,6 +81,104 @@ def test_pre_turn_named_custom_provider_identity_selects_vision_override(monkeyp
+@@ -81,6 +81,231 @@ def test_pre_turn_named_custom_provider_identity_selects_vision_override(monkeyp
      ) == "native"
  
  
@@ -10551,6 +10975,133 @@ index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..42474bda1a6ebcee0f8988bc66468131
 +    assert result == "hello"
 +    assert not runner._pending_native_image_paths_by_session.get(session_key)
 +    assert not runner._pending_native_video_paths_by_session.get(session_key)
++
++
++@pytest.mark.asyncio
++async def test_prepare_runs_video_sidecar_when_main_model_lacks_video(monkeypatch, tmp_path):
++    """PATCH-VIDEO-SIDECAR: a video-capable fallback link describes the video
++    in-text when the main model cannot read video.
++
++    This is the production wiring test: it drives the real
++    ``_prepare_inbound_message_text`` so a broken hookup (wrong call order,
++    swallowed exception, un-consumed path list) fails here rather than only in
++    the unit test for the picker.
++    """
++    from types import SimpleNamespace
++
++    runner = _make_runner()
++    source = _source()
++    session_key = "video-sidecar-session"
++    runner._pending_native_video_paths_by_session = {}
++
++    video = tmp_path / "clip.mp4"
++    video.write_bytes(b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 64)
++
++    event = MessageEvent(
++        text="what happens here?",
++        message_type=MessageType.VIDEO,
++        source=source,
++        media_urls=[str(video)],
++        media_types=["video/mp4"],
++    )
++    event.reply_to_message_id = "m-1"
++    event.reply_to_text = "check this clip"
++
++    # Main model cannot read video; the fallback link can.
++    cfg = {
++        "model": {"provider": "azure-foundry", "default": "gpt-5.5", "context_length": 128000},
++        "fallback_providers": [
++            {"provider": "vertex-fallback", "model": "google/gemini-3.1-pro-preview"}
++        ],
++    }
++    monkeypatch.setattr("gateway.run._load_gateway_config", lambda: cfg)
++    monkeypatch.setattr(
++        runner,
++        "_resolve_session_agent_runtime",
++        lambda **_kwargs: ("gpt-5.5", {"provider": "azure-foundry", "api_key": ""}),
++    )
++    monkeypatch.setattr(
++        "hermes_cli.route_identity.should_clear_context_pin", lambda *_: False
++    )
++
++    captured = {}
++
++    async def fake_call_llm(**kwargs):
++        captured.update(kwargs)
++        return SimpleNamespace(
++            choices=[SimpleNamespace(message=SimpleNamespace(content="A cat walks by."))]
++        )
++
++    monkeypatch.setattr("agent.auxiliary_client.async_call_llm", fake_call_llm)
++
++    result = await runner._prepare_inbound_message_text(
++        event=event, source=source, history=[], session_key=session_key
++    )
++
++    # The sidecar's description replaces the path-note flow entirely.
++    assert "A cat walks by." in result
++    assert "read by google/gemini-3.1-pro-preview" in result
++    assert "Its content is not inlined here" not in result
++    # It ran on the video-capable link, not the main provider.
++    assert captured["provider"] == "vertex-fallback"
++    assert captured["model"] == "google/gemini-3.1-pro-preview"
++    # Wire shape: Vertex rejects a ``video_url`` part with HTTP 400, so the
++    # video must ride an ``image_url`` part carrying a data:video/... URL.
++    parts = captured["messages"][0]["content"]
++    assert [p["type"] for p in parts] == ["text", "image_url"]
++    assert parts[1]["image_url"]["url"].startswith("data:video/mp4;base64,")
++    # Only the caption + quoted context travels with it — never the transcript.
++    assert "check this clip" in parts[0]["text"]
++    assert "what happens here?" in parts[0]["text"]
++    # Nothing was left buffered for a native attachment.
++    assert not runner._pending_native_video_paths_by_session.get(session_key)
++
++
++@pytest.mark.asyncio
++async def test_prepare_keeps_path_note_when_no_link_can_read_video(monkeypatch, tmp_path):
++    """With no video-capable link, the pre-existing path-note flow must stay
++    in charge and no sidecar call may be attempted."""
++    runner = _make_runner()
++    source = _source()
++    session_key = "video-no-sidecar-session"
++    runner._pending_native_video_paths_by_session = {}
++
++    video = tmp_path / "clip.mp4"
++    video.write_bytes(b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 64)
++
++    event = MessageEvent(
++        text="what happens here?",
++        message_type=MessageType.VIDEO,
++        source=source,
++        media_urls=[str(video)],
++        media_types=["video/mp4"],
++    )
++
++    cfg = {
++        "model": {"provider": "azure-foundry", "default": "gpt-5.5", "context_length": 128000},
++        "fallback_providers": [{"provider": "alibaba", "model": "qwen3.7-plus"}],
++    }
++    monkeypatch.setattr("gateway.run._load_gateway_config", lambda: cfg)
++    monkeypatch.setattr(
++        runner,
++        "_resolve_session_agent_runtime",
++        lambda **_kwargs: ("gpt-5.5", {"provider": "azure-foundry", "api_key": ""}),
++    )
++    monkeypatch.setattr(
++        "hermes_cli.route_identity.should_clear_context_pin", lambda *_: False
++    )
++
++    async def boom(**_kwargs):  # pragma: no cover - must never run
++        raise AssertionError("sidecar must not be called without a capable link")
++
++    monkeypatch.setattr("agent.auxiliary_client.async_call_llm", boom)
++
++    result = await runner._prepare_inbound_message_text(
++        event=event, source=source, history=[], session_key=session_key
++    )
++
++    assert "Its content is not inlined here" in result
++    assert "what happens here?" in result
 +
 +
  @pytest.mark.asyncio
@@ -11584,10 +12135,45 @@ index 5528c5d89ac82607b1d23285d992aeb235a30664..116b7022cab737184139043868a6b65a
 +        assert "feishu_group" in result
  
 diff --git a/tests/hermes_cli/test_doctor.py b/tests/hermes_cli/test_doctor.py
-index c0d7316fd7d65a212faa0b34845a252216b76983..9419db9f13cf4f81559fd6e10709165c8e13617d 100644
+index c0d7316fd7d65a212faa0b34845a252216b76983..326c3bdefee99d7eba2a9a644b912fba303844a4 100644
 --- a/tests/hermes_cli/test_doctor.py
 +++ b/tests/hermes_cli/test_doctor.py
-@@ -595,6 +595,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
+@@ -51,6 +51,34 @@ class TestProviderEnvDetection:
+         assert not _has_provider_env_config(content)
+ 
+ 
++    def test_detects_azure_foundry_key(self):
++        """PATCH-VERTEX-DOCTOR: the hint list must cover the provider actually
++        in use, not just the historical Vertex-primary setup.
++
++        A profile whose main provider is azure-foundry used to pass this check
++        only by accident, via an unrelated DASHSCOPE_API_KEY left in .env.
++        """
++        assert _has_provider_env_config("AZURE_FOUNDRY_API_KEY=***\n")
++
++
++    def test_detects_vertex_fallback_credentials_alone(self):
++        """A profile whose only Google auth is the second Vertex account
++        (PATCH-VERTEX-FALLBACK) has no GOOGLE_APPLICATION_CREDENTIALS /
++        VERTEX_PROJECT_ID at all — it must still read as configured."""
++        content = (
++            "VERTEX_FALLBACK_CREDENTIALS_PATH=/tmp/second-sa.json\n"
++            "VERTEX_FALLBACK_PROJECT_ID=second-project\n"
++        )
++        assert _has_provider_env_config(content)
++
++
++    def test_detects_vertex_region_the_adapter_actually_reads(self):
++        """agent.vertex_adapter reads VERTEX_REGION; VERTEX_LOCATION is only
++        kept for older .env files. Both must be recognised."""
++        assert _has_provider_env_config("VERTEX_REGION=global\n")
++        assert _has_provider_env_config("VERTEX_LOCATION=global\n")
++
++
+ class TestDoctorToolAvailabilitySummary:
+     def test_missing_api_key_summary_ignores_disabled_toolsets(self, monkeypatch):
+         unavailable = [
+@@ -595,6 +623,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
      assert "Either set model.provider to 'openrouter', or drop the vendor prefix." not in out
  
  
@@ -11879,7 +12465,7 @@ index 339e498503031b85c72eca4013e73e0fedb04e18..f82bc76f5653df3d2eb32d90b3ddffe1
  
  def test_get_effective_configurable_toolsets_dedupes_bundled_plugins():
 diff --git a/tests/hermes_cli/test_vertex_provider.py b/tests/hermes_cli/test_vertex_provider.py
-index 129c44a8eb3ad7bed02770913493364e5412a7da..e148edf4b5f442a87db49d541171dab66354c610 100644
+index 129c44a8eb3ad7bed02770913493364e5412a7da..f4f501ab607e7d30c1e03d7872f4c31a6a49e32d 100644
 --- a/tests/hermes_cli/test_vertex_provider.py
 +++ b/tests/hermes_cli/test_vertex_provider.py
 @@ -29,6 +29,77 @@ def test_resolve_runtime_provider_raises_autherror_when_unresolved(monkeypatch):
@@ -12028,11 +12614,11 @@ index 129c44a8eb3ad7bed02770913493364e5412a7da..e148edf4b5f442a87db49d541171dab6
 +    )
 +    monkeypatch.setattr(va, "_refresh_credentials", lambda c: None)
 +    # The process-wide override points at the PRIMARY project.
-+    monkeypatch.setattr(va, "_resolve_project_override", lambda: "wh-gemini-1")
++    monkeypatch.setattr(va, "_resolve_project_override", lambda: "primary-project")
 +
 +    # Default path: global override wins (unchanged primary behavior).
 +    _, proj_default = va.get_vertex_credentials("/fake/sa.json")
-+    assert proj_default == "wh-gemini-1"
++    assert proj_default == "primary-project"
 +
 +    # Fallback path: keep the SA file's own project.
 +    _, proj_fb = va.get_vertex_credentials(
@@ -12709,6 +13295,66 @@ index 656d02e35566398121ab30eb3c7be82aedc3e945..7832a3b7210f4d2e7852987ddef40dc6
      def test_legacy_flat_md_skill_preserves_frontmatter_metadata(self, tmp_path):
          flat_skill = tmp_path / "legacy-skill.md"
          flat_skill.write_text(
+diff --git a/tests/tools/test_video_analyze.py b/tests/tools/test_video_analyze.py
+index 020cfc358c5d8cb907cbb8172e9f148c63a1dbb9..1e736365e072a1db997d91ad6da7765cc8fbbd4a 100644
+--- a/tests/tools/test_video_analyze.py
++++ b/tests/tools/test_video_analyze.py
+@@ -207,6 +207,55 @@ class TestVideoAnalyzeTool:
+         assert "video_url" in content[1]
+         assert content[1]["video_url"]["url"].startswith("data:video/mp4;base64,")
+ 
++    def test_video_url_rejection_retries_as_image_url(self, tmp_path):
++        """PATCH-VIDEO-SIDECAR: fall back to an image_url part on rejection.
++
++        Vertex's OpenAI-compatible endpoint rejects a ``video_url`` part with
++        HTTP 400 "Unrecognized 'type' field ... found: 'video_url'" and takes
++        inline video as a data: URI inside ``image_url`` instead. Without the
++        retry, every video_analyze call on Vertex is a hard failure.
++        """
++        video = tmp_path / "test.mp4"
++        video.write_bytes(b"\x00" * 100)
++
++        seen = []
++
++        async def capture_llm(**kwargs):
++            seen.append(kwargs["messages"][0]["content"][1]["type"])
++            if len(seen) == 1:
++                raise ValueError(
++                    "Error code: 400 - Unrecognized 'type' field in an object "
++                    "element of an array 'content' field; found: 'video_url'."
++                )
++            mock_response = MagicMock()
++            mock_response.choices = [MagicMock()]
++            mock_response.choices[0].message.content = "OK"
++            return mock_response
++
++        with patch("tools.vision_tools.async_call_llm", side_effect=capture_llm):
++            with patch("tools.vision_tools.extract_content_or_reasoning", return_value="OK"):
++                result = self._run(video_analyze_tool(str(video), "Describe this"))
++
++        assert seen == ["video_url", "image_url"]
++        assert json.loads(result)["success"] is True
++
++    def test_unrelated_error_is_not_retried_as_image_url(self, tmp_path):
++        """Only a video_url part rejection may trigger the shape retry."""
++        video = tmp_path / "test.mp4"
++        video.write_bytes(b"\x00" * 100)
++
++        seen = []
++
++        async def capture_llm(**kwargs):
++            seen.append(kwargs["messages"][0]["content"][1]["type"])
++            raise ValueError("Error code: 429 - rate limited")
++
++        with patch("tools.vision_tools.async_call_llm", side_effect=capture_llm):
++            result = self._run(video_analyze_tool(str(video), "Describe this"))
++
++        assert seen == ["video_url"]
++        assert json.loads(result)["success"] is False
++
+     def test_non_local_backend_reads_video_from_terminal_backend(self, tmp_path, monkeypatch):
+         """Non-local terminal backends must not read local host video paths.
+ 
 diff --git a/tools/approval.py b/tools/approval.py
 index 50111de8d67b89e6605071db8202fc91657c3e9a..5382a420144ca3f3a07ca5cc67c1bc80f94fc269 100644
 --- a/tools/approval.py
@@ -13677,6 +14323,45 @@ index 8a39216f80bba5f7af3fee5d5eea724fd18fe26a..3f0b847c48b6df4622142ab8cde37fbe
          if _is_skill_disabled(resolved_name):
              return json.dumps(
                  {
+diff --git a/tools/vision_tools.py b/tools/vision_tools.py
+index e84daaff7ffe12cbb890e1ad58e5872905b47663..24fac6d3b62ac75f8baf1ebe55408a689308be9c 100644
+--- a/tools/vision_tools.py
++++ b/tools/vision_tools.py
+@@ -2080,7 +2080,33 @@ async def video_analyze_tool(
+             call_kwargs["model"] = model
+ 
+         _load_auxiliary_client()
+-        response = await async_call_llm(**call_kwargs)
++        try:
++            response = await async_call_llm(**call_kwargs)
++        except Exception as _part_exc:
++            # PATCH-VIDEO-SIDECAR: providers disagree on the inline-video part
++            # type. DashScope/Qwen-VL expect ``video_url``; Vertex's
++            # OpenAI-compatible endpoint rejects it outright with HTTP 400
++            # "Unrecognized 'type' field in an object element of an array
++            # 'content' field; found: 'video_url'" and instead takes any
++            # GenerateContent MIME as a data: URI inside an ``image_url``
++            # part. Retry once in the other shape rather than hardcoding a
++            # per-provider table that goes stale — the shape is only wrong
++            # when the provider says so.
++            if "video_url" not in str(_part_exc):
++                raise
++            logger.info(
++                "Video part type 'video_url' rejected by provider; retrying as 'image_url'"
++            )
++            call_kwargs["messages"] = [
++                {
++                    "role": "user",
++                    "content": [
++                        {"type": "text", "text": user_prompt},
++                        {"type": "image_url", "image_url": {"url": video_data_url}},
++                    ],
++                }
++            ]
++            response = await async_call_llm(**call_kwargs)
+         analysis = extract_content_or_reasoning(response)
+ 
+         if not analysis:
 diff --git a/toolsets.py b/toolsets.py
 index 235f341fc7ce29b08c28418659f0c90603c74bbb..70e2b17661c7648a87da888f4f281a2b97ec8efe 100644
 --- a/toolsets.py

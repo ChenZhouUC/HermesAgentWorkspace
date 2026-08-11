@@ -96,8 +96,9 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-VERTEX-HIDDEN-THOUGHTS: Vertex thought 文本不进入可见内容
   │   ├─ PATCH-VERTEX-DOCTOR: doctor 识别官方 Vertex profile
   │   ├─ PATCH-VERTEX-FALLBACK: 第二 Vertex 账号作为独立 fallback provider
-  │   ├─ PATCH-VERTEX-IMAGE-ROUTING: Gemini 3.x 图片 native routing
+  │   ├─ PATCH-IMAGE-NATIVE-ROUTING: 主力模型图片能力识别（Gemini 3.x + azure-foundry）
   │   ├─ PATCH-VERTEX-VIDEO-ROUTING: Gemini 视频 native routing
+  │   ├─ PATCH-VIDEO-SIDECAR: 主力读不了视频时旁路到链上能读的档（全局，不切主 provider）
   │   ├─ PATCH-LAZY-ACTIVATION: 上游首项依赖身份锚点回归 sentinel（✅ 已归档）
   │   ├─ PATCH-HISTORY-RETENTION: 平台级回放时间窗/条数上界
   │   ├─ PATCH-APPROVAL-DARWIN-TMP: Darwin 临时路径别名归一化
@@ -253,8 +254,11 @@ PATCHED_FILES=(
     "hermes_cli/runtime_provider.py"
     "agent/auxiliary_client.py"
     "agent/image_routing.py"
+    "agent/models_dev.py"
     "tests/agent/test_image_routing.py"
     "tests/gateway/test_image_input_routing_runtime.py"
+    "tools/vision_tools.py"
+    "tests/tools/test_video_analyze.py"
     "agent/replay_cleanup.py"
     "tests/agent/test_replay_cleanup.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
@@ -262,7 +266,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（64 文件，2026-08-11 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（67 文件，2026-08-11 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -283,19 +287,19 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.0 (upstream `main` `33f8e96a72945afb29f3bc9ef9991940f0bedcf7`，2026-08-11)
+## 当前版本：v0.20.0 (upstream `main` `c0106e50e7ecedb3ce34e785d949725dc4e0e457`，2026-08-11)
 
-**活跃补丁**：当前共 30 个语义补丁。23 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 31 个语义补丁。24 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.20.0 → v0.20.0，+79 commits，basis `03fa32c92dd445eb64c7f67434dd91b32c40701d` → `33f8e96a72945afb29f3bc9ef9991940f0bedcf7`，2026-08-11）要点**：
+**最近一次升级（v0.20.0 → v0.20.0，+17 commits，basis `33f8e96a72945afb29f3bc9ef9991940f0bedcf7` → `c0106e50e7ecedb3ce34e785d949725dc4e0e457`，2026-08-11）要点**：
 
-- 上游主线：kanban review 生命周期一等化大集群（`16accefd2` 起 ~18 commits：review handoff、reviewer 保持、re-review provenance、live-claim 防窃、graph race 收口）；Browser Use CLI 3.0 集成并成为默认浏览器后端（`a1835c8c1` / `8d8bc85dc`，`browser.backend` 未设且 browser-use CLI"可运行"即接管，内建 browser\_\* 整体隐藏、由 `browser_exec` 替代；`f21d9714e` 保留 Camofox 用户不迁移）；孤儿 gateway 收割簇（desktop/CLI/gateway 三端 `07298df80` / `bc1223840` 等）+ launchd plist 持久化 RLIMIT_NOFILE 下限（`585cee1a4`，配 `acb7547da` 可配置 in-process floor，本机解析 4096）；SessionDB 读连接池化与 PEAK 连接许可上界（`87aedbe7b` / `0472c31aa`）、dashboard fd 泄漏修复（`373631bea`）；安全侧 cryptography 50.0.0（`2b618fe7e`）、npm advisories 补修（`8789cf9f0`）、profile 导出档案脱敏 secret-shaped 字符串（`6c5cb2db4`）、blender MCP 目录与 skill 因上游被入侵移除（`bdbdfead0`）；CLI 冷启动 sub-400ms（`55f9e472a`）；read_file 拒读时点名二进制类型（`1362ffc7d`）；AI_AGENT 子进程归因 env（`e47a931d3`）；skills +2 bundled（sdlc-review、merge-reconciler）。
-- patch apply / registry：64 个受管文件本轮 **clean apply**（无 3-way），28 个 Step 8b sentinel 全 OK。30 个活跃 PATCH 逐个复核吸收判断：0 新增 / 0 归档 / 0 收缩——上游触及的受管文件（auxiliary_client、prompt_builder、run.py、session_context、stream_consumer、auth.py、tools_config、toolsets）改动均为增量正交：`session_context` 新增 `HERMES_SESSION_SCOPE_ID` ContextVar 属既定"并存型"（`PATCH-FEISHU-GROUP-SCOPE` 不受影响，`test_session_env` 全绿）；`toolsets.py` 新增 `browser_exec` 注册不触碰 `skills_readonly`/`file_readonly` 精确断言。bundle/base/full-index、cached 正向、worktree 反向、index-clean 闭环全绿。
-- 依赖：venv 未重建，仅 cryptography 48.0.1 → 50.0.0（上游安全 pin 回锁）；lazy features 19 项全部 current；npm 根依赖重装正常，audit fix 后残余 7 vulnerabilities（electron 2 high 越 stated range + node-tar 链 1 critical 4 high no-fix，均在 Desktop/get-windows/build 链）→ P2 上游 lock/range 阻挡、不影响飞书主链路；package-lock 归一化噪音保留 bundle 外。Skills：官方 sync +2 new / 14 updated，mirror in sync。
-- 已知摩擦：固定 SHA `33f8e96a7` 正常消费，无 fetch retry、无 autostash。回归 26 files **868 passed / 0 failed / 3 skipped**（与上轮基线完全一致；3 skipped 即摩擦表登记的 firecrawl-anydoc 可选依赖基线；本轮上游测试变更集中在 kanban/desktop，不在补丁测试清单内）。**Browser Use 默认切换处置**：本机无 browser-use 二进制、仅因 `uvx` 在 PATH 即判"可运行"，首用会从 PyPI 临时拉未经本机验证的新包——按依赖授权边界以 `browser.backend: 'off'`（YAML 需引号防布尔化）锁回内建 browser\_\* 恢复既有能力，`is_browser_use_cli_mode()==False` / `check_browser_requirements()==True` 复核通过；Browser Use 3.0 作为 opt-in 留用户决策。doctor 的 `⚠ browser (system dependency not met)` 在该模式下是"内建面被隐藏"的表象而非依赖缺失，已一并消除。
-- 配置漂移：Config version v34 up to date，无迁移。doctor 与上轮差异仅两处：`gemini (HTTP 400)` 直连探针告警（升级前基线已存在，属 GEMINI_API_KEY 直连路径，非 Vertex 主链路，P3 观察）；browser 行由 ⚠ 恢复 ✓（上述处置后）。launchd plist 未强刷：`585cee1a4` 的 nofile 块会在下次自然 plist 重写时带上，in-process floor（4096）已在新运行时生效，P3 记录。Gateway PID 链：3127 →（官方 updater）36268 →（Step 8d 排空）37345，sandbox verifier 绑定 37345 通过；`browser.backend` 变更属 Step 8d 后运行态修改，经 Step 5b 终态屏障重启并在最终 PID 下复验（见最终报告）。
+- 上游主线：本轮是**小步收尾轮**（17 commits，无功能大集群）。Gateway 三处路由语义收紧——`9829746df` 要求显式 route rejection marker（不再把任意 falsy 返回当拒绝）、`c8f235a10` 新增 `multiplex_profile_allowlist` 支持选择性 multiplex profile 服务、`a31be4803` 让 routed profile 各自的 busy input/text mode 生效（新增 `_busy_input_modes_by_profile` / `_busy_text_modes_by_profile` 快照）；Desktop 侧 8 个 commit 集中在 renderer-lifecycle 诊断接线（`11f920b81` / `d96639381` / `0c1a11ada`）、单所有者 console capture + HUD 生命周期覆盖（`0a60b164f`）、Windows launcher 保活（`1edfdeee8`）、custom provider 设置按 active profile 隔离（`1e6a7b331` + 测试 `1db3405c0`）、首启 Fireworks 收进 provider disclosure（`9d6c5a920`）；`c0106e50e` 修 kimi provider 误发 `claude-code/0.1.0` attribution header 改为 Hermes 归属。
+- patch apply / registry：67 个受管文件本轮 **clean apply**（无 3-way、无人工冲突），30 个 Step 8b sentinel 全 OK。31 个活跃 PATCH 逐个在**裸 upstream `c0106e50e`** 复核吸收判断：0 新增 / 0 归档 / 0 收缩。上游触及的 5 个受管文件（`gateway/run.py` +189/-20、`gateway/config.py` +73/-1、`gateway/platforms/base.py` +10、`gateway/session.py` +3、`tests/gateway/test_config.py` +19）改动全部落在 multiplex / profile-routing / busy-mode 区域，与本地 Feishu、sandbox、Vertex、视频路由不变量正交。两处 grep 命中经上下文核实**不是吸收**：`platform_toolsets`（18 命中）是上游既有基础设施，与 `PATCH-PLATFORM-CAPABILITY-SCOPE` 新增的 `platform_toolset_options` / `recover_platform_tools` 是不同 key；`HERMES_GATEWAY_TOKEN`（1 命中）恰是 `PATCH-OPENCLAW-TOKEN-MIGRATION` 要删除的那一行，删除型补丁的命中证明补丁仍必需。bundle/base/full-index、cached 正向、worktree 反向、index-clean 闭环全绿。
+- 依赖：venv **未重建**（无 runtime repair、无 `venv.stale.*`、uv fallback 0 次），pytest/pytest-asyncio/python-socks/pypdf/yaml/httpx/openai 七项在位复核通过，故 Step 2b 为 no-op；lazy features 19 项全部 current。npm audit fix exit 1 → 残余 **1 high**（electron 40.0.0-alpha.2–41.10.2 两条 GHSA，修复需 `--force` 装 electron@40.10.6 越 stated range）→ P2 上游 lock/range 阻挡，Desktop 链、不影响飞书主链路；较上轮 7 vulnerabilities 下降（node-tar 链已随上游 lock 消解）。package-lock 58±58 行为 `apps/desktop/node_modules/@electron/get` 等条目的**纯位置归一化**（逐条比对无 version 升降、`package.json` 未改），保留 bundle 外。Skills：官方 sync 14 updated，mirror already in sync（本轮无 `+/~/-` 振荡）。
+- 已知摩擦：固定 SHA `c0106e50e` 一次获取正常消费，无 fetch retry、无 autostash、无 staged index。回归 **27 files 900 passed / 0 failed / 3 skipped**；相对上轮 26 files/868 的 +32 已逐项对账：`tests/tools/test_video_analyze.py` 首次纳入清单 +18（16 上游 + 2 本地）、本会话新增本地回归 +13（image_routing +8、image_input_routing_runtime +2、doctor +3）、上游 `c8f235a10` 给 `test_config.py` 加 `test_multiplex_allowlist_from_nested_gateway_section` +1 —— 无测试消失、无 collection 异常、无关键用例改名或跳过。3 skipped 仍是摩擦表登记的 firecrawl-anydoc 可选依赖基线。
+- 配置漂移：Config version **v34 up to date**，无迁移、无 deprecated key。`hermes doctor` 终态 **All checks passed 🎉**；上轮记录的 `gemini (HTTP 400)` 直连探针告警本轮已自行消失（gemini 行转 ✓）。剩余 ⚠ 全属 P3 未配置类（telegram/Nous Portal/Codex/MiniMax/xAI/OpenRouter 未登录、bfl/browser-cdp/browser-use/computer_use/homeassistant/image_gen/spotify/video_gen 系统依赖未装、discord/x_search 缺 token、Skills Hub 未初始化），均不在飞书主链路。Gateway PID 链：58428 →（官方 updater 排空）75265 →（Step 8d 排空）76250，sandbox verifier 绑定 76250 通过。
 
-> 仅保留最近一次升级摘要；历次升级的逐版本叙述见 `README.md` § 版本记录。
+---
 
 ### [PATCH-SKILL-CREATE-ROOT] 自定义 skill 创建到用户目录
 
@@ -679,7 +683,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：`build_extra_body` 改为返回**单层** `{"google": {"thinking_config": thinking_config}}`（与 qwen/nous 等 profile 的扁平返回约定一致），使线上 `api_kwargs["extra_body"]` 恰为 `{"google": {"thinking_config": {"include_thoughts": False, "thinking_level": "high"}}}`——Vertex 读到顶层 `google.thinking_config`，抑制生效。保留 `thinking_level=high` 让模型继续内部思考，只是不把 thought text 返回正文。附带 hunk：插件 alias 列表补 `"vertexai"`，与上游 `runtime_provider.py` 已收录的别名对齐（此前为未登记改动，2026-08-07 归属至此）。
 
-**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 存在 `include_thoughts=true` 说明、`thinking_config["include_thoughts"] = False` 与**单层** `return {"google": {"thinking_config": thinking_config}}`；测试同时保留 profile 正反例，并以 `test_vertex_transport_build_kwargs_hides_thoughts_on_wire` 穿过真实 `ChatCompletionsTransport.build_kwargs()`，断言最终请求 kwargs 只有单层 `extra_body.google.thinking_config`。真链路 A/B 对比（`VERTEX_ACCESS_TOKEN`，同一 plan 类 prompt）：**A 单层 → 干净答案**；**B 双层（旧）→ `" Too simple, doesn't add value…"` 思考泄漏**。2026-08-03 主会话复测因 Google OAuth 链路瞬时 SSL EOF 自动回退到 Qwen，但仍证明出站最终 `content` 与隐藏 `reasoning` 分离；Vertex wire request 形状由规范 runner 的边界测试持续锁定。
+**当前适用性（2026-08-11）**：主力已是 `azure-foundry/gpt-5.5`，本补丁只在 `VertexProfile` 内生效（`vertex` 与 `vertex-fallback` 共用），对非 Vertex 主力**零作用面**。仍必须保留：`vertex-fallback` 是当前 fallback[0] 且承担视频旁路（`PATCH-VIDEO-SIDECAR`），主力报错或收到视频时都会真实走到这条 profile，一旦回退双层写法思考段会再次泄漏进飞书正文。
+
+**验证**：Step 8b grep `plugins/model-providers/vertex/__init__.py` 存在 `include_thoughts=true` 说明、`thinking_config["include_thoughts"] = False` 与**单层** `return {"google": {"thinking_config": thinking_config}}`；测试同时保留 profile 正反例，并以 `test_vertex_transport_build_kwargs_hides_thoughts_on_wire` 穿过真实 `ChatCompletionsTransport.build_kwargs()`，断言最终请求 kwargs 只有单层 `extra_body.google.thinking_config`。真链路 A/B 对比（Vertex OAuth token，同一 plan 类 prompt）：**A 单层 → 干净答案**；**B 双层（旧）→ `" Too simple, doesn't add value…"` 思考泄漏**。2026-08-03 主会话复测因 Google OAuth 链路瞬时 SSL EOF 自动回退到 Qwen，但仍证明出站最终 `content` 与隐藏 `reasoning` 分离；Vertex wire request 形状由规范 runner 的边界测试持续锁定。
 
 **注**：`plugins/model-providers/gemini/__init__.py`（AI-Studio `gemini` provider）存在同构的双层写法，但本环境不走该 provider，暂不改动，待验证。
 
@@ -696,9 +702,13 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：切到官方 `model.provider: vertex` 后，实际 runtime provider 已能通过 `providers.get_provider_profile("vertex")` 和 `agent.vertex_adapter` 正常拿 OAuth token 调 Vertex OpenAI-compatible endpoint，但 `hermes doctor` 仍只看 auth/catalog provider 列表，不读 model-provider plugin registry，于是误报 `model.provider 'vertex' is not a recognised provider`。同时 `google/gemini-3.1-pro-preview` 这类 Vertex 官方 OpenAI-compatible 模型名被当作 OpenRouter 风格 vendor slug，额外误报应该切 openrouter 或去掉前缀。
 
-**修复**：doctor 在校验 provider 时补充读取 `providers.get_provider_profile()`，将 plugin profile 的 canonical name 加入可接受 provider id 集合，并让 vendor-slug 策略同时考虑原始 provider、auth runtime provider、catalog provider 与 plugin canonical provider。`vertex` 与 `vertex-fallback`（2026-08-07 补：`model.provider: vertex-fallback` 时同样服务 `google/*` slug，缺失会复发 vendor-slug 误报）被加入允许 `vendor/model` 形态的 provider 集合；`.env` 健康检查同时识别 `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_PROJECT_ID` / `VERTEX_LOCATION`，避免只配置官方 Vertex 凭据时被误判为没有 provider auth。
+**（2026-08-11 补·`.env` 检查是 provider-agnostic 缺口）**：`_PROVIDER_ENV_HINTS` 是 `_has_provider_env_config()` 对 `.env` 正文做的纯子串匹配，只认清单里字面列出的键。清单既没有当前主力的 `AZURE_FOUNDRY_API_KEY`，也没有 `vertex-fallback` 的两个键——本机之所以没报"没有 provider auth"，只是因为 `.env` 里恰好还有一个无关的 `DASHSCOPE_API_KEY`，属于**碰巧通过**。若某台机器只配主力 key（或只配 fallback SA），该检查会直接误判。此外清单写的是 `VERTEX_LOCATION`，而 `agent/vertex_adapter.py` 的 `_resolve_region()` 实际读 `VERTEX_REGION`。
 
-**验证**：Step 8b grep `hermes_cli/doctor.py` 中存在 `_get_provider_profile`、`GOOGLE_APPLICATION_CREDENTIALS` 与 `"vertex"`，并 grep `tests/hermes_cli/test_doctor.py` 中存在 `test_run_doctor_accepts_vertex_provider_and_google_model_slugs`（parametrize 覆盖 `vertex` / `google-vertex` / `vertex-fallback` 三个 provider 值，2026-08-07 起）。规范 runner 定向回归（2026-08-07 口径）：`test_doctor.py` 83 passed、`test_vertex_provider.py` 14 passed、`test_session.py` 167 passed，0 failed（历史 "23 passed" 计数来自 2026-07-29 的旧测试集合，上游 6b81590c5 测试清理后文件现存 14 条）。实际 `hermes doctor` 在当前 `provider: vertex` 配置下显示 `Config version up to date (v33)`，Vertex 配置检查通过；仅另报 web 8 high / ui-tui 7 high 的已知 build-tool advisory。
+**修复**：doctor 在校验 provider 时补充读取 `providers.get_provider_profile()`，将 plugin profile 的 canonical name 加入可接受 provider id 集合，并让 vendor-slug 策略同时考虑原始 provider、auth runtime provider、catalog provider 与 plugin canonical provider。`vertex` 与 `vertex-fallback`（2026-08-07 补：`model.provider: vertex-fallback` 时同样服务 `google/*` slug，缺失会复发 vendor-slug 误报）被加入允许 `vendor/model` 形态的 provider 集合。
+
+`.env` 健康检查（`_PROVIDER_ENV_HINTS`）补全为**覆盖整条实际链路**而非只覆盖 Vertex：`AZURE_FOUNDRY_API_KEY`（当前主力）、`GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_PROJECT_ID`、`VERTEX_REGION`（adapter 真正读的名字，`VERTEX_LOCATION` 保留兼容旧 `.env`）、`VERTEX_FALLBACK_CREDENTIALS_PATH` / `VERTEX_FALLBACK_PROJECT_ID`（只有 fallback 账号的 profile 此前会被判为"无 provider auth"）。这一半是**通用化而非 Vertex 专属**：主力换 provider 时按同样口径往清单里补该 provider 的 key 即可，检查逻辑本身不需要改。
+
+**验证**：Step 8b grep `hermes_cli/doctor.py` 中存在 `_get_provider_profile`、`GOOGLE_APPLICATION_CREDENTIALS`、`"vertex"`、`AZURE_FOUNDRY_API_KEY` 与 `VERTEX_FALLBACK_CREDENTIALS_PATH`，并 grep `tests/hermes_cli/test_doctor.py` 中存在 `test_run_doctor_accepts_vertex_provider_and_google_model_slugs`（parametrize 覆盖 `vertex` / `google-vertex` / `vertex-fallback` 三个 provider 值，2026-08-07 起）与 `test_detects_vertex_fallback_credentials_alone`。2026-08-11 新增三条 env-hint 回归（`test_detects_azure_foundry_key`、`test_detects_vertex_fallback_credentials_alone`、`test_detects_vertex_region_the_adapter_actually_reads`）；`TestProviderEnvDetection` 5 passed，`test_doctor.py` 全文件 52 passed / 0 failed。规范 runner 定向回归（2026-08-07 口径）：`test_doctor.py` 83 passed、`test_vertex_provider.py` 14 passed、`test_session.py` 167 passed，0 failed（历史 "23 passed" 计数来自 2026-07-29 的旧测试集合，上游 6b81590c5 测试清理后文件现存 14 条）。实际 `hermes doctor` 在当前 `provider: vertex` 配置下显示 `Config version up to date (v33)`，Vertex 配置检查通过；仅另报 web 8 high / ui-tui 7 high 的已知 build-tool advisory。
 
 **上游吸收判断**：若上游 doctor 原生读取 model-provider plugin registry，或官方 registry/catalog 把 `vertex` 与其 `google/*` OpenAI-compatible 模型名纳入健康检查策略，可归档本补丁。
 
@@ -711,7 +721,7 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `agent/vertex_adapter.py`, `hermes_cli/auth.py`, `hermes_cli/runtime_provider.py`, `agent/auxiliary_client.py`, `plugins/model-providers/vertex/__init__.py`, `tests/hermes_cli/test_vertex_provider.py` |
 | **状态** | 🟡 未上游合并                                                                                                                                                                                            |
 
-**问题**：主模型 `google/gemini-3.1-pro-preview`（Vertex，project `wh-gemini-1`）频繁 `429 RESOURCE_EXHAUSTED`（单账号/单 project 配额），回退到 `alibaba/qwen3.6-plus`，行为与质量都跟主模型不一致。需求：fallback 换成**第二个 Vertex 账号**跑同一个 gemini-3.1-pro，行为与主模型一致，仅换账号绕开限额。两处架构约束使"同 provider 同模型换账号"无法直接配置：①`vertex` 不在 `hermes_cli.auth.PROVIDER_REGISTRY`（auto-extend 只收 `auth_type=="api_key"`），主模型靠 `resolve_runtime_provider()` 专门解析，而 **fallback 走 `resolve_provider_client()`，只从 `PROVIDER_REGISTRY.get()` 取 pconfig** → 现有 `auth_type=="vertex"` 分支对 fallback 是够不到的死代码；②fallback 去重（`chat_completion_helpers._try_activate_fallback`）对 `provider+model` 相同的条目直接跳过。此外 `get_vertex_credentials` 里 `_resolve_project_override()`（`VERTEX_PROJECT_ID`/config）会把任何账号的 token 重绑到主 project → 第二账号 403。
+**问题**（提出时的场景：主模型也是 Vertex 上的 `google/gemini-3.1-pro-preview`）：单账号/单 project 配额下频繁 `429 RESOURCE_EXHAUSTED`，回退到 Qwen 后行为与质量都跟主模型不一致。需求：fallback 换成**第二个 Vertex 账号**跑同一个 gemini-3.1-pro，行为与主模型一致，仅换账号绕开限额。两处架构约束使"同 provider 同模型换账号"无法直接配置：①`vertex` 不在 `hermes_cli.auth.PROVIDER_REGISTRY`（auto-extend 只收 `auth_type=="api_key"`），主模型靠 `resolve_runtime_provider()` 专门解析，而 **fallback 走 `resolve_provider_client()`，只从 `PROVIDER_REGISTRY.get()` 取 pconfig** → 现有 `auth_type=="vertex"` 分支对 fallback 是够不到的死代码；②fallback 去重（`chat_completion_helpers._try_activate_fallback`）对 `provider+model` 相同的条目直接跳过。此外 `get_vertex_credentials` 里 `_resolve_project_override()`（`VERTEX_PROJECT_ID`/config）会把任何账号的 token 重绑到主 project → 第二账号 403。
 
 **修复**：新增独立 provider `vertex-fallback`，复用同一 `VertexProfile`（自动继承 `PATCH-VERTEX-HIDDEN-THOUGHTS` 的单层抑制 → 行为一致），只换凭证：
 
@@ -719,9 +729,11 @@ cat ~/.hermes/patches/.local-patches.base
 2. `hermes_cli/auth.py`：在 `PROVIDER_REGISTRY` 显式登记 `vertex-fallback`（`auth_type="vertex"`，别名 `vertex2`/`vertex-secondary`），使 `resolve_provider_client` 能取到 pconfig 并命中 vertex 分支。
 3. `agent/auxiliary_client.py`：`resolve_provider_client` 的 `auth_type=="vertex"` 分支内，按 **registry 条目的 canonical id**（`pconfig.id == "vertex-fallback"`，2026-08-07 修复——此前按原始 provider 串判定，`vertex2`/`vertex-secondary` 别名会静默铸出主账号凭据，恰是配额耗尽的那个账号）改用 `get_vertex_fallback_config` / `has_vertex_fallback_credentials`。
 4. `plugins/model-providers/vertex/__init__.py`：用同一 `VertexProfile` 类再 `register_provider` 一个 `name="vertex-fallback"` 实例，使 `get_provider_profile("vertex-fallback")` 可解析（fallback 激活后 `_build_request_kwargs` 走 profile 路径拿到单层抑制）。
-5. `hermes_cli/runtime_provider.py`（2026-07-29 补缺口）：网关 fallback 链（`gateway/run.py` `_try_resolve_fallback_provider`）解析条目走 `resolve_runtime_provider(requested=...)` 而**不是** `resolve_provider_client`；其 Vertex 分支只认主账号 5 个别名，`vertex-fallback` 静默落到 generic 尾部解析器，"成功"返回 `provider="openrouter"` + **空 api_key**——网关据此打出误导性的 `Fallback provider resolved: vertex-fallback` 日志并把坏 kwargs 交给 `AIAgent`；init 因空 key 走 router 路径，又因 `openrouter` 在豁免集合（`{auto, openrouter, custom}`）里跳过 explicit fail-fast 与 init-time fallback，最终抛 `No LLM provider configured`，用户在群聊/私聊看到 "Sorry, I encountered an unexpected error"；且链上后续条目（`alibaba/qwen3.6-plus`，NO_PROXY 直连、代理瞬断时本可救场）永远轮不到。修复：在主 vertex 分支之后新增 `("vertex-fallback", "vertex2", "vertex-secondary")` 分支，经 `get_vertex_fallback_config()` 铸 token 返回 `provider="vertex-fallback"`；凭据不可解析时抛类型化 `AuthError`，使 fallback 链前进到下一条目。触发场景：本机代理（127.0.0.1:7897）瞬断时 `oauth2.googleapis.com` token 刷新失败（"No route to host" / SSL EOF，见 `logs/agent.log*`），主 Vertex 解析抛 AuthError 进入 fallback 链。
+5. `hermes_cli/runtime_provider.py`（2026-07-29 补缺口）：网关 fallback 链（`gateway/run.py` `_try_resolve_fallback_provider`）解析条目走 `resolve_runtime_provider(requested=...)` 而**不是** `resolve_provider_client`；其 Vertex 分支只认主账号 5 个别名，`vertex-fallback` 静默落到 generic 尾部解析器，"成功"返回 `provider="openrouter"` + **空 api_key**——网关据此打出误导性的 `Fallback provider resolved: vertex-fallback` 日志并把坏 kwargs 交给 `AIAgent`；init 因空 key 走 router 路径，又因 `openrouter` 在豁免集合（`{auto, openrouter, custom}`）里跳过 explicit fail-fast 与 init-time fallback，最终抛 `No LLM provider configured`，用户在群聊/私聊看到 "Sorry, I encountered an unexpected error"；且链上后续条目（末位的 DashScope 档，NO_PROXY 直连、代理瞬断时本可救场）永远轮不到。修复：在主 vertex 分支之后新增 `("vertex-fallback", "vertex2", "vertex-secondary")` 分支，经 `get_vertex_fallback_config()` 铸 token 返回 `provider="vertex-fallback"`；凭据不可解析时抛类型化 `AuthError`，使 fallback 链前进到下一条目。触发场景：本机代理（127.0.0.1:7897）瞬断时 `oauth2.googleapis.com` token 刷新失败（"No route to host" / SSL EOF，见 `logs/agent.log*`），主 Vertex 解析抛 AuthError 进入 fallback 链。
 
-配套（非工程内补丁）：`~/.hermes/.env` 加 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID`（第二账号 SA 文件 `~/.gemini/gen-lang-client-0217395804-…json`，project `gen-lang-client-0217395804`）；`~/.hermes/config.yaml` 把 `fallback_providers` 设为 `vertex-fallback/gemini-3.1-pro`，`fallback_model` 保留 `alibaba/qwen3.6-plus` 作末位兜底（有效链 = 二者 merge 去重）。
+**当前适用性（2026-08-11）**：主力已换成 `azure-foundry/gpt-5.5`，本补丁的价值反而**变大**而非缩小——`vertex-fallback` 现在是链上唯一具备视频能力的档，`PATCH-VIDEO-SIDECAR` 直接依赖它（`pick_video_sidecar_route()` 按 `get_fallback_chain()` 顺序命中的就是它）。补丁本身与主力是谁**无关**：五个 hunk 全部落在 `vertex-fallback` 这一条 provider 的凭据解析路径上，主力走 azure 时既不经过 `resolve_runtime_provider()` 的 vertex 分支，也不经过 `resolve_provider_client()` 的 `auth_type=="vertex"` 分支，因此对 gpt-5.5 零作用面。原叙述中"与主模型行为一致"这一动机已不再成立（主力换成了别的 provider），但"第二账号绕 per-project 配额 + 提供一个能力互补的稳定档"依旧成立。
+
+配套（非工程内补丁）：`~/.hermes/.env` 加 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID`（第二账号 SA 文件与其所属 GCP project）；`~/.hermes/config.yaml` 的 `fallback_providers` 首位为 `vertex-fallback/google/gemini-3.1-pro-preview`，次位 `alibaba/qwen3.7-plus` 兜底。注意 `config.yaml` 的 `vertex.project_id` 只作用于**主** `provider: vertex`，当前留空（`''`）即用凭据自带 project——若填了某个已废弃 project，任何走到主 `vertex` 的路径都会被 `_resolve_project_override()` 重绑到该 project 而 403（2026-08-11 已清空该字段消除此隐患）。
 
 **验证**：Step 8b grep `agent/vertex_adapter.py` 存在 `def get_vertex_fallback_config` + `apply_global_project_override`；`hermes_cli/auth.py` 存在 `"vertex-fallback"`；`agent/auxiliary_client.py` 存在 `has_vertex_fallback_credentials`；`plugins/.../vertex/__init__.py` 存在 `name="vertex-fallback"`；`hermes_cli/runtime_provider.py` 存在 `"vertex-fallback", "vertex2", "vertex-secondary"` 分支；test 存在 `test_vertex_fallback_profile_registered` + `test_resolve_runtime_provider_vertex_fallback_mints_token` + `test_resolve_provider_client_alias_mints_fallback_credentials`（2026-08-07 新增：别名走 fallback 凭据、主账号铸 token 被断言不可达）。单测 14 passed / 0 failed（2026-08-07；含 7 条 fallback 回归）。真链路：`resolve_runtime_provider(requested='vertex-fallback')` 返回 `provider="vertex-fallback"`、base_url 锁定 `projects/gen-lang-client-0217395804`、api_key 为有效 OAuth token（修复前同调用返回 `provider="openrouter"` + 空 api_key）。真链路端到端：加载 `.env` 后 `get_vertex_fallback_config()` 返回 base_url 锁定 `projects/gen-lang-client-0217395804`（未被主 project 覆盖），`resolve_provider_client("vertex-fallback", model="google/gemini-3.1-pro-preview")` 返回可用 client 且真实调用返回干净答案（无 thought 段）。第二账号 SA 直连 Vertex `/v1`+`/v1beta1` global 均 200。
 
@@ -729,20 +741,26 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-VERTEX-IMAGE-ROUTING] Gemini 3.x 图片原生路由
+### [PATCH-IMAGE-NATIVE-ROUTING] 主力模型图片能力识别与原生路由
 
-| 字段     | 内容                                                          |
-| -------- | ------------------------------------------------------------- |
-| **文件** | `agent/image_routing.py`, `tests/agent/test_image_routing.py` |
-| **状态** | 🟡 未上游合并                                                 |
+| 字段     | 内容                                                                                 |
+| -------- | ------------------------------------------------------------------------------------ |
+| **文件** | `agent/image_routing.py`, `agent/models_dev.py`, `tests/agent/test_image_routing.py` |
+| **状态** | 🟡 未上游合并                                                                        |
 
-**问题**：Vertex OpenAI-compatible endpoint 没有可靠 `/models` discovery，模型目录也可能尚未收录 Gemini 3.x preview slug；`image_input_mode:auto` 因能力未知退回 auxiliary `vision_analyze`，而 Vertex-only 安装没有该辅助凭据。
+**问题**：`image_input_mode:auto` 只在能力**确认为 True** 时走 native，其余一律 `return "text"`（`image_routing.py` 决策尾部），退回 auxiliary `vision_analyze` 文本预分析。两个不同来源都会让能力"未知"：
 
-**修复**：新增窄口径 `_known_provider_model_supports_vision(provider, model)`，仅对 Vertex/vertex-fallback 常见别名和 Gemini 3.x 命名返回 `True`；其他组合继续走 config override、模型目录和原有 probe，不做泛化乐观判断。
+- **Vertex**：OpenAI-compatible endpoint 没有可靠 `/models` discovery，模型目录也可能尚未收录 Gemini 3.x preview slug；Vertex-only 安装还没有辅助 vision 凭据，退化后直接失败。
+- **azure-foundry**：`PROVIDER_TO_MODELS_DEV` 缺少该 provider 条目（2026-08-11 定位），`_get_provider_models()` 返回 None → `get_model_capabilities()` 返回 None → **该 provider 下所有模型的全部能力都查不到**（vision/tools/reasoning/limit）。gpt-5.5 因此被判 `image=text`，尽管目录里 `azure.gpt-5.5` 明确是 `modalities.input: [text, image, pdf]`、且实测 Responses API + `input_image` 原生读图正常（5.78s 正确识别）。后果不是失败而是静默绕路：同一模型被调两次（先 `vision_analyze` 生成描述、再拿二手描述回答），细节（小字、坐标、渐变）在中转丢失。
 
-**验证**：Step 8b 单独检查 known-provider helper、vertex-fallback、Gemini preview slug 和 `test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry`。
+**修复**：两个能力来源、一个不变量（主力模型能读图就必须原生读）：
 
-**上游吸收判断**：上游 capability catalog 或 provider profile 稳定声明 Vertex Gemini 3.x 图片能力后可归档。
+- 窄口径 `_known_provider_model_supports_vision(provider, model)`，仅对 Vertex/vertex-fallback 常见别名和 Gemini 3.x 命名返回 `True`；其他组合继续走 config override、模型目录和原有 probe，不做泛化乐观判断。
+- `PROVIDER_TO_MODELS_DEV` 新增 `"azure-foundry": "azure"`。选 `azure` 而非 `azure-cognitive-services`：前者是后者的严格超集（+14 模型 / -0，gpt-5.x 覆盖一致）。这是**接目录**而非加白名单——一次修复该 provider 全部 82 个模型的 vision/tools/reasoning/limit，且随上游目录自动更新，不需要为每个新模型维护本地清单。上下文长度另有独立静态表（`model_metadata.py` 已含 `gpt-5.5: 1050000`），不受此缺口影响。
+
+**验证**：Step 8b 六锚点——known-provider helper、`"vertex-fallback"`、Gemini preview slug、`test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry`、`"azure-foundry": "azure"` 映射、`test_auto_native_for_azure_foundry_gpt55_from_catalog`。后者直接断言映射条目本身（而非依赖目录可用性——`tests/conftest.py` 刻意沙箱化 `HERMES_HOME`，本机 disk cache 对测试不可见），再注入 models.dev 的真实 catalog 形状走完 `get_model_capabilities` → `decide_image_input_mode` 全链路。回归确认判定不过度泛化：gpt-5.5 / gemini-3.1-pro / qwen3.7-plus → native，纯文本 qwen3.7-max → text。
+
+**上游吸收判断**：两个单元共享"auto 模式下主力模型图片能力识别"这一责任边界与同一 Step 8b gate，必须一起回滚验收。上游 capability catalog 或 provider profile 同时稳定声明 Vertex Gemini 3.x 与 azure-foundry 的图片能力后可归档；只吸收其中一侧则相应收缩本块而不整体移除。
 
 ---
 
@@ -751,7 +769,7 @@ cat ~/.hermes/patches/.local-patches.base
 | 字段     | 内容                                                                                                                                 |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | **文件** | `agent/image_routing.py`, `gateway/run.py`, `tests/agent/test_image_routing.py`, `tests/gateway/test_image_input_routing_runtime.py` |
-| **状态** | 🟡 未上游合并；依赖 `PATCH-VERTEX-IMAGE-ROUTING` 的 Vertex/Gemini 识别                                                               |
+| **状态** | 🟡 未上游合并；依赖 `PATCH-IMAGE-NATIVE-ROUTING` 的 Vertex/Gemini 识别                                                               |
 
 **问题**：上游视频只注入本地 path note，期望模型自行用 ffprobe/ffmpeg；群聊没有 terminal，因而即使附件已缓存也看不到视频内容。图片能力不能直接等同视频能力，且视频没有缩图重试，必须使用更窄的白名单和大小边界。
 
@@ -760,6 +778,27 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b 单独检查 video decision、native-video session buffer、**gateway 接线**（`return decide_video_input_mode(` 与 per-turn consume 锚点，2026-08-07 起——此前四个锚点全部只锚定义与测试名，功能整体失效时 gate 仍报 active）和 data-URL 回归；`test_gateway_kind_video_routes_through_video_decision_table` 从 runner 边界证明 kind="video" 真正抵达视频决策表（vertex+gemini-3 → native、非白名单 → text）；`test_prepare_resets_stale_video_buffer_per_turn` 穿过真实 `_prepare_inbound_message_text` 证明陈旧视频 buffer 与图片 buffer 一同被每轮重置；测试另覆盖 Vertex primary/fallback、非视频模型、显式配置、MIME/大小守卫和实际 content parts。
 
 **上游吸收判断**：上游提供通用 native video routing、明确的视频 capability 和等价 MIME/size safety 后可归档。
+
+---
+
+### [PATCH-VIDEO-SIDECAR] 主力模型读不了视频时的旁路读取
+
+| 字段     | 内容                                                                                                                                                                                               |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/image_routing.py`, `gateway/run.py`, `tools/vision_tools.py`, `tests/agent/test_image_routing.py`, `tests/gateway/test_image_input_routing_runtime.py`, `tests/tools/test_video_analyze.py` |
+| **状态** | 🟡 未上游合并；与 `PATCH-VERTEX-VIDEO-ROUTING` 互补（native 走主力，本补丁走旁路）                                                                                                                 |
+
+**问题**：主力从 Vertex 切到 `azure-foundry/gpt-5.5` 后视频彻底读不了。`decide_video_input_mode` 返回 `text` 是**正确**的（gpt-5.5 的 models.dev 输入模态为 `text/image/pdf`，强行内联会整轮失败），但 `text` 档只是注入一个 path note、指望 agent 自己用工具拆帧——而群聊沙箱恰好挡掉了 `search_files`/`tool_search` 等所需工具（Data Pipeline Workshop 2026-08-11 19:20 实测三次工具拒绝、32.7s 空转）。于是出现"链上明明有能读视频的 Vertex 档，却因为它只是 fallback 而用不上"的空洞：native 路径要求**主力**具备视频能力，fallback 只在主力**报错**时才激活，而这里主力不报错。
+
+**修复**：新增第三条路径——旁路（sidecar）。`pick_video_sidecar_route(cfg)` 按 `get_fallback_chain()` 的既有顺序返回链上第一个能读视频的 `(provider, model)`（复用 `_known_provider_model_supports_video` 白名单，不引入第二套判定）；`_prepare_inbound_message_text` 在 `_vid_mode != "native"` 且仍有视频时调用 `_enrich_message_with_video_sidecar`，把**视频字节 + 本轮 caption/引用上下文**作为一次自包含请求发给该档，返回的文本描述前置进 message_text，主会话（gpt-5.5）照常接管并输出。
+
+关键取舍——**旁路而非切 provider**：把整轮路由到 Vertex 会把**全量 transcript** 重放给第二个后端，跨 issuer 混用 api_mode 与 reasoning 载荷（azure `codex_responses` 的 `reasoning.encrypted_content` 封在签发端，跨端重放报 400 `invalid_encrypted_content`）。旁路只发一次请求，主模型的会话、身份、工具与历史全部不变；输出以纯文本进入主会话，因此**全局生效**（DM 与所有群同一条链路），无需按群 pin 模型。上下文上界 `_VIDEO_SIDECAR_CONTEXT_MAX_CHARS=4000`（只带 caption+ 引用，绝不带 transcript），超时 `_VIDEO_SIDECAR_TIMEOUT_SECONDS=420`（14 MB 上传 + 多帧分析远超图片默认 120s）。任一视频失败/超 14 MB/文件缺失都**保留原 path-note 降级**，不静默丢弃。
+
+附带修复（同一责任边界，故并入本补丁）：`video_analyze_tool` 原先只发 `video_url` content part，而 Vertex OpenAI-compat 端点直接 400 `Unrecognized 'type' field in an object element of an array 'content' field; found: 'video_url'`——agent 自己调 `video_analyze` 在 Vertex 上是**硬失败**。改为捕获该错误后以 `image_url` + `data:video/*;base64` 形状重试一次（Vertex 对所有内联媒体都用这个形状）。不做 per-provider 硬表：DashScope/Qwen-VL 确实要 `video_url`，只有 provider 明确拒绝时才换形状。
+
+**验证**：Step 8b 11 锚点（picker 定义、复用 `get_fallback_chain`、sidecar 方法、**生产接线** `pick_video_sidecar_route(_load_gateway_config())`、上下文上界常量、形状重试、5 个测试名）。定向回归 `test_image_routing.py` + `test_image_input_routing_runtime.py` + `test_video_analyze.py` **91 passed / 0 failed**；另跑 `test_vision_tools.py` + `test_vision_native_fast_path.py` + `test_session.py` 138 passed。`test_prepare_runs_video_sidecar_when_main_model_lacks_video` 穿过真实 `_prepare_inbound_message_text` 断言：描述入正文、path-note 消失、命中 `vertex-fallback`、wire 形状是 `image_url`+`data:video/mp4`、只带 caption+ 引用、native buffer 未残留；`test_prepare_keeps_path_note_when_no_link_can_read_video` 断言链上无视频能力时 sidecar **一次都不调用**且 path-note 保留。**真链路**：用 2026-08-11 群里读失败的那个 8.3 MB mp4 实测，`vertex-fallback/gemini-3.1-pro-preview` 正确读出画面、闸机、小狗与屏幕文字（"绘声学院""8/17 开课"）及监控时间戳；坏 provider / 缺文件 / 15 MB 超限三种降级均保留 path-note 且不抛异常；`video_analyze_tool` 经 Vertex 实测命中重试日志 `Video part type 'video_url' rejected by provider; retrying as 'image_url'` 后成功返回。
+
+**上游吸收判断**：若上游提供"能力不足时按 capability 自动选辅助后端"的通用机制（即 auxiliary 任务可声明所需模态并自动落到链上具备该模态的档），可归档 picker 与 sidecar 两部分；`video_url`/`image_url` 形状协商若被上游 provider profile 吸收，可单独收缩该 hunk。**隐式合约依赖**：picker 依赖 `hermes_cli.fallback_config.get_fallback_chain` 的返回形状（list[dict] 带 `provider`/`model`）——注意它**只接受 dict/list 条目**，裸字符串 `fallback_model` 返回 `[]`；每轮升级复核该函数签名。
 
 ---
 

@@ -1,5 +1,0 @@
-#!/bin/sh
-set -eu
-
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-exec "$ROOT/hermes-agent/venv/bin/python" "$ROOT/scripts/refresh_vertex_access_token.py" "$@"

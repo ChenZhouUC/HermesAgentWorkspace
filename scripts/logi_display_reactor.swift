@@ -14,7 +14,7 @@
 // `swift -interpret` execution context (no WindowServer bootstrap, even
 // with NSApplication.run()). NSWorkspace notifications travel through the
 // distributed notification center and are known to work from background
-// daemons — vertex_wake_watcher.swift uses the same mechanism.
+// daemons, so we stay on them.
 
 import AppKit
 import Foundation

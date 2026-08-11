@@ -7,13 +7,11 @@ Usage: inject_launchd_proxy_env [--proxy-url URL] [--no-proxy VALUE] [--probe-ur
 
 Atomically inject proxy environment variables into all Hermes-related LaunchAgents:
   - ai.hermes.gateway
-  - ai.hermes.vertex-refresh
-  - ai.hermes.vertex-wake
 
 Safety guarantees:
   1. Probe the proxy with curl before touching any plist.
   2. Build and validate all new plist files first.
-  3. Replace and reload all three LaunchAgents as a transaction.
+  3. Replace and reload every LaunchAgent as a single transaction.
   4. If any step fails, restore all original plist files and reload the old services.
 
 Defaults:
@@ -109,19 +107,15 @@ PLIST_DIR="${HOME}/Library/LaunchAgents"
 BOOTSTRAP_DOMAIN="gui/$(id -u)"
 LABELS=(
     "ai.hermes.gateway"
-    "ai.hermes.vertex-refresh"
-    "ai.hermes.vertex-wake"
 )
 PLISTS=(
     "${PLIST_DIR}/ai.hermes.gateway.plist"
-    "${PLIST_DIR}/ai.hermes.vertex-refresh.plist"
-    "${PLIST_DIR}/ai.hermes.vertex-wake.plist"
 )
 
 for plist in "${PLISTS[@]}"; do
     if [[ ! -f "$plist" ]]; then
         echo "Required LaunchAgent plist is missing: $plist" >&2
-        echo "Install gateway / vertex refresh launchd first, then retry." >&2
+        echo "Run 'hermes gateway install' first, then retry." >&2
         exit 1
     fi
 done
@@ -229,6 +223,6 @@ printf '  ALL_PROXY=%s\n' "$PROXY_URL"
 printf '  NO_PROXY=%s\n' "$NO_PROXY_VALUE"
 printf '\n'
 printf 'Inspect with:\n'
-printf '  launchctl print %s/ai.hermes.gateway\n' "$BOOTSTRAP_DOMAIN"
-printf '  launchctl print %s/ai.hermes.vertex-refresh\n' "$BOOTSTRAP_DOMAIN"
-printf '  launchctl print %s/ai.hermes.vertex-wake\n' "$BOOTSTRAP_DOMAIN"
+for label in "${LABELS[@]}"; do
+    printf '  launchctl print %s/%s\n' "$BOOTSTRAP_DOMAIN" "$label"
+done

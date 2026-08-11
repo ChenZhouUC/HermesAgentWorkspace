@@ -66,7 +66,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.0 / main 33f8e96a72945afb29f3bc9ef9991940f0bedcf7, `hermes completion zsh` already emits the
+# As of v0.20.0 / main c0106e50e7ecedb3ce34e785d949725dc4e0e457, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -133,8 +133,11 @@ PATCHED_FILES=(
     "hermes_cli/runtime_provider.py"
     "agent/auxiliary_client.py"
     "agent/image_routing.py"
+    "agent/models_dev.py"
     "tests/agent/test_image_routing.py"
     "tests/gateway/test_image_input_routing_runtime.py"
+    "tools/vision_tools.py"
+    "tests/tools/test_video_analyze.py"
     "agent/replay_cleanup.py"
     "tests/agent/test_replay_cleanup.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
@@ -1575,8 +1578,9 @@ _FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _VERTEX_FALLBACK_PATCH_OK=false
-_VERTEX_IMAGE_ROUTING_PATCH_OK=false
+_IMAGE_NATIVE_ROUTING_PATCH_OK=false
 _VERTEX_VIDEO_ROUTING_PATCH_OK=false
+_VIDEO_SIDECAR_PATCH_OK=false
 _HISTORY_RETENTION_PATCH_OK=false
 _APPROVAL_TEMP_CLEANUP_PATCH_OK=false
 _FTS5_CJK_BUILD_PATCH_OK=false
@@ -2141,8 +2145,11 @@ if [[ -f "${DOCTOR_PY}" && -f "${DOCTOR_TEST_PY}" ]]; then
         grep -q 'GOOGLE_APPLICATION_CREDENTIALS' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q '"vertex"' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q '"vertex-fallback"' "${DOCTOR_PY}" 2>/dev/null &&
-        grep -q 'test_run_doctor_accepts_vertex_provider_and_google_model_slugs' "${DOCTOR_TEST_PY}" 2>/dev/null; then
-        ok "Vertex doctor patch: active (provider profile + google/* model slug accepted)"
+        grep -q 'AZURE_FOUNDRY_API_KEY' "${DOCTOR_PY}" 2>/dev/null &&
+        grep -q 'VERTEX_FALLBACK_CREDENTIALS_PATH' "${DOCTOR_PY}" 2>/dev/null &&
+        grep -q 'test_run_doctor_accepts_vertex_provider_and_google_model_slugs' "${DOCTOR_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_detects_vertex_fallback_credentials_alone' "${DOCTOR_TEST_PY}" 2>/dev/null; then
+        ok "Vertex doctor patch: active (provider profile + google/* slug + full-chain .env hints)"
         _VERTEX_DOCTOR_PATCH_OK=true
     else
         warn "Vertex doctor patch inactive or partial"
@@ -2182,25 +2189,31 @@ else
     warn "Could not locate PATCH-VERTEX-FALLBACK files"
 fi
 
-# PATCH-VERTEX-IMAGE-ROUTING: Vertex Gemini 3.x is vision-capable even when the
-# dynamic model catalog has not learned a preview slug yet.
+# PATCH-IMAGE-NATIVE-ROUTING: main-model image capability must be recognised so
+# auto mode routes natively instead of degrading to auxiliary text analysis.
+# Two capability sources, one invariant: Vertex Gemini 3.x via the narrow
+# known-provider allowlist (no reliable /models discovery), azure-foundry via
+# the models.dev catalog it was missing a provider mapping for.
 IMAGE_ROUTING_PY="${HERMES_AGENT}/agent/image_routing.py"
 IMAGE_ROUTING_TEST_PY="${HERMES_AGENT}/tests/agent/test_image_routing.py"
 IMAGE_ROUTING_RUNTIME_TEST_PY="${HERMES_AGENT}/tests/gateway/test_image_input_routing_runtime.py"
+MODELS_DEV_PY="${HERMES_AGENT}/agent/models_dev.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
-if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" ]]; then
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${MODELS_DEV_PY}" ]]; then
     if grep -q 'def _known_provider_model_supports_vision' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q '"vertex-fallback"' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'gemini-3.1-pro-preview' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-VERTEX-IMAGE-ROUTING active: Gemini 3.x images route natively"
-        _VERTEX_IMAGE_ROUTING_PATCH_OK=true
+        grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q '"azure-foundry": "azure"' "${MODELS_DEV_PY}" 2>/dev/null &&
+        grep -q 'test_auto_native_for_azure_foundry_gpt55_from_catalog' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-IMAGE-NATIVE-ROUTING active: Gemini 3.x + azure-foundry images route natively"
+        _IMAGE_NATIVE_ROUTING_PATCH_OK=true
     else
-        warn "PATCH-VERTEX-IMAGE-ROUTING inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-VERTEX-IMAGE-ROUTING]"
+        warn "PATCH-IMAGE-NATIVE-ROUTING inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-IMAGE-NATIVE-ROUTING]"
     fi
 else
-    warn "Could not locate PATCH-VERTEX-IMAGE-ROUTING files"
+    warn "Could not locate PATCH-IMAGE-NATIVE-ROUTING files"
 fi
 
 # PATCH-VERTEX-VIDEO-ROUTING: user videos use native data-URI parts and bounded
@@ -2222,6 +2235,35 @@ if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_R
     fi
 else
     warn "Could not locate PATCH-VERTEX-VIDEO-ROUTING files"
+fi
+
+# PATCH-VIDEO-SIDECAR: when the main model cannot read video, delegate ONLY the
+# video read to the first video-capable link in the fallback chain and inject
+# its description as text — no turn-wide provider switch, no transcript replay.
+# Also carries the video_url→image_url part-shape retry that makes the agent's
+# own video_analyze tool work on Vertex (which 400s on a video_url part).
+VISION_TOOLS_PY="${HERMES_AGENT}/tools/vision_tools.py"
+VIDEO_ANALYZE_TEST_PY="${HERMES_AGENT}/tests/tools/test_video_analyze.py"
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${VISION_TOOLS_PY}" && -f "${VIDEO_ANALYZE_TEST_PY}" ]]; then
+    if grep -q 'def pick_video_sidecar_route' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q 'get_fallback_chain' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q '_enrich_message_with_video_sidecar' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'pick_video_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '_VIDEO_SIDECAR_CONTEXT_MAX_CHARS' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q "retrying as 'image_url'" "${VISION_TOOLS_PY}" 2>/dev/null &&
+        grep -q 'test_picks_fallback_when_main_model_cannot_read_video' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_none_when_no_link_can_read_video' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_prepare_runs_video_sidecar_when_main_model_lacks_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_prepare_keeps_path_note_when_no_link_can_read_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_video_url_rejection_retries_as_image_url' "${VIDEO_ANALYZE_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-VIDEO-SIDECAR active: video-capable fallback link describes video in-text"
+        _VIDEO_SIDECAR_PATCH_OK=true
+    else
+        warn "PATCH-VIDEO-SIDECAR inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-VIDEO-SIDECAR]"
+    fi
+else
+    warn "Could not locate PATCH-VIDEO-SIDECAR files"
 fi
 
 # PATCH-HISTORY-RETENTION: replay-history retention window (time + count) for shared group
@@ -2312,7 +2354,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_VERTEX_IMAGE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

@@ -1,9 +1,12 @@
 model:
-  provider: vertex
-  default: google/gemini-3.1-pro-preview
+  provider: azure-foundry
+  default: gpt-5.5
+  base_url: https://admin-mj768a9d-eastus2.cognitiveservices.azure.com/openai/v1
 fallback_providers:
   - provider: vertex-fallback
     model: google/gemini-3.1-pro-preview
+  - provider: alibaba
+    model: qwen3.7-plus
 toolsets:
   - hermes-cli
 agent:
@@ -160,7 +163,7 @@ auxiliary:
     api_key: ''
     timeout: 120
     extra_body:
-      enable_thinking: true
+      enable_thinking: false
   skills_hub:
     provider: auto
     model: ''
@@ -567,7 +570,7 @@ paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
 vertex:
-  project_id: wh-gemini-1
+  project_id: ''
   region: global
 _config_version: 34
 session_reset:
@@ -628,11 +631,6 @@ smart_model_routing:
   max_simple_chars: 160
   max_simple_words: 28
   cheap_model: {}
-fallback_model:
-  provider: azure-foundry
-  model: gpt-5.5
-  base_url: https://admin-mj768a9d-eastus2.cognitiveservices.azure.com/openai/v1
-  key_env: AZOPENAI_API_KEY
 plugins:
   enabled:
     - sandbox
