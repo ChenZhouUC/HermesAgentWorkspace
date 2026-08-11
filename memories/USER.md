@@ -4,7 +4,7 @@ Feishu: Prefers concise, well-structured docs/tables. Fast, direct, jargon-free 
 §
 Tools: Execute tasks directly when safe. TUI enthusiast (prefers TUI over GUI, uses qwencode). Prefer first-party CLI/VSCode workflows. Local wiki before external lookup. NEVER auto-invoke 'gh copilot'.
 §
-Mgmt/Writing: Plain English, decision trees, business value. PPTs structured/consulting-style. Provide multiple versions/options when generating text or reports for him to choose from.
+Mgmt/Writing: Plain English, business value. PPTs consulting-style. Provide multiple options for text/translations (casual to formal), use accurate domain terms (e.g. dewarp).
 §
 AI Tech: Strong interest in agent orchestration, agent reverse-engineering, sandbox auditing, and direct CLI-based investigation.
 §
