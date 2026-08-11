@@ -123,6 +123,8 @@ work in `feishu_common.atomic_update`:
 - All API calls retry automatically on rate limits, 5xx, and dropped connections (the `RemoteDisconnected` that large `batch_delete`s trigger).
 - **Feishu 5006 CreateObjNode Error**: When creating a new doc or importing markdown, you might occasionally see an exception like `job_status=3 detail={'... 'job_error_msg': 'call CreateObjNode return error code, code: 5006...}`. This is a transient Feishu backend synchronization error during the Drive import process. **Simply re-run the exact same script command immediately** and it will usually succeed.
 
+Local validation: run `~/.hermes/hermes-agent/venv/bin/python ~/.hermes/my-skills/productivity/feishu-docs/scripts/test_feishu_common.py` to exercise version-table orchestration and rollback without network access.
+
 **RULE: If a script fails, READ the printed error, fix the input/cause, and RE-RUN the script.** Do NOT hand-roll the upload/import/table logic with inline `curl`/`urllib`/`requests` as a fallback — improvised manual API calls are exactly what produced duplicate version tables and garbled docs in the past. The scripts are the only supported write path.
 
 ---
@@ -202,7 +204,7 @@ To merge large Markdown content into an existing document with perfect native fo
 
 **群聊调用规则：** 群聊没有 `terminal`。读取任意飞书链接、下载附件以及创建、追加、重建、删除文档，一律调用结构化的 `feishu_doc_manage`；需要落地 Markdown 时先调用 `group_cache`。工具只会映射到管理员逐项批准的既有脚本，参数不经过 shell，群聊工作区内创建的文件永远不会作为脚本执行。
 
-新读取脚本本体 (`read_sheet.py`/`read_bitable.py`/`download_feishu_file.py`/`feishu_render.py`) 是纯标准库，复用 `feishu_common.py` 取 token。
+新读取脚本本体 (`scripts/read_sheet.py`/`scripts/read_bitable.py`/`scripts/download_feishu_file.py`/`scripts/feishu_render.py`) 是纯标准库，复用 `scripts/feishu_common.py` 取 token。
 
 单独调用各子脚本：
 
