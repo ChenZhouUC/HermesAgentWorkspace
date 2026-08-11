@@ -404,6 +404,7 @@ PY
 | config 迁移一次性重置用户可见状态（如 v34 personality reset） | 迁移本身属 P0 当轮执行（`hermes doctor --fix`），但遇到"上游有意重置用户状态"的迁移时**不回写旧值**——那会复活迁移要消灭的歧义态。记录旧值与官方恢复命令，在最终报告显著提示由用户决定是否恢复。v34 实例（2026-08-10）：`display.personality: kawaii → none`（该值自 2026-04-15 初始提交未变），恢复用 `/personality kawaii`；迁移伴随的 YAML 引号/列表风格重排为语义无变化噪音。 |
 | `hermes doctor --fix` 报 `platform 'X' references unknown toolset` | 该校验（`hermes_cli/toolset_validation.py`，#38798 动机）仅在 `--fix`/迁移路径运行，普通 doctor 不报。先分流：**插件运行时注册名**（如 `sandbox_group`）在 CLI 上下文未加载网关插件属预期误报，不修；**真实死条目**（如 `vision_tools`——注册名实为 `vision`，`resolve_toolset` 恒返回空）按群聊工具两层一致原则处置——沙箱 allowlist 本就不放行的能力直接删条目（运行时行为零变化），确需该能力才改正名并同步 allowlist。凡触及 `plugins/sandbox/verify.sh` 期望契约的改动必须复跑 Step 8e verifier。2026-08-10 已删 `vision_tools` 死条目。 |
 | `test_read_extract.py` 报 3 skipped（firecrawl-anydoc not installed） | 上游 real-binding 测试类按设计在可选包 `firecrawl-anydoc` 缺失时跳过；本机未装，**3 skipped 是预期基线、不是回归**（2026-08-10 起）。安装该包属引入全新依赖，不在常设授权内；上游将 anydoc 转为必需依赖、或用户明确决定安装后，删除本 row 并更新基线。 |
+| doctor 报 `⚠ browser (system dependency not met)` 而 agent-browser/Playwright 均 ✓ | Browser Use CLI 模式的表象而非依赖缺失：`browser.backend` 未设时，只要 browser-use CLI"可运行"（含仅有 `uvx` 在 PATH，首用才从 PyPI 临时拉包）即接管默认后端（上游 `a1835c8c1`/`8d8bc85dc`，2026-08-11 起），内建 browser\_\* 整体隐藏、由 `browser_exec` 替代。本机以 `browser.backend: 'off'` 锁回内建工具（YAML 值必须加引号，裸 `off` 会被解析成布尔 False 走回默认判定）；启用 Browser Use 属引入全新依赖，须用户明确 opt-in 并本机验证。用户启用后或上游改为要求真实安装二进制时，删除或改写本 row。 |
 
 > 这张表是**可扩展也可收缩**的：发现新摩擦就追加 row，且每个 row 的处置栏必须包含（显式一句或隐含于修法的）退场条件；Step 5c 每轮按退场条件审计本表——已消费的一次性预案、引用已归档/已移除事物的 row、连续多轮未触发的非结构性 row 当轮删除。
 

@@ -54,6 +54,10 @@ web:
   search_backend: ''
   extract_backend: ''
 browser:
+  # 'off' pins the built-in browser_* tools (agent-browser); upstream a1835c8c1
+  # made Browser Use CLI the default, which would uvx-download a never-installed
+  # package on first use — opt in deliberately, not by default fallthrough.
+  backend: 'off'
   inactivity_timeout: 120
   command_timeout: 30
   record_sessions: false
