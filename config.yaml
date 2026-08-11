@@ -625,8 +625,10 @@ smart_model_routing:
   max_simple_words: 28
   cheap_model: {}
 fallback_model:
-  provider: alibaba
-  model: qwen3.7-plus
+  provider: azure-foundry
+  model: gpt-5.5
+  base_url: https://admin-mj768a9d-eastus2.cognitiveservices.azure.com/openai/v1
+  key_env: AZOPENAI_API_KEY
 plugins:
   enabled:
     - sandbox

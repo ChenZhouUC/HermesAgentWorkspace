@@ -446,18 +446,18 @@ compression:
 
 当前 thinking/reasoning 配置与可见性：
 
-| 位置                                      | 当前                  | 模型                           | TUI 可见 | 飞书可见                  |
-| ----------------------------------------- | --------------------- | ------------------------------ | -------- | ------------------------- |
-| 主 agent (`agent.reasoning_effort`)       | high                  | gemini-3.1-pro-preview         | 不展示   | 不展示                    |
-| 子 agent (`delegation.reasoning_effort`)  | high                  | 默认继承主模型                 | 不展示   | 不展示                    |
-| Fallback (`fallback_model`)               | —                     | qwen3.6-plus（reasoning=True） | 不展示   | 不展示                    |
-| 压缩 (`auxiliary.compression.extra_body`) | enable_thinking: true | qwen3.6-plus                   | —        | —（后台任务，不前端展示） |
-| 显示开关 (`display.show_reasoning`)       | false                 | —                              | —        | —                         |
+| 位置                                      | 当前                  | 模型                             | TUI 可见 | 飞书可见                  |
+| ----------------------------------------- | --------------------- | -------------------------------- | -------- | ------------------------- |
+| 主 agent (`agent.reasoning_effort`)       | high                  | gemini-3.1-pro-preview           | 不展示   | 不展示                    |
+| 子 agent (`delegation.reasoning_effort`)  | high                  | 默认继承主模型                   | 不展示   | 不展示                    |
+| Fallback (`fallback_model`)               | —                     | gpt-5.5（Azure，Responses 路径） | 不展示   | 不展示                    |
+| 压缩 (`auxiliary.compression.extra_body`) | enable_thinking: true | qwen3.6-plus                     | —        | —（后台任务，不前端展示） |
+| 显示开关 (`display.show_reasoning`)       | false                 | —                                | —        | —                         |
 
 **已知限制**：
 
 - 主模型走官方 `model.provider: vertex` + Vertex OpenAI 兼容端点 (`aiplatform.googleapis.com/.../openapi`)。Hermes 会把 Vertex 视作 Gemini-family provider，模型 ID 保留 `google/gemini-*` 的点号，并通过 provider-specific 路径处理 OAuth token refresh 与 Gemini thinking 参数。
-- Fallback 触发后切到 qwen3.6-plus 的对话本身仍可能返回 reasoning；但当前 `display.show_reasoning: false`，前端不展示 thinking 段落。若临时改回 `true`，会重新显示前缀 `💭 **Reasoning:**` 的内容。
+- Fallback 触发后切到 gpt-5.5（`azure-foundry`，codex-az 同源 Azure 端点，走 Codex Responses 路径）的对话本身仍可能返回 reasoning；但当前 `display.show_reasoning: false`，前端不展示 thinking 段落。若临时改回 `true`，会重新显示前缀 `💭 **Reasoning:**` 的内容。压缩模型仍为 qwen3.6-plus（DashScope），故 `.env` 保留 DASHSCOPE 凭据。
 - 若后续发现 Vertex thinking trace 在特定前端仍不可见，优先按官方 `vertex` provider 路径排查，不再回到旧 `custom + VERTEX_ACCESS_TOKEN` 识别补丁思路。
 
 ### 流式输出
