@@ -678,7 +678,7 @@ hermes gateway restart             # 重启 gateway 加载插件
 - 群聊放行 `skills_list` / `skill_view` 只打开“读 skill”通路；实际可读 skill 仍由 `skills.platform_allowed.feishu_group` 限制。当前配置允许 `llm-wiki`、`feishu-docs` 与 `excel-processing`，不开放 `skill_manage`。放行的 skill 里若带 `scripts/`，群聊也只能「读」不能「跑」——群聊没有 `terminal` / `process`，`feishu_doc_manage` 只映射 `feishu_doc_scripts_root` 下的固定 action。
 - `read_file` / `search_files` 只允许 `~/.hermes/wiki` 和当前群自己的工作区。`~/.hermes/tmp/group-workspaces/<chat-id-hash>/` 按群隔离，其他群工作区、`tmp/nightly_report`、`cache`、`skills`、`my-skills` 均不能通过文件工具访问。
 - 群聊不拥有 `terminal` / `process` / `write_file` / `patch`。`group_cache` 用结构化参数完成当前群工作区内的读写、移动和删除；`feishu_doc_manage` 把固定 action 映射到管理员逐项批准的既有脚本，群聊不能传脚本路径或原始 argv。`group_cache` / `feishu_doc_manage` 响应只返回相对路径和 `workspace_id`，不把宿主绝对工作区路径暴露给群聊。
-- `group_cache` / `feishu_doc_manage` 属于 Feishu group 的 deferred plugin tools；它们必须能通过 `tool_search` / `tool_describe` 被发现和描述，不能依赖模型猜 schema。`plugins/sandbox/verify.sh` 会用真实 `feishu_group` toolset 锁住这一点，所以灰度群和其他群保持同一工具面。
+- `group_cache` / `feishu_doc_manage` 属于 Feishu group 的 deferred plugin tools；它们必须能通过 `tool_search` / `tool_describe` 被发现和描述，不能依赖模型猜 schema。`tool_search` / `tool_describe` 是只读工具目录桥，群聊显式放行；`tool_call` 会先按当前 `feishu_group` toolset 解包成底层工具再进 sandbox hook。`plugins/sandbox/verify.sh` 会用真实 `feishu_group` toolset 和 sandbox hook 锁住这一点，所以灰度群和其他群保持同一工具面。
 - 既有脚本用 argv + `shell=False` 启动；macOS `sandbox-exec` profile 由插件生成并由子进程继承，整个进程树只允许写当前群工作区。若进程沙箱不可用，脚本工具 fail closed。工作区文件作为数据使用，永不作为脚本执行；stdout/stderr 回传前会脱敏 Bearer token、Feishu app secret 与 tenant token，上传 helper 也不会把含凭据的 curl argv 串进 traceback。
 - 不用 `threading.local`（asyncio 多协程同线程会串），不用 `set_thread_tool_whitelist`（同样问题），坚持 ContextVar。
 
@@ -693,6 +693,8 @@ allowed_tools_for_outsiders:
   - vision_analyze
   - image_generate
 allowed_tools_for_outsider_groups:
+  - tool_search
+  - tool_describe
   - skills_list
   - skill_view
   - feishu_doc_read

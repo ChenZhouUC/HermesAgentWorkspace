@@ -30,6 +30,8 @@ def group_config(tmp_path, monkeypatch):
         "_GROUP_ALLOWED_TOOLS",
         frozenset(
             {
+                "tool_search",
+                "tool_describe",
                 "skills_list",
                 "skill_view",
                 "feishu_doc_read",
@@ -175,6 +177,11 @@ def test_group_has_no_terminal_or_direct_write_surface(group_config, tmp_path):
         "action": "block",
         "message": sandbox._READ_ROOT_BLOCK_MESSAGE,
     }
+
+
+def test_group_allows_readonly_tool_discovery_bridge(group_config):
+    assert sandbox._on_pre_tool_call(tool_name="tool_search", args={"query": "group cache"}) is None
+    assert sandbox._on_pre_tool_call(tool_name="tool_describe", args={"name": "group_cache"}) is None
 
 
 def test_invalid_config_fails_closed_for_feishu_but_not_cli(group_config, monkeypatch):

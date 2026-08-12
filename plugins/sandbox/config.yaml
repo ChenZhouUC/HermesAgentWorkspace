@@ -16,6 +16,8 @@ allowed_tools_for_outsiders:
 # Group tools stay structured: there is no generic terminal, write_file, patch,
 # or process tool. Skill names remain constrained by skills.platform_allowed.
 allowed_tools_for_outsider_groups:
+  - tool_search
+  - tool_describe
   - skills_list
   - skill_view
   - feishu_doc_read
@@ -51,5 +53,5 @@ group_max_download_bytes: 50000000
 # workspace, and is inherited by child processes such as curl.
 require_process_sandbox: true
 
-block_message: "本会话不支持该工具。群聊仅开放问答、联网搜索、图片能力、只读 wiki/skill、当前群隔离的 tmp 工作区，以及受进程沙箱保护的飞书文档操作。"
+block_message: "本会话不支持该工具。群聊仅开放问答、联网搜索、图片能力、只读 wiki/skill、工具发现/描述、当前群隔离的 tmp 工作区，以及受进程沙箱保护的飞书文档操作。"
 read_root_block_message: "群聊只允许读取 ~/.hermes/wiki 和当前群自己的 ~/.hermes/tmp/group-workspaces/<群哈希>/；skills/my-skills 只能通过只读 skill 工具访问。"

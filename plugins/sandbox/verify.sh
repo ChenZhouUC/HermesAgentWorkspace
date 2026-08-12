@@ -137,6 +137,8 @@ assert not any(
 
 assert plugin.get("owner_feishu_chat_ids"), "owner Feishu chat id must be configured"
 assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
+    "tool_search",
+    "tool_describe",
     "skills_list",
     "skill_view",
     "feishu_doc_read",
@@ -207,6 +209,8 @@ if [[ -x "${VENV_PYTHON}" ]] &&
     (
         cd "${HERMES_AGENT}" &&
             "${VENV_PYTHON}" - <<'PY'
+import importlib
+
 from hermes_cli.config import load_config
 from hermes_cli.plugins import discover_plugins
 from hermes_cli.tools_config import _get_platform_tools
@@ -280,9 +284,22 @@ describe_doc = tool_search.dispatch_tool_describe(
 )
 assert '"name": "group_cache"' in describe_group
 assert '"name": "feishu_doc_manage"' in describe_doc
+
+# Also pass through the actual sandbox pre_tool_call hook. The dispatch checks
+# above alone can be green while Feishu groups still block the bridge tools.
+sandbox = importlib.import_module("hermes_plugins.sandbox")
+sandbox._current_platform.set("feishu")
+sandbox._current_chat_id.set("oc_verify_group")
+sandbox._current_chat_type.set("group")
+assert sandbox._on_pre_tool_call(tool_name="tool_search", args={"query": "group cache"}) is None
+assert sandbox._on_pre_tool_call(tool_name="tool_describe", args={"name": "group_cache"}) is None
+assert sandbox._on_pre_tool_call(tool_name="terminal", args={"command": "id"}) == {
+    "action": "block",
+    "message": sandbox._BLOCK_MESSAGE,
+}
 PY
     ); then
-    echo "OK   runtime toolsets keep owner Feishu DM full, Feishu groups restricted, and sandbox tools discoverable"
+    echo "OK   runtime toolsets keep owner Feishu DM full, Feishu groups restricted, and sandbox tools discoverable through hooks"
 else
     echo "FAIL runtime platform toolset resolution violates the owner/group boundary"
     fail=1
@@ -315,6 +332,8 @@ if [[ -r "${AGENT_LOG}" ]]; then
         echo "     Run 'hermes plugins enable sandbox && hermes gateway restart' and re-check."
         fail=1
     elif echo "${current_reg}" | grep -q 'active=True' &&
+        echo "${current_reg}" | grep -q 'tool_search' &&
+        echo "${current_reg}" | grep -q 'tool_describe' &&
         echo "${current_reg}" | grep -q 'group_cache' &&
         echo "${current_reg}" | grep -q 'feishu_doc_manage'; then
         # Strip the date+level prefix for readability.
