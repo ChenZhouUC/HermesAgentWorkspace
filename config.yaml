@@ -105,9 +105,9 @@ tool_loop_guardrails:
 compression:
   enabled: true
   threshold: 0.7
-  threshold_tokens: 150000
+  threshold_tokens: 600000
   target_ratio: 0.2
-  protect_last_n: 20
+  protect_last_n: 40
   hygiene_hard_message_limit: 400
   protect_first_n: 3
   abort_on_summary_failure: false
@@ -412,6 +412,7 @@ skills:
     feishu_group:
       - llm-wiki
       - feishu-docs
+      - excel-processing
 curator:
   enabled: true
   interval_hours: 168

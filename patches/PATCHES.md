@@ -241,6 +241,7 @@ PATCHED_FILES=(
     "tests/gateway/test_background_command.py"
     "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
+    "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
@@ -266,7 +267,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（67 文件，2026-08-11 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（68 文件，2026-08-12 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -287,17 +288,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.0 (upstream `main` `c0106e50e7ecedb3ce34e785d949725dc4e0e457`，2026-08-11)
+## 当前版本：v0.20.0 (upstream `main` `222465d84709379b65173b0283a6eea87516acfa`，2026-08-12)
 
-**活跃补丁**：当前共 31 个语义补丁。24 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 33 个语义补丁。26 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.20.0 → v0.20.0，+17 commits，basis `33f8e96a72945afb29f3bc9ef9991940f0bedcf7` → `c0106e50e7ecedb3ce34e785d949725dc4e0e457`，2026-08-11）要点**：
+**最近一次升级（v0.20.0 → v0.20.0，+65 commits，basis `c0106e50e7ecedb3ce34e785d949725dc4e0e457` → `222465d84709379b65173b0283a6eea87516acfa`，2026-08-12）要点**：
 
-- 上游主线：本轮是**小步收尾轮**（17 commits，无功能大集群）。Gateway 三处路由语义收紧——`9829746df` 要求显式 route rejection marker（不再把任意 falsy 返回当拒绝）、`c8f235a10` 新增 `multiplex_profile_allowlist` 支持选择性 multiplex profile 服务、`a31be4803` 让 routed profile 各自的 busy input/text mode 生效（新增 `_busy_input_modes_by_profile` / `_busy_text_modes_by_profile` 快照）；Desktop 侧 8 个 commit 集中在 renderer-lifecycle 诊断接线（`11f920b81` / `d96639381` / `0c1a11ada`）、单所有者 console capture + HUD 生命周期覆盖（`0a60b164f`）、Windows launcher 保活（`1edfdeee8`）、custom provider 设置按 active profile 隔离（`1e6a7b331` + 测试 `1db3405c0`）、首启 Fireworks 收进 provider disclosure（`9d6c5a920`）；`c0106e50e` 修 kimi provider 误发 `claude-code/0.1.0` attribution header 改为 Hermes 归属。
-- patch apply / registry：67 个受管文件本轮 **clean apply**（无 3-way、无人工冲突），30 个 Step 8b sentinel 全 OK。31 个活跃 PATCH 逐个在**裸 upstream `c0106e50e`** 复核吸收判断：0 新增 / 0 归档 / 0 收缩。上游触及的 5 个受管文件（`gateway/run.py` +189/-20、`gateway/config.py` +73/-1、`gateway/platforms/base.py` +10、`gateway/session.py` +3、`tests/gateway/test_config.py` +19）改动全部落在 multiplex / profile-routing / busy-mode 区域，与本地 Feishu、sandbox、Vertex、视频路由不变量正交。两处 grep 命中经上下文核实**不是吸收**：`platform_toolsets`（18 命中）是上游既有基础设施，与 `PATCH-PLATFORM-CAPABILITY-SCOPE` 新增的 `platform_toolset_options` / `recover_platform_tools` 是不同 key；`HERMES_GATEWAY_TOKEN`（1 命中）恰是 `PATCH-OPENCLAW-TOKEN-MIGRATION` 要删除的那一行，删除型补丁的命中证明补丁仍必需。bundle/base/full-index、cached 正向、worktree 反向、index-clean 闭环全绿。
-- 依赖：venv **未重建**（无 runtime repair、无 `venv.stale.*`、uv fallback 0 次），pytest/pytest-asyncio/python-socks/pypdf/yaml/httpx/openai 七项在位复核通过，故 Step 2b 为 no-op；lazy features 19 项全部 current。npm audit fix exit 1 → 残余 **1 high**（electron 40.0.0-alpha.2–41.10.2 两条 GHSA，修复需 `--force` 装 electron@40.10.6 越 stated range）→ P2 上游 lock/range 阻挡，Desktop 链、不影响飞书主链路；较上轮 7 vulnerabilities 下降（node-tar 链已随上游 lock 消解）。package-lock 58±58 行为 `apps/desktop/node_modules/@electron/get` 等条目的**纯位置归一化**（逐条比对无 version 升降、`package.json` 未改），保留 bundle 外。Skills：官方 sync 14 updated，mirror already in sync（本轮无 `+/~/-` 振荡）。
-- 已知摩擦：固定 SHA `c0106e50e` 一次获取正常消费，无 fetch retry、无 autostash、无 staged index。回归 **27 files 900 passed / 0 failed / 3 skipped**；相对上轮 26 files/868 的 +32 已逐项对账：`tests/tools/test_video_analyze.py` 首次纳入清单 +18（16 上游 + 2 本地）、本会话新增本地回归 +13（image_routing +8、image_input_routing_runtime +2、doctor +3）、上游 `c8f235a10` 给 `test_config.py` 加 `test_multiplex_allowlist_from_nested_gateway_section` +1 —— 无测试消失、无 collection 异常、无关键用例改名或跳过。3 skipped 仍是摩擦表登记的 firecrawl-anydoc 可选依赖基线。
-- 配置漂移：Config version **v34 up to date**，无迁移、无 deprecated key。`hermes doctor` 终态 **All checks passed 🎉**；上轮记录的 `gemini (HTTP 400)` 直连探针告警本轮已自行消失（gemini 行转 ✓）。剩余 ⚠ 全属 P3 未配置类（telegram/Nous Portal/Codex/MiniMax/xAI/OpenRouter 未登录、bfl/browser-cdp/browser-use/computer_use/homeassistant/image_gen/spotify/video_gen 系统依赖未装、discord/x_search 缺 token、Skills Hub 未初始化），均不在飞书主链路。Gateway PID 链：58428 →（官方 updater 排空）75265 →（Step 8d 排空）76250，sandbox verifier 绑定 76250 通过。
+- 上游主线：**Windows/跨平台加固 + Desktop 更新器重写**两大集群。Windows 侧 `ee472a7fd` 修 agent-loop 路径分割/哈希/补全/截图/OS 检测、`e1caf88c6` 把审批系统扩到 Windows 破坏性命令与路径（`tools/approval.py` +65，新增 taskkill/reg/vssadmin/bcdedit/Remove-Item/`iwr|iex` 等 lowercase 模式）、`4a2198bf5` 修 MCP PATHEXT 解析、`1156ba43b` 引导 agent 避开 MSYS 路径、`f20d16fbf` SSH ControlMaster 门控且不再劫持用户 python、`197a18314` 警示勿用 pty 驱动交互式 console TUI。Desktop 更新器整条链重写为 quit-first hand-off（`c991e3f62` posix orchestrator、`503e61b3b` Windows shim UI + 事件通道、`c9f0b6824` 替换 in-app posix updater，及 `f121cd8a0` / `bdb4cfd35` / `1dd5c9de8` / `ba28a18b9` / `968ec6c6f` / `4280413db` 六个收敛修复）。Gateway：`356c702b5` scale-to-zero 改由 flaps socket 自挂起、`5fffe5606` 把常驻 supervised watcher 从 busy 判定中排除（`gateway/run.py` +159/-40，新增 `_scale_to_zero_active_messaging_platforms`）、`0cf48bca2` / `48c233d50` 把 channel-directory 与其余 atomic_json_write 移出事件循环、`bb597e1c0` 让 managed-cron 在 gateway 进程内触发、`76d832d38` cron 经 canonical home_channel 投递 relay 平台、`333536e7c` 给 Discord interaction 打逻辑平台+relay trust 戳。工具链：`76961b61b` / `89556c63a` / `222465d84` 隔离外部项目环境并统一 probe 缓存、heredoc 掩码三连（`2bfdd8cd3` / `307cc814a` / `33855f1b3`）、`14692ec91` 让 `verify_on_stop` 全面改为 opt-in 默认 False、`223f70301` 封 provider-anthropic MiniMax 代理绕过、`87af576e6` 标题生成改用主模型。
+- patch apply / registry：68 个受管文件本轮 **clean apply**（无 3-way、无人工冲突），Step 8b sentinel 全 OK。33 个活跃 PATCH 逐个在**裸 upstream `222465d84`** 复核吸收判断：**0 归档 / 0 收缩**；本轮新增 2 个 —— `PATCH-COMPACTION-LIFECYCLE-SILENCE`（自动 compaction 的 done 边未被上游登记进 `ROUTINE_COMPRESSION_STATUS_SAMPLES`，逃过噪声抑制与 `progress_notices` 开关，2026-08-12 两次把 `✓ Context compaction complete` 发进 SpaceSight 技术分享专项群）与 `PATCH-FEISHU-QUOTE-CHAIN-SESSION`（入站把飞书 `root_id` 当 `thread_id` 回退，使每条引用链切出独立 session，同群 2 小时内产生 3 个 session、反复重载 skill 与回填）。上游触及的 8 个受管文件（`gateway/run.py` +159/-40、`tools/approval.py` +65、`agent/prompt_builder.py` +37、`agent/auxiliary_client.py` ±42、`hermes_cli/tools_config.py` +21、`gateway/slash_commands.py` +6、`tools/skill_manager_tool.py` +4、`website/docs/user-guide/configuration.md` +2）改动全部落在 Windows 审批层、scale-to-zero/watcher、probe 缓存与文案区域，与本地 Feishu、sandbox、Vertex、compaction 不变量正交。三处吸收判定经裸上游复核**均非吸收**：`tools/approval.py` 的 Windows 破坏性层与 `PATCH-APPROVAL-DARWIN-TMP` 的 `/private` realpath 别名问题无交集（对该 diff grep `realpath|private|symlink` 零命中）；`tools/skill_manager_tool.py` 仅改 patch 工具 schema 文案，`_resolve_skill_dir()` 在 `222465d84` 仍固定 `_skills_dir() / name`，`PATCH-SKILL-CREATE-ROOT` 继续必需；`plugins/platforms/feishu/adapter.py` 本轮上游**未触及**，`reply_in_thread = bool(metadata.thread_id)` 与入站 `or root_id` 两处反向语义仍在，两条 Feishu 补丁的对撞警示继续有效。bundle/base/full-index、cached 正向、worktree 反向、index-clean 闭环全绿；受管文件 67 → 68。
+- 依赖：venv **未重建**（无 runtime repair、无 `venv.stale.*`、uv fallback 0 次），pytest/pytest-asyncio/python-socks/pypdf/yaml/httpx/openai 七项在位复核通过，Step 2b 为 no-op；lazy features 19 项全部 current。npm audit 残余 **1 high**（electron 40.0.0-alpha.2–41.10.2 两条 GHSA：GHSA-r4w5-6pfg-jxp5 会话缓存复用、GHSA-9f4c-93c8-jc8g sandboxed iframe 绕过 allow-popups；`fixAvailable` 指向 40.10.6 越 stated range，需 `--force`）→ P2 上游 lock/range 阻挡，Desktop 链、不影响飞书主链路。`package-lock.json` 58±58 行经逐条比对为 `@electron/get` / `electron` / `@types/node` / `undici-types` 四条目的**纯位置归一化**（version 多重集前后完全相同、`package.json` 未改），保留 bundle 外。Skills：官方 sync 25 updated，mirror 仅 llm-wiki 固定振荡。
+- 已知摩擦：固定 SHA `222465d84` 一次获取正常消费，无 fetch retry、无 autostash、无 staged index。**Step 8e 首轮 FAIL 是本轮唯一 P0**：`plugins/sandbox/verify.sh` 把群聊 skill allowlist 硬断言为 `["llm-wiki","feishu-docs"]`，而先前给 `config.yaml` 增开 `excel-processing` 时未同步 verifier —— 这正是该 verifier 存在的意义（扩大群可读面必须是显式且被验证的动作）。已更新契约并注明「excel-processing 是只读知识，其 `scripts/` 在群聊无法执行——群 toolset 无 terminal/process/code_execution，`feishu_doc_manage` 只映射 `feishu_doc_scripts_root` 下固定 action——故不扩大工具面」；verifier 复跑 10 OK / 0 FAIL、21 passed。回归 **28 files 1042 passed / 0 failed / 3 skipped**；相对上轮 27 files/900 的 +142 已逐项对账：`tests/gateway/test_telegram_noise_filter.py` 首次纳入受管清单 +133（上游既有用例）、本轮新增 compaction 两端边界回归 +8、quote-chain session 回归 +1 —— 无测试消失、无 collection 异常、无关键用例改名或跳过。3 skipped 仍是 firecrawl-anydoc 可选依赖基线。
+- 配置漂移：Config version **v34 up to date**，无迁移、无 deprecated key。`compression` 按三档模型窗口重新标定：主力 `azure-foundry/gpt-5.5`（1,050,000）与 fallback `vertex-fallback/google/gemini-3.1-pro-preview`（1,048,576）、`alibaba/qwen3.7-plus`（1,000,000）窗口同量级，原 `threshold_tokens: 150000` 把 `threshold: 0.7` 压成实际仅 14% 窗口占用并放大重复压缩，改为 600000（≈57%，tail 120k）、`protect_last_n` 20 → 40。群聊 skill 白名单增开 `excel-processing`（统一对所有群生效，非按群配置）。Gateway PID 链：45785 →（官方 updater 排空）54758 →（Step 8d 排空）56882。
 
 ---
 
@@ -555,6 +556,40 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b 单独检查 `reply_in_thread = False`、忽略 thread metadata 的实现和回归测试，并带两条**负向锚点**（`! grep 'reply_in_thread = bool'`、`! grep '_build_create_message_request("thread_id"'`，2026-08-07 起）——正向锚点只证明本地行存在，无法发现 3-way 把上游 metadata-driven lane 在注释下方重新合入的对撞形态；覆盖普通引用、文档回复和无引用锚点三条路径。
 
 **上游吸收判断**：上游提供明确的普通引用/话题开关并保证 generic thread metadata 不改变 Feishu 投递 lane 后可归档。**对撞警示**（2026-08-03 审计）：post-26e0b1c 上游在同一 send/reply-body 区域走**相反语义**——`reply_in_thread = bool(metadata.thread_id)`（metadata 驱动投递 lane），与本补丁"固定 `reply_in_thread=False`、忽略 generic thread metadata"直接冲突。下次升级该区域的 3-way 结果**不可信任自动合并**：必须人工按本补丁不变量重解（普通引用回复永不进 thread lane），并以现有回归测试三条路径复验后才能刷新 bundle。
+
+---
+
+### [PATCH-FEISHU-QUOTE-CHAIN-SESSION] 引用链不切分群会话
+
+| 字段     | 内容                                                                  |
+| -------- | --------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_feishu.py` |
+| **状态** | 🟡 未上游合并（上游入站仍 `thread_id or root_id`）                    |
+
+**问题**：入站 `_process_inbound_message` 把 `thread_id` 解析为 `getattr(message,"thread_id") or getattr(message,"root_id")`。但飞书的 `root_id` 是**引用链根**，不是话题 id——群里每条未引用的发言都会开一个新 root。`build_session_key`（`gateway/session.py:1744`）看到 `thread_id` 就把它拼进 session key，于是**每条引用链各自切出一个独立 session**：明明没有任何 reset 生效（`session_reset.idle_minutes: 1440` 远未到），`SpaceSight技术分享专项群` 2026-08-12 两小时内产生 3 个 session（`...:om_x100b688abc...` / `...:om_x100b68f54d...` / `...:om_x100b68f5e9...`），与 8/07、8/11 干净的群级 key 形成对照。每个新 session 都从零重载 `llm-wiki`(22k) + `feishu-docs`(33k) 全文与 30 分钟历史回填，直接放大 compaction 压力（当日 15:04–15:06 两分钟内连压两次的成本来源）。上游自己知道这个 conflate——`adapter.py` 出站侧注释明写 "The inbound handler conflates root_id into thread_id"，但只在出站钉了 `reply_in_thread=False`（`PATCH-FEISHU-NORMAL-REPLY`），**入站的 session key 污染没有对应修复**。
+
+**修复**：入站只取真正的 `thread_id`，删除 `root_id` 回退。飞书话题/thread lane 本机刻意不用（`thread_id` 实测恒为 None），因此这是纯粹移除一条错误回退，不改变任何既有可用行为。**引用链能力完整保留**：链条由第 3659 行独立计算的 `reply_to_message_id`（`parent_id` → `upper_message_id` → `root_id`）与 `reply_to_text` 承载，与本字段无关。`_resolve_channel_prompt(chat_id, thread_id)` 的第二参在 `feishu.channel_prompts` 未配置时（本机即未配置）不产生行为差异。
+
+**验证**：`tests/gateway/test_feishu.py::test_quote_chain_root_id_does_not_become_thread_id_or_split_session` 构造带 `root_id="om_chain_root"` + `parent_id="om_quoted"` 的真实引用回复，断言三件事：`event.source.thread_id is None`；**用真实 `build_session_key` 求值**得到 `agent:main:feishu:group:oc_grp` 且不含 `om_chain_root`（行为断言而非 grep）；`reply_to_message_id` / `reply_to_text` 仍正确送达（证明只去掉会话切分、没有削弱引用能力）。测试为 load-bearing：恢复 `or root_id` 后该用例在 `assertIsNone(event.source.thread_id)` 失败。既有 14 处 `root_id=None` 用例判定不变，27 个受管测试文件 1042 passed / 0 failed / 3 skipped。
+
+**上游吸收判断**：当上游入站不再把 `root_id` 当 `thread_id` 回退（或为飞书引入真正区分"话题 id"与"引用链根"的字段）时可归档。与 `PATCH-FEISHU-NORMAL-REPLY` 是同一 conflate 的两侧：那条守出站投递 lane，本条守入站 session 身份；两者可被不同上游 PR 分别吸收，故不合并为一个补丁。每轮升级须复核该行未被 3-way 恢复成 `or root_id` 形态。
+
+---
+
+### [PATCH-COMPACTION-LIFECYCLE-SILENCE] 自动 compaction 两端边界都不进聊天
+
+| 字段     | 内容                                                                         |
+| -------- | ---------------------------------------------------------------------------- |
+| **文件** | `gateway/run.py`, `tests/gateway/test_telegram_noise_filter.py`              |
+| **状态** | 🟡 未上游合并（上游 `ROUTINE_COMPRESSION_STATUS_SAMPLES` 仍只登记 start 边） |
+
+**问题**：自动 compaction 生命周期有两条状态边——start（`COMPACTION_STATUS`）与 done（`COMPACTION_DONE_STATUS`，由 `_emit_compaction_done` 发出）。上游把 8 条 routine 状态登记进 `agent/conversation_compression.py` 的 `ROUTINE_COMPRESSION_STATUS_SAMPLES`，**唯独漏掉 done 边**。该元组既是 `_TELEGRAM_NOISY_STATUS_RE` 的耦合基准、又是 `_COMPRESSION_PROGRESS_STATUS_RE` 的构造来源，漏登记等于同时逃过噪声抑制和 `compression.progress_notices` 开关：start 被过滤、done 原文投递。2026-08-12 15:04:55 与 15:05:48，`✓ Context compaction complete — continuing turn...` 两次发进 `SpaceSight技术分享专项群`（`oc_9e0d0df1...`），把 Hermes 内部上下文管理暴露给同事。上游注释明确要求"reword 时同步更新正则"，说明作者意识到该耦合，只是漏了终止边。
+
+**修复**：`_TELEGRAM_NOISY_STATUS_RE` 增加 `context\s+compaction\s+complete` 支路，令 done 边在所有聊天面被抑制；同时把 `COMPACTION_DONE_STATUS` 加入 `_COMPRESSION_PROGRESS_STATUS_RE` 的模板元组，使其与 start 边同受 `compression.progress_notices` opt-in 管辖——否则开启该开关的用户只会看到"开始"而永远收不到"完成"。故意不改 `agent/conversation_compression.py`：修在 gateway 投递边界，让上游补齐 samples 元组后本补丁可整块归档，且不与上游那份常量表产生 3-way 对撞。失败类通知（`⚠ Compression aborted` / 空转录 / blocked-overflow）与手动 `/compress` 反馈仍是刻意的可见性豁免，不受影响；本地/程序化面（CLI、TUI、API JSON、webhook）经 `_gateway_surface_passes_raw_text` 保持原始诊断流。
+
+**验证**：`tests/gateway/test_telegram_noise_filter.py` 新增两组本补丁携带的测试——`test_both_auto_compaction_lifecycle_edges_suppressed`（参数化 start/done **源常量**而非字面量，三个聊天面各断言投递为 `None`）与 `test_both_auto_compaction_edges_are_progress_gated`（断言两边都被 `_COMPRESSION_PROGRESS_STATUS_RE` 命中，锁定 opt-in 对称性）。测试证明为 load-bearing：从正则移除新增支路后 done 边重新逃逸（`False` → `True` 对照已复核）。既有 `VISIBLE_COMPRESSION_MESSAGES` 11 条豁免与 8 条 routine samples 全部保持原判定，`test_telegram_noise_filter.py` 141 passed；27 个受管测试文件全量 1041 passed / 0 failed / 3 skipped（firecrawl 可选依赖基线）。
+
+**上游吸收判断**：当上游把 `COMPACTION_DONE_STATUS` 补进 `ROUTINE_COMPRESSION_STATUS_SAMPLES`（从而自动进入两个正则），或以其他方式让 compaction 两端边界在聊天面对称静默时，可整块归档并保留两条测试作回归 sentinel。每轮升级须复核 done 边是否已被上游登记；若上游改为"routine 状态默认可见"，则本补丁的抑制方向需与新策略重新对齐，而不是静默保留。
 
 ---
 

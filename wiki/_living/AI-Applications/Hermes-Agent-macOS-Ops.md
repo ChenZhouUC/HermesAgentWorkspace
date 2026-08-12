@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent macOS Ops
 created: 2026-05-14
-updated: 2026-08-11
+updated: 2026-08-12
 ---
 
 # Hermes Agent macOS 安装与运维手册
@@ -10,7 +10,7 @@ updated: 2026-08-11
 > 主模型：**Azure AI Foundry**（`gpt-5.5`）
 > Fallback[0]：**Vertex AI**（`google/gemini-3.1-pro-preview`，service account；同时承担视频旁路）
 > Fallback[1]：**阿里云 Qwen / DashScope**（`qwen3.7-plus`）
-> 适用版本：Hermes Agent **v0.20.0**（upstream `c0106e50e7ecedb3ce34e785d949725dc4e0e457` / latest `main` as of 2026-08-11）
+> 适用版本：Hermes Agent **v0.20.0**（upstream `222465d84709379b65173b0283a6eea87516acfa` / latest `main` as of 2026-08-12）
 > 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置主模型 + fallback 链 → 辅助脚本与代理注入 → 飞书接入 → 内容迁移 → 日常运维
@@ -189,7 +189,7 @@ git clone https://github.com/NousResearch/hermes-agent.git ~/.hermes/hermes-agen
 cd ~/.hermes/hermes-agent
 ```
 
-> 本手册当前基于 v0.20.0（upstream `c0106e50e7ecedb3ce34e785d949725dc4e0e457`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
+> 本手册当前基于 v0.20.0（upstream `222465d84709379b65173b0283a6eea87516acfa`）；如需固定到某个官方版本，可在 clone 后追加 `git checkout <tag-or-commit>`。
 
 ### 3.2 创建虚拟环境并安装依赖
 
@@ -780,7 +780,7 @@ launchd
 
 ---
 
-_文档更新时间：2026-08-11_
-_对应 Hermes Agent 版本：**v0.20.0**（upstream `c0106e50e7ecedb3ce34e785d949725dc4e0e457` / latest `main` as of 2026-08-11）_
+_文档更新时间：2026-08-12_
+_对应 Hermes Agent 版本：**v0.20.0**（upstream `222465d84709379b65173b0283a6eea87516acfa` / latest `main` as of 2026-08-12）_
 _主模型：Azure AI Foundry（`gpt-5.5`）Fallback[0]：Vertex AI（`google/gemini-3.1-pro-preview`，兼视频旁路）Fallback[1]：阿里云 Qwen / DashScope（`qwen3.7-plus`）_
 _本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_

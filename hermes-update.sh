@@ -66,7 +66,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.0 / main c0106e50e7ecedb3ce34e785d949725dc4e0e457, `hermes completion zsh` already emits the
+# As of v0.20.0 / main 222465d84709379b65173b0283a6eea87516acfa, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -120,6 +120,7 @@ PATCHED_FILES=(
     "tests/gateway/test_background_command.py"
     "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
+    "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
@@ -1584,6 +1585,8 @@ _VIDEO_SIDECAR_PATCH_OK=false
 _HISTORY_RETENTION_PATCH_OK=false
 _APPROVAL_TEMP_CLEANUP_PATCH_OK=false
 _FTS5_CJK_BUILD_PATCH_OK=false
+_COMPACTION_LIFECYCLE_SILENCE_PATCH_OK=false
+_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -1917,6 +1920,153 @@ if [[ -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" && -f "${RUN_P
     fi
 else
     warn "Could not locate PATCH-FEISHU-FINAL-ONLY files"
+fi
+
+# PATCH-FEISHU-QUOTE-CHAIN-SESSION: root_id is the QUOTE-CHAIN root, not a topic
+# id. Letting it fall back into thread_id appends it to the session key, so every
+# quote chain silently split a group into a fresh session (3 sessions in 2h on
+# 2026-08-12) and reloaded skills + backfill each time. Behavioral check — drives
+# the REAL build_session_key rather than grepping the source line.
+if [[ -f "${VENV_PY}" && -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
+    _QUOTE_CHAIN_CHECK=$(
+        cd "${HERMES_AGENT}" &&
+            "${VENV_PY}" - <<'PYEOF' 2>/dev/null
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, ".")
+from gateway.config import Platform
+from gateway.session import SessionSource, build_session_key
+
+# The inbound resolution line must not reference root_id.
+src = Path("plugins/platforms/feishu/adapter.py").read_text(encoding="utf-8")
+match = re.search(r'^\s*thread_id = getattr\(message, "thread_id".*$', src, re.M)
+if match is None:
+    print("missing")
+    raise SystemExit(0)
+if "root_id" in match.group(0):
+    print("conflated")
+    raise SystemExit(0)
+
+# Behavioral: a group source with no topic id yields the plain group key.
+source = SessionSource(
+    platform=Platform.FEISHU,
+    chat_id="oc_grp",
+    chat_type="group",
+    user_id="ou_alice",
+    thread_id=None,
+)
+key = build_session_key(source, group_sessions_per_user=False)
+if key != "agent:main:feishu:group:oc_grp":
+    print("keydrift")
+    raise SystemExit(0)
+
+# Guard the mechanism this patch relies on: a REAL topic id still isolates, so
+# the fix removed the bogus fallback without disabling thread support outright.
+threaded = SessionSource(
+    platform=Platform.FEISHU,
+    chat_id="oc_grp",
+    chat_type="group",
+    user_id="ou_alice",
+    thread_id="omt_real_topic",
+)
+if "omt_real_topic" not in build_session_key(threaded, group_sessions_per_user=False):
+    print("keydrift")
+    raise SystemExit(0)
+
+print("ok")
+PYEOF
+    )
+    if [[ "${_QUOTE_CHAIN_CHECK}" == "ok" ]] &&
+        grep -q 'test_quote_chain_root_id_does_not_become_thread_id_or_split_session' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-FEISHU-QUOTE-CHAIN-SESSION active: quote chains share one group session"
+        _FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK=true
+    elif [[ "${_QUOTE_CHAIN_CHECK}" == "conflated" ]]; then
+        warn "PATCH-FEISHU-QUOTE-CHAIN-SESSION inactive: root_id again falls back into thread_id (quote chains will split sessions)"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-QUOTE-CHAIN-SESSION]"
+    elif [[ "${_QUOTE_CHAIN_CHECK}" == "keydrift" ]]; then
+        warn "PATCH-FEISHU-QUOTE-CHAIN-SESSION: build_session_key semantics drifted — re-verify group/thread keying"
+        add_act "Re-verify: see PATCHES.md § [PATCH-FEISHU-QUOTE-CHAIN-SESSION]"
+    else
+        warn "PATCH-FEISHU-QUOTE-CHAIN-SESSION inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-QUOTE-CHAIN-SESSION]"
+    fi
+else
+    warn "Could not locate PATCH-FEISHU-QUOTE-CHAIN-SESSION files"
+fi
+
+# PATCH-COMPACTION-LIFECYCLE-SILENCE: BOTH edges of the routine auto-compaction
+# lifecycle must stay off human-facing chat surfaces. Upstream registers only the
+# start edge in ROUTINE_COMPRESSION_STATUS_SAMPLES, so the done edge escaped both
+# the noise regex and the progress_notices gate and leaked into a Feishu work
+# group (2026-08-12). Behavioral check — drives the real filter rather than
+# grepping wording, and asserts the failure-class carve-out stays visible.
+NOISE_FILTER_TEST_PY="${HERMES_AGENT}/tests/gateway/test_telegram_noise_filter.py"
+if [[ -f "${VENV_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${NOISE_FILTER_TEST_PY}" ]]; then
+    _COMPACTION_SILENCE_CHECK=$(
+        cd "${HERMES_AGENT}" &&
+            "${VENV_PY}" - <<'PYEOF' 2>/dev/null
+import sys
+sys.path.insert(0, ".")
+from agent.conversation_compression import (
+    COMPACTION_DONE_STATUS,
+    COMPACTION_STATUS,
+    CONTEXT_OVERFLOW_BLOCKED_WARNING_TEMPLATE,
+)
+from gateway.run import (
+    _COMPRESSION_PROGRESS_STATUS_RE,
+    _prepare_gateway_status_message,
+)
+
+# Both lifecycle edges suppressed on every chat surface.
+for status in (COMPACTION_STATUS, COMPACTION_DONE_STATUS):
+    for platform in ("feishu", "feishu_group", "telegram", "slack", "discord"):
+        if _prepare_gateway_status_message(platform, "lifecycle", status) is not None:
+            print("leak")
+            raise SystemExit(0)
+
+# Both edges governed by the same progress_notices opt-in.
+if not _COMPRESSION_PROGRESS_STATUS_RE.search(COMPACTION_DONE_STATUS):
+    print("ungated")
+    raise SystemExit(0)
+
+# Failure-class carve-out must NOT be swallowed by the widened regex.
+warning = CONTEXT_OVERFLOW_BLOCKED_WARNING_TEMPLATE.format(
+    tokens=85_000, threshold=72_000, reason="cooldown:30"
+)
+if _prepare_gateway_status_message("feishu", "warn", warning) != warning:
+    print("overreach")
+    raise SystemExit(0)
+
+# Local/programmatic surfaces keep raw diagnostics.
+if _prepare_gateway_status_message("local", "compacted", COMPACTION_DONE_STATUS) is None:
+    print("overreach")
+    raise SystemExit(0)
+
+print("ok")
+PYEOF
+    )
+    if [[ "${_COMPACTION_SILENCE_CHECK}" == "ok" ]] &&
+        grep -q 'test_both_auto_compaction_lifecycle_edges_suppressed' "${NOISE_FILTER_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_both_auto_compaction_edges_are_progress_gated' "${NOISE_FILTER_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-COMPACTION-LIFECYCLE-SILENCE active: both compaction edges silent on chat surfaces"
+        _COMPACTION_LIFECYCLE_SILENCE_PATCH_OK=true
+    elif [[ "${_COMPACTION_SILENCE_CHECK}" == "leak" ]]; then
+        warn "PATCH-COMPACTION-LIFECYCLE-SILENCE inactive: a compaction status reaches chat users"
+        add_act "Re-apply: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
+    elif [[ "${_COMPACTION_SILENCE_CHECK}" == "ungated" ]]; then
+        warn "PATCH-COMPACTION-LIFECYCLE-SILENCE partial: done edge escapes the progress_notices gate"
+        add_act "Re-apply: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
+    elif [[ "${_COMPACTION_SILENCE_CHECK}" == "overreach" ]]; then
+        warn "PATCH-COMPACTION-LIFECYCLE-SILENCE over-broad: it now eats failure notices or local diagnostics"
+        add_act "Narrow the regex: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
+    else
+        warn "PATCH-COMPACTION-LIFECYCLE-SILENCE inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
+    fi
+else
+    warn "Could not locate PATCH-COMPACTION-LIFECYCLE-SILENCE files"
 fi
 
 # PATCH-LOCAL-PROFILES: per-person + per-group profile injection (people.yaml / groups.yaml

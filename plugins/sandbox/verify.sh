@@ -104,9 +104,15 @@ assert (root.get("platform_toolset_options") or {}).get("feishu_group", {}).get(
 for platform in ("cli", "feishu", "feishu_group"):
     assert "sandbox_group" in set((root.get("known_plugin_toolsets") or {}).get(platform) or [])
 
+# Group-readable skills are an explicit, verified allowlist — never inferred.
+# excel-processing (2026-08-12) is read-only knowledge: its scripts/ cannot be
+# executed from a group (no terminal/process/code_execution in the group
+# toolset, and feishu_doc_manage only maps fixed actions under
+# feishu_doc_scripts_root), so admitting it does NOT widen the tool surface.
 assert (root.get("skills") or {}).get("platform_allowed", {}).get("feishu_group") == [
     "llm-wiki",
     "feishu-docs",
+    "excel-processing",
 ]
 assert (root.get("approvals") or {}).get("mode") == "manual"
 assert root.get("command_allowlist") == []
