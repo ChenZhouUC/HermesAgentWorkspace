@@ -1,6 +1,6 @@
 ---
 name: feishu-groups
-description: "Use when sending messages or cron jobs to Feishu groups, resolving known chat_ids, listing groups, handling bot availability, reading chat history/merge_forward messages, or parsing share_user contact cards."
+description: "Use when sending messages or cron jobs to Feishu groups, resolving known chat_ids, listing groups, handling bot availability, reading chat history/merge_forward messages, or parsing share_user contact cards. Treat group-chat use as safety-sensitive: confirm target group and content, avoid private rosters/persona data/local paths/secrets, and preserve the Feishu group sandbox boundary."
 ---
 
 # Feishu Group Directory
@@ -8,6 +8,13 @@ description: "Use when sending messages or cron jobs to Feishu groups, resolving
 This skill documents how the bot talks to Feishu groups. The group roster itself
 — every `chat_id` plus its per-group persona — lives in **one** place:
 `~/.hermes/groups.yaml`. This skill no longer keeps a duplicate id table.
+
+## Group-chat safety rules
+
+1. **Confirm target and content before proactive sending.** For a one-off send or cron job, resolve the exact target group from `~/.hermes/groups.yaml`, restate the group name and final message content, and avoid sending if the target is ambiguous.
+2. **Do not leak private local context.** Group-visible messages must not mention local rosters, private character/persona registries, local file paths, credentials, approval internals, or sandbox implementation details unless the user explicitly asks in an admin/debug context.
+3. **Preserve the group sandbox boundary.** Group chats can read only the allowlisted skills and use controlled tools. Do not suggest using `terminal`, raw shell scripts, broad file reads, or private-only skills from a group.
+4. **Minimize history reads.** Read group history only when needed for the task, prefer narrow page sizes, and summarize only relevant content.
 
 ## Group roster — single source of truth (`~/.hermes/groups.yaml`)
 

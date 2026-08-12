@@ -1,6 +1,6 @@
 ---
 name: postgres-manager
-description: Use when managing PostgreSQL connection profiles, refreshing local schema metadata, or executing SQL with cached table and column context.
+description: "Use when managing PostgreSQL connection profiles, refreshing local schema metadata, or executing SQL with cached table and column context. Treat credentials and write queries as sensitive: default to read-only inspection, do not echo connection strings, and confirm before DML/DDL/destructive or broad export operations."
 ---
 
 # Postgres Manager
@@ -19,6 +19,13 @@ This skill automates the management of PostgreSQL connections, locally caches da
 ## Dependencies
 
 Since Python `psycopg2` or `psql` CLI might not be pre-installed, tasks involving new connections might require setting up the environment first (e.g., `pip install psycopg2-binary` or `pip install pg8000`).
+
+## Safety Rules
+
+1. **Do not echo connection URIs.** When reporting status, refer to the alias only. Do not print passwords, full DSNs, tokens, or host/user combinations unless the user explicitly needs to verify a non-secret fragment.
+2. **Default to read-only.** For exploration, use `SELECT`, schema metadata, and small `LIMIT` samples first.
+3. **Confirm write or destructive work.** Before `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `ALTER`, `DROP`, bulk export, or any query that may expose sensitive rows, state the target alias/table and intended effect, then wait for explicit user approval unless the user already gave a concrete command for that exact operation.
+4. **Keep metadata fresh after DDL.** If approved DDL changes the schema, refresh the local metadata cache before answering follow-up SQL questions.
 
 ## Workflow 1: Add Connection & Refresh Metadata
 

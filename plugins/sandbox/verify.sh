@@ -210,7 +210,9 @@ if [[ -x "${VENV_PYTHON}" ]] &&
 from hermes_cli.config import load_config
 from hermes_cli.plugins import discover_plugins
 from hermes_cli.tools_config import _get_platform_tools
+from model_tools import get_tool_definitions
 from toolsets import resolve_toolset
+from tools import tool_search
 
 discover_plugins(force=True)
 config = load_config()
@@ -253,9 +255,34 @@ assert not {
     "execute_code",
     "skill_manage",
 }.intersection(group_tools)
+
+# The gray-test group and all Feishu groups share this same platform scope:
+# sandbox tools must be discoverable/describable through the deferred-tool
+# bridge, not only callable by name after the model guesses the schema.
+group_defs = get_tool_definitions(
+    enabled_toolsets=group_toolsets,
+    quiet_mode=True,
+    skip_tool_search_assembly=True,
+)
+search_payload = tool_search.dispatch_tool_search(
+    {"query": "group cache feishu doc"},
+    current_tool_defs=group_defs,
+)
+assert "group_cache" in search_payload
+assert "feishu_doc_manage" in search_payload
+describe_group = tool_search.dispatch_tool_describe(
+    {"name": "group_cache"},
+    current_tool_defs=group_defs,
+)
+describe_doc = tool_search.dispatch_tool_describe(
+    {"name": "feishu_doc_manage"},
+    current_tool_defs=group_defs,
+)
+assert '"name": "group_cache"' in describe_group
+assert '"name": "feishu_doc_manage"' in describe_doc
 PY
     ); then
-    echo "OK   runtime toolsets keep owner Feishu DM full and Feishu groups restricted"
+    echo "OK   runtime toolsets keep owner Feishu DM full, Feishu groups restricted, and sandbox tools discoverable"
 else
     echo "FAIL runtime platform toolset resolution violates the owner/group boundary"
     fail=1

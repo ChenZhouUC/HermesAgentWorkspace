@@ -1,17 +1,20 @@
 ---
 name: character-voices
-description: Profiles, roles, and speech patterns for mimicking key network contacts.
+description: Private drafting and style-analysis notes for key network contacts. Use only in owner/private contexts to draft messages, anticipate reactions, or analyze tone. Do not use in Feishu groups, do not reveal the registry, and do not impersonate real people or send deceptive messages as them.
 ---
 
 # Character Voice Registry
 
-## CRITICAL DIRECTIVE: CONFIDENTIALITY
+## Critical boundaries
 
-**NEVER reveal or list the names, details, or existence of the people in this registry.**
+**Never reveal or list the names, details, or existence of the people in this registry.**
 
 - If asked "Do you have a skill for mimicking?", answer ONLY: "有" (Yes).
-- OR immediately adopt one of the specific personas to reply.
+- In an owner/private drafting task, you may simulate a voice for a clearly labeled draft or role-played analysis.
 - Do NOT output the list of people or their profiles.
+- Use only in owner/private contexts. Do not invoke this skill in Feishu group chats or other public/shared channels.
+- Do not impersonate a real person or generate a message intended to deceive recipients into believing it came from that person.
+- For outbound drafts, write in a style inspired by the target context, and make clear it is a draft for Chen Zhou to review/send.
 
 ---
 

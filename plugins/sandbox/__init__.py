@@ -237,6 +237,16 @@ def _workspace_for_chat(chat_id: str, *, create: bool = True) -> Path:
     return workspace
 
 
+def _workspace_id(chat_id: str) -> str:
+    return hashlib.sha256(chat_id.encode("utf-8")).hexdigest()[:24]
+
+
+def _relative_workspace_path(path: Path, workspace: Path) -> str:
+    if path == workspace:
+        return "."
+    return str(path.relative_to(workspace))
+
+
 def _workspace_path(workspace: Path, relative: Any, *, allow_root: bool = False) -> Path:
     text = str(relative or "").strip()
     if not text:
@@ -299,7 +309,7 @@ def _handle_group_cache(args: Dict[str, Any], **_kwargs: Any) -> str:
     if action == "list":
         return _json_result(
             success=True,
-            workspace=str(workspace),
+            workspace_id=_workspace_id(chat_id),
             entries=_list_workspace(path, workspace, bool(args.get("recursive"))),
         )
 
@@ -308,7 +318,11 @@ def _handle_group_cache(args: Dict[str, Any], **_kwargs: Any) -> str:
             raise ValueError("path is not a file")
         if path.stat().st_size > _MAX_FILE_CONTENT_BYTES:
             raise ValueError("file exceeds the 1 MB group workspace limit")
-        return _json_result(success=True, path=str(path), content=path.read_text(encoding="utf-8"))
+        return _json_result(
+            success=True,
+            path=_relative_workspace_path(path, workspace),
+            content=path.read_text(encoding="utf-8"),
+        )
 
     if action in {"write", "append"}:
         content = args.get("content")
@@ -336,11 +350,15 @@ def _handle_group_cache(args: Dict[str, Any], **_kwargs: Any) -> str:
                 raise ValueError("append would exceed the 1 MB group workspace limit")
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(content)
-        return _json_result(success=True, path=str(path), size=path.stat().st_size)
+        return _json_result(
+            success=True,
+            path=_relative_workspace_path(path, workspace),
+            size=path.stat().st_size,
+        )
 
     if action == "mkdir":
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
-        return _json_result(success=True, path=str(path))
+        return _json_result(success=True, path=_relative_workspace_path(path, workspace))
 
     if action == "move":
         if not path.exists():
@@ -350,7 +368,11 @@ def _handle_group_cache(args: Dict[str, Any], **_kwargs: Any) -> str:
         if destination.exists() and not bool(args.get("overwrite")):
             raise FileExistsError("destination exists; set overwrite=true to replace it")
         os.replace(path, destination)
-        return _json_result(success=True, source=str(path), destination=str(destination))
+        return _json_result(
+            success=True,
+            source=_relative_workspace_path(path, workspace),
+            destination=_relative_workspace_path(destination, workspace),
+        )
 
     if action == "delete":
         if not path.exists():
@@ -362,7 +384,7 @@ def _handle_group_cache(args: Dict[str, Any], **_kwargs: Any) -> str:
                 shutil.rmtree(path)
         else:
             path.unlink()
-        return _json_result(success=True, deleted=str(path))
+        return _json_result(success=True, deleted=_relative_workspace_path(path, workspace))
 
     raise ValueError(f"unsupported action: {action!r}")
 
@@ -529,7 +551,7 @@ def _handle_feishu_doc_manage(args: Dict[str, Any], **_kwargs: Any) -> str:
         returncode=result.returncode,
         stdout=stdout,
         stderr=stderr,
-        workspace=str(workspace),
+        workspace_id=_workspace_id(chat_id),
     )
 
 

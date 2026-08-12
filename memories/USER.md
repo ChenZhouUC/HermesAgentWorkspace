@@ -8,8 +8,10 @@ Mgmt/Writing: Plain English, business value. PPTs consulting-style. Provide mult
 §
 AI Tech: Strong interest in agent orchestration, agent reverse-engineering, sandbox auditing, and direct CLI-based investigation.
 §
-Self-intro only when asked: Gen1 小聪明蛋; Gen2 木马牛; Gen3 Gödel（绝对逻辑中枢; never translate）. Otherwise: 琛哥's assistant Gödel. Feishu groups: no self-intro if @mentioned.
+Self-intro only when asked: Gen1 小聪明蛋（实验型机器人）; Gen2 木马牛（高效办公助手）; Gen3 Gödel（绝对逻辑中枢; never translate）. Otherwise: 琛哥's assistant Gödel. Feishu groups: no self-intro if @mentioned.
 §
 User Background: BSc Math & Applied Math (Fudan), MSc Statistics (UChicago). Current Role: Algorithm Engineer & SpaceSight Product Line Leader. Focus: Agent orchestration, VLM Copilot, edge-cloud.
 §
-App/tool naming preference: prefers dual English word CamelCase style names (e.g., "DNSAnchor", "PinAnchor", "TopTack"). Likes names that combine function + metaphor.
+Naming: likes dual-word CamelCase names combining function+metaphor.
+§
+Gödel/incompleteness: values object/meta precision; KG-schema analogies.

@@ -79,23 +79,56 @@ def test_group_workspace_is_stable_isolated_and_does_not_leak_chat_id(group_conf
 
 
 def test_group_cache_crud_stays_inside_current_workspace(group_config):
+    workspace = sandbox._workspace_for_chat("group-one")
     written = _result(
         sandbox._handle_group_cache(
             {"action": "write", "path": "drafts/doc.md", "content": "hello", "overwrite": False}
         )
     )
     assert written["success"] is True
+    assert written["path"] == "drafts/doc.md"
+    assert str(workspace) not in json.dumps(written)
 
     sandbox._handle_group_cache({"action": "append", "path": "drafts/doc.md", "content": " world"})
     read = _result(sandbox._handle_group_cache({"action": "read", "path": "drafts/doc.md"}))
+    assert read["path"] == "drafts/doc.md"
     assert read["content"] == "hello world"
 
     sandbox._handle_group_cache({"action": "move", "path": "drafts/doc.md", "destination": "done/final.md"})
     listing = _result(sandbox._handle_group_cache({"action": "list", "path": ".", "recursive": True}))
+    assert "workspace" not in listing
+    assert listing["workspace_id"] == sandbox._workspace_id("group-one")
+    assert str(workspace) not in json.dumps(listing)
     assert any(item["path"] == "done/final.md" for item in listing["entries"])
 
     sandbox._handle_group_cache({"action": "delete", "path": "done", "recursive": True})
-    assert not (Path(listing["workspace"]) / "done").exists()
+    assert not (workspace / "done").exists()
+
+
+def test_group_cache_and_doc_tool_do_not_return_absolute_workspace_paths(group_config, monkeypatch):
+    workspace = sandbox._workspace_for_chat("group-one")
+
+    def fake_run(_script, _argv, _workspace):
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(sandbox, "_run_trusted_script", fake_run)
+    cache_result = _result(
+        sandbox._handle_group_cache({"action": "write", "path": "drafts/doc.md", "content": "hello", "overwrite": True})
+    )
+    doc_result = _result(
+        sandbox._handle_feishu_doc_manage(
+            {
+                "action": "append",
+                "doc_token": "doxcnToken_123",
+                "markdown_path": "drafts/doc.md",
+            }
+        )
+    )
+
+    assert cache_result["path"] == "drafts/doc.md"
+    assert doc_result["workspace_id"] == sandbox._workspace_id("group-one")
+    assert str(workspace) not in json.dumps(cache_result)
+    assert str(workspace) not in json.dumps(doc_result)
 
 
 @pytest.mark.parametrize("path", ["../wiki/secret.md", "/etc/passwd", "~/secret", "a/../../secret"])
