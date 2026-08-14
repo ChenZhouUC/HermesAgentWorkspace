@@ -66,7 +66,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.0 / main 222465d84709379b65173b0283a6eea87516acfa, `hermes completion zsh` already emits the
+# As of v0.20.1 / main c896c09c42910c584c4c7d2325b58c14713ea42c, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -135,6 +135,8 @@ PATCHED_FILES=(
     "agent/auxiliary_client.py"
     "agent/image_routing.py"
     "agent/models_dev.py"
+    "agent/transports/chat_completions.py"
+    "tests/agent/transports/test_chat_completions.py"
     "tests/agent/test_image_routing.py"
     "tests/gateway/test_image_input_routing_runtime.py"
     "tools/vision_tools.py"
@@ -1560,6 +1562,7 @@ _ARCHIVED_DOCTOR_TOOLSETS_OK=false
 _ARCHIVED_DASHBOARD_BUILD_CACHE_OK=false
 _ARCHIVED_DELEGATE_ACP_ROUTING_OK=false
 _ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK=false
+_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK=false
 _ARCHIVED_LAZY_ACTIVE_ANCHOR_OK=false
 _SKILL_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
@@ -1670,6 +1673,47 @@ if [[ -f "${TRANSPORT_TYPES_PY}" && -f "${TRANSPORT_TYPES_TEST_PY}" ]]; then
     fi
 else
     warn "Could not locate transport types or its tests — skipping Gemini thought-signature check"
+fi
+
+# PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY: a Gemini fallback must accept
+# tool-call history created by a provider that does not emit Gemini thought
+# signatures. Exercise the real transport conversion rather than grepping a
+# helper name so refactors remain free to change the implementation shape.
+GEMINI_CHAT_TRANSPORT_PY="${HERMES_AGENT}/agent/transports/chat_completions.py"
+GEMINI_CHAT_TRANSPORT_TEST_PY="${HERMES_AGENT}/tests/agent/transports/test_chat_completions.py"
+if [[ -f "${VENV_PY}" && -f "${GEMINI_CHAT_TRANSPORT_PY}" && -f "${GEMINI_CHAT_TRANSPORT_TEST_PY}" ]]; then
+    _GEMINI_CROSS_PROVIDER_CHECK=$(
+        cd "${HERMES_AGENT}" &&
+            "${VENV_PY}" - <<'PYEOF' 2>/dev/null
+from agent.transports.chat_completions import ChatCompletionsTransport
+
+messages = [{
+    "role": "assistant",
+    "content": None,
+    "tool_calls": [{
+        "id": "call_skill_view",
+        "type": "function",
+        "function": {"name": "default_api:skill_view", "arguments": "{}"},
+    }],
+}]
+converted = ChatCompletionsTransport().convert_messages(
+    messages,
+    model="google/gemini-3.1-pro-preview",
+)
+signature = converted[0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"]
+original_untouched = "extra_content" not in messages[0]["tool_calls"][0]
+print("ok" if signature == "skip_thought_signature_validator" and original_untouched else "broken")
+PYEOF
+    )
+    if [[ "${_GEMINI_CROSS_PROVIDER_CHECK}" == "ok" ]]; then
+        ok "Gemini cross-provider tool history patch: active (unsigned calls receive compatibility signature)"
+        _GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK=true
+    else
+        warn "Gemini cross-provider tool history patch inactive — fallback may fail with missing thought_signature"
+        add_act "Re-apply: see PATCHES.md § [PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY]"
+    fi
+else
+    warn "Could not locate venv, Gemini chat transport, or its regression test — skipping cross-provider history check"
 fi
 
 if [[ -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
@@ -2504,7 +2548,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

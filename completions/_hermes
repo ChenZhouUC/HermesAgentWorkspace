@@ -67,7 +67,7 @@ _hermes() {
                 'pairing:Manage DM pairing codes for user authorization'
                 'pause:Emergency stop: pause cron/kanban dispatch and new gateway t'
                 'pets:Browse, install, and select petdex animated pets'
-                'plugins:Manage plugins — install, update, remove, list'
+                'plugins:Manage and validate plugins'
                 'portal:Set up Nous Portal (login, model pick, Tool Gateway); see al'
                 'profile:Manage profiles — multiple isolated Hermes instances'
                 'project:Manage projects (named, multi-folder workspaces)'
@@ -428,11 +428,16 @@ _hermes() {
                 plugins)
                     local -a plugins_cmds
                     plugins_cmds=(
+                    'capabilities:Show declared vs granted capabilities per plugin'
                     'disable:Disable a plugin without removing it'
+                    'doctor:Validate a plugin with the real runtime contracts'
                     'enable:Enable a disabled plugin'
-                    'install:Install a plugin from a Git URL or owner/repo'
+                    'install:Install a plugin from a Git URL, owner/repo, or index name'
                     'list:List installed plugins'
+                    'pack:Declarative, shareable plugin sets (hermes-pack.yaml)'
                     'remove:Remove an installed plugin'
+                    'search:Search the community plugin index'
+                    'show:Show details for a single plugin (including emits/listens)'
                     'update:Pull latest changes for an installed plugin'
                     )
                     _describe 'plugins command' plugins_cmds

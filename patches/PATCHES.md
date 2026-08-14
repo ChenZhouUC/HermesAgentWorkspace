@@ -96,6 +96,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-VERTEX-HIDDEN-THOUGHTS: Vertex thought 文本不进入可见内容
   │   ├─ PATCH-VERTEX-DOCTOR: doctor 识别官方 Vertex profile
   │   ├─ PATCH-VERTEX-FALLBACK: 第二 Vertex 账号作为独立 fallback provider
+  │   ├─ PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY: Gemini fallback 接受其他模型产生的无签名工具历史
   │   ├─ PATCH-IMAGE-NATIVE-ROUTING: 主力模型图片能力识别（Gemini 3.x + azure-foundry）
   │   ├─ PATCH-VERTEX-VIDEO-ROUTING: Gemini 视频 native routing
   │   ├─ PATCH-VIDEO-SIDECAR: 主力读不了视频时旁路到链上能读的档（全局，不切主 provider）
@@ -256,6 +257,8 @@ PATCHED_FILES=(
     "agent/auxiliary_client.py"
     "agent/image_routing.py"
     "agent/models_dev.py"
+    "agent/transports/chat_completions.py"
+    "tests/agent/transports/test_chat_completions.py"
     "tests/agent/test_image_routing.py"
     "tests/gateway/test_image_input_routing_runtime.py"
     "tools/vision_tools.py"
@@ -267,7 +270,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（68 文件，2026-08-12 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（70 文件，2026-08-14 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -288,17 +291,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.0 (upstream `main` `222465d84709379b65173b0283a6eea87516acfa`，2026-08-12)
+## 当前版本：v0.20.1 (upstream `main` `c896c09c42910c584c4c7d2325b58c14713ea42c`，2026-08-14)
 
-**活跃补丁**：当前共 33 个语义补丁。26 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
+**活跃补丁**：当前共 34 个语义补丁。27 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整 ID 以本节 `### [PATCH-*]` 定义块和上方执行链清单为准；升级历史只提供事件背景，不构成 patch registry。
 
-**最近一次升级（v0.20.0 → v0.20.0，+65 commits，basis `c0106e50e7ecedb3ce34e785d949725dc4e0e457` → `222465d84709379b65173b0283a6eea87516acfa`，2026-08-12）要点**：
+**最近一次升级（v0.20.0 → v0.20.1，+512 commits，basis `222465d84709379b65173b0283a6eea87516acfa` → `c896c09c42910c584c4c7d2325b58c14713ea42c`，2026-08-14）要点**：
 
-- 上游主线：**Windows/跨平台加固 + Desktop 更新器重写**两大集群。Windows 侧 `ee472a7fd` 修 agent-loop 路径分割/哈希/补全/截图/OS 检测、`e1caf88c6` 把审批系统扩到 Windows 破坏性命令与路径（`tools/approval.py` +65，新增 taskkill/reg/vssadmin/bcdedit/Remove-Item/`iwr|iex` 等 lowercase 模式）、`4a2198bf5` 修 MCP PATHEXT 解析、`1156ba43b` 引导 agent 避开 MSYS 路径、`f20d16fbf` SSH ControlMaster 门控且不再劫持用户 python、`197a18314` 警示勿用 pty 驱动交互式 console TUI。Desktop 更新器整条链重写为 quit-first hand-off（`c991e3f62` posix orchestrator、`503e61b3b` Windows shim UI + 事件通道、`c9f0b6824` 替换 in-app posix updater，及 `f121cd8a0` / `bdb4cfd35` / `1dd5c9de8` / `ba28a18b9` / `968ec6c6f` / `4280413db` 六个收敛修复）。Gateway：`356c702b5` scale-to-zero 改由 flaps socket 自挂起、`5fffe5606` 把常驻 supervised watcher 从 busy 判定中排除（`gateway/run.py` +159/-40，新增 `_scale_to_zero_active_messaging_platforms`）、`0cf48bca2` / `48c233d50` 把 channel-directory 与其余 atomic_json_write 移出事件循环、`bb597e1c0` 让 managed-cron 在 gateway 进程内触发、`76d832d38` cron 经 canonical home_channel 投递 relay 平台、`333536e7c` 给 Discord interaction 打逻辑平台+relay trust 戳。工具链：`76961b61b` / `89556c63a` / `222465d84` 隔离外部项目环境并统一 probe 缓存、heredoc 掩码三连（`2bfdd8cd3` / `307cc814a` / `33855f1b3`）、`14692ec91` 让 `verify_on_stop` 全面改为 opt-in 默认 False、`223f70301` 封 provider-anthropic MiniMax 代理绕过、`87af576e6` 标题生成改用主模型。
-- patch apply / registry：68 个受管文件本轮 **clean apply**（无 3-way、无人工冲突），Step 8b sentinel 全 OK。33 个活跃 PATCH 逐个在**裸 upstream `222465d84`** 复核吸收判断：**0 归档 / 0 收缩**；本轮新增 2 个 —— `PATCH-COMPACTION-LIFECYCLE-SILENCE`（自动 compaction 的 done 边未被上游登记进 `ROUTINE_COMPRESSION_STATUS_SAMPLES`，逃过噪声抑制与 `progress_notices` 开关，2026-08-12 两次把 `✓ Context compaction complete` 发进 SpaceSight 技术分享专项群）与 `PATCH-FEISHU-QUOTE-CHAIN-SESSION`（入站把飞书 `root_id` 当 `thread_id` 回退，使每条引用链切出独立 session，同群 2 小时内产生 3 个 session、反复重载 skill 与回填）。上游触及的 8 个受管文件（`gateway/run.py` +159/-40、`tools/approval.py` +65、`agent/prompt_builder.py` +37、`agent/auxiliary_client.py` ±42、`hermes_cli/tools_config.py` +21、`gateway/slash_commands.py` +6、`tools/skill_manager_tool.py` +4、`website/docs/user-guide/configuration.md` +2）改动全部落在 Windows 审批层、scale-to-zero/watcher、probe 缓存与文案区域，与本地 Feishu、sandbox、Vertex、compaction 不变量正交。三处吸收判定经裸上游复核**均非吸收**：`tools/approval.py` 的 Windows 破坏性层与 `PATCH-APPROVAL-DARWIN-TMP` 的 `/private` realpath 别名问题无交集（对该 diff grep `realpath|private|symlink` 零命中）；`tools/skill_manager_tool.py` 仅改 patch 工具 schema 文案，`_resolve_skill_dir()` 在 `222465d84` 仍固定 `_skills_dir() / name`，`PATCH-SKILL-CREATE-ROOT` 继续必需；`plugins/platforms/feishu/adapter.py` 本轮上游**未触及**，`reply_in_thread = bool(metadata.thread_id)` 与入站 `or root_id` 两处反向语义仍在，两条 Feishu 补丁的对撞警示继续有效。bundle/base/full-index、cached 正向、worktree 反向、index-clean 闭环全绿；受管文件 67 → 68。
-- 依赖：venv **未重建**（无 runtime repair、无 `venv.stale.*`、uv fallback 0 次），pytest/pytest-asyncio/python-socks/pypdf/yaml/httpx/openai 七项在位复核通过，Step 2b 为 no-op；lazy features 19 项全部 current。npm audit 残余 **1 high**（electron 40.0.0-alpha.2–41.10.2 两条 GHSA：GHSA-r4w5-6pfg-jxp5 会话缓存复用、GHSA-9f4c-93c8-jc8g sandboxed iframe 绕过 allow-popups；`fixAvailable` 指向 40.10.6 越 stated range，需 `--force`）→ P2 上游 lock/range 阻挡，Desktop 链、不影响飞书主链路。`package-lock.json` 58±58 行经逐条比对为 `@electron/get` / `electron` / `@types/node` / `undici-types` 四条目的**纯位置归一化**（version 多重集前后完全相同、`package.json` 未改），保留 bundle 外。Skills：官方 sync 25 updated，mirror 仅 llm-wiki 固定振荡。
-- 已知摩擦：固定 SHA `222465d84` 一次获取正常消费，无 fetch retry、无 autostash、无 staged index。**Step 8e 首轮 FAIL 是本轮唯一 P0**：`plugins/sandbox/verify.sh` 把群聊 skill allowlist 硬断言为 `["llm-wiki","feishu-docs"]`，而先前给 `config.yaml` 增开 `excel-processing` 时未同步 verifier —— 这正是该 verifier 存在的意义（扩大群可读面必须是显式且被验证的动作）。已更新契约并注明「excel-processing 是只读知识，其 `scripts/` 在群聊无法执行——群 toolset 无 terminal/process/code_execution，`feishu_doc_manage` 只映射 `feishu_doc_scripts_root` 下固定 action——故不扩大工具面」；当轮 verifier 复跑 10 OK / 0 FAIL、21 passed，后续 `PATCH-FEISHU-GROUP-SANDBOX` 响应脱敏、工具发现与 sandbox hook 回归已把插件测试扩到 23。回归 **28 files 1042 passed / 0 failed / 3 skipped**；相对上轮 27 files/900 的 +142 已逐项对账：`tests/gateway/test_telegram_noise_filter.py` 首次纳入受管清单 +133（上游既有用例）、本轮新增 compaction 两端边界回归 +8、quote-chain session 回归 +1 —— 无测试消失、无 collection 异常、无关键用例改名或跳过。3 skipped 仍是 firecrawl-anydoc 可选依赖基线。
-- 配置漂移：Config version **v34 up to date**，无迁移、无 deprecated key。`compression` 按三档模型窗口重新标定：主力 `azure-foundry/gpt-5.5`（1,050,000）与 fallback `vertex-fallback/google/gemini-3.1-pro-preview`（1,048,576）、`alibaba/qwen3.7-plus`（1,000,000）窗口同量级，原 `threshold_tokens: 150000` 把 `threshold: 0.7` 压成实际仅 14% 窗口占用并放大重复压缩，改为 600000（≈57%，tail 120k）、`protect_last_n` 20 → 40。群聊 skill 白名单增开 `excel-processing`（统一对所有群生效，非按群配置）。Gateway PID 链：45785 →（官方 updater 排空）54758 →（Step 8d 排空）56882。
+- 上游主线：发布 **v0.20.1**（`720f0443`）。Gateway/session 集中修复跨 surface 的模型路由持久化与 resume（`b8f85f18` / `cdd0a260` / `56a41715`）、后台进程通知合并与全路径 secrets redaction（`cf09a30a` / `b9e7bead` / `6c7cfd66` / `84b4fb9e`）、compression 同轮预算 re-arm/refund（`72c828ca` / `380e4da3` / `fbec3c78`），并排除 launchd gateway 被 orphan reaper 误收割（`ce20857f`）。模型/provider 新增统一 selection guard、`model_overrides` schema、models.dev ETag 热路径与 pip entry-point provider（`91665309` / `dafdba32` / `acd8737c` / `dbbd8935`），Azure post-tool reasoning 抑制收窄（`f52feed1`），catalog 加入 Gemini 3.7 Flash（`b8d9230c`）。Slack 上游新增 native streaming/task cards（`47ed5e49` / `eb137762`）；Desktop/plugin/Windows 侧新增 setup_mcp consent、统一插件 capability、会话收件箱与 Windows-safe shard spawn（`adbc77eb` / `4d30bb6b` / `c896c09c`）。
+- patch apply / registry：70 个受管文件首轮 direct apply 失败，`git apply --3way` 仅有两处真实冲突，均按“上游增强 + 本地不变量并存”解决：`tests/gateway/test_run_progress_topics.py` 同时保留上游 Slack native task-card 回归与本地 Feishu group-scope 回归；`uv.lock` 同时采用上游 `python-telegram-bot==22.8` 和本地 Feishu `python-socks==2.8.1`。34 个活跃 PATCH 逐块对照裸 upstream 吸收条件，**0 新增 / 0 归档 / 0 收缩**；Step 8b 全绿。bundle/base/full-index 逐字节、cached 正向、worktree 反向和 index-clean 闭环通过。完整回归 **29 files 1109 passed / 0 failed / 3 skipped**；相对升级前 1091 的 +18 来自上游在既有四个受管测试文件中新增/参数化的 7 个测试块（Slack progress、session lookup、doctor npx browser、tools config），无测试文件减少或 collection 异常。
+- 依赖：venv 未重建，Python 3.12.13 / SQLite 3.53.1 保持；`uv lock --check` 通过，19 个 lazy backend 中 Slack 刷新、其余 current。官方 bundled skills **+3**（blocked-page-recovery、session-librarian、box）/ **15 updated**，外层 mirror reconcile 为 `+0/~1/-0` 的 llm-wiki 固定振荡。root `npm audit` 残余 **6 high**：Electron 40.10.2 两条 GHSA + extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 经 sanitize-html/vite 被上游 override/lock 阻挡；doctor 另报告 web 4 high、ui-tui 3 high，均属 Desktop/web build 链 P2、不影响飞书 gateway，禁止 `--force`。package-lock 104+/150- 为 npm workspace hoist/位置归一化，`package.json` 无语义改动，继续排除出 replay bundle。
+- 已知摩擦：固定 SHA `c896c09c4` 一次获取后事务正确保留在 apply failure，后续仅 `--reconcile`、明确 no fetch/pull。宿主安全策略拒绝 `git restore --staged`，按 playbook 新增 fallback 通过 `git ls-tree HEAD | git update-index --index-info` 只恢复 index；首次使用 zsh 保留变量 `path` 导致循环内 PATH 被覆盖，改名 `patch_file` 后收敛，该恢复路径已写回 update playbook。官方 updater、补丁 reconcile 与终态 config 写屏障均完成 old PID → new PID，最终 Gateway PID `64075`；sandbox verifier **23 passed** 且 runtime trace 绑定该终态 PID。
+- 配置漂移：官方迁移 **v34 → v35**，新增注释态 `fallback_model` 模板，无 deprecated key；主链路仍为 `azure-foundry/gpt-5.5`，fallback 仍为 Vertex Gemini 3.1 Pro Preview → Alibaba Qwen 3.7 Plus，`browser.backend: 'off'` 与其本地意图注释保留。Doctor 的 Azure、Gemini、Alibaba、Bedrock 连通均通过；仅上述 npm build-chain P2 和未配置的可选 provider/toolset 保留提示。
 
 ---
 
@@ -773,6 +776,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `agent/vertex_adapter.py` 存在 `def get_vertex_fallback_config` + `apply_global_project_override`；`hermes_cli/auth.py` 存在 `"vertex-fallback"`；`agent/auxiliary_client.py` 存在 `has_vertex_fallback_credentials`；`plugins/.../vertex/__init__.py` 存在 `name="vertex-fallback"`；`hermes_cli/runtime_provider.py` 存在 `"vertex-fallback", "vertex2", "vertex-secondary"` 分支；test 存在 `test_vertex_fallback_profile_registered` + `test_resolve_runtime_provider_vertex_fallback_mints_token` + `test_resolve_provider_client_alias_mints_fallback_credentials`（2026-08-07 新增：别名走 fallback 凭据、主账号铸 token 被断言不可达）。单测 14 passed / 0 failed（2026-08-07；含 7 条 fallback 回归）。真链路：`resolve_runtime_provider(requested='vertex-fallback')` 返回 `provider="vertex-fallback"`、base_url 锁定 `projects/gen-lang-client-0217395804`、api_key 为有效 OAuth token（修复前同调用返回 `provider="openrouter"` + 空 api_key）。真链路端到端：加载 `.env` 后 `get_vertex_fallback_config()` 返回 base_url 锁定 `projects/gen-lang-client-0217395804`（未被主 project 覆盖），`resolve_provider_client("vertex-fallback", model="google/gemini-3.1-pro-preview")` 返回可用 client 且真实调用返回干净答案（无 thought 段）。第二账号 SA 直连 Vertex `/v1`+`/v1beta1` global 均 200。
 
 **上游吸收判断**：若上游为 Vertex/OAuth-token 类 provider 提供多凭证轮换池（credential pool），或让 fallback 条目原生携带 per-entry `credentials_path`/`project`，可归档本补丁改用原生机制。**候选替代已进入当前树**（2026-08-03，d1afa160 已含）：`agent/credential_pool.py`（`CredentialPool`/`PooledCredential`，支持 `AUTH_TYPE_OAUTH`，`hermes_cli/auth.py` 与 `runtime_provider.py` 已接入）提供同 provider 多凭证 failover，但按 token/api-key 条目存储，**尚无 per-entry SA 文件 + 独立 GCP project 语义**——本补丁"第二账号绕 per-project 配额"的需求暂不能直接表达，本轮判定为继续保留本地实现；后续每轮复核该池是否补齐 SA-file/project 语义，补齐即迁移。同时注意 `ca5ce1110` 已把 auxiliary-client 的 provider-key 读取改走 profile secret scope，与本补丁在 `auxiliary_client.py` 的改写区域重叠（本轮 3-way 已干净并存），后续冲突按 scoped-read 形式适配本地分支。
+
+---
+
+### [PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY] Gemini fallback 接受跨模型工具历史
+
+| 字段     | 内容                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------ |
+| **文件** | `agent/transports/chat_completions.py`, `tests/agent/transports/test_chat_completions.py`        |
+| **状态** | 🟡 未上游合并；独立于已归档的 `PATCH-GEMINI-THOUGHT-SIGNATURE`（保留已有签名 vs 补齐无签名历史） |
+
+**问题**：Gemini 3 thinking 模型要求 replay 的每个 `functionCall` 携带 `thought_signature`。上游已能保留 Gemini 自己返回的真实签名，但当主模型是 Azure GPT/Codex、会话先执行过工具后才 fallback 到 `vertex-fallback/google/gemini-3.1-pro-preview` 时，历史 tool call 天然没有 Gemini metadata。2026-08-14 主会话两次复现：Azure 请求卡死触发 fallback，Vertex 随即对历史 `default_api:skill_view` 返回 HTTP 400 `Function call is missing a thought_signature`，导致第一备用档必然失效并继续落到 Qwen。
+
+**修复**：在 `ChatCompletionsTransport.convert_messages()` 的 Gemini-family 出站分支中，对缺少嵌套 `extra_content.google.thought_signature` 的历史 tool call 使用 copy-on-write 注入 Google 官方兼容哨兵 `skip_thought_signature_validator`；如果旧 adapter 留下直接位于 `extra_content.thought_signature` 的真实签名，则把原值规范化到 Google wire shape，不用哨兵覆盖。Gemini 已有真实签名保持原样，原始会话历史不被修改；非 Gemini 目标仍按上游既有逻辑剥离 `extra_content`，避免严格 OpenAI-compatible provider 拒绝未知字段。
+
+**验证**：`tests/agent/transports/test_chat_completions.py` 通过真实 `build_kwargs()` 边界构造 Azure/Codex 风格的 `skill_view` tool call（含 `call_id` / `response_item_id`、无 Gemini metadata），断言最终 provider request 删除 Codex 私有字段并注入嵌套兼容签名，同时原 history 不变；另覆盖已有真实签名 identity-preserve 与 legacy direct signature 规范化。Step 8b 直接 import `ChatCompletionsTransport` 并执行无签名历史转换，不依赖私有 helper 名；补丁测试必须由 `scripts/run_tests.sh` 运行。
+
+**上游吸收判断**：当上游 Chat Completions transport（或通用 provider-switch history adapter）原生在切换到 Gemini/Gemma 时，为所有无签名历史 function call 补充官方 skip-validator 哨兵，同时保持真实签名、非 Gemini 严格字段清理和 copy-on-write 不变量，并有跨 provider 回归测试后，可删除本地 hunk、Step 8b gate 和两个受管文件并将本块移入 Archive。仅有 `ToolCall.extra_content` 保留能力不算吸收。
 
 ---
 

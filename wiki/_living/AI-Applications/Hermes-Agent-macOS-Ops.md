@@ -1,13 +1,13 @@
 ---
 title: Hermes Agent macOS Ops
 created: 2026-05-14
-updated: 2026-08-12
+updated: 2026-08-14
 ---
 
 # Hermes Agent macOS 安装与运维手册
 
 > 适用系统：macOS 13+（Apple Silicon / Intel 均可）
-> 主模型：**Azure AI Foundry**（`gpt-5.5`）
+> 主模型：**Azure AI Foundry**（`gpt-5.6-sol`）
 > Fallback[0]：**Vertex AI**（`google/gemini-3.1-pro-preview`，service account；同时承担视频旁路）
 > Fallback[1]：**阿里云 Qwen / DashScope**（`qwen3.7-plus`）
 > 适用版本：Hermes Agent **v0.20.0**（upstream `222465d84709379b65173b0283a6eea87516acfa` / latest `main` as of 2026-08-12）
@@ -40,7 +40,7 @@ updated: 2026-08-12
 
 | 需要什么                             | 去哪里获取                                                                                                                                        |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **主模型 API Key**                   | 当前主模型是 Azure AI Foundry `gpt-5.5`，取 `AZURE_FOUNDRY_API_KEY`；换主模型时换成对应 provider 的 key                                           |
+| **主模型 API Key**                   | 当前主模型是 Azure AI Foundry `gpt-5.6-sol`，取 `AZURE_FOUNDRY_API_KEY`；换主模型时换成对应 provider 的 key                                       |
 | **Vertex Service Account JSON**      | GCP 服务账号 JSON 文件（含 `private_key`、`client_email`、`project_id`，需具备 `aiplatform.endpoints.predict` 权限），用于 fallback[0] 与视频旁路 |
 | **GCP 项目 ID** 和 **Location**      | 通常即 SA JSON 中的 `project_id`；location 一般是 `global` 或区域（如 `us-central1`）                                                             |
 | **DashScope（阿里云通义）API Key**   | 登录 [https://bailian.console.aliyun.com](https://bailian.console.aliyun.com) → API-KEY 管理，格式 `sk-xxxxxxxx`（fallback[1] 用）                |
@@ -305,7 +305,7 @@ hermes config edit
 # 主模型
 model:
   provider: azure-foundry
-  default: gpt-5.5
+  default: gpt-5.6-sol
 
 # Fallback 链：主模型失败 / 限流时按顺序接力
 # fallback[0] 用 vertex-fallback，它同时承担「主模型读不了视频时的旁路读取」
@@ -350,7 +350,7 @@ auxiliary:
 
 ```bash
 hermes config set model.provider azure-foundry
-hermes config set model.default gpt-5.5
+hermes config set model.default gpt-5.6-sol
 hermes config set agent.reasoning_effort high
 hermes config set agent.restart_drain_timeout 900
 hermes config set auxiliary.compression.provider alibaba
@@ -780,7 +780,7 @@ launchd
 
 ---
 
-_文档更新时间：2026-08-12_
+_文档更新时间：2026-08-14_
 _对应 Hermes Agent 版本：**v0.20.0**（upstream `222465d84709379b65173b0283a6eea87516acfa` / latest `main` as of 2026-08-12）_
-_主模型：Azure AI Foundry（`gpt-5.5`）Fallback[0]：Vertex AI（`google/gemini-3.1-pro-preview`，兼视频旁路）Fallback[1]：阿里云 Qwen / DashScope（`qwen3.7-plus`）_
+_主模型：Azure AI Foundry（`gpt-5.6-sol`）Fallback[0]：Vertex AI（`google/gemini-3.1-pro-preview`，兼视频旁路）Fallback[1]：阿里云 Qwen / DashScope（`qwen3.7-plus`）_
 _本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_
