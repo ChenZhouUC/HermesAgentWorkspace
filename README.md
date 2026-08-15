@@ -358,26 +358,22 @@ open -a TextEdit ~/.hermes/.env
 
 当前使用的 provider 及其环境变量：
 
-| Provider                | 环境变量                                                     | 说明                                                                          |
-| ----------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| Vertex Gemini（主模型） | `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_CREDENTIALS_PATH` | 官方 `vertex` provider 用 service account/ADC 自动 mint + refresh OAuth token |
-| Gemini（可选直连）      | `GEMINI_API_KEY` / `GOOGLE_API_KEY`                          | 仅在切回内置 `gemini` provider 时使用                                         |
-| Qwen（备用模型）        | `DASHSCOPE_API_KEY`                                          | 内置 `alibaba` provider 直接读取                                              |
-| DashScope 国内端点      | `DASHSCOPE_BASE_URL`                                         | `https://dashscope.aliyuncs.com/compatible-mode/v1`                           |
-| 飞书                    | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`                        | 飞书开放平台获取                                                              |
-| 飞书推送频道            | `FEISHU_HOME_CHANNEL`                                        | cron / 通知默认投递的群或会话 ID                                              |
-| Gateway 访问控制        | `FEISHU_ALLOWED_USERS` / `GATEWAY_ALLOW_ALL_USERS=false`     | 默认使用飞书白名单；仅明确开放时才设为 `true`                                 |
+| Provider                   | 环境变量                                                                 | 说明                                                                      |
+| -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| Azure Foundry（主模型）    | `AZURE_FOUNDRY_API_KEY` / `AZURE_FOUNDRY_BASE_URL`                       | 从 `codex-az` 使用的 `AZOPENAI_*` 映射，走 Responses wire                 |
+| Bedrock Claude Opus 5      | `CLAUDE_AM_OPUS_ARN` / `AWS_REGION`                                      | 从 `claude-am` 的 application-inference-profile ARN 与 region 映射        |
+| Vertex Gemini（末级/压缩） | `GOOGLE_APPLICATION_CREDENTIALS` / `VERTEX_PROJECT_ID` / `VERTEX_REGION` | 标准 `vertex` provider 用 service account 自动 mint + refresh OAuth token |
+| 飞书                       | `FEISHU_APP_ID` / `FEISHU_APP_SECRET`                                    | 飞书开放平台获取                                                          |
+| 飞书推送频道               | `FEISHU_HOME_CHANNEL`                                                    | cron / 通知默认投递的群或会话 ID                                          |
+| Gateway 访问控制           | `FEISHU_ALLOWED_USERS` / `GATEWAY_ALLOW_ALL_USERS=false`                 | 默认使用飞书白名单；仅明确开放时才设为 `true`                             |
 
 **当前主模型的加载机制：**
 
-当前主模型是 `azure-foundry/gpt-5.5`，API key 由 `.env` 的 `AZURE_FOUNDRY_API_KEY` 提供。
+当前主模型是 `azure-foundry/gpt-5.5`，API key/base 由 `~/.secrets` 的 `AZOPENAI_*` 映射到 `.env` 的 `AZURE_FOUNDRY_*`。
 
-链上的 `vertex-fallback`（fallback[0]，同时承担视频旁路）走 Vertex AI 的 OpenAI 兼容端点：
+Fallback[0] 使用 `claude-am` 同源的 AWS Bedrock application inference profile：`.env` 只保存 `CLAUDE_AM_OPUS_ARN` 与 `AWS_REGION`，AWS 签名继续走标准 SDK credential chain。
 
-1. `.env` 中的 `VERTEX_FALLBACK_CREDENTIALS_PATH` 指向该账号的 service-account JSON，`VERTEX_FALLBACK_PROJECT_ID` 指定其 GCP project。
-2. Hermes 运行时用 `google-auth` mint 短期 OAuth token，并在接近过期或遇到 mid-session 401 时自动 refresh。
-
-`GEMINI_API_KEY` 只在切到 Hermes 内置 `gemini` provider（AI Studio）时才会生效，当前链路不读它。
+Fallback[1] 与上下文压缩共同使用标准 Vertex：`GOOGLE_APPLICATION_CREDENTIALS` 指向从 `~/.secrets` 展开为绝对路径的 service-account JSON，`VERTEX_PROJECT_ID` / `VERTEX_REGION` 分别映射 project 与 location。Hermes 在进程内 mint/refresh OAuth token；不再使用第二 Vertex 账号、私有 Gemini gateway 或 DashScope 自动链路。
 
 ### config.yaml 主配置
 
@@ -390,69 +386,81 @@ open -a TextEdit ~/.hermes/.env
 model:
   provider: azure-foundry
   default: gpt-5.5
+  context_length: 1048576
 
 # 备用链路（主模型报错时按顺序切换）
-# fallback[0] 固定为 vertex-fallback/gemini-3.1-pro：它同时承担视频旁路
-# （见「视频输入」），主模型可以随时换，视频能力不受影响
 fallback_providers:
-  - provider: vertex-fallback
-    model: google/gemini-3.1-pro-preview
-  - provider: alibaba
-    model: qwen3.7-plus
+  - provider: bedrock
+    model: ${CLAUDE_AM_OPUS_ARN}
+  - provider: vertex
+    model: google/gemini-3.5-flash
+
+# Flash 作为末级恢复模型时同样使用 high reasoning
+agent:
+  reasoning_overrides:
+    gemini-3.5-flash: high
 
 # 压缩辅助模型（与主/备模型对齐到 1M 上下文，可统一使用同一个 threshold）
 auxiliary:
   compression:
-    provider: alibaba
-    model: qwen3.6-plus
+    provider: vertex
+    model: google/gemini-3.5-flash
     extra_body:
-      enable_thinking: true # qwen 系开启 thinking 模式，让压缩更聪明
+      google:
+        thinking_config:
+          include_thoughts: false
+          thinking_level: high
 
 # 上下文压缩门槛（主/fallback/压缩三方都是 1M context 时可放宽到 0.7）
 compression:
   enabled: true
-  threshold: 0.7 # 触发时机 ≈ 700k tokens
+  threshold: 0.7
+  threshold_tokens: 700000 # 三档统一约 700k 触发，保留约 300k 余量
   target_ratio: 0.2
+  codex_gpt55_autoraise: false
 ```
 
-> **三方对齐建议**：当主模型、fallback、压缩模型上下文窗口一致时，可使用统一 threshold；如果压缩模型容量小于主模型（例如压缩用 qwen3-max 256k、主模型 1M），Hermes 会在每次会话临时下调 threshold 到压缩模型容量并打 warning。当前配置三方都是 1M，因此 0.7 即可，无 auto-lower 警告。
+> **三档统一策略**：GPT-5.5 / Claude Opus 5 / Gemini 3.5 Flash 的 context metadata 分别约 1.05M / 1M / 1.048576M。统一 `threshold=0.7` + `threshold_tokens=700000`，并关闭 GPT-5.5 的 85% autoraise，使 provider 切换后的 compressor 始终在约 700k 触发，给 system prompt、29 个工具 schema、输出预算与估算误差留下约 300k 余量。
 
 **常用配置项**：
 
-| 配置项                                             | 默认值       | 说明                                                                       |
-| -------------------------------------------------- | ------------ | -------------------------------------------------------------------------- |
-| `agent.max_turns`                                  | 90           | 单次 session 最大轮数                                                      |
-| `agent.gateway_timeout`                            | 1800s        | Gateway 会话超时（30 分钟）                                                |
-| `agent.reasoning_effort`                           | high         | 主 agent 推理强度（none/low/medium/high/xhigh）                            |
-| `delegation.reasoning_effort`                      | high         | 子 agent / orchestrator 推理强度（空字符串表示继承主 agent）               |
-| `display.personality`                              | kawaii       | 显示风格                                                                   |
-| `display.show_reasoning`                           | false        | 是否在 TUI / 飞书等前端展示 reasoning 内容（依赖模型返回 reasoning）       |
-| `display.streaming`                                | true         | 控制 **CLI/TUI 终端**逐 token 流式（仅终端，不影响平台前端）               |
-| `streaming.enabled`                                | false        | 控制**飞书等 IM 前端**逐 token edit 流式；当前关闭，避免 markdown 渲染失真 |
-| `compression.threshold`                            | 0.7          | 上下文占主模型容量比例触发压缩                                             |
-| `auxiliary.compression.model`                      | qwen3.7-plus | 压缩任务使用的辅助模型                                                     |
-| `auxiliary.compression.extra_body.enable_thinking` | false        | 压缩不开 qwen thinking，走直出                                             |
-| `approvals.mode`                                   | manual       | 危险命令审批（manual/auto）                                                |
+| 配置项                                                    | 默认值                  | 说明                                                                       |
+| --------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------- |
+| `agent.max_turns`                                         | 90                      | 单次 session 最大轮数                                                      |
+| `agent.gateway_timeout`                                   | 1800s                   | Gateway 会话超时（30 分钟）                                                |
+| `agent.reasoning_effort`                                  | high                    | 主 agent 推理强度（none/low/medium/high/xhigh）                            |
+| `agent.reasoning_overrides.gemini-3.5-flash`              | high                    | 末级 Flash fallback 使用高思考，与压缩模型保持一致                         |
+| `delegation.reasoning_effort`                             | high                    | 子 agent / orchestrator 推理强度（空字符串表示继承主 agent）               |
+| `display.personality`                                     | kawaii                  | 显示风格                                                                   |
+| `display.show_reasoning`                                  | false                   | 是否在 TUI / 飞书等前端展示 reasoning 内容（依赖模型返回 reasoning）       |
+| `display.streaming`                                       | true                    | 控制 **CLI/TUI 终端**逐 token 流式（仅终端，不影响平台前端）               |
+| `streaming.enabled`                                       | false                   | 控制**飞书等 IM 前端**逐 token edit 流式；当前关闭，避免 markdown 渲染失真 |
+| `compression.threshold`                                   | 0.7                     | 上下文占主模型容量比例触发压缩                                             |
+| `compression.threshold_tokens`                            | 700000                  | 三档统一的绝对触发上限，保留约 300k 余量                                   |
+| `compression.codex_gpt55_autoraise`                       | false                   | 禁止 GPT-5.5 单独抬到 85%，避免切换 provider 后阈值分叉                    |
+| `auxiliary.compression.model`                             | google/gemini-3.5-flash | 压缩任务与末级 fallback 使用同一 Vertex 模型                               |
+| `auxiliary.compression.extra_body.google.thinking_config` | high / 不返回 thoughts  | 给摘要充分推理空间，同时避免输出内部思考占用正文预算                       |
+| `approvals.mode`                                          | manual                  | 危险命令审批（manual/auto）                                                |
 
 ### Thinking / Reasoning 配置
 
 当前 thinking/reasoning 配置与可见性：
 
-| 位置                                      | 当前                   | 模型                                   | TUI 可见 | 飞书可见                  |
-| ----------------------------------------- | ---------------------- | -------------------------------------- | -------- | ------------------------- |
-| 主 agent (`agent.reasoning_effort`)       | high                   | gpt-5.5（Azure，Responses 路径）       | 不展示   | 不展示                    |
-| 子 agent (`delegation.reasoning_effort`)  | high                   | 默认继承主模型                         | 不展示   | 不展示                    |
-| Fallback[0] (`fallback_providers`)        | —                      | vertex-fallback/gemini-3.1-pro-preview | 不展示   | 不展示                    |
-| Fallback[1] (`fallback_providers`)        | —                      | alibaba/qwen3.7-plus                   | 不展示   | 不展示                    |
-| 压缩 (`auxiliary.compression.extra_body`) | enable_thinking: false | qwen3.7-plus                           | —        | —（后台任务，不前端展示） |
-| 显示开关 (`display.show_reasoning`)       | false                  | —                                      | —        | —                         |
+| 位置                                     | 当前                | 模型                                      | TUI 可见 | 飞书可见                  |
+| ---------------------------------------- | ------------------- | ----------------------------------------- | -------- | ------------------------- |
+| 主 agent (`agent.reasoning_effort`)      | high                | gpt-5.5（Azure，Responses 路径）          | 不展示   | 不展示                    |
+| 子 agent (`delegation.reasoning_effort`) | high                | 默认继承主模型                            | 不展示   | 不展示                    |
+| Fallback[0] (`fallback_providers`)       | high                | bedrock/Claude Opus 5 application profile | 不展示   | 不展示                    |
+| Fallback[1] (`fallback_providers`)       | reasoning: high     | vertex/google/gemini-3.5-flash            | 不展示   | 不展示                    |
+| 压缩 (`auxiliary.compression`)           | high；隐藏 thoughts | vertex/google/gemini-3.5-flash            | —        | —（后台任务，不前端展示） |
+| 显示开关 (`display.show_reasoning`)      | false               | —                                         | —        | —                         |
 
 **已知限制**：
 
 - 主模型 gpt-5.5 走 `azure-foundry`（codex-az 同源 Azure 端点，Codex Responses 路径），对话本身仍可能返回 reasoning；但当前 `display.show_reasoning: false`，前端不展示 thinking 段落。若临时改回 `true`，会重新显示前缀 `💭 **Reasoning:**` 的内容。
-- Fallback[0] 的 `vertex-fallback` 被 Hermes 视作 Gemini-family provider，模型 ID 保留 `google/gemini-*` 的点号，并通过 provider-specific 路径处理 OAuth token refresh 与 Gemini thinking 参数。其 thought text 由 `PATCH-VERTEX-HIDDEN-THOUGHTS` 抑制（保留 thinking level，不把 thought 拼进正文）。
-- 从 GPT/Azure 会话 fallback 到 Gemini 时，历史工具调用没有 Gemini 原生 `thought_signature`；`PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY` 会在出站副本中为无签名 function call 注入官方兼容哨兵，已有真实签名保持不变，避免 Vertex 立即 HTTP 400 后继续落到 Qwen。
-- 压缩模型为 qwen3.7-plus（DashScope），故 `.env` 保留 DASHSCOPE 凭据。
+- Bedrock fallback 使用 `claude-am` 的 Opus 5 application-inference-profile ARN，Hermes 原生识别为 1M Claude 模型并走 Anthropic Bedrock SDK。
+- 标准 `vertex` 保留 `google/gemini-*` 模型 ID，通过 provider-specific 路径处理 OAuth token refresh 与 Gemini thinking 参数；thought text 由 `PATCH-VERTEX-HIDDEN-THOUGHTS` 抑制。
+- 从 Azure/Bedrock 会话 fallback 到 Gemini 时，历史工具调用没有 Gemini 原生 `thought_signature`；`PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY` 会在出站副本中注入官方兼容哨兵，避免末级 Vertex 立即 HTTP 400。
 
 ### 流式输出
 
@@ -472,23 +480,21 @@ Hermes 有**两套独立的流式机制**，配置项分别落在不同的 names
 
 要重新开启流式且不丢格式，需要本地 patch（暂未实现）：让 `edit_message` 路径强制 `msg_type=post`，绕过 buffer-stage detection。在该 patch 落地前，飞书侧维持非流式整段输出，保留加粗/序号/列表渲染。
 
-### Vertex Provider（当前仅用于 fallback 与视频旁路）
+### Vertex Provider（末级 fallback、压缩与视频旁路）
 
-主模型现在是 `azure-foundry/gpt-5.5`；Vertex 只以 `vertex-fallback` 的形态留在链上，承担两件事：
+主模型是 `azure-foundry/gpt-5.5`；标准 Vertex 承担三件事：
 
-1. **fallback[0]** —— 主模型报错时接管（见 `PATCH-VERTEX-FALLBACK`）
-2. **视频旁路** —— 主模型读不了视频时，由它单独读一次视频再把描述交回主会话（见「视频输入」）
+1. **fallback[1]** —— Azure 与 Bedrock 都失败后接管
+2. **上下文压缩** —— `auxiliary.compression` 使用同一 Gemini 3.5 Flash
+3. **视频旁路** —— 前两档读不了视频时，由它单独读一次视频再把描述交回主会话
 
 凭据链路：
 
-1. `.env` 中的 `VERTEX_FALLBACK_CREDENTIALS_PATH` 指向该账号的 service-account JSON，`VERTEX_FALLBACK_PROJECT_ID` 指定其 GCP project。
-2. Hermes 通过 `agent.vertex_adapter.get_vertex_fallback_config()` 用 `google-auth` mint OAuth token，指向
+1. `.env` 中的 `GOOGLE_APPLICATION_CREDENTIALS` 指向 service-account JSON，`VERTEX_PROJECT_ID` / `VERTEX_REGION` 指定 project/location。
+2. Hermes 通过 `agent.vertex_adapter.get_vertex_config()` 用 `google-auth` mint OAuth token，指向
    `https://aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{region}/endpoints/openapi`，进程内自动 refresh。
-3. 该账号**不受** `vertex.project_id` 全局 override 影响（`apply_global_project_override=False`），因此始终锁在自己的 project 上。
 
 ```yaml
-# config.yaml —— vertex: 段只对主 `provider: vertex` 生效。
-# 当前没有走主 vertex，project_id 留空即用凭据自带的 project。
 vertex:
   project_id: ""
   region: global
@@ -571,8 +577,8 @@ launchd
 
 当前推荐组合是：
 
-1. `.env` 写入 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID`（fallback 与视频旁路共用该账号）
-2. `config.yaml` 的 `model` 指向主模型，`fallback_providers[0]` 保持 `vertex-fallback/google/gemini-3.1-pro-preview`
+1. `.env` 写入标准 Vertex 的 `GOOGLE_APPLICATION_CREDENTIALS` + `VERTEX_PROJECT_ID` + `VERTEX_REGION`
+2. `fallback_providers[1]` 与 `auxiliary.compression` 都保持 `vertex/google/gemini-3.5-flash`
 3. 执行 `hermes gateway install`，确保后台服务可自启动
 
 ### 飞书集成
@@ -1005,7 +1011,7 @@ hermes gateway status
 
 ## 本地补丁记录
 
-本项目维护 34 个按职责命名的活跃语义补丁：27 个工程内补丁、6 个升级期运行时补丁和 1 个外层配置仓库插件补丁。完整责任边界、依赖、验证 gate 和上游吸收条件见 [`patches/PATCHES.md`](patches/PATCHES.md)。工程内改动仍以单一 full-index `local-patches.diff` 作为原子 replay bundle，但每个语义补丁在 Step 8b 独立验收；新增 `PATCH-UPDATE-TRANSACTION-PIN` 保证一次升级只取得一个 upstream snapshot，后续围绕固定 SHA reconcile；`PATCH-FEISHU-GROUP-SANDBOX` 不进入内层 diff，由 Step 8e 强制 verifier 管理。当前基线为上游 `c896c09c42910c584c4c7d2325b58c14713ea42c`，70 个受管文件的内层 diff 与外层 bundle（排除已知 `package-lock.json` 噪音）逐字节一致；最近完整回归结果见本周版本记录，sandbox plugin verifier 每轮绑定运行时当前 Gateway PID 通过。
+本项目维护 33 个按职责命名的活跃语义补丁：26 个工程内补丁、6 个升级期运行时补丁和 1 个外层配置仓库插件补丁。完整责任边界、依赖、验证 gate 和上游吸收条件见 [`patches/PATCHES.md`](patches/PATCHES.md)。工程内改动仍以单一 full-index `local-patches.diff` 作为原子 replay bundle，但每个语义补丁在 Step 8b 独立验收；新增 `PATCH-UPDATE-TRANSACTION-PIN` 保证一次升级只取得一个 upstream snapshot，后续围绕固定 SHA reconcile；`PATCH-FEISHU-GROUP-SANDBOX` 不进入内层 diff，由 Step 8e 强制 verifier 管理。当前基线为上游 `c896c09c42910c584c4c7d2325b58c14713ea42c`，66 个受管文件的内层 diff 与外层 bundle（排除已知 `package-lock.json` 噪音）逐字节一致；最近完整回归结果见本周版本记录，sandbox plugin verifier 每轮绑定运行时当前 Gateway PID 通过。
 
 补丁由 `hermes-update.sh` 全自动管理：事务层由 `PATCH-UPDATE-TRANSACTION-PIN` 区分唯一一次 `--update` 和任意次 no-network `--reconcile`；Step 2/8c 以 full-index 保存 replay bundle，并在 canonical bundle/base 发布前强制完整受管集合、逐字节、cached 正向、worktree 反向和 index-clean 闭环；Step 3/4 执行 `PATCH-NPM-DEPENDENCY-HYGIENE`，Step 4b 执行 `PATCH-SKILLS-MIRROR-METADATA`，Step 7 保留已上游合并的 completion 回归 sentinel，Step 8 回放工程内 diff 并逐个验证语义 gate，Step 8d 仅在运行态脏时排空在途任务、重启 gateway 并要求 PID 替换，无变化 reconcile 不重启；Step 8e 强制回归 `PATCH-FEISHU-GROUP-SANDBOX`。若 Step 8d 后又修了运行时代码/配置，`hermes-update.md` Step 5b 要求再次执行同样的终态运行屏障并把 verifier 绑定到最终 PID。`PATCH-UPDATE-GATE-EXIT-STATUS` 保证 staged/部分 overlay、apply、sentinel、冲突、部分或空 bundle、replay integrity、runtime sync、Gateway 未实际重载或外层 verifier 任一失败都令升级非零且不得误报成功；常规更新禁止用短宽限 `stop/start` 强杀来换取新 PID。
 
@@ -1742,7 +1748,7 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 | 版本               | 日期       | 周摘要                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| v0.20.1            | 2026-08-14 | **2026-W33**：upstream `cd9fbf9f1 → c896c09c4`（周内 +1082 commits）。主线：周初完成 31 项 CVE 修补、v34 personality 迁移、Gateway route/session identity、Browser Use 默认切换和 Windows/Desktop updater 重写；v0.20.1 继续补齐跨 surface `/model` 持久化与 resume、后台通知合并和 secrets redaction、compression 同轮预算、models.dev ETag/统一 model guard、pip provider entry point、Gemini 3.7 Flash、Slack native streaming/task cards，以及 Desktop plugin capability/setup_mcp/Windows-safe spawn。PATCH：**34 活跃**，周内 **+4 / 0 归档 / 0 收缩**——`PATCH-VIDEO-SIDECAR`、`PATCH-COMPACTION-LIFECYCLE-SILENCE`、`PATCH-FEISHU-QUOTE-CHAIN-SESSION`、`PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY`；本轮 70-file 回贴仅两处并存型冲突：Slack native-progress 测试与 Feishu group-scope 测试同位，PTB 22.8 与 Feishu `python-socks` lock 条目同位，均保留两侧语义，裸 upstream 仍为 0 吸收。终态：**29 files 1109 passed / 0 failed / 3 skipped**（+18 来自上游在四个既有文件扩展测试），70-file bundle 逐字节/正向/反向/index-clean 全绿，sandbox verifier 23 passed。配置 v34→v35，仅新增注释态 fallback 模板；主链路保持 `azure-foundry/gpt-5.5`，fallback 保持 Vertex Gemini 3.1 Pro Preview → Alibaba Qwen 3.7 Plus，browser 继续锁定内建后端。依赖：venv 未重建，bundled skills +3/15 updated；root npm 6 high、doctor web 4/ui-tui 3，均为 Electron/web build 链 P2 且不影响飞书 gateway，禁止 `--force`。流程：单次固定 SHA 在 apply failure 后仅 reconcile；安全策略拒绝清 index 时的 `git update-index` fallback 和 zsh `path` 陷阱已写回 playbook。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| v0.20.1            | 2026-08-15 | **2026-W33**：upstream `cd9fbf9f1 → c896c09c4`（周内 +1082 commits）。主线：周初完成 31 项 CVE 修补、v34 personality 迁移、Gateway route/session identity、Browser Use 默认切换和 Windows/Desktop updater 重写；v0.20.1 继续补齐跨 surface `/model` 持久化与 resume、后台通知合并和 secrets redaction、compression 同轮预算、models.dev ETag/统一 model guard、pip provider entry point、Gemini 3.7 Flash、Slack native streaming/task cards，以及 Desktop plugin capability/setup_mcp/Windows-safe spawn。PATCH：**33 活跃**，周内 **+5 / 2 归档 / 0 收缩**；`PATCH-VERTEX-FALLBACK` 与 `PATCH-GEMINI-CUSTOM-NATIVE-BASE` 随单 Vertex/标准 provider 收敛退役，独有源码、测试、gate、受管文件和 `.env` 变量全部删除；`PATCH-FEISHU-MARKDOWN` 补齐 `> **整行粗体**` → `▎ **…**` 边界。新 bundle 为 **66 files**；受管全集 **29 files 1098 passed / 0 failed / 3 skipped**。配置：`azure-foundry/gpt-5.5 → bedrock/Claude Opus 5 application profile → vertex/google/gemini-3.5-flash`，compression 同为标准 Vertex Gemini 3.5 Flash；三个 context window 约 1.05M / 1M / 1.048576M，统一 `threshold=0.7`、绝对 cap 700k 并关闭 GPT-5.5 85% autoraise。真实 110,164 字符 system prompt + 29 tools 三档均返回 `FULL_ROUTE_OK`，链路激活顺序与三档 compressor cap 均正确；720k 级真实压缩由 Vertex 完成，保留在摘要或 protected head/tail 中的四项关键事实全部存续，无 abort/降级。`.env` 只保留从 `~/.secrets` 映射的 Azure、Bedrock Opus 与标准 Vertex 所需变量，SA 路径在注入时展开为绝对路径。依赖告警仍为 Desktop/web build 链 P2，禁止 `--force`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | v0.20.0            | 2026-08-08 | **2026-W32**：upstream `26e0b1c → cd9fbf9f1`（周内 +1087 commits，中继 `863e3131`；主线：secrets/profile scope、排空重启、Gateway SSE/Relay 生命周期与 turn-lease/unclean-exit 恢复、State/SQLite/CJK、模型与 tool observability、Desktop session/tab 与 file/tool/skill 性能、anydoc 文档抽取扩展与 bytes 边界抽取 + 扫描版 PDF 覆盖率警告、terminal/ACP 结果脱敏与自仓 git 变更硬拦、doctor DB 健康统计与 `--live` 探针、`hermes pause/resume` 急停）。PATCH 生命周期：周中新增 `PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-FEISHU-MISSED-EVENT-BACKFILL`、`PATCH-UPDATE-TRANSACTION-PIN`（一次升级固定一个 upstream snapshot；失败 0600 持久化、仅 exit 0 清除），活跃 28 → 30、无归档；`PATCH-DOCUMENT-EXTRACTION` 经 `b2598b41e` 部分吸收 anydoc-only，08-08 复核上游新增 bytes API/覆盖率警告与本地 hunk 正交并存；`PATCH-NPM-DEPENDENCY-HYGIENE` 的 install-script policy 片段经上游 `package.json.allowScripts` 吸收而退役（本机 npm 11→12 暴露覆盖关系），audit-fix 片段保留。08-07 逐补丁全量审计：修复图片/视频路由 `kind=` 接线断裂、视频 buffer 每轮重置、群审批硬拦重排为三入口早期硬地板（+ContextVar chat_type 防 fail-open）、vertex 别名铸主凭据、backfill 开机窗节流等生产缺陷，并收紧十余处闸门判别力与脚本演进项；受管文件 62 → 64，新增回归 12 条。08-08 将主会话 DM 回放并入 `PATCH-FEISHU-MISSED-EVENT-BACKFILL`：修复 `oc_` 前缀误判 chat_type 的盲区，`get_chat_info` 补采 `chat_mode`（实测 DM=`p2p`）、失败 fail-closed 按群准入，DM quote 覆盖去重自动继承，新增 3 条 DM 回归。真实冲突：08-06 轮 Feishu lazy SDK import 与 approval 增量按既定融合原则处理；08-08 轮仅 `read_extract.py` import 块/函数插入点两处并存型，两侧全保留。周末终态：26 files **847 passed / 0 failed**（+15 为上游 test_read_extract 扩展），bundle/base/full-index 正反向与 index-clean 闭环全绿，gateway 排空重启至 PID 68781、sandbox verifier 21 passed 绑定终态 PID；清除 08-06 官方 updater 遗留 autostash（可恢复 `e2919ebad`）。摩擦：npm audit 残余 8 advisories（Browser 2H、Web 3H 含新增 Mermaid CSS-injection、UI-TUI 1H1M）属 P2 上游 lock/range 阻挡、不影响飞书主链路，禁止 `--force`；Skills mirror 字节码缓存噪音已入排除集，本周仅余 llm-wiki 固定振荡；裸补丁窗口 doctor 出现 vendor-slug 对 vertex 的一次性误报，回贴后消失。 |
 | v0.19.1            | 2026-08-02 | **2026-W31**：upstream `eb527605 → 26e0b1c`（+2148 commits），周内发布 v0.19.1 / `v2026.7.30`；Gateway/session、Voice/STT、Desktop/Photon、模型观测和安全工具继续演进，`PATCH-LAZY-ACTIVATION` 经裸 upstream 验证完全吸收并归档。solvepatch 中断后接管遗漏 import，随后 `41a07f5b → 26e0b1c`（+971）再次 3-way 解冲突并修复 5 个测试失败。收尾审计新增 full-index bundle、gate 非零退出、Skills metadata 保留 3 个运行时 PATCH，终态 60 files clean apply、27 个活跃 PATCH、23 files **793 passed / 0 failed**、七层闭环与 sandbox verifier 全绿；19 个 active backend 全 current，npm audit **0 vulnerabilities**。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | v0.19.0            | 2026-07-26 | **2026-W30**：upstream `c48d5341 → eb527605`（+1913 commits），跨入 v0.19.0。上游集中推进 State/SQLite、Gateway、Vertex/Gemini、SSRF、安全、Desktop、Skills 与压缩；Feishu Markdown 冲突按语义重解。本周新增/收敛 `PATCH-VERTEX-IMAGE-ROUTING`、`PATCH-VERTEX-VIDEO-ROUTING`、`PATCH-APPROVAL-DARWIN-TMP`、`PATCH-FTS5-CJK-DARWIN`，并演进 `PATCH-FEISHU-MARKDOWN`。E-949 runtime repair 曾重建 venv，缺失 lazy/dev 依赖已全部自愈；周末 60 files clean apply，23 files **1909 passed / 0 failed**。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |

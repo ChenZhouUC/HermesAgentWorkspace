@@ -2,11 +2,12 @@ model:
   provider: azure-foundry
   default: gpt-5.5
   base_url: https://admin-mj768a9d-eastus2.cognitiveservices.azure.com/openai/v1
+  context_length: 1048576
 fallback_providers:
-  - provider: vertex-fallback
-    model: google/gemini-3.1-pro-preview
-  - provider: alibaba
-    model: qwen3.7-plus
+  - provider: bedrock
+    model: '${CLAUDE_AM_OPUS_ARN}'
+  - provider: vertex
+    model: google/gemini-3.5-flash
 toolsets:
   - hermes-cli
 agent:
@@ -28,6 +29,8 @@ agent:
   image_input_mode: auto
   disabled_toolsets: []
   reasoning_effort: high
+  reasoning_overrides:
+    gemini-3.5-flash: high
 terminal:
   backend: local
   modal_mode: auto
@@ -105,13 +108,13 @@ tool_loop_guardrails:
 compression:
   enabled: true
   threshold: 0.7
-  threshold_tokens: 600000
+  threshold_tokens: 700000
   target_ratio: 0.2
   protect_last_n: 40
   hygiene_hard_message_limit: 400
   protect_first_n: 3
   abort_on_summary_failure: false
-  codex_gpt55_autoraise: true
+  codex_gpt55_autoraise: false
   proactive_prune_tokens: 48000
   idle_compact_after_seconds: 1800
 kanban:
@@ -132,7 +135,7 @@ openrouter:
   response_cache_ttl: 300
   min_coding_score: 0.65
 bedrock:
-  region: ''
+  region: '${AWS_REGION}'
   discovery:
     enabled: true
     provider_filter: []
@@ -157,13 +160,16 @@ auxiliary:
     api_key: ''
     timeout: 360
   compression:
-    provider: alibaba
-    model: qwen3.7-plus
+    provider: vertex
+    model: google/gemini-3.5-flash
     base_url: ''
     api_key: ''
     timeout: 120
     extra_body:
-      enable_thinking: false
+      google:
+        thinking_config:
+          include_thoughts: false
+          thinking_level: high
   skills_hub:
     provider: auto
     model: ''

@@ -1,16 +1,16 @@
 ---
 title: Hermes Agent macOS Ops
 created: 2026-05-14
-updated: 2026-08-14
+updated: 2026-08-15
 ---
 
 # Hermes Agent macOS 安装与运维手册
 
 > 适用系统：macOS 13+（Apple Silicon / Intel 均可）
-> 主模型：**Azure AI Foundry**（`gpt-5.6-sol`）
-> Fallback[0]：**Vertex AI**（`google/gemini-3.1-pro-preview`，service account；同时承担视频旁路）
-> Fallback[1]：**阿里云 Qwen / DashScope**（`qwen3.7-plus`）
-> 适用版本：Hermes Agent **v0.20.0**（upstream `222465d84709379b65173b0283a6eea87516acfa` / latest `main` as of 2026-08-12）
+> 主模型：**Azure AI Foundry**（`gpt-5.5`，参考 `codex-az`）
+> Fallback[0]：**AWS Bedrock Claude Opus 5**（application inference profile，参考 `claude-am`）
+> Fallback[1]：**Vertex AI Gemini 3.5 Flash**（标准 service account；同时承担 compression 与视频旁路）
+> 适用版本：Hermes Agent **v0.20.1**（upstream `c896c09c42910c584c4c7d2325b58c14713ea42c`，2026-08-15）
 > 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置主模型 + fallback 链 → 辅助脚本与代理注入 → 飞书接入 → 内容迁移 → 日常运维
@@ -38,14 +38,14 @@ updated: 2026-08-14
 
 ### 1.1 你需要提前拿到的东西
 
-| 需要什么                             | 去哪里获取                                                                                                                                        |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **主模型 API Key**                   | 当前主模型是 Azure AI Foundry `gpt-5.6-sol`，取 `AZURE_FOUNDRY_API_KEY`；换主模型时换成对应 provider 的 key                                       |
-| **Vertex Service Account JSON**      | GCP 服务账号 JSON 文件（含 `private_key`、`client_email`、`project_id`，需具备 `aiplatform.endpoints.predict` 权限），用于 fallback[0] 与视频旁路 |
-| **GCP 项目 ID** 和 **Location**      | 通常即 SA JSON 中的 `project_id`；location 一般是 `global` 或区域（如 `us-central1`）                                                             |
-| **DashScope（阿里云通义）API Key**   | 登录 [https://bailian.console.aliyun.com](https://bailian.console.aliyun.com) → API-KEY 管理，格式 `sk-xxxxxxxx`（fallback[1] 用）                |
-| **（可选）飞书 App ID / App Secret** | 飞书开放平台 [https://open.feishu.cn](https://open.feishu.cn) → 你的应用 → 凭证与基础信息                                                         |
-| **（可选）Tavily API Key**           | 注册 [https://app.tavily.com/home](https://app.tavily.com/home)，格式 `tvly-xxxx`，用于联网搜索                                                   |
+| 需要什么                             | 去哪里获取                                                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| **主模型 API Key**                   | 当前主模型是 Azure AI Foundry `gpt-5.5`，取 `AZURE_FOUNDRY_API_KEY`；base 参考 `codex-az`                      |
+| **Bedrock Opus 5 profile ARN**       | `claude-am` 使用的 application-inference-profile ARN；AWS 凭据继续走标准 SDK credential chain                  |
+| **Vertex Service Account JSON**      | GCP 服务账号 JSON 文件（需具备 `aiplatform.endpoints.predict` 权限），用于 fallback[1]、compression 与视频旁路 |
+| **GCP 项目 ID** 和 **Location**      | 通常即 SA JSON 中的 `project_id`；location 一般是 `global` 或区域（如 `us-central1`）                          |
+| **（可选）飞书 App ID / App Secret** | 飞书开放平台 [https://open.feishu.cn](https://open.feishu.cn) → 你的应用 → 凭证与基础信息                      |
+| **（可选）Tavily API Key**           | 注册 [https://app.tavily.com/home](https://app.tavily.com/home)，格式 `tvly-xxxx`，用于联网搜索                |
 
 ### 1.2 安装基础依赖
 
@@ -222,7 +222,7 @@ cp /path/to/your-service-account.json ~/.hermes/credentials/
 chmod 600 ~/.hermes/credentials/*.json
 ```
 
-> 只有用 Vertex（主 provider 或 `vertex-fallback`）时才需要 SA JSON。放到
+> 只有使用标准 Vertex 时才需要 SA JSON。放到
 > `~/.hermes/credentials/`，权限设 600。
 
 ### 3.5 修复 npm 依赖已知漏洞（等价于本地 `PATCH-NPM-DEPENDENCY-HYGIENE`）
@@ -260,17 +260,19 @@ Hermes 的配置分两层：
 
 ```bash
 cat > ~/.hermes/.env <<'EOF'
-# ── 主模型：Azure AI Foundry ────────────────────────────
+# ── 主模型：Azure AI Foundry（从 AZOPENAI_* 映射） ─────
 AZURE_FOUNDRY_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+AZURE_FOUNDRY_BASE_URL=https://your-resource.cognitiveservices.azure.com/openai/v1
 
-# ── Fallback[0] / 视频旁路：Vertex AI（第二 SA 账号） ────
+# ── Fallback[0]：Bedrock Claude Opus 5 ─────────────────
+CLAUDE_AM_OPUS_ARN=arn:aws:bedrock:us-east-1:ACCOUNT:application-inference-profile/PROFILE
+AWS_REGION=us-east-1
+
+# ── Fallback[1] / compression / 视频旁路：标准 Vertex ──
 # token 由 Hermes 进程内 mint/refresh，不需要任何刷新脚本
-VERTEX_FALLBACK_CREDENTIALS_PATH=/Users/YOUR_USER/.hermes/credentials/your-service-account.json
-VERTEX_FALLBACK_PROJECT_ID=your-gcp-project-id
-
-# ── Fallback[1]：阿里 Qwen / DashScope ──────────────────
-DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
-DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+GOOGLE_APPLICATION_CREDENTIALS=/Users/YOUR_USER/.gemini/service-account.json
+VERTEX_PROJECT_ID=your-gcp-project-id
+VERTEX_REGION=global
 
 # ── Hermes Gateway ─────────────────────────────────────
 HERMES_GATEWAY_TOKEN=
@@ -289,7 +291,7 @@ chmod 600 ~/.hermes/.env
 ```
 
 > ⚠️ **必须用绝对路径**替换 `YOUR_USER`；launchd 后台不继承 shell 的 `$HOME`。
-> SA JSON 文件名按你拿到的实际名替换；`VERTEX_FALLBACK_PROJECT_ID` 填该 SA 所属的 GCP project。
+> SA JSON 文件名按实际值替换；从 `~/.secrets` 复制时要先展开字面量 `$HOME`，写入 `.env` 的必须是绝对路径。
 
 ### 4.2 配置 `config.yaml`
 
@@ -305,16 +307,15 @@ hermes config edit
 # 主模型
 model:
   provider: azure-foundry
-  default: gpt-5.6-sol
+  default: gpt-5.5
+  context_length: 1048576
 
 # Fallback 链：主模型失败 / 限流时按顺序接力
-# fallback[0] 用 vertex-fallback，它同时承担「主模型读不了视频时的旁路读取」
-# （PATCH-VIDEO-SIDECAR）；主模型可以随时换，视频能力不受影响
 fallback_providers:
-  - provider: vertex-fallback
-    model: google/gemini-3.1-pro-preview
-  - provider: alibaba
-    model: qwen3.7-plus
+  - provider: bedrock
+    model: ${CLAUDE_AM_OPUS_ARN}
+  - provider: vertex
+    model: google/gemini-3.5-flash
 
 providers: {}
 
@@ -322,6 +323,8 @@ agent:
   max_turns: 90
   gateway_timeout: 1800
   reasoning_effort: high
+  reasoning_overrides:
+    gemini-3.5-flash: high
   # 计划内 restart（升级 / 手动 restart）时给 in-flight agent 的排空时间，
   # 避免 SIGKILL 导致"会话重置"。长任务可跑 8-10 分钟，故给到 900s。
   restart_drain_timeout: 900
@@ -334,40 +337,47 @@ checkpoints:
   enabled: true
   max_snapshots: 50
 
-# 把上下文压缩（compression）路由到 qwen，避免与主模型抢同一份配额
+# compression 与末级 fallback 使用同一标准 Vertex 模型
 auxiliary:
   compression:
-    provider: alibaba
-    model: qwen3.7-plus
+    provider: vertex
+    model: google/gemini-3.5-flash
     extra_body:
-      enable_thinking: false
+      google:
+        thinking_config:
+          include_thoughts: false
+          thinking_level: high
+
+compression:
+  threshold: 0.7
+  threshold_tokens: 700000
+  codex_gpt55_autoraise: false
 ```
 
 > v0.12.x 的老手册建议把 `compression.threshold` 调到 0.35 提前触发压缩——那是因为压缩当时还在抢主模型配额。
-> 当前配置把压缩路由到 Qwen 后就**不再抢主模型配额**，可以保留 `compression.threshold` 默认值 0.7。
+> 三档 context metadata 分别约 1.05M / 1M / 1.048576M。统一在约 700k 触发，并关闭 GPT-5.5 的 85% autoraise，可在 provider 切换时保持相同压缩口径，同时给 system prompt、工具 schema、输出与估算误差保留约 300k 余量。
 
 也可以纯命令行：
 
 ```bash
 hermes config set model.provider azure-foundry
-hermes config set model.default gpt-5.6-sol
+hermes config set model.default gpt-5.5
 hermes config set agent.reasoning_effort high
 hermes config set agent.restart_drain_timeout 900
-hermes config set auxiliary.compression.provider alibaba
-hermes config set auxiliary.compression.model qwen3.7-plus
-hermes config set auxiliary.compression.extra_body.enable_thinking false
+hermes config set auxiliary.compression.provider vertex
+hermes config set auxiliary.compression.model google/gemini-3.5-flash
 
 # fallback 链是列表，用 config edit 手写更稳妥（见上面的 YAML）
 hermes config edit
 ```
 
-### 4.3 把 DashScope Key 登记到凭据池
+### 4.3 验证 Bedrock 与标准 Vertex
 
-让 `provider: alibaba` 自动认到 fallback key：
+Bedrock 使用标准 AWS SDK credential chain；Vertex 使用 service account mint OAuth token：
 
 ```bash
-hermes auth add alibaba --label main --api-key "$(grep ^DASHSCOPE_API_KEY ~/.hermes/.env | cut -d= -f2)"
-hermes auth list
+hermes doctor
+hermes fallback list
 ```
 
 ### 4.4（可选）启用 Tavily 联网搜索
@@ -381,7 +391,7 @@ hermes config set web.backend tavily
 
 ## 第五章：辅助脚本与代理注入
 
-> **Vertex token 不需要人工维护。** `vertex` / `vertex-fallback` provider 在**进程内**用 `google-auth`
+> **Vertex token 不需要人工维护。** 标准 `vertex` provider 在**进程内**用 `google-auth`
 > mint 并自动 refresh OAuth token（`agent/vertex_adapter.py`），没有外部刷新脚本，也没有额外 LaunchAgent。
 > （本章早期的定时刷新方案已于 2026-08-11 删除；需要考古请查 git 历史。）
 
@@ -558,7 +568,7 @@ hermes gateway status
 ◆ API Connectivity
   ✓ Azure AI Foundry                 ← 主模型通了
   ✓ Vertex / custom endpoint         ← fallback[0] / 视频旁路通了
-  ✓ Alibaba/DashScope                ← fallback[1] 通了
+  ✓ Google / Gemini                  ← fallback[1] / 压缩模型通了
 
 ◆ Tool Availability
   ✓ memory / messaging / skills / web …
@@ -614,9 +624,7 @@ hermes fallback clear         # 清空 fallback
 
 ```bash
 hermes auth list              # 所有 provider 凭据
-hermes auth add alibaba --label main --api-key sk-xxx
-hermes auth status alibaba    # 单 provider 状态
-hermes auth reset alibaba     # 清除疲劳/限流标记
+hermes auth status gemini     # Gemini API key 状态
 ```
 
 ### 9.5 配置
@@ -697,46 +705,38 @@ deactivate
 hermes gateway restart
 ```
 
-### 9.12 API Key / SA 更换
+### 9.12 模型凭据 / SA 更换
 
-**DashScope Key 更换**：
-
-```bash
-sed -i '' 's|^DASHSCOPE_API_KEY=.*|DASHSCOPE_API_KEY=sk-新key|' ~/.hermes/.env
-hermes auth add alibaba --label main --api-key sk-新key
-hermes gateway restart
-```
-
-**Vertex SA 更换**（fallback[0] / 视频旁路用的第二账号）：
+**Vertex SA 更换**（fallback[1] / compression / 视频旁路共用）：
 
 ```bash
 cp /path/to/new-sa.json ~/.hermes/credentials/
 chmod 600 ~/.hermes/credentials/new-sa.json
-sed -i '' "s|^VERTEX_FALLBACK_CREDENTIALS_PATH=.*|VERTEX_FALLBACK_CREDENTIALS_PATH=$HOME/.hermes/credentials/new-sa.json|" ~/.hermes/.env
-sed -i '' "s|^VERTEX_FALLBACK_PROJECT_ID=.*|VERTEX_FALLBACK_PROJECT_ID=新的-gcp-project-id|" ~/.hermes/.env
+sed -i '' "s|^GOOGLE_APPLICATION_CREDENTIALS=.*|GOOGLE_APPLICATION_CREDENTIALS=$HOME/.hermes/credentials/new-sa.json|" ~/.hermes/.env
+sed -i '' "s|^VERTEX_PROJECT_ID=.*|VERTEX_PROJECT_ID=新的-gcp-project-id|" ~/.hermes/.env
 hermes gateway restart
 ```
 
-> 换主 `vertex` provider 的 SA 时改的是 `GOOGLE_APPLICATION_CREDENTIALS`（外加可选的 `VERTEX_PROJECT_ID`），同样只需 `hermes gateway restart`。
+**Bedrock Opus profile 更换**：从 `~/.secrets` 更新 `CLAUDE_AM_OPUS_ARN` 与 `CLAUDE_AM_REGION` 的映射，然后重启 Gateway。
 
 **飞书凭证更换**：编辑 `~/.hermes/.env` 中 `FEISHU_*`，然后 `hermes gateway restart`。
 
 ### 9.13 关键文件 / 目录速查
 
-| 路径                                       | 作用                                                                     |
-| ------------------------------------------ | ------------------------------------------------------------------------ |
-| `~/.hermes/config.yaml`                    | 主配置（模型、agent、memory、UI 等）                                     |
-| `~/.hermes/.env`                           | 密钥与代理（Azure Foundry / Vertex SA 路径 / DashScope / 飞书 / Tavily） |
-| `~/.hermes/credentials/*.json`             | Vertex SA JSON                                                           |
-| `~/.hermes/scripts/`                       | 辅助脚本（代理注入、飞书人员拉取、夜间问候、外设看护等）                 |
-| `~/.hermes/memories/MEMORY.md`             | 学到的事实与偏好                                                         |
-| `~/.hermes/memories/USER.md`               | 用户画像                                                                 |
-| `~/.hermes/skills/`                        | 上游同步过来的 skills（`hermes update` 会 rsync）                        |
-| `~/.hermes/my-skills/`                     | 自定义 skills（用 `skills.external_dirs` 注册，避免被 update 覆盖）      |
-| `~/.hermes/sessions/`                      | 会话历史                                                                 |
-| `~/.hermes/logs/`                          | 全部日志                                                                 |
-| `~/.hermes/hermes-agent/`                  | 上游源码 + venv                                                          |
-| `~/Library/LaunchAgents/ai.hermes.*.plist` | 常驻 LaunchAgent，当前只有 `ai.hermes.gateway`                           |
+| 路径                                       | 作用                                                                  |
+| ------------------------------------------ | --------------------------------------------------------------------- |
+| `~/.hermes/config.yaml`                    | 主配置（模型、agent、memory、UI 等）                                  |
+| `~/.hermes/.env`                           | 密钥与代理（Azure Foundry / Vertex SA 路径 / Gemini / 飞书 / Tavily） |
+| `~/.hermes/credentials/*.json`             | Vertex SA JSON                                                        |
+| `~/.hermes/scripts/`                       | 辅助脚本（代理注入、飞书人员拉取、夜间问候、外设看护等）              |
+| `~/.hermes/memories/MEMORY.md`             | 学到的事实与偏好                                                      |
+| `~/.hermes/memories/USER.md`               | 用户画像                                                              |
+| `~/.hermes/skills/`                        | 上游同步过来的 skills（`hermes update` 会 rsync）                     |
+| `~/.hermes/my-skills/`                     | 自定义 skills（用 `skills.external_dirs` 注册，避免被 update 覆盖）   |
+| `~/.hermes/sessions/`                      | 会话历史                                                              |
+| `~/.hermes/logs/`                          | 全部日志                                                              |
+| `~/.hermes/hermes-agent/`                  | 上游源码 + venv                                                       |
+| `~/Library/LaunchAgents/ai.hermes.*.plist` | 常驻 LaunchAgent，当前只有 `ai.hermes.gateway`                        |
 
 ### 9.14 完全卸载
 
@@ -753,14 +753,14 @@ rm -rf ~/.hermes
 
 | 现象                                                                                         | 排查思路                                                                                                                                                                                                                                                   |
 | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hermes chat` 报 401 / `Invalid Credentials`                                                 | 跑 `hermes doctor` 看是哪条链路；主模型看 `AZURE_FOUNDRY_API_KEY`，Vertex 看 `VERTEX_FALLBACK_CREDENTIALS_PATH` 指向的 SA JSON 是否存在且未被吊销（token 由进程内 mint，`hermes gateway restart` 即重取）                                                  |
-| Vertex 报 403 / `permission denied on project`                                               | SA 与 project 不匹配：确认 `VERTEX_FALLBACK_PROJECT_ID`（主 provider 则是 `VERTEX_PROJECT_ID` 与 `config.yaml` 的 `vertex.project_id`）就是该 SA 所属 project；`vertex.project_id` 留空即用凭据自带 project                                                |
-| 主模型挂了不切 fallback                                                                      | `hermes config show \| grep -A6 fallback_providers` 检查链路顺序；再用 `hermes auth status alibaba` 看 DashScope key 是否生效                                                                                                                              |
+| `hermes chat` 报 401 / `Invalid Credentials`                                                 | 跑 `hermes doctor` 看是哪条链路；Azure 看 `AZURE_FOUNDRY_API_KEY`，Bedrock 看 AWS credential chain / profile ARN，Vertex 看 `GOOGLE_APPLICATION_CREDENTIALS` 指向的 SA JSON 是否存在                                                                        |
+| Vertex 报 403 / `permission denied on project`                                               | SA 与 project 不匹配：确认 `VERTEX_PROJECT_ID` 就是该 SA 所属 project，`VERTEX_REGION` 与模型可用 location 一致                                                                                                                                            |
+| 主模型挂了不切 fallback                                                                      | `hermes fallback list` 检查顺序应为 Bedrock Opus 5 → Vertex Gemini 3.5 Flash；再跑 `hermes doctor` 检查 AWS/Vertex 连接                                                                                                                                    |
 | 飞书 bot 收到消息但不回复                                                                    | `hermes doctor`；`tail -50 ~/.hermes/logs/gateway.error.log`；检查模型 token / fallback 是否都失效                                                                                                                                                         |
-| 提示 `API quota exceeded`                                                                    | DashScope 额度耗尽，登录 [百炼控制台](https://bailian.console.aliyun.com) 检查用量 / 充值                                                                                                                                                                  |
+| 提示 `API quota exceeded`                                                                    | 先区分 Bedrock quota 与 Vertex project quota；末级 fallback、compression 与视频旁路共享标准 Vertex project 配额                                                                                                                                            |
 | 修改 `config.yaml` 后不生效                                                                  | 后台 gateway 必须 `hermes gateway restart`；前台 chat 用 `/reload`                                                                                                                                                                                         |
 | 飞书任务跑到一半"突然没反应"/会话重置                                                        | in-flight 长任务遇到 `gateway restart`（升级、改配置等），超过 `agent.restart_drain_timeout` 会被 SIGKILL。看 `grep "drain timed out" ~/.hermes/logs/errors.log` 是否有命中。修复：把 `restart_drain_timeout` 调大到 900s（见第四章 agent 段示例）         |
-| 长会话报 `Compression summary failed: 429 Resource exhausted` / 插入 fallback context marker | 默认 `auxiliary.compression.provider=auto` 会复用主模型配额。修复：`hermes config set auxiliary.compression.provider alibaba && hermes config set auxiliary.compression.model qwen3.7-plus && hermes gateway restart`，让压缩走 DashScope 独立配额         |
+| 长会话报 `Compression summary failed: 429 Resource exhausted` / 插入 fallback context marker | 检查 `auxiliary.compression.provider=vertex`、模型为 `google/gemini-3.5-flash`，以及 `threshold_tokens=700000`；确认 Vertex project 配额后执行 `hermes gateway restart`                                                                                    |
 | 升级代码后 bot 无法启动（`ModuleNotFoundError`）                                             | `cd ~/.hermes/hermes-agent && source venv/bin/activate && uv pip install -e ".[all,feishu]" && deactivate && hermes gateway restart`；若缺的是 Feishu SOCKS 支持，先确认 `PATCH-FEISHU-SOCKS-DEPENDENCY` 已应用到 `pyproject.toml` 和 `tools/lazy_deps.py` |
 | 想限定特定飞书用户访问                                                                       | `.env` 注释掉 `GATEWAY_ALLOW_ALL_USERS=true`，改为 `FEISHU_ALLOWED_USERS=ou_用户ID1,ou_用户ID2`（用户 ID 在飞书开放平台「通讯录」查到）                                                                                                                    |
 | `Found N issue(s) to address` 误报未启用的 toolset（如 moa / rl）                            | 本机归档补丁 `PATCH-DOCTOR-ENABLED-TOOLSETS` 的回归 sentinel 会验证上游已过滤未启用平台 toolset；若仍出现，先跑 `hermes doctor` 看是否是真缺凭据，再检查 `hermes_cli/doctor.py` 中 `_get_platform_tools` 的上游实现                                        |
@@ -780,7 +780,7 @@ launchd
 
 ---
 
-_文档更新时间：2026-08-14_
-_对应 Hermes Agent 版本：**v0.20.0**（upstream `222465d84709379b65173b0283a6eea87516acfa` / latest `main` as of 2026-08-12）_
-_主模型：Azure AI Foundry（`gpt-5.6-sol`）Fallback[0]：Vertex AI（`google/gemini-3.1-pro-preview`，兼视频旁路）Fallback[1]：阿里云 Qwen / DashScope（`qwen3.7-plus`）_
+_文档更新时间：2026-08-15_
+_对应 Hermes Agent 版本：**v0.20.1**（upstream `c896c09c42910c584c4c7d2325b58c14713ea42c`，2026-08-15）_
+_主模型：Azure AI Foundry（`gpt-5.5`）Fallback[0]：AWS Bedrock Claude Opus 5；Fallback[1] / compression / 视频旁路：Vertex Gemini 3.5 Flash。_
 _本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_

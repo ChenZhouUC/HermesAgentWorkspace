@@ -1,58 +1,5 @@
-diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index f5e827b7c5e2a25988d96f5680897fc734b813e2..bfae42f4f7558328e688fe33dc8da17ac1d35b8e 100644
---- a/agent/auxiliary_client.py
-+++ b/agent/auxiliary_client.py
-@@ -6770,22 +6770,39 @@ def resolve_provider_client(
-         # OAuth2 bearer token (NOT a static key). We build a standard OpenAI
-         # client pointed at the runtime-computed Vertex base_url with a fresh
-         # token; no custom SDK or message translation needed.
-+        # ``vertex-fallback`` is a second Vertex account (distinct SA file /
-+        # GCP project, resolved from VERTEX_FALLBACK_* env) used as a fallback
-+        # to dodge the primary account's per-project quota. Same OpenAI-compat
-+        # surface and profile behavior — only the credentials differ.
-+        # Decide by the registry entry's canonical id, not the raw provider
-+        # string: the ``vertex2`` / ``vertex-secondary`` aliases share the
-+        # fallback ProviderConfig and must mint fallback credentials too.
-+        _is_vertex_fallback = getattr(pconfig, "id", provider) == "vertex-fallback"
-         try:
--            from agent.vertex_adapter import get_vertex_config, has_vertex_credentials
-+            if _is_vertex_fallback:
-+                from agent.vertex_adapter import (
-+                    get_vertex_fallback_config as _get_vertex_cfg,
-+                    has_vertex_fallback_credentials as _has_vertex_creds,
-+                )
-+            else:
-+                from agent.vertex_adapter import (
-+                    get_vertex_config as _get_vertex_cfg,
-+                    has_vertex_credentials as _has_vertex_creds,
-+                )
-         except ImportError:
--            logger.warning("resolve_provider_client: vertex requested but "
--                           "google-auth not installed")
-+            logger.warning("resolve_provider_client: %s requested but "
-+                           "google-auth not installed", provider)
-             return None, None
- 
--        if not has_vertex_credentials():
--            logger.debug("resolve_provider_client: vertex requested but "
--                         "no GCP credentials found")
-+        if not _has_vertex_creds():
-+            logger.debug("resolve_provider_client: %s requested but "
-+                         "no GCP credentials found", provider)
-             return None, None
- 
--        token, base_url = get_vertex_config()
-+        token, base_url = _get_vertex_cfg()
-         if not token or not base_url:
--            logger.warning("resolve_provider_client: vertex requested but "
--                           "could not mint token / resolve project")
-+            logger.warning("resolve_provider_client: %s requested but "
-+                           "could not mint token / resolve project", provider)
-             return None, None
- 
-         default_model = "google/gemini-3-flash-preview"
 diff --git a/agent/image_routing.py b/agent/image_routing.py
-index a3762fccd4aa535fbd8ae6bb82bedc01c46745ec..bc1895546127704c8da2d7ddf0c558770b67b8aa 100644
+index a3762fccd4aa535fbd8ae6bb82bedc01c46745ec..944c3345069ac81303c9a51f849cb0a5f54a8f5d 100644
 --- a/agent/image_routing.py
 +++ b/agent/image_routing.py
 @@ -347,6 +347,29 @@ def _should_probe_ollama_vision(provider: str, base_url: str) -> bool:
@@ -75,7 +22,7 @@ index a3762fccd4aa535fbd8ae6bb82bedc01c46745ec..bc1895546127704c8da2d7ddf0c55877
 +    # released preview slugs yet. Without this, auto routing falls back to
 +    # vision_analyze text pre-analysis, which then fails on installs with only
 +    # Vertex credentials and no OpenRouter/Nous auxiliary vision backend.
-+    if p in {"vertex", "vertex-fallback", "google-vertex", "vertex-ai", "vertexai"}:
++    if p in {"vertex", "google-vertex", "vertex-ai", "vertexai"}:
 +        if "gemini-3" in m or "gemini-pro-3" in m or "gemini-flash-3" in m:
 +            return True
 +
@@ -114,7 +61,7 @@ index a3762fccd4aa535fbd8ae6bb82bedc01c46745ec..bc1895546127704c8da2d7ddf0c55877
 +    m = (model or "").strip().lower()
 +    if not p or not m:
 +        return None
-+    if p in {"vertex", "vertex-fallback", "google-vertex", "vertex-ai", "vertexai"}:
++    if p in {"vertex", "google-vertex", "vertex-ai", "vertexai"}:
 +        if "gemini-3" in m or "gemini-pro-3" in m or "gemini-flash-3" in m:
 +            return True
 +    return None
@@ -853,137 +800,6 @@ index 275a66db3299e9c7e31c0575668ae11abc2740a1..c5254bef19765ebd82ec6380c2f32f0c
                              copied_tool_calls[tc_idx] = copied_tc
                  if copied_tool_calls is not None:
                      mutable_msg()["tool_calls"] = copied_tool_calls
-diff --git a/agent/vertex_adapter.py b/agent/vertex_adapter.py
-index 6e425753f053ae5ce5051d79939e74cf240fa2c5..911cc29357aa239de309c84420435a7236e52a5f 100644
---- a/agent/vertex_adapter.py
-+++ b/agent/vertex_adapter.py
-@@ -108,11 +108,22 @@ def _refresh_credentials(creds) -> None:
-     creds.refresh(auth_req)
- 
- 
--def get_vertex_credentials(credentials_path: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
-+def get_vertex_credentials(
-+    credentials_path: Optional[str] = None,
-+    project_override: Optional[str] = None,
-+    apply_global_project_override: bool = True,
-+) -> Tuple[Optional[str], Optional[str]]:
-     """Return a (fresh access_token, project_id) pair or (None, None) on failure.
- 
-     Caches the underlying Credentials object and refreshes it when within
-     5 minutes of expiry, so repeated calls don't thrash the token endpoint.
-+
-+    ``project_override`` — when set, this project_id wins over both the
-+    credentials' embedded project and the process-wide VERTEX_PROJECT_ID/config
-+    override. ``apply_global_project_override`` — when False, the process-wide
-+    VERTEX_PROJECT_ID/config override is NOT consulted. Both exist so a second
-+    Vertex account (the fallback provider) stays pinned to its own project and
-+    is not silently rebound to the primary account's project (which would 403).
-     """
-     if google is None:
-         logger.warning("google-auth package not installed. Cannot use Vertex AI.")
-@@ -167,9 +178,12 @@ def get_vertex_credentials(credentials_path: Optional[str] = None) -> Tuple[Opti
-         if needs_refresh:
-             _refresh_credentials(creds)
- 
--        override_project = _resolve_project_override()
--        if override_project:
--            project_id = override_project
-+        if project_override:
-+            project_id = project_override
-+        elif apply_global_project_override:
-+            override_project = _resolve_project_override()
-+            if override_project:
-+                project_id = override_project
- 
-         return creds.token, project_id
-     except Exception as e:
-@@ -182,7 +196,11 @@ def get_vertex_credentials(credentials_path: Optional[str] = None) -> Tuple[Opti
-             sa_path = _resolve_credentials_path(credentials_path)
-             if sa_path:
-                 logger.info("ADC failed, retrying with service account: %s", sa_path)
--                return get_vertex_credentials(sa_path)
-+                return get_vertex_credentials(
-+                    sa_path,
-+                    project_override=project_override,
-+                    apply_global_project_override=apply_global_project_override,
-+                )
- 
-         return None, None
- 
-@@ -202,9 +220,15 @@ def build_vertex_base_url(project_id: str, region: str = DEFAULT_REGION) -> str:
- def get_vertex_config(
-     credentials_path: Optional[str] = None,
-     region: Optional[str] = None,
-+    project_override: Optional[str] = None,
-+    apply_global_project_override: bool = True,
- ) -> Tuple[Optional[str], Optional[str]]:
-     """Resolve (access_token, base_url) for Vertex AI, or (None, None) on failure."""
--    token, project_id = get_vertex_credentials(credentials_path)
-+    token, project_id = get_vertex_credentials(
-+        credentials_path,
-+        project_override=project_override,
-+        apply_global_project_override=apply_global_project_override,
-+    )
-     if not token or not project_id:
-         return None, None
- 
-@@ -213,6 +237,56 @@ def get_vertex_config(
-     return token, base_url
- 
- 
-+# ── Fallback account (second Vertex project to dodge per-project quota) ──────
-+#
-+# The primary Vertex account (GOOGLE_APPLICATION_CREDENTIALS / VERTEX_PROJECT_ID)
-+# and this fallback account run the SAME model (google/gemini-3.x) through the
-+# SAME OpenAI-compatible surface — only the service-account file and GCP project
-+# differ. Wired as a distinct ``vertex-fallback`` provider so the fallback chain
-+# doesn't dedup it against the primary ``vertex`` provider (see
-+# chat_completion_helpers._try_activate_fallback).
-+
-+def _resolve_fallback_credentials_path() -> Optional[str]:
-+    """Path to the fallback account's service-account JSON, or None."""
-+    raw = (_get_secret("VERTEX_FALLBACK_CREDENTIALS_PATH") or "").strip()
-+    if not raw:
-+        return None
-+    path = os.path.expanduser(raw)
-+    return path if os.path.exists(path) else None
-+
-+
-+def has_vertex_fallback_credentials() -> bool:
-+    """Fast, no-network check for whether the fallback account is configured."""
-+    return _resolve_fallback_credentials_path() is not None
-+
-+
-+def get_vertex_fallback_config(
-+    region: Optional[str] = None,
-+) -> Tuple[Optional[str], Optional[str]]:
-+    """Resolve (access_token, base_url) for the SECOND Vertex account.
-+
-+    Mints a fresh token from ``VERTEX_FALLBACK_CREDENTIALS_PATH`` and pins the
-+    request to that account's own project — ``VERTEX_FALLBACK_PROJECT_ID`` if
-+    set, else the service-account file's embedded project. The primary
-+    VERTEX_PROJECT_ID override is deliberately NOT applied, so the fallback
-+    token is never rebound to the primary project.
-+    """
-+    path = _resolve_fallback_credentials_path()
-+    if not path:
-+        return None, None
-+    project_override = (_get_secret("VERTEX_FALLBACK_PROJECT_ID") or "").strip() or None
-+    token, project_id = get_vertex_credentials(
-+        path,
-+        project_override=project_override,
-+        apply_global_project_override=False,
-+    )
-+    if not token or not project_id:
-+        return None, None
-+    effective_region = _resolve_region(region)
-+    base_url = build_vertex_base_url(project_id, effective_region)
-+    return token, base_url
-+
-+
- def has_vertex_credentials() -> bool:
-     """Fast check for whether Vertex credentials appear configured.
- 
 diff --git a/gateway/authz_mixin.py b/gateway/authz_mixin.py
 index fae4b74a5e11c65af634abf1bb4be72b07f76855..148453984bcd438e6623f5aa39a7ddbd650e8f5b 100644
 --- a/gateway/authz_mixin.py
@@ -2783,40 +2599,11 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
                      reply_to=self._initial_reply_to_id,
                      metadata=self._metadata_for_send(
                          final=finalize,
-diff --git a/hermes_cli/auth.py b/hermes_cli/auth.py
-index 3da395831f43b28629b451bf7bf285c66042b988..d6adb0a7dc8cc8ff77ff9c3f9b091faafd48585b 100644
---- a/hermes_cli/auth.py
-+++ b/hermes_cli/auth.py
-@@ -579,6 +579,24 @@ except Exception:
-     pass
- 
- 
-+# The Vertex fallback provider uses OAuth (auth_type="vertex"), so the api-key
-+# auto-extend above skips it. Register it explicitly so resolve_provider_client()
-+# — which looks providers up in PROVIDER_REGISTRY, not the plugin registry —
-+# can find its pconfig and take the auth_type=="vertex" branch. The primary
-+# ``vertex`` provider doesn't need an entry here: it's booted via
-+# resolve_runtime_provider(), not resolve_provider_client().
-+if "vertex-fallback" not in PROVIDER_REGISTRY:
-+    PROVIDER_REGISTRY["vertex-fallback"] = ProviderConfig(
-+        id="vertex-fallback",
-+        name="Vertex AI (fallback account)",
-+        auth_type="vertex",
-+        inference_base_url="https://aiplatform.googleapis.com",
-+    )
-+    for _vf_alias in ("vertex2", "vertex-secondary"):
-+        if _vf_alias not in PROVIDER_REGISTRY:
-+            PROVIDER_REGISTRY[_vf_alias] = PROVIDER_REGISTRY["vertex-fallback"]
-+
-+
- # =============================================================================
- # Anthropic Key Helper
- # =============================================================================
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..a787feb986ac1267115c7649baa14095cbd6eba3 100644
+index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..540cc03fb0d141a42e7a4bad46e4d80101b181f7 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
-@@ -65,6 +65,19 @@ _PROVIDER_ENV_HINTS = (
+@@ -65,6 +65,17 @@ _PROVIDER_ENV_HINTS = (
      "OPENCODE_GO_API_KEY",
      "XIAOMI_API_KEY",
      "TOKENHUB_API_KEY",
@@ -2831,12 +2618,21 @@ index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..a787feb986ac1267115c7649baa14095
 +    # Google auth is the fallback account has no GOOGLE_APPLICATION_CREDENTIALS
 +    # / VERTEX_PROJECT_ID at all, so without these two it reads as "no provider
 +    # auth configured".
-+    "VERTEX_FALLBACK_CREDENTIALS_PATH",
-+    "VERTEX_FALLBACK_PROJECT_ID",
  )
  
  
-@@ -1181,6 +1194,10 @@ def run_doctor(args):
+@@ -856,6 +867,10 @@ def _build_apikey_providers_list() -> list:
+                 (v for v in _pp.env_vars if v.endswith("_BASE_URL") or v.endswith("_URL")),
+                 None,
+             )
++            if _pp.name == "gemini":
++                # Gemini's profile exposes only interchangeable key aliases;
++                # its base override lives in the auth registry instead.
++                _base_var = "GEMINI_BASE_URL"
+             if not _key_vars:
+                 continue
+             _models_url = (
+@@ -1181,6 +1196,10 @@ def run_doctor(args):
                  _custom_provider_aliases = None
                  _normalize_catalog_provider = None
                  _resolve_provider_full = None
@@ -2847,7 +2643,7 @@ index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..a787feb986ac1267115c7649baa14095
  
              custom_providers = []
              if _compatible_custom_providers is not None:
-@@ -1207,8 +1224,20 @@ def run_doctor(args):
+@@ -1207,8 +1226,20 @@ def run_doctor(args):
                          _custom_provider_aliases(name, provider_key)
                      )
  
@@ -2868,7 +2664,7 @@ index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..a787feb986ac1267115c7649baa14095
              if _normalize_catalog_provider is not None:
                  for known_provider in known_providers:
                      try:
-@@ -1228,16 +1257,18 @@ def run_doctor(args):
+@@ -1228,16 +1259,18 @@ def run_doctor(args):
                  except Exception:
                      runtime_provider = provider
  
@@ -2890,7 +2686,7 @@ index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..a787feb986ac1267115c7649baa14095
  
              if provider and provider != "auto":
                  if catalog_provider is None or (
-@@ -1260,8 +1291,11 @@ def run_doctor(args):
+@@ -1260,8 +1293,11 @@ def run_doctor(args):
              # Vendor/model slugs are valid on aggregator-style providers and on any custom
              # provider — bare "custom" or a named "custom:<name>" that fronts an OpenAI-compatible
              # aggregator (e.g. custom:hpc-ai serving deepseek/deepseek-v4-flash) requires the prefix.
@@ -2904,14 +2700,11 @@ index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..a787feb986ac1267115c7649baa14095
              providers_accepting_vendor_slugs = {
                  "openrouter",
                  "auto",
-@@ -1280,16 +1314,21 @@ def run_doctor(args):
+@@ -1280,16 +1316,18 @@ def run_doctor(args):
                  # is exclusively ``vendor/model`` slugs (Qwen/Qwen3.5-…,
                  # meta-llama/Llama-3-…, anthropic/claude-opus-4-7, …).
                  "deepinfra",
 +                "vertex",
-+                # Second Vertex account (PATCH-VERTEX-FALLBACK) serves the
-+                # same google/* OpenAI-compatible model slugs.
-+                "vertex-fallback",
              }
 -            provider_accepts_vendor_slug = (
 -                provider_policy_id in providers_accepting_vendor_slugs
@@ -2931,43 +2724,6 @@ index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..a787feb986ac1267115c7649baa14095
                  and not provider_accepts_vendor_slug
              ):
                  check_warn(
-diff --git a/hermes_cli/runtime_provider.py b/hermes_cli/runtime_provider.py
-index bc8b25924b7cacc79181d4dcacd8b87b6b6791f6..7a9d9e195be75f9fc02eae433aba26a93ab361f1 100644
---- a/hermes_cli/runtime_provider.py
-+++ b/hermes_cli/runtime_provider.py
-@@ -1780,6 +1780,32 @@ def resolve_runtime_provider(
-             "requested_provider": requested_provider,
-         }
- 
-+    # Second Vertex account (fallback chain entry). Must be resolved HERE, not
-+    # by the generic tail: falling through would "succeed" with an unrelated
-+    # provider and an empty api_key, poisoning the gateway's fallback chain and
-+    # masking the later entries. Raise AuthError on failure so the chain
-+    # advances to the next entry instead.
-+    if requested_provider in ("vertex-fallback", "vertex2", "vertex-secondary"):
-+        from agent.vertex_adapter import get_vertex_fallback_config
-+
-+        token, base_url = get_vertex_fallback_config()
-+        if not token or not base_url:
-+            raise AuthError(
-+                "Vertex fallback credentials could not be resolved. Set "
-+                "VERTEX_FALLBACK_CREDENTIALS_PATH (and optionally "
-+                "VERTEX_FALLBACK_PROJECT_ID) in ~/.hermes/.env to a second "
-+                "service-account JSON, or remove 'vertex-fallback' from the "
-+                "fallback chain."
-+            )
-+        return {
-+            "provider": "vertex-fallback",
-+            "api_mode": "chat_completions",
-+            "base_url": base_url.rstrip("/"),
-+            "api_key": token,
-+            "source": "vertex-oauth",
-+            "requested_provider": requested_provider,
-+        }
-+
-     custom_runtime = _resolve_named_custom_runtime(
-         requested_provider=requested_provider,
-         explicit_api_key=explicit_api_key,
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
 index 69fa685138b6284c189a2bd986000f7dec863c8f..9463746d900a4b6b169dc4d7e390a5ffbe18b156 100644
 --- a/hermes_cli/tools_config.py
@@ -3099,7 +2855,7 @@ index 098a6cc51c403da7de85193bcc86623da4ed22a9..6831d886962f9cd99dd880756530a6d8
      def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
          config = config or self.load_openclaw_config()
 diff --git a/plugins/model-providers/vertex/__init__.py b/plugins/model-providers/vertex/__init__.py
-index a63aa2b68c27652c17a30b5e300664781a53933c..2ae71eeaabb84e2f62f3b7cda4bf481ca73df154 100644
+index a63aa2b68c27652c17a30b5e300664781a53933c..bf928bc7aa39b12bc46bd6949649b8c889c86bfc 100644
 --- a/plugins/model-providers/vertex/__init__.py
 +++ b/plugins/model-providers/vertex/__init__.py
 @@ -8,9 +8,10 @@ resolution and refresh live in ``agent/vertex_adapter.py``; runtime_provider.py
@@ -3169,30 +2925,8 @@ index a63aa2b68c27652c17a30b5e300664781a53933c..2ae71eeaabb84e2f62f3b7cda4bf481c
      api_mode="chat_completions",
      env_vars=(),  # OAuth2 via service account / ADC — not a static key env var
      base_url="https://aiplatform.googleapis.com",  # real base_url computed at runtime
-@@ -73,3 +92,21 @@ vertex = VertexProfile(
- )
- 
- register_provider(vertex)
-+
-+# Second Vertex account used as a fallback. Same profile behavior (including the
-+# thoughts-hidden extra_body above) — only the service-account file / GCP project
-+# differ, resolved from VERTEX_FALLBACK_* env vars in agent/vertex_adapter.py.
-+# Registered under a distinct name so the fallback chain does not dedup it
-+# against the primary ``vertex`` provider, and so get_provider_profile()
-+# resolves it once fallback is active and the profile build path runs.
-+vertex_fallback = VertexProfile(
-+    name="vertex-fallback",
-+    aliases=("vertex2", "vertex-secondary"),
-+    api_mode="chat_completions",
-+    env_vars=(),
-+    base_url="https://aiplatform.googleapis.com",
-+    auth_type="vertex",
-+    default_aux_model="google/gemini-3-flash-preview",
-+)
-+
-+register_provider(vertex_fallback)
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97a5c73cf4 100644
+index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..92d7b5b977f5bd34a402f6a7bcf773fb0531857a 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -60,6 +60,7 @@ import os
@@ -3324,7 +3058,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
      "group_policy_rejected",
  ]
  
-@@ -584,13 +643,146 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
+@@ -584,13 +643,149 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
      return default if parsed is None else parsed
  
  
@@ -3454,7 +3188,10 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
 +            continue
 +        quote = _MARKDOWN_BLOCKQUOTE_RE.match(raw_line)
 +        if quote:
-+            out.append(_fix_strong_flanking_in_line(f"{quote.group(1)}▎{quote.group(2)}"))
++            # Feishu's post/md parser needs a token boundary after the visual
++            # quote bar. Without the space, an all-bold quote becomes
++            # ``▎**text**`` and the client displays the asterisks literally.
++            out.append(_fix_strong_flanking_in_line(f"{quote.group(1)}▎ {quote.group(2)}"))
 +            changed = True
 +            continue
 +        fixed = _fix_strong_flanking_in_line(raw_line)
@@ -3472,7 +3209,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
      return json.dumps(
          {
              "zh_cn": {
-@@ -1253,6 +1445,7 @@ def _build_mentions_map(
+@@ -1253,6 +1448,7 @@ def _build_mentions_map(
          result[key] = FeishuMentionRef(
              name=name,
              open_id=open_id,
@@ -3480,7 +3217,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              is_self=bot.matches(open_id=open_id, user_id=user_id, name=name),
          )
      return result
-@@ -1396,11 +1589,13 @@ def _load_lark_oapi() -> bool:
+@@ -1396,11 +1592,13 @@ def _load_lark_oapi() -> bool:
          try:
              import lark_oapi as lark
              from lark_oapi.api.application.v6 import GetApplicationRequest
@@ -3494,7 +3231,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
                  P2ImMessageMessageReadV1,
                  ReplyMessageRequest, ReplyMessageRequestBody,
                  UpdateMessageRequest, UpdateMessageRequestBody,
-@@ -1419,6 +1614,7 @@ def _load_lark_oapi() -> bool:
+@@ -1419,6 +1617,7 @@ def _load_lark_oapi() -> bool:
          globals().update({
              "lark": lark,
              "GetApplicationRequest": GetApplicationRequest,
@@ -3502,7 +3239,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              "CreateFileRequest": CreateFileRequest,
              "CreateFileRequestBody": CreateFileRequestBody,
              "CreateImageRequest": CreateImageRequest,
-@@ -1428,6 +1624,7 @@ def _load_lark_oapi() -> bool:
+@@ -1428,6 +1627,7 @@ def _load_lark_oapi() -> bool:
              "GetChatRequest": GetChatRequest,
              "GetMessageRequest": GetMessageRequest,
              "GetMessageResourceRequest": GetMessageResourceRequest,
@@ -3510,7 +3247,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              "P2ImMessageMessageReadV1": P2ImMessageMessageReadV1,
              "ReplyMessageRequest": ReplyMessageRequest,
              "ReplyMessageRequestBody": ReplyMessageRequestBody,
-@@ -1537,11 +1734,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1537,11 +1737,19 @@ class FeishuAdapter(BasePlatformAdapter):
          self._pending_inbound_lock = threading.Lock()
          self._pending_drain_scheduled = False
          self._pending_inbound_max_depth = 1000  # cap queue; drop oldest beyond
@@ -3530,7 +3267,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          self._app_lock_identity: Optional[str] = None
          self._text_batch_state = FeishuBatchState()
          self._pending_text_batches = self._text_batch_state.events
-@@ -1598,6 +1803,28 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1598,6 +1806,28 @@ class FeishuAdapter(BasePlatformAdapter):
                  allow_bots,
              )
              allow_bots = "none"
@@ -3559,7 +3296,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
  
          return FeishuAdapterSettings(
              app_id=str(extra.get("app_id") or os.getenv("FEISHU_APP_ID", "")).strip(),
-@@ -1661,6 +1888,60 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1661,6 +1891,60 @@ class FeishuAdapter(BasePlatformAdapter):
              require_mention=_to_boolean(
                  extra.get("require_mention", os.getenv("FEISHU_REQUIRE_MENTION", "true"))
              ),
@@ -3620,7 +3357,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          )
  
      def _apply_settings(self, settings: FeishuAdapterSettings) -> None:
-@@ -1693,6 +1974,20 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1693,6 +1977,20 @@ class FeishuAdapter(BasePlatformAdapter):
          self._ws_ping_timeout = settings.ws_ping_timeout
          self._allow_bots = settings.allow_bots
          self._require_mention = settings.require_mention
@@ -3641,7 +3378,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
  
      def _build_event_handler(self) -> Any:
          if EventDispatcherHandler is None:
-@@ -1815,6 +2110,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1815,6 +2113,9 @@ class FeishuAdapter(BasePlatformAdapter):
              self._loop = asyncio.get_running_loop()
              await self._connect_with_retry()
              self._mark_connected()
@@ -3651,7 +3388,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              logger.info("[Feishu] Connected in %s mode (%s)", self._connection_mode, self._domain_name)
              return True
          except Exception as exc:
-@@ -1827,6 +2125,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1827,6 +2128,7 @@ class FeishuAdapter(BasePlatformAdapter):
      async def disconnect(self) -> None:
          """Disconnect from Feishu/Lark."""
          self._running = False
@@ -3659,7 +3396,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          await self._cancel_pending_tasks(self._pending_text_batch_tasks)
          await self._cancel_pending_tasks(self._pending_media_batch_tasks)
          self._reset_batch_buffers()
-@@ -1917,6 +2216,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1917,6 +2219,13 @@ class FeishuAdapter(BasePlatformAdapter):
              await asyncio.gather(*pending, return_exceptions=True)
          tasks.clear()
  
@@ -3673,7 +3410,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
      def _reset_batch_buffers(self) -> None:
          self._pending_text_batches.clear()
          self._pending_text_batch_counts.clear()
-@@ -2446,11 +2752,15 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2446,11 +2755,15 @@ class FeishuAdapter(BasePlatformAdapter):
  
              data = getattr(response, "data", None)
              raw_chat_type = str(getattr(data, "chat_type", "") or "").strip().lower()
@@ -3689,7 +3426,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              }
              self._chat_info_cache[chat_id] = info
              return dict(info)
-@@ -3330,30 +3640,148 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3330,30 +3643,148 @@ class FeishuAdapter(BasePlatformAdapter):
          is_bot: bool = False,
      ) -> None:
          text, inbound_type, media_urls, media_types, mentions = await self._extract_message_content(message)
@@ -3850,7 +3587,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
  
          sender_primary = (
              getattr(sender_id, "open_id", None)
-@@ -3373,13 +3801,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3373,13 +3804,11 @@ class FeishuAdapter(BasePlatformAdapter):
              len(media_urls),
          )
  
@@ -3865,7 +3602,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3399,7 +3825,638 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3399,7 +3828,638 @@ class FeishuAdapter(BasePlatformAdapter):
              channel_prompt=self._resolve_channel_prompt(chat_id, thread_id or None),
              timestamp=datetime.now(),
          )
@@ -4504,7 +4241,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
  
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
-@@ -3435,6 +4492,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3435,6 +4495,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -4514,7 +4251,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3743,7 +4803,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3743,7 +4806,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -4526,7 +4263,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3862,6 +4925,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3862,6 +4928,24 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -4551,7 +4288,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          inbound_type = self._resolve_normalized_message_type(normalized, media_types)
          text = normalized.text_content
  
-@@ -3876,6 +4957,110 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3876,6 +4960,110 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -4662,7 +4399,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3938,6 +5123,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3938,6 +5126,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return MessageType.VOICE
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -4671,7 +4408,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4065,6 +5252,77 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4065,6 +5255,77 @@ class FeishuAdapter(BasePlatformAdapter):
                  )
          return "", ""
  
@@ -4749,7 +4486,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
      # =========================================================================
      # Static helpers — extension / media-type guessing
      # =========================================================================
-@@ -4295,11 +5553,31 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4295,11 +5556,31 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -4783,7 +4520,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
                  self._message_text_cache.popitem(last=False)
-@@ -4351,6 +5629,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4351,6 +5632,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -4795,7 +4532,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4366,7 +5649,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4366,7 +5652,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -4804,7 +4541,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4387,8 +5670,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4387,8 +5673,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -4815,7 +4552,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4486,6 +5769,167 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4486,6 +5772,167 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -4983,7 +4720,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4608,6 +6052,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4608,6 +6055,7 @@ class FeishuAdapter(BasePlatformAdapter):
          self._seen_message_ids = {k: valid[k] for k in sorted_ids}
  
      def _persist_seen_message_ids(self) -> None:
@@ -4991,7 +4728,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          try:
              self._dedup_state_path.parent.mkdir(parents=True, exist_ok=True)
              recent = self._seen_message_order[-self._dedup_cache_size:]
-@@ -4617,21 +6062,57 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4617,21 +6065,57 @@ class FeishuAdapter(BasePlatformAdapter):
          except OSError:
              logger.warning("[Feishu] Failed to persist dedup state to %s", self._dedup_state_path, exc_info=True)
  
@@ -5053,7 +4790,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
  
      # =========================================================================
      # Outbound payload construction and send pipeline
-@@ -4821,9 +6302,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4821,9 +6305,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -5069,7 +4806,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4834,34 +6319,25 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4834,34 +6322,25 @@ class FeishuAdapter(BasePlatformAdapter):
              request = self._build_reply_message_request(effective_reply_to, body)
              return await self._run_blocking(self._client.im.v1.message.reply, request)
  
@@ -5123,7 +4860,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -4951,6 +6427,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4951,6 +6430,7 @@ class FeishuAdapter(BasePlatformAdapter):
              # See https://github.com/NousResearch/hermes-agent/issues/50656
              extra_ua_tags=["channel"],
          )
@@ -5131,7 +4868,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
          self._ws_future = loop.run_in_executor(
              None,
              _run_official_feishu_ws_client,
-@@ -4958,6 +6435,21 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4958,6 +6438,21 @@ class FeishuAdapter(BasePlatformAdapter):
              self,
          )
  
@@ -5153,7 +4890,7 @@ index 5b2e4ec4bd17d11d9d729889b25d1f8564bcdf51..7742778cf5b15fbf45e8710bcf56ad97
      async def _connect_webhook(self) -> None:
          if not FEISHU_WEBHOOK_AVAILABLE:
              raise RuntimeError("aiohttp not installed; webhook mode unavailable")
-@@ -5081,6 +6573,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -5081,6 +6576,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -5304,7 +5041,7 @@ index a7a03d422b1308de6ffe596501ee4d03bdee42a7..2381eb26d4b501523b24b7cdc1e4ae4d
  
  ## Pitfalls
 diff --git a/tests/agent/test_image_routing.py b/tests/agent/test_image_routing.py
-index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c2693bbfee0a 100644
+index b86fd4145e421650170ce0d7a647606c47462257..92e48b08f57ae8f6cf3a3de1a4090e3665b60684 100644
 --- a/tests/agent/test_image_routing.py
 +++ b/tests/agent/test_image_routing.py
 @@ -11,11 +11,14 @@ from agent.image_routing import (
@@ -5395,7 +5132,7 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
  
  # ─── _coerce_capability_bool ─────────────────────────────────────────────────
  
-@@ -158,6 +227,32 @@ class TestLookupSupportsVisionOverride:
+@@ -158,6 +227,23 @@ class TestLookupSupportsVisionOverride:
              assert _lookup_supports_vision("openrouter", "x", None) is None
  
  
@@ -5412,15 +5149,6 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
 +            is True
 +        )
 +
-+    def test_vertex_fallback_gemini_3_preview_supports_vision(self):
-+        assert (
-+            _known_provider_model_supports_vision(
-+                "vertex-fallback",
-+                "google/gemini-3.1-pro-preview",
-+            )
-+            is True
-+        )
-+
 +    def test_vertex_non_gemini_3_unknown(self):
 +        assert _known_provider_model_supports_vision("vertex", "text-only-model") is None
 +
@@ -5428,7 +5156,7 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
  # ─── decide_image_input_mode with auto + override ────────────────────────────
  
  
-@@ -506,3 +601,235 @@ class TestCustomProviderVisionAlias:
+@@ -506,3 +592,227 @@ class TestCustomProviderVisionAlias:
              ]
          }
          assert _supports_vision_override(cfg, "custom:my-vllm", "other") is None
@@ -5444,12 +5172,6 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
 +    def test_auto_native_for_vertex_gemini_3(self):
 +        assert (
 +            decide_video_input_mode("vertex", "google/gemini-3.1-pro-preview", {})
-+            == "native"
-+        )
-+
-+    def test_auto_native_for_vertex_fallback_provider(self):
-+        assert (
-+            decide_video_input_mode("vertex-fallback", "google/gemini-3.1-pro-preview", {})
 +            == "native"
 +        )
 +
@@ -5478,13 +5200,13 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
 +        cfg = {
 +            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
 +            "fallback_providers": [
-+                {"provider": "vertex-fallback", "model": "google/gemini-3.1-pro-preview"},
-+                {"provider": "alibaba", "model": "qwen3.7-plus"},
++                {"provider": "bedrock", "model": "arn:aws:bedrock:us-east-1:123:application-inference-profile/claude-opus-5"},
++                {"provider": "vertex", "model": "google/gemini-3.5-flash"},
 +            ],
 +        }
 +        assert pick_video_sidecar_route(cfg) == (
-+            "vertex-fallback",
-+            "google/gemini-3.1-pro-preview",
++            "vertex",
++            "google/gemini-3.5-flash",
 +        )
 +
 +    def test_none_when_no_link_can_read_video(self):
@@ -5498,9 +5220,7 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
 +    def test_main_entry_wins_when_it_is_video_capable(self):
 +        cfg = {
 +            "model": {"provider": "vertex", "default": "google/gemini-3.1-pro-preview"},
-+            "fallback_providers": [
-+                {"provider": "vertex-fallback", "model": "google/gemini-3.1-pro-preview"}
-+            ],
++            "fallback_providers": [{"provider": "alibaba", "model": "qwen3.7-plus"}],
 +        }
 +        assert pick_video_sidecar_route(cfg) == (
 +            "vertex",
@@ -5513,7 +5233,7 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
 +            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
 +            "fallback_providers": [
 +                {"provider": "vertex", "model": "google/gemini-3-flash-preview"},
-+                {"provider": "vertex-fallback", "model": "google/gemini-3.1-pro-preview"},
++                {"provider": "alibaba", "model": "qwen3.7-plus"},
 +            ],
 +        }
 +        assert pick_video_sidecar_route(cfg) == (
@@ -5526,13 +5246,13 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
 +        cfg = {
 +            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
 +            "fallback_model": {
-+                "provider": "vertex-fallback",
-+                "model": "google/gemini-3.1-pro-preview",
++                "provider": "vertex",
++                "model": "google/gemini-3.5-flash",
 +            },
 +        }
 +        assert pick_video_sidecar_route(cfg) == (
-+            "vertex-fallback",
-+            "google/gemini-3.1-pro-preview",
++            "vertex",
++            "google/gemini-3.5-flash",
 +        )
 +
 +    def test_malformed_config_never_raises(self):
@@ -5554,7 +5274,7 @@ index b86fd4145e421650170ce0d7a647606c47462257..bcbde2af9946b99726a0cc691299c269
 +        cfg = {
 +            "model": {"provider": "", "default": ""},
 +            "fallback_providers": [
-+                {"provider": "vertex-fallback", "model": ""},
++                {"provider": "bedrock", "model": ""},
 +                {"provider": "", "model": "google/gemini-3.1-pro-preview"},
 +                {"provider": "vertex", "model": "google/gemini-3.1-pro-preview"},
 +            ],
@@ -6151,7 +5871,7 @@ index cd5c8a0be79c2623c23b7190c662952239979fcb..b53447df942babc4617e02caf38e8ebe
 +    assert error == ""
 +    assert "revenue,42" in text
 diff --git a/tests/gateway/test_feishu.py b/tests/gateway/test_feishu.py
-index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c155c2153 100644
+index a923ea5f5d46eaa5501fcd965989e6b186152b0f..d51ed0ecea3032f0f146d8fbf9dc926dcf393447 100644
 --- a/tests/gateway/test_feishu.py
 +++ b/tests/gateway/test_feishu.py
 @@ -99,6 +99,244 @@ class TestFeishuMessageNormalization(unittest.TestCase):
@@ -6500,7 +6220,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
          )
  
          async def _direct(func, *args, **kwargs):
-@@ -270,914 +566,3236 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
+@@ -270,914 +566,3243 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
  
          with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
              result = asyncio.run(
@@ -7795,7 +7515,11 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +    def test_runtime_ws_overrides_reapply_after_sdk_configure(self):
 +        import sys
 +        from types import ModuleType
-+
+ 
+-        adapter = FeishuAdapter(PlatformConfig())
+-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tmp:
+-            tmp.write("hello from feishu")
+-            path = tmp.name
 +        class _FakeWSClient:
 +            def __init__(self):
 +                self._reconnect_nonce = 30
@@ -7829,16 +7553,18 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +        fake_ws_module.client = fake_client_module
 +        fake_root_module = ModuleType("lark_oapi")
 +        fake_root_module.ws = fake_ws_module
-+
+ 
 +        original_modules = sys.modules.copy()
 +        sys.modules["lark_oapi"] = fake_root_module
 +        sys.modules["lark_oapi.ws"] = fake_ws_module
 +        sys.modules["lark_oapi.ws.client"] = fake_client_module
-+        try:
+         try:
+-            text = asyncio.run(adapter._maybe_extract_text_document(path, "text/plain"))
 +            from plugins.platforms.feishu.adapter import _run_official_feishu_ws_client
 +
 +            _run_official_feishu_ws_client(fake_client, fake_adapter)
-+        finally:
+         finally:
+-            os.unlink(path)
 +            sys.modules.clear()
 +            sys.modules.update(original_modules)
 +
@@ -7856,54 +7582,93 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +    if chat_id:
 +        message.chat_id = chat_id
 +    return adapter._admit(sender, message) is None
-+
-+
+ 
+-        self.assertIn("hello from feishu", text)
+-        self.assertIn("[Content of", text)
+ 
 +class TestAdapterBehavior(unittest.TestCase):
-+    @patch.dict(os.environ, {}, clear=True)
+     @patch.dict(os.environ, {}, clear=True)
+-    def test_message_event_submits_to_adapter_loop(self):
 +    def test_build_event_handler_registers_reaction_and_card_processors(self):
-+        from gateway.config import PlatformConfig
-+        from plugins.platforms.feishu.adapter import FeishuAdapter
-+
-+        adapter = FeishuAdapter(PlatformConfig())
+         from gateway.config import PlatformConfig
+         from plugins.platforms.feishu.adapter import FeishuAdapter
+ 
+         adapter = FeishuAdapter(PlatformConfig())
 +        calls = []
-+
+ 
+-        class _Loop:
+-            def is_closed(self):
+-                return False
 +        class _Builder:
 +            def register_p2_im_message_message_read_v1(self, _handler):
 +                calls.append("message_read")
 +                return self
-+
+ 
+-        adapter._loop = _Loop()
 +            def register_p2_im_message_receive_v1(self, _handler):
 +                calls.append("message_receive")
 +                return self
-+
+ 
+-        message = SimpleNamespace(
+-            message_id="om_text",
+-            chat_type="p2p",
+-            chat_id="oc_chat",
+-            message_type="text",
+-            content='{"text":"hello"}',
+-        )
+-        sender_id = SimpleNamespace(open_id="ou_user", user_id=None, union_id=None)
+-        sender = SimpleNamespace(sender_id=sender_id, sender_type="user")
+-        data = SimpleNamespace(event=SimpleNamespace(message=message, sender=sender))
 +            def register_p2_im_message_reaction_created_v1(self, _handler):
 +                calls.append("reaction_created")
 +                return self
-+
+ 
+-        future = SimpleNamespace(add_done_callback=lambda *_args, **_kwargs: None)
 +            def register_p2_im_message_reaction_deleted_v1(self, _handler):
 +                calls.append("reaction_deleted")
 +                return self
-+
+ 
+-        def _submit(coro, _loop):
+-            coro.close()
+-            return future
 +            def register_p2_card_action_trigger(self, _handler):
 +                calls.append("card_action")
 +                return self
-+
+ 
+-        with patch("plugins.platforms.feishu.adapter.asyncio.run_coroutine_threadsafe", side_effect=_submit) as submit:
+-            adapter._on_message_event(data)
 +            def register_p2_im_chat_member_bot_added_v1(self, _handler):
 +                calls.append("bot_added")
 +                return self
-+
+ 
+-        self.assertTrue(submit.called)
 +            def register_p2_im_chat_member_bot_deleted_v1(self, _handler):
 +                calls.append("bot_deleted")
 +                return self
-+
+ 
+-    @patch.dict(os.environ, {}, clear=True)
+-    def test_webhook_request_uses_same_message_dispatch_path(self):
+-        from gateway.config import PlatformConfig
+-        from plugins.platforms.feishu.adapter import FeishuAdapter
 +            def register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(self, _handler):
 +                calls.append("p2p_chat_entered")
 +                return self
-+
+ 
+-        adapter = FeishuAdapter(PlatformConfig())
+-        adapter._on_message_event = Mock()
 +            def register_p2_im_message_recalled_v1(self, _handler):
 +                calls.append("message_recalled")
 +                return self
-+
+ 
+-        body = json.dumps({
+-            "header": {"event_type": "im.message.receive_v1"},
+-            "event": {"message": {"message_id": "om_test"}},
+-        }).encode("utf-8")
+-        request = SimpleNamespace(
+-            remote="127.0.0.1",
+-            content_length=None,
+-            headers={},
+-            content=_FakeRequestContent(body),
 +            def register_p2_customized_event(self, event_key, _handler):
 +                calls.append(f"customized:{event_key}")
 +                return self
@@ -7939,16 +7704,22 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +                "customized:vc.bot.meeting_invited_v1",
 +                "build",
 +            ],
-+        )
-+
+         )
+ 
+-        response = asyncio.run(adapter._handle_webhook_request(request))
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_bot_origin_reactions_are_dropped_to_avoid_feedback_loops(self):
 +        from gateway.config import PlatformConfig
 +        from plugins.platforms.feishu.adapter import FeishuAdapter
-+
+ 
+-        self.assertEqual(response.status, 200)
+-        adapter._on_message_event.assert_called_once()
 +        adapter = FeishuAdapter(PlatformConfig())
 +        adapter._loop = object()
-+
+ 
+-    @patch.dict(os.environ, {"FEISHU_VERIFICATION_TOKEN": "expected-token"}, clear=True)
+-    def test_url_verification_requires_configured_verification_token(self):
+-        """url_verification must be rejected when token is set but mismatched.
 +        for emoji in ("Typing", "CrossMark"):
 +            event = SimpleNamespace(
 +                message_id="om_msg",
@@ -7961,51 +7732,82 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +            ) as run_threadsafe:
 +                adapter._on_reaction_event("im.message.reaction.created_v1", data)
 +            run_threadsafe.assert_not_called()
-+
+ 
+-        Regression: previously the challenge was reflected before the token
+-        check, so an unauthenticated remote could prove endpoint control by
+-        sending an attacker-controlled challenge string.
+-        """
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_user_reaction_with_managed_emoji_is_still_routed(self):
 +        # Operator-origin filter is enough to prevent feedback loops; we must
 +        # not additionally swallow user-origin reactions just because their
 +        # emoji happens to collide with a lifecycle emoji.
-+        from gateway.config import PlatformConfig
-+        from plugins.platforms.feishu.adapter import FeishuAdapter
-+
-+        adapter = FeishuAdapter(PlatformConfig())
+         from gateway.config import PlatformConfig
+         from plugins.platforms.feishu.adapter import FeishuAdapter
+ 
+         adapter = FeishuAdapter(PlatformConfig())
+-        body = json.dumps({
+-            "type": "url_verification",
+-            "token": "wrong-token",
+-            "challenge": "attacker-controlled-challenge",
+-        }).encode("utf-8")
+-        request = SimpleNamespace(
+-            remote="203.0.113.10",
+-            content_length=None,
+-            headers={},
+-            content=_FakeRequestContent(body),
 +        adapter._loop = SimpleNamespace(is_closed=lambda: False)
 +
 +        event = SimpleNamespace(
 +            message_id="om_msg",
 +            operator_type="user",
 +            reaction_type=SimpleNamespace(emoji_type="Typing"),
-+        )
+         )
 +        data = SimpleNamespace(event=event)
-+
+ 
+-        response = asyncio.run(adapter._handle_webhook_request(request))
 +        def _close_coro_and_return_future(coro, _loop):
 +            coro.close()
 +            return SimpleNamespace(add_done_callback=lambda _: None)
-+
+ 
+-        self.assertEqual(response.status, 401)
 +        with patch(
 +            "plugins.platforms.feishu.adapter.asyncio.run_coroutine_threadsafe",
 +            side_effect=_close_coro_and_return_future,
 +        ) as run_threadsafe:
 +            adapter._on_reaction_event("im.message.reaction.created_v1", data)
 +        run_threadsafe.assert_called_once()
-+
+ 
+-    @patch.dict(os.environ, {}, clear=True)
+-    def test_process_inbound_message_uses_event_sender_identity_only(self):
 +    def _build_reaction_adapter(self, *, msg_sender_id: str):
 +        """Build a FeishuAdapter wired up to return a single GET-message result."""
-+        from gateway.config import PlatformConfig
-+        from plugins.platforms.feishu.adapter import FeishuAdapter
-+
-+        adapter = FeishuAdapter(PlatformConfig())
+         from gateway.config import PlatformConfig
+-        from gateway.platforms.base import MessageType
+         from plugins.platforms.feishu.adapter import FeishuAdapter
+ 
+         adapter = FeishuAdapter(PlatformConfig())
+-        adapter._dispatch_inbound_event = AsyncMock()
+-        # Sender name now comes from the contact API; mock it to return a known value.
+-        adapter._resolve_sender_name_from_api = AsyncMock(return_value="张三")
+-        adapter.get_chat_info = AsyncMock(
+-            return_value={"chat_id": "oc_chat", "name": "Feishu DM", "type": "dm"}
+-        )
+-        message = SimpleNamespace(
 +        adapter._app_id = "cli_self_app"
 +        adapter._bot_open_id = "ou_self_bot"
 +        adapter._bot_user_id = "u_self_bot"
 +
 +        msg = SimpleNamespace(
 +            sender=SimpleNamespace(sender_type="app", id=msg_sender_id, id_type="app_id"),
-+            chat_id="oc_chat",
+             chat_id="oc_chat",
+-            thread_id=None,
+-            message_type="text",
+-            content='{"text":"hello"}',
+-            message_id="om_text",
 +            chat_type="group",
-+        )
+         )
+-        sender_id = SimpleNamespace(
 +        response = SimpleNamespace(success=lambda: True, data=SimpleNamespace(items=[msg]))
 +        adapter._client = SimpleNamespace(
 +            im=SimpleNamespace(
@@ -8416,10 +8218,12 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +            message_id="om_text",
 +        )
 +        sender_id = SimpleNamespace(
-+            open_id="ou_user",
-+            user_id="u_user",
-+            union_id="on_union",
-+        )
+             open_id="ou_user",
+             user_id="u_user",
+             union_id="on_union",
+         )
+-        sender = SimpleNamespace(sender_type="user", sender_id=sender_id)
+-        data = SimpleNamespace(event=SimpleNamespace(message=message, sender=sender))
 +        sender = SimpleNamespace(sender_type="user", sender_id=sender_id)
 +        data = SimpleNamespace(event=SimpleNamespace(message=message, sender=sender))
 +
@@ -9521,11 +9325,8 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +    def test_send_document_with_caption_uses_single_post_message(self):
 +        from gateway.config import PlatformConfig
 +        from plugins.platforms.feishu.adapter import FeishuAdapter
- 
-         adapter = FeishuAdapter(PlatformConfig())
--        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tmp:
--            tmp.write("hello from feishu")
--            path = tmp.name
++
++        adapter = FeishuAdapter(PlatformConfig())
 +        captured = {}
 +
 +        class _FileAPI:
@@ -9558,37 +9359,29 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as tmp:
 +            tmp.write(b"%PDF-1.4 test")
 +            file_path = tmp.name
- 
-         try:
--            text = asyncio.run(adapter._maybe_extract_text_document(path, "text/plain"))
++
++        try:
 +            with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
 +                result = asyncio.run(
 +                    adapter.send_document(chat_id="oc_chat", file_path=file_path, caption="报告请看")
 +                )
-         finally:
--            os.unlink(path)
++        finally:
 +            os.unlink(file_path)
- 
--        self.assertIn("hello from feishu", text)
--        self.assertIn("[Content of", text)
++
 +        self.assertTrue(result.success)
 +        self.assertEqual(captured["message_request"].request_body.msg_type, "post")
 +        self.assertIn('"tag": "media"', captured["message_request"].request_body.content)
 +        self.assertIn('"file_key": "file_123"', captured["message_request"].request_body.content)
 +        self.assertIn("报告请看", captured["message_request"].request_body.content)
- 
-     @patch.dict(os.environ, {}, clear=True)
--    def test_message_event_submits_to_adapter_loop(self):
++
++    @patch.dict(os.environ, {}, clear=True)
 +    def test_send_image_file_uploads_image_and_sends_image_message(self):
-         from gateway.config import PlatformConfig
-         from plugins.platforms.feishu.adapter import FeishuAdapter
- 
-         adapter = FeishuAdapter(PlatformConfig())
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig())
 +        captured = {}
- 
--        class _Loop:
--            def is_closed(self):
--                return False
++
 +        class _ImageAPI:
 +            def create(self, request):
 +                captured["upload_request"] = request
@@ -9596,8 +9389,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +                    success=lambda: True,
 +                    data=SimpleNamespace(image_key="img_123"),
 +                )
- 
--        adapter._loop = _Loop()
++
 +        class _MessageAPI:
 +            def create(self, request):
 +                captured["message_request"] = request
@@ -9605,13 +9397,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +                    success=lambda: True,
 +                    data=SimpleNamespace(message_id="om_image_msg"),
 +                )
- 
--        message = SimpleNamespace(
--            message_id="om_text",
--            chat_type="p2p",
--            chat_id="oc_chat",
--            message_type="text",
--            content='{"text":"hello"}',
++
 +        adapter._client = SimpleNamespace(
 +            im=SimpleNamespace(
 +                v1=SimpleNamespace(
@@ -9619,31 +9405,21 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +                    message=_MessageAPI(),
 +                )
 +            )
-         )
--        sender_id = SimpleNamespace(open_id="ou_user", user_id=None, union_id=None)
--        sender = SimpleNamespace(sender_id=sender_id, sender_type="user")
--        data = SimpleNamespace(event=SimpleNamespace(message=message, sender=sender))
- 
--        future = SimpleNamespace(add_done_callback=lambda *_args, **_kwargs: None)
++        )
++
 +        async def _direct(func, *args, **kwargs):
 +            return func(*args, **kwargs)
- 
--        def _submit(coro, _loop):
--            coro.close()
--            return future
++
 +        with tempfile.NamedTemporaryFile("wb", suffix=".png", delete=False) as tmp:
 +            tmp.write(b"\x89PNG\r\n\x1a\n")
 +            image_path = tmp.name
- 
--        with patch("plugins.platforms.feishu.adapter.asyncio.run_coroutine_threadsafe", side_effect=_submit) as submit:
--            adapter._on_message_event(data)
++
 +        try:
 +            with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
 +                result = asyncio.run(adapter.send_image_file(chat_id="oc_chat", image_path=image_path))
 +        finally:
 +            os.unlink(image_path)
- 
--        self.assertTrue(submit.called)
++
 +        self.assertTrue(result.success)
 +        self.assertEqual(result.message_id, "om_image_msg")
 +        self.assertEqual(captured["upload_request"].request_body.image_type, "message")
@@ -9651,26 +9427,15 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +            captured["message_request"].request_body.content,
 +            '{"image_key": "img_123"}',
 +        )
- 
-     @patch.dict(os.environ, {}, clear=True)
--    def test_webhook_request_uses_same_message_dispatch_path(self):
++
++    @patch.dict(os.environ, {}, clear=True)
 +    def test_send_image_file_with_caption_uses_single_post_message(self):
-         from gateway.config import PlatformConfig
-         from plugins.platforms.feishu.adapter import FeishuAdapter
- 
-         adapter = FeishuAdapter(PlatformConfig())
--        adapter._on_message_event = Mock()
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig())
 +        captured = {}
- 
--        body = json.dumps({
--            "header": {"event_type": "im.message.receive_v1"},
--            "event": {"message": {"message_id": "om_test"}},
--        }).encode("utf-8")
--        request = SimpleNamespace(
--            remote="127.0.0.1",
--            content_length=None,
--            headers={},
--            content=_FakeRequestContent(body),
++
 +        class _ImageAPI:
 +            def create(self, request):
 +                return SimpleNamespace(
@@ -9693,21 +9458,15 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +                    message=_MessageAPI(),
 +                )
 +            )
-         )
- 
--        response = asyncio.run(adapter._handle_webhook_request(request))
++        )
++
 +        async def _direct(func, *args, **kwargs):
 +            return func(*args, **kwargs)
- 
--        self.assertEqual(response.status, 200)
--        adapter._on_message_event.assert_called_once()
++
 +        with tempfile.NamedTemporaryFile("wb", suffix=".png", delete=False) as tmp:
 +            tmp.write(b"\x89PNG\r\n\x1a\n")
 +            image_path = tmp.name
- 
--    @patch.dict(os.environ, {"FEISHU_VERIFICATION_TOKEN": "expected-token"}, clear=True)
--    def test_url_verification_requires_configured_verification_token(self):
--        """url_verification must be rejected when token is set but mismatched.
++
 +        try:
 +            with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
 +                result = asyncio.run(
@@ -9715,11 +9474,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +                )
 +        finally:
 +            os.unlink(image_path)
- 
--        Regression: previously the challenge was reflected before the token
--        check, so an unauthenticated remote could prove endpoint control by
--        sending an attacker-controlled challenge string.
--        """
++
 +        self.assertTrue(result.success)
 +        self.assertEqual(captured["message_request"].request_body.msg_type, "post")
 +        self.assertIn('"tag": "img"', captured["message_request"].request_body.content)
@@ -9728,20 +9483,10 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +
 +    @patch.dict(os.environ, {}, clear=True)
 +    def test_send_video_uploads_file_and_sends_media_message(self):
-         from gateway.config import PlatformConfig
-         from plugins.platforms.feishu.adapter import FeishuAdapter
- 
-         adapter = FeishuAdapter(PlatformConfig())
--        body = json.dumps({
--            "type": "url_verification",
--            "token": "wrong-token",
--            "challenge": "attacker-controlled-challenge",
--        }).encode("utf-8")
--        request = SimpleNamespace(
--            remote="203.0.113.10",
--            content_length=None,
--            headers={},
--            content=_FakeRequestContent(body),
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig())
 +        captured = {}
 +
 +        class _FileAPI:
@@ -9767,13 +9512,11 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +                    message=_MessageAPI(),
 +                )
 +            )
-         )
- 
--        response = asyncio.run(adapter._handle_webhook_request(request))
++        )
++
 +        async def _direct(func, *args, **kwargs):
 +            return func(*args, **kwargs)
- 
--        self.assertEqual(response.status, 401)
++
 +        with tempfile.NamedTemporaryFile("wb", suffix=".mp4", delete=False) as tmp:
 +            tmp.write(b"\x00\x00\x00\x18ftypmp42")
 +            video_path = tmp.name
@@ -9788,20 +9531,13 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +        self.assertEqual(captured["upload_request"].request_body.file_type, "mp4")
 +        self.assertEqual(captured["message_request"].request_body.msg_type, "media")
 +        self.assertEqual(captured["message_request"].request_body.content, '{"file_key": "file_video_123"}')
- 
-     @patch.dict(os.environ, {}, clear=True)
--    def test_process_inbound_message_uses_event_sender_identity_only(self):
++
++    @patch.dict(os.environ, {}, clear=True)
 +    def test_send_voice_uploads_opus_and_sends_audio_message(self):
-         from gateway.config import PlatformConfig
--        from gateway.platforms.base import MessageType
-         from plugins.platforms.feishu.adapter import FeishuAdapter
- 
-         adapter = FeishuAdapter(PlatformConfig())
--        adapter._dispatch_inbound_event = AsyncMock()
--        # Sender name now comes from the contact API; mock it to return a known value.
--        adapter._resolve_sender_name_from_api = AsyncMock(return_value="张三")
--        adapter.get_chat_info = AsyncMock(
--            return_value={"chat_id": "oc_chat", "name": "Feishu DM", "type": "dm"}
++        from gateway.config import PlatformConfig
++        from plugins.platforms.feishu.adapter import FeishuAdapter
++
++        adapter = FeishuAdapter(PlatformConfig())
 +        captured = {}
 +
 +        class _FileAPI:
@@ -9827,13 +9563,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +                    message=_MessageAPI(),
 +                )
 +            )
-         )
--        message = SimpleNamespace(
--            chat_id="oc_chat",
--            thread_id=None,
--            message_type="text",
--            content='{"text":"hello"}',
--            message_id="om_text",
++        )
 +
 +        async def _direct(func, *args, **kwargs):
 +            return func(*args, **kwargs)
@@ -9870,25 +9600,6 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +    def test_build_post_payload_wraps_markdown_in_md_tag(self):
 +        from gateway.config import PlatformConfig
 +        from plugins.platforms.feishu.adapter import FeishuAdapter
-+
-+        adapter = FeishuAdapter(PlatformConfig())
-+        payload = json.loads(
-+            adapter._build_post_payload("支持 **粗体**、*斜体* 和 `代码`")
-         )
--        sender_id = SimpleNamespace(
--            open_id="ou_user",
--            user_id="u_user",
--            union_id="on_union",
-+
-+        elements = payload["zh_cn"]["content"][0]
-+        self.assertEqual(
-+            elements,
-+            [
-+                {"tag": "md", "text": "支持 **粗体**、*斜体* 和 `代码`"},
-+            ],
-         )
--        sender = SimpleNamespace(sender_type="user", sender_id=sender_id)
--        data = SimpleNamespace(event=SimpleNamespace(message=message, sender=sender))
  
 -        asyncio.run(
 -            adapter._process_inbound_message(
@@ -9897,16 +9608,10 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 -                sender_id=sender.sender_id,
 -                chat_type="p2p",
 -                message_id="om_text",
-+    @patch.dict(os.environ, {}, clear=True)
-+    def test_build_post_payload_keeps_full_markdown_text(self):
-+        from gateway.config import PlatformConfig
-+        from plugins.platforms.feishu.adapter import FeishuAdapter
-+
+-            )
 +        adapter = FeishuAdapter(PlatformConfig())
 +        payload = json.loads(
-+            adapter._build_post_payload(
-+                "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"
-             )
++            adapter._build_post_payload("支持 **粗体**、*斜体* 和 `代码`")
          )
  
 -        adapter._dispatch_inbound_event.assert_awaited_once()
@@ -9916,14 +9621,14 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 -        self.assertEqual(event.source.user_name, "张三")
 -        self.assertEqual(event.source.user_id_alt, "on_union")
 -        self.assertEqual(event.source.chat_name, "Feishu DM")
-+        rows = payload["zh_cn"]["content"]
+-
++        elements = payload["zh_cn"]["content"][0]
 +        self.assertEqual(
-+            rows,
-+            [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
++            elements,
++            [
++                {"tag": "md", "text": "支持 **粗体**、*斜体* 和 `代码`"},
++            ],
 +        )
- 
-+    def test_promote_block_markdown_headings_and_quotes(self):
-+        from plugins.platforms.feishu.adapter import _promote_block_markdown
  
 -    @patch.dict(
 -        os.environ,
@@ -9933,14 +9638,14 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 -        clear=True,
 -    )
 -    def test_text_batch_flushes_when_message_count_limit_is_hit(self):
--        from gateway.config import PlatformConfig
++    @patch.dict(os.environ, {}, clear=True)
++    def test_build_post_payload_keeps_full_markdown_text(self):
+         from gateway.config import PlatformConfig
 -        from gateway.platforms.base import MessageEvent, MessageType
--        from plugins.platforms.feishu.adapter import FeishuAdapter
+         from plugins.platforms.feishu.adapter import FeishuAdapter
 -        from gateway.session import SessionSource
-+        out = _promote_block_markdown("# 一级\n### 三级 ###\n> 引用\n>> 嵌套")
-+        self.assertEqual(out, "**一级**\n**三级**\n▎引用\n▎> 嵌套")
  
--        adapter = FeishuAdapter(PlatformConfig())
+         adapter = FeishuAdapter(PlatformConfig())
 -        adapter.handle_message = AsyncMock()
 -        source = SessionSource(
 -            platform=adapter.platform,
@@ -9949,6 +9654,46 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 -            chat_type="dm",
 -            user_id="ou_user",
 -            user_name="张三",
++        payload = json.loads(
++            adapter._build_post_payload(
++                "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"
++            )
+         )
+ 
+-        async def _sleep(_delay):
+-            return None
++        rows = payload["zh_cn"]["content"]
++        self.assertEqual(
++            rows,
++            [[{"tag": "md", "text": "---\n1. 第一项\n  2. 子项\n- 外层\n  - 内层\n<u>下划线</u> 和 ~~删除线~~"}]],
++        )
+ 
+-        async def _run() -> None:
+-            with patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_sleep):
+-                await adapter._dispatch_inbound_event(
+-                    MessageEvent(text="A", message_type=MessageType.TEXT, source=source, message_id="om_1")
+-                )
+-                await adapter._dispatch_inbound_event(
+-                    MessageEvent(text="B", message_type=MessageType.TEXT, source=source, message_id="om_2")
+-                )
+-                await adapter._dispatch_inbound_event(
+-                    MessageEvent(text="C", message_type=MessageType.TEXT, source=source, message_id="om_3")
+-                )
+-                pending = list(adapter._pending_text_batch_tasks.values())
+-                self.assertEqual(len(pending), 1)
+-                await asyncio.gather(*pending, return_exceptions=True)
++    def test_promote_block_markdown_headings_and_quotes(self):
++        from plugins.platforms.feishu.adapter import _promote_block_markdown
+ 
+-        asyncio.run(_run())
++        out = _promote_block_markdown("# 一级\n### 三级 ###\n> 引用\n>> 嵌套")
++        self.assertEqual(out, "**一级**\n**三级**\n▎ 引用\n▎ > 嵌套")
+ 
+-        self.assertEqual(adapter.handle_message.await_count, 2)
+-        first = adapter.handle_message.await_args_list[0].args[0]
+-        second = adapter.handle_message.await_args_list[1].args[0]
+-        self.assertEqual(first.text, "A\nB")
+-        self.assertEqual(second.text, "C")
 +    def test_promote_block_markdown_ignores_inline_hash_and_fast_path(self):
 +        from plugins.platforms.feishu.adapter import _promote_block_markdown
 +
@@ -9966,31 +9711,15 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +        out = _promote_block_markdown(src)
 +        self.assertEqual(
 +            out,
-+            "**标题**\n```python\n# 注释不能动\n> 引用不能动\n```\n▎真引用",
-         )
- 
--        async def _sleep(_delay):
--            return None
++            "**标题**\n```python\n# 注释不能动\n> 引用不能动\n```\n▎ 真引用",
++        )
++
 +    def test_promote_block_markdown_fixes_strong_flanking(self):
 +        """CommonMark flanking: ``到**“x”**的`` cannot open/close, so Feishu
 +        shows the raw asterisks. Edge punctuation is moved outside the markers
 +        (verified against real Feishu clients, 2026-07-25)."""
 +        from plugins.platforms.feishu.adapter import _promote_block_markdown
- 
--        async def _run() -> None:
--            with patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_sleep):
--                await adapter._dispatch_inbound_event(
--                    MessageEvent(text="A", message_type=MessageType.TEXT, source=source, message_id="om_1")
--                )
--                await adapter._dispatch_inbound_event(
--                    MessageEvent(text="B", message_type=MessageType.TEXT, source=source, message_id="om_2")
--                )
--                await adapter._dispatch_inbound_event(
--                    MessageEvent(text="C", message_type=MessageType.TEXT, source=source, message_id="om_3")
--                )
--                pending = list(adapter._pending_text_batch_tasks.values())
--                self.assertEqual(len(pending), 1)
--                await asyncio.gather(*pending, return_exceptions=True)
++
 +        self.assertEqual(
 +            _promote_block_markdown("切入到**“端云通信协议”**的深水区"),
 +            "切入到“**端云通信协议**”的深水区",
@@ -10017,20 +9746,21 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
 +        # Fast path still returns the identical object when nothing changes.
 +        plain = "支持 **粗体** 和 `代码`\n- 列表"
 +        self.assertIs(_promote_block_markdown(plain), plain)
- 
--        asyncio.run(_run())
++
 +    def test_promote_block_markdown_fixes_flanking_inside_quotes_and_headings(self):
 +        from plugins.platforms.feishu.adapter import _promote_block_markdown
- 
--        self.assertEqual(adapter.handle_message.await_count, 2)
--        first = adapter.handle_message.await_args_list[0].args[0]
--        second = adapter.handle_message.await_args_list[1].args[0]
--        self.assertEqual(first.text, "A\nB")
--        self.assertEqual(second.text, "C")
++
 +        # Blockquote promotion and flanking fix compose on the same line.
 +        self.assertEqual(
 +            _promote_block_markdown("> 谈到**“协议”**的问题"),
-+            "▎谈到“**协议**”的问题",
++            "▎ 谈到“**协议**”的问题",
++        )
++        # A whole quoted line may itself be bold. The space after the visual
++        # quote bar is load-bearing for Feishu's post/md parser; without it the
++        # client shows the raw ``**`` markers.
++        self.assertEqual(
++            _promote_block_markdown("> **“元层逻辑是否循环？”**"),
++            "▎ **“元层逻辑是否循环？”**",
 +        )
 +        # Fenced code is exempt from the flanking rewrite.
 +        src = "```\n到**“注释”**的\n```\n到**“正文”**的"
@@ -10424,7 +10154,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
  
      def test_dedup_state_persists_across_adapter_restart(self):
          from gateway.config import PlatformConfig
-@@ -1244,7 +3862,10 @@ class TestAdapterBehavior(unittest.TestCase):
+@@ -1244,7 +3869,10 @@ class TestAdapterBehavior(unittest.TestCase):
              os.unlink(file_path)
  
          self.assertTrue(result.success)
@@ -10436,7 +10166,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
  
  
      @patch.dict(os.environ, {}, clear=True)
-@@ -2227,6 +4848,195 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
+@@ -2227,6 +4855,195 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
          adapter._dispatch_inbound_event = AsyncMock()
          return adapter
  
@@ -10632,7 +10362,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
  
      def test_non_command_message_with_mentions_injects_hint(self):
          from gateway.platforms.base import MessageType
-@@ -2342,6 +5152,44 @@ class TestFeishuFetchMessageText(unittest.TestCase):
+@@ -2342,6 +5159,44 @@ class TestFeishuFetchMessageText(unittest.TestCase):
          result = asyncio.run(adapter._fetch_message_text("m_parent"))
          self.assertEqual(result, "@Hermes hi")
  
@@ -10677,7 +10407,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
  
  class TestFeishuMentionEndToEnd(unittest.TestCase):
      """High-level scenarios from the design spec — verify the full pipeline."""
-@@ -2447,6 +5295,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
+@@ -2447,6 +5302,65 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
          self.assertNotIn("@Hermes @Alice", event.text)
  
  
@@ -10743,7 +10473,7 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..486af246971f76eb28828fe46482b80c
  class TestChatLockEviction(unittest.TestCase):
      """_get_chat_lock is LRU-bounded so _chat_locks cannot grow unbounded."""
  
-@@ -2465,5 +5372,3 @@ class TestChatLockEviction(unittest.TestCase):
+@@ -2465,5 +5379,3 @@ class TestChatLockEviction(unittest.TestCase):
  
          adapter = self._make_adapter()
          self.assertIsInstance(adapter._chat_locks, _collections.OrderedDict)
@@ -11197,7 +10927,7 @@ index 7e62328b208ffd4590f14c01c928c33c7fe6fb0d..add19ec60a68a6de19aba966d6eac806
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
 diff --git a/tests/gateway/test_image_input_routing_runtime.py b/tests/gateway/test_image_input_routing_runtime.py
-index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..28fb444f4e81d60cdc3f8da856acf1eb2775b972 100644
+index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..1d279c9259310f3743e3b19d5af6aa96b9f693fe 100644
 --- a/tests/gateway/test_image_input_routing_runtime.py
 +++ b/tests/gateway/test_image_input_routing_runtime.py
 @@ -81,6 +81,231 @@ def test_pre_turn_named_custom_provider_identity_selects_vision_override(monkeyp
@@ -11336,7 +11066,7 @@ index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..28fb444f4e81d60cdc3f8da856acf1eb
 +    cfg = {
 +        "model": {"provider": "azure-foundry", "default": "gpt-5.5", "context_length": 128000},
 +        "fallback_providers": [
-+            {"provider": "vertex-fallback", "model": "google/gemini-3.1-pro-preview"}
++            {"provider": "vertex", "model": "google/gemini-3.5-flash"}
 +        ],
 +    }
 +    monkeypatch.setattr("gateway.run._load_gateway_config", lambda: cfg)
@@ -11365,11 +11095,11 @@ index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..28fb444f4e81d60cdc3f8da856acf1eb
 +
 +    # The sidecar's description replaces the path-note flow entirely.
 +    assert "A cat walks by." in result
-+    assert "read by google/gemini-3.1-pro-preview" in result
++    assert "read by google/gemini-3.5-flash" in result
 +    assert "Its content is not inlined here" not in result
 +    # It ran on the video-capable link, not the main provider.
-+    assert captured["provider"] == "vertex-fallback"
-+    assert captured["model"] == "google/gemini-3.1-pro-preview"
++    assert captured["provider"] == "vertex"
++    assert captured["model"] == "google/gemini-3.5-flash"
 +    # Wire shape: Vertex rejects a ``video_url`` part with HTTP 400, so the
 +    # video must ride an ``image_url`` part carrying a data:video/... URL.
 +    parts = captured["messages"][0]["content"]
@@ -12523,10 +12253,18 @@ index 5528c5d89ac82607b1d23285d992aeb235a30664..116b7022cab737184139043868a6b65a
 +        assert "feishu_group" in result
  
 diff --git a/tests/hermes_cli/test_doctor.py b/tests/hermes_cli/test_doctor.py
-index 3cae143d8b1043c4186fa2db49fbf73d43e4e5a2..02d2a136533a36d79c8821401d769ce23b04b9d0 100644
+index 3cae143d8b1043c4186fa2db49fbf73d43e4e5a2..281c21333744cc4b4d7dab21e64df8c7d7498b92 100644
 --- a/tests/hermes_cli/test_doctor.py
 +++ b/tests/hermes_cli/test_doctor.py
-@@ -51,6 +51,34 @@ class TestProviderEnvDetection:
+@@ -7,6 +7,7 @@ import io
+ import contextlib
+ from argparse import Namespace
+ from types import SimpleNamespace
++from unittest.mock import MagicMock, patch
+ 
+ import pytest
+ 
+@@ -51,6 +52,23 @@ class TestProviderEnvDetection:
          assert not _has_provider_env_config(content)
  
  
@@ -12540,17 +12278,6 @@ index 3cae143d8b1043c4186fa2db49fbf73d43e4e5a2..02d2a136533a36d79c8821401d769ce2
 +        assert _has_provider_env_config("AZURE_FOUNDRY_API_KEY=***\n")
 +
 +
-+    def test_detects_vertex_fallback_credentials_alone(self):
-+        """A profile whose only Google auth is the second Vertex account
-+        (PATCH-VERTEX-FALLBACK) has no GOOGLE_APPLICATION_CREDENTIALS /
-+        VERTEX_PROJECT_ID at all — it must still read as configured."""
-+        content = (
-+            "VERTEX_FALLBACK_CREDENTIALS_PATH=/tmp/second-sa.json\n"
-+            "VERTEX_FALLBACK_PROJECT_ID=second-project\n"
-+        )
-+        assert _has_provider_env_config(content)
-+
-+
 +    def test_detects_vertex_region_the_adapter_actually_reads(self):
 +        """agent.vertex_adapter reads VERTEX_REGION; VERTEX_LOCATION is only
 +        kept for older .env files. Both must be recognised."""
@@ -12561,11 +12288,11 @@ index 3cae143d8b1043c4186fa2db49fbf73d43e4e5a2..02d2a136533a36d79c8821401d769ce2
  class TestDoctorToolAvailabilitySummary:
      def test_missing_api_key_summary_ignores_disabled_toolsets(self, monkeypatch):
          unavailable = [
-@@ -595,6 +623,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
+@@ -595,6 +613,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
      assert "Either set model.provider to 'openrouter', or drop the vendor prefix." not in out
  
  
-+@pytest.mark.parametrize("provider", ["vertex", "google-vertex", "vertex-fallback"])
++@pytest.mark.parametrize("provider", ["vertex", "google-vertex"])
 +def test_run_doctor_accepts_vertex_provider_and_google_model_slugs(
 +    monkeypatch, tmp_path, provider
 +):
@@ -12853,7 +12580,7 @@ index 1f5328ec58860f7019a56c30438a81d42b4603d4..4f01d96c62f3546adda292cb8ab987bc
  
  def test_get_effective_configurable_toolsets_dedupes_bundled_plugins():
 diff --git a/tests/hermes_cli/test_vertex_provider.py b/tests/hermes_cli/test_vertex_provider.py
-index 129c44a8eb3ad7bed02770913493364e5412a7da..f4f501ab607e7d30c1e03d7872f4c31a6a49e32d 100644
+index 129c44a8eb3ad7bed02770913493364e5412a7da..78300a51b6a1f6a5f1a345962393e67ec0c06c5a 100644
 --- a/tests/hermes_cli/test_vertex_provider.py
 +++ b/tests/hermes_cli/test_vertex_provider.py
 @@ -29,6 +29,77 @@ def test_resolve_runtime_provider_raises_autherror_when_unresolved(monkeypatch):
@@ -12934,154 +12661,6 @@ index 129c44a8eb3ad7bed02770913493364e5412a7da..f4f501ab607e7d30c1e03d7872f4c31a
  def test_vertex_registered_in_provider_registry():
      """PROVIDER_REGISTRY (hermes_cli.auth) is what agent/auxiliary_client.py's
      resolve_provider_client() looks up before dispatching on auth_type. Without
-@@ -55,3 +126,147 @@ def test_vertex_registered_in_hermes_overlays():
-     resolved = get_provider("vertex")
-     assert resolved is not None
-     assert resolved.auth_type == "vertex"
-+# ── vertex-fallback: second account used as fallback provider ────────────────
-+
-+def test_vertex_fallback_profile_registered():
-+    """The fallback provider reuses VertexProfile → inherits the hidden-thoughts
-+    single-level extra_body fix, so its behavior matches the primary."""
-+    from providers import get_provider_profile
-+
-+    p = get_provider_profile("vertex-fallback")
-+    assert p is not None
-+    assert p.name == "vertex-fallback"
-+    assert p.auth_type == "vertex"
-+    body = p.build_extra_body(
-+        model="google/gemini-3-pro-preview", reasoning_config={"effort": "high"}
-+    )
-+    assert "extra_body" not in body  # single-level, same as primary vertex
-+    assert body["google"]["thinking_config"]["include_thoughts"] is False
-+
-+
-+def test_vertex_fallback_in_provider_registry():
-+    """resolve_provider_client() looks providers up in PROVIDER_REGISTRY (not the
-+    plugin registry), so the fallback must have an explicit entry there."""
-+    from hermes_cli.auth import PROVIDER_REGISTRY
-+
-+    assert "vertex-fallback" in PROVIDER_REGISTRY
-+    assert PROVIDER_REGISTRY["vertex-fallback"].auth_type == "vertex"
-+
-+
-+def test_has_vertex_fallback_credentials(monkeypatch, tmp_path):
-+    import agent.vertex_adapter as va
-+
-+    monkeypatch.setattr(va, "_get_secret", lambda k: "")
-+    assert va.has_vertex_fallback_credentials() is False
-+
-+    sa = tmp_path / "sa.json"
-+    sa.write_text("{}")
-+    monkeypatch.setattr(
-+        va,
-+        "_get_secret",
-+        lambda k: str(sa) if k == "VERTEX_FALLBACK_CREDENTIALS_PATH" else "",
-+    )
-+    assert va.has_vertex_fallback_credentials() is True
-+
-+
-+def test_fallback_project_not_clobbered_by_global_override(monkeypatch):
-+    """The primary VERTEX_PROJECT_ID override must NOT rebind a second account's
-+    token to the primary project (that 403s). project_override wins over both;
-+    apply_global_project_override=False keeps the SA file's own project."""
-+    import agent.vertex_adapter as va
-+
-+    class _FakeCreds:
-+        token = "fake-token"
-+        expiry = None
-+        expired = False
-+        project_id = "gen-lang-client-0217395804"
-+
-+    monkeypatch.setattr(va, "_creds_cache", {})
-+    monkeypatch.setattr(va, "_resolve_credentials_path", lambda p: "/fake/sa.json")
-+    monkeypatch.setattr(
-+        va.service_account.Credentials,
-+        "from_service_account_file",
-+        lambda *a, **k: _FakeCreds(),
-+    )
-+    monkeypatch.setattr(va, "_refresh_credentials", lambda c: None)
-+    # The process-wide override points at the PRIMARY project.
-+    monkeypatch.setattr(va, "_resolve_project_override", lambda: "primary-project")
-+
-+    # Default path: global override wins (unchanged primary behavior).
-+    _, proj_default = va.get_vertex_credentials("/fake/sa.json")
-+    assert proj_default == "primary-project"
-+
-+    # Fallback path: keep the SA file's own project.
-+    _, proj_fb = va.get_vertex_credentials(
-+        "/fake/sa.json", apply_global_project_override=False
-+    )
-+    assert proj_fb == "gen-lang-client-0217395804"
-+
-+    # Explicit project_override always wins.
-+    _, proj_explicit = va.get_vertex_credentials(
-+        "/fake/sa.json", project_override="explicit-proj"
-+    )
-+    assert proj_explicit == "explicit-proj"
-+
-+
-+def test_resolve_runtime_provider_vertex_fallback_mints_token(monkeypatch):
-+    """The gateway's fallback chain resolves entries via resolve_runtime_provider,
-+    NOT resolve_provider_client — 'vertex-fallback' must be handled there too.
-+    Without a dedicated branch it falls through to the generic tail, which
-+    'succeeds' with an unrelated provider and an empty api_key, so the chain
-+    never advances to later entries and AIAgent init dies with
-+    'No LLM provider configured'."""
-+    import agent.vertex_adapter as va
-+    from hermes_cli import runtime_provider as rp
-+
-+    monkeypatch.setattr(
-+        va, "get_vertex_fallback_config",
-+        lambda: ("ya29.FB-TOKEN", "https://aiplatform.googleapis.com/v1beta1/projects/fb-proj/locations/global/endpoints/openapi"),
-+    )
-+    rt = rp.resolve_runtime_provider(requested="vertex-fallback")
-+    assert rt["provider"] == "vertex-fallback"
-+    assert rt["api_mode"] == "chat_completions"
-+    assert rt["source"] == "vertex-oauth"
-+    assert rt["api_key"] == "ya29.FB-TOKEN"
-+    assert "fb-proj" in rt["base_url"]
-+
-+
-+def test_resolve_runtime_provider_vertex_fallback_raises_autherror(monkeypatch):
-+    """When the second account can't mint a token the branch must raise (typed)
-+    so _try_resolve_fallback_provider advances to the next chain entry, instead
-+    of silently returning a broken generic runtime."""
-+    import agent.vertex_adapter as va
-+    from hermes_cli import runtime_provider as rp
-+    from hermes_cli.auth import AuthError
-+
-+    monkeypatch.setattr(va, "get_vertex_fallback_config", lambda: (None, None))
-+    with pytest.raises(AuthError) as exc:
-+        rp.resolve_runtime_provider(requested="vertex-fallback")
-+    assert "VERTEX_FALLBACK_CREDENTIALS_PATH" in str(exc.value)
-+
-+
-+def test_resolve_provider_client_alias_mints_fallback_credentials(monkeypatch):
-+    """The vertex2/vertex-secondary alias registry keys share the fallback
-+    ProviderConfig; the auth_type=="vertex" branch must decide by the entry's
-+    canonical id, not the raw provider string, or an alias silently mints
-+    PRIMARY-account credentials — the very account whose quota is exhausted."""
-+    import agent.vertex_adapter as va
-+    from agent import auxiliary_client as aux
-+
-+    monkeypatch.setattr(va, "has_vertex_fallback_credentials", lambda: True)
-+    monkeypatch.setattr(
-+        va, "get_vertex_fallback_config",
-+        lambda: ("ya29.FB-TOKEN",
-+                 "https://aiplatform.googleapis.com/v1beta1/projects/fb-proj/locations/global/endpoints/openapi"),
-+    )
-+
-+    def _primary_config():
-+        raise AssertionError("alias must not mint primary-account credentials")
-+
-+    monkeypatch.setattr(va, "get_vertex_config", _primary_config)
-+    monkeypatch.setattr(va, "has_vertex_credentials", lambda: True)
-+
-+    client, model = aux.resolve_provider_client(
-+        "vertex2", model="google/gemini-3.1-pro-preview")
-+    assert client is not None
-+    assert "fb-proj" in str(client.base_url)
 diff --git a/tests/tools/test_approval.py b/tests/tools/test_approval.py
 index 8892a089fc4194e4c75442ebea04d3d66ee1996f..4efb1508cbb16836c75367e0545886b2f7d39d4f 100644
 --- a/tests/tools/test_approval.py

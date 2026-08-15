@@ -129,10 +129,6 @@ PATCHED_FILES=(
     "website/docs/user-guide/messaging/feishu.md"
     "plugins/model-providers/vertex/__init__.py"
     "tests/hermes_cli/test_vertex_provider.py"
-    "agent/vertex_adapter.py"
-    "hermes_cli/auth.py"
-    "hermes_cli/runtime_provider.py"
-    "agent/auxiliary_client.py"
     "agent/image_routing.py"
     "agent/models_dev.py"
     "agent/transports/chat_completions.py"
@@ -1581,7 +1577,6 @@ _FEISHU_MARKDOWN_PATCH_OK=false
 _FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
-_VERTEX_FALLBACK_PATCH_OK=false
 _IMAGE_NATIVE_ROUTING_PATCH_OK=false
 _VERTEX_VIDEO_ROUTING_PATCH_OK=false
 _VIDEO_SIDECAR_PATCH_OK=false
@@ -2266,16 +2261,29 @@ fi
 # rules reject `**` spans with punctuation just inside + a word char just
 # outside (`到**“x”**的`); _build_outbound_payload promotes headings/quotes
 # via _promote_block_markdown and rewrites flanking-invalid strong spans via
-# _fix_strong_flanking. The former table→bullets sub-branch was retired
+# _fix_strong_flanking. The visual quote bar keeps a following space so a
+# whole-line strong span becomes `▎ **text**`, not the unrendered `▎**text**`.
+# The former table→bullets sub-branch was retired
 # 2026-07-25 after real-client verification of native GFM table rendering
 # (upstream #52786). Source + test live in adapter.py /
 # tests/gateway/test_feishu.py.
-if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
-    if grep -q 'def _promote_block_markdown' "${FEISHU_PY}" 2>/dev/null &&
+if [[ -f "${VENV_PY}" && -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
+    _FEISHU_MARKDOWN_CHECK=$(
+        cd "${HERMES_AGENT}" &&
+            "${VENV_PY}" - <<'PYEOF' 2>/dev/null
+from plugins.platforms.feishu.adapter import _promote_block_markdown
+
+source = '> **“用元层逻辑证明对象层逻辑可靠”到底为什么不算循环？**'
+expected = '▎ **“用元层逻辑证明对象层逻辑可靠”到底为什么不算循环？**'
+print("ok" if _promote_block_markdown(source) == expected else "broken")
+PYEOF
+    )
+    if [[ "${_FEISHU_MARKDOWN_CHECK}" == "ok" ]] &&
+        grep -q 'def _promote_block_markdown' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _fix_strong_flanking' "${FEISHU_PY}" 2>/dev/null &&
         ! grep -q 'convert_table_to_bullets' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'test_promote_block_markdown_fixes_strong_flanking' "${FEISHU_TEST_PY}" 2>/dev/null; then
-        ok "Feishu markdown render patch: active (ATX heading/quote promoted, strong flanking fixed)"
+        grep -q 'test_promote_block_markdown_fixes_flanking_inside_quotes_and_headings' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "Feishu markdown render patch: active (quote boundary + strong flanking fixed)"
         _FEISHU_MARKDOWN_PATCH_OK=true
     else
         warn "Feishu markdown render patch inactive or partial"
@@ -2338,12 +2346,10 @@ if [[ -f "${DOCTOR_PY}" && -f "${DOCTOR_TEST_PY}" ]]; then
     if grep -q '_get_provider_profile' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q 'GOOGLE_APPLICATION_CREDENTIALS' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q '"vertex"' "${DOCTOR_PY}" 2>/dev/null &&
-        grep -q '"vertex-fallback"' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q 'AZURE_FOUNDRY_API_KEY' "${DOCTOR_PY}" 2>/dev/null &&
-        grep -q 'VERTEX_FALLBACK_CREDENTIALS_PATH' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q 'test_run_doctor_accepts_vertex_provider_and_google_model_slugs' "${DOCTOR_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_detects_vertex_fallback_credentials_alone' "${DOCTOR_TEST_PY}" 2>/dev/null; then
-        ok "Vertex doctor patch: active (provider profile + google/* slug + full-chain .env hints)"
+        grep -q 'test_detects_vertex_region_the_adapter_actually_reads' "${DOCTOR_TEST_PY}" 2>/dev/null; then
+        ok "Vertex doctor patch: active (provider profile + google/* slug + standard Vertex .env hints)"
         _VERTEX_DOCTOR_PATCH_OK=true
     else
         warn "Vertex doctor patch inactive or partial"
@@ -2351,36 +2357,6 @@ if [[ -f "${DOCTOR_PY}" && -f "${DOCTOR_TEST_PY}" ]]; then
     fi
 else
     warn "Could not locate PATCH-VERTEX-DOCTOR files"
-fi
-
-# PATCH-VERTEX-FALLBACK: second Vertex account as fallback provider. Same model/profile via a
-# distinct SA file + GCP project (VERTEX_FALLBACK_*), wired as provider
-# "vertex-fallback" so the fallback chain doesn't dedup it against primary vertex,
-# resolve_provider_client() finds it in PROVIDER_REGISTRY, and the gateway's
-# resolve_runtime_provider() mints its token instead of falling through to the
-# generic tail with an empty api_key (which broke the whole fallback chain).
-VERTEX_ADAPTER_PY="${HERMES_AGENT}/agent/vertex_adapter.py"
-AUTH_PY="${HERMES_AGENT}/hermes_cli/auth.py"
-AUX_CLIENT_PY="${HERMES_AGENT}/agent/auxiliary_client.py"
-RUNTIME_PROVIDER_PY="${HERMES_AGENT}/hermes_cli/runtime_provider.py"
-if [[ -f "${VERTEX_ADAPTER_PY}" && -f "${AUTH_PY}" && -f "${AUX_CLIENT_PY}" && -f "${VERTEX_PROVIDER_PY}" && -f "${RUNTIME_PROVIDER_PY}" ]]; then
-    if grep -q 'def get_vertex_fallback_config' "${VERTEX_ADAPTER_PY}" 2>/dev/null &&
-        grep -q 'apply_global_project_override' "${VERTEX_ADAPTER_PY}" 2>/dev/null &&
-        grep -q '"vertex-fallback"' "${AUTH_PY}" 2>/dev/null &&
-        grep -q 'has_vertex_fallback_credentials' "${AUX_CLIENT_PY}" 2>/dev/null &&
-        grep -q 'name="vertex-fallback"' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
-        grep -q '"vertex-fallback", "vertex2", "vertex-secondary"' "${RUNTIME_PROVIDER_PY}" 2>/dev/null &&
-        grep -q 'test_resolve_runtime_provider_vertex_fallback_mints_token' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_resolve_provider_client_alias_mints_fallback_credentials' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_vertex_fallback_profile_registered' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null; then
-        ok "Vertex fallback provider patch: active (vertex-fallback = 2nd account, quota failover)"
-        _VERTEX_FALLBACK_PATCH_OK=true
-    else
-        warn "Vertex fallback provider patch inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-VERTEX-FALLBACK]"
-    fi
-else
-    warn "Could not locate PATCH-VERTEX-FALLBACK files"
 fi
 
 # PATCH-IMAGE-NATIVE-ROUTING: main-model image capability must be recognised so
@@ -2395,8 +2371,8 @@ MODELS_DEV_PY="${HERMES_AGENT}/agent/models_dev.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
 if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${MODELS_DEV_PY}" ]]; then
     if grep -q 'def _known_provider_model_supports_vision' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
-        grep -q '"vertex-fallback"' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
-        grep -q 'gemini-3.1-pro-preview' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q '"vertex"' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q 'gemini-3.5-flash' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q '"azure-foundry": "azure"' "${MODELS_DEV_PY}" 2>/dev/null &&
         grep -q 'test_auto_native_for_azure_foundry_gpt55_from_catalog' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
@@ -2548,7 +2524,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_VERTEX_FALLBACK_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
