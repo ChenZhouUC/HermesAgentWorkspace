@@ -518,6 +518,7 @@ model_catalog:
   enabled: true
   url: https://hermes-agent.nousresearch.com/docs/api/model-catalog.json
   ttl_hours: 1
+  configured_only: true
 network:
   force_ipv4: false
 gateway:
@@ -565,6 +566,10 @@ x_search:
   timeout_seconds: 180
   retries: 2
 secrets:
+  # Ignore known Hermes provider/tool variables inherited from the user's
+  # shell (for example via ~/.secrets). Only ~/.hermes/.env and explicitly
+  # configured Hermes secret sources may populate them.
+  ignore_ambient_credentials: true
   bitwarden:
     enabled: false
     access_token_env: BWS_ACCESS_TOKEN

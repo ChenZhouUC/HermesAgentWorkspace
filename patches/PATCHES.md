@@ -98,6 +98,8 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-VERTEX-DOCTOR: doctor 识别官方 Vertex profile
   │   ├─ PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY: Gemini fallback 接受其他模型产生的无签名工具历史
   │   ├─ PATCH-LAUNCHD-WRAPPER-SUPERVISOR: launchd stderr wrapper 保留受监管身份
+  │   ├─ PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION: 不继承 shell/~/.secrets 的 Hermes 凭据
+  │   ├─ PATCH-MODEL-CONFIGURED-ONLY: /model 只访问主模型与 fallback 配置集合
   │   ├─ PATCH-IMAGE-NATIVE-ROUTING: 主力模型图片能力识别（Gemini 3.x + azure-foundry）
   │   ├─ PATCH-VERTEX-VIDEO-ROUTING: Gemini 视频 native routing
   │   ├─ PATCH-VIDEO-SIDECAR: 主力读不了视频时旁路到链上能读的档（全局，不切主 provider）
@@ -218,7 +220,9 @@ PATCHED_FILES=(
     "gateway/session_context.py"
     "gateway/stream_consumer.py"
     "hermes_cli/doctor.py"
+    "hermes_cli/env_loader.py"
     "hermes_cli/gateway.py"
+    "hermes_cli/model_switch.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
@@ -246,6 +250,7 @@ PATCHED_FILES=(
     "tests/gateway/test_stream_consumer_silence.py"
     "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
+    "tests/hermes_cli/test_env_loader.py"
     "tests/hermes_cli/test_gateway.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
@@ -264,12 +269,14 @@ PATCHED_FILES=(
     "tests/tools/test_video_analyze.py"
     "agent/replay_cleanup.py"
     "tests/agent/test_replay_cleanup.py"
+    "tests/run_agent/test_provider_fallback.py"
+    "tests/run_agent/test_compressor_fallback_update.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
     "native/fts5_cjk/build.sh"
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（68 文件，2026-08-15 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（73 文件，2026-08-15 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -292,7 +299,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 ## 当前版本：v0.20.1 (upstream `main` `45af7a71fcd420b4422d2c074b1ce58b9ce0d048`，2026-08-15)
 
-**活跃补丁**：当前共 34 个语义补丁。27 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
+**活跃补丁**：当前共 36 个语义补丁。29 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
 **最近一次升级（v0.20.1 → v0.20.1，+663 commits，basis `c896c09c42910c584c4c7d2325b58c14713ea42c` → `45af7a71fcd420b4422d2c074b1ce58b9ce0d048`，2026-08-15）要点**：
 
@@ -301,6 +308,8 @@ cat ~/.hermes/patches/.local-patches.base
 - 依赖：venv 未重建，Python 3.12.13 / SQLite 3.53.1 保持；20 个 active lazy backend 中 `terminal.modal` 刷新，其余 current。官方 updater 更新 15 个 bundled skills；终态 mirror 为 `+0/~1/-1`，删除项仅孤立 `.bundled_manifest_*.tmp`，runtime metadata 保留。root `npm audit` 仍为 **6 high**：Electron 40.10.2 两条 GHSA + extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 经 sanitize-html/vite 被上游 override/lock 阻挡；doctor 的 web 4 high / ui-tui 3 high 同属 Desktop/web build 链 P2，不影响飞书 gateway，禁止 `--force`。`package-lock.json` 104+/150- 继续作为 npm workspace hoist/位置漂移排除出 replay bundle。
 - 已知摩擦：本轮只执行一次 `--update` 并固定 `TARGET_SHA=45af7a71fcd4`，所有失败接管均为 `--reconcile`、明确 no fetch/pull。原 Step 5 在 patch 还原窗口刷新 plist，会用裸 upstream 定义覆盖补丁终态；现改为前置只快照、Step 8 回贴后再强制验证 definition current + launchd wrapper PID + real Gateway child PID。sandbox verifier 同步区分 wrapper 与 runtime PID，并把 23 项行为回归/注册 trace 绑定真实子进程。最后一次完整 reconcile exit 0、无 `✗`、事务状态清除。
 - 配置漂移：官方迁移 **v35 → v37**，按上游明确迁移把 `delegation.max_iterations` **50 → 250**（`50d98fc1f`）、`max_concurrent_children` **3 → 10**（`ce996d405`）；原有 provider/model/compression 链、`browser.backend: 'off'` 及其意图注释保持，YAML 引号噪音已恢复。Doctor 无 deprecated key，主配置 v37；仅上述 P2 npm build-chain 和未配置的可选 provider/toolset 保留提示。
+
+**2026-08-15 模型凭据与选择边界收敛**：`PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION` 启用 profile 严格环境边界，Hermes 不再继承用户 shell / `~/.secrets` 的 DashScope、Gemini 等模型凭据；历史 ambient pool 条目已通过 auth remove + source suppression 清理，`GITHUB_TOKEN` 文件/环境本身保留给 Skills Hub，但不再作为 Copilot 模型入口。`PATCH-MODEL-CONFIGURED-ONLY` 让 `/model` 的展示和 typed switch 都只动态读取 `config.model + fallback_providers`，并统一展开 `${VAR}` / `${env:VAR}` route，禁止链外与 `--global`；具体 provider/model 不写死，未来手工改 config 即自动更新集合。主动把 primary 切到任一 fallback 时，运行时按 backend identity 跳过重复项并至少保留另一条 fallback；compression 的独立 configured provider/model 不随 primary 切换。受管文件 **68 → 73**、活跃 PATCH **34 → 36**；规范回归 **33 files / 1192 passed / 0 failed / 3 skipped**，reconcile exit 0 并完成 Gateway planned restart。
 
 ---
 
@@ -462,6 +471,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep 确认迁移脚本、英文文档与 zh-Hans 文档都不再出现 `HERMES_GATEWAY_TOKEN` / `gateway.auth.token` / `Gateway 认证 token`。
 
 **上游吸收判断**：当上游迁移脚本不再写入废弃的 `HERMES_GATEWAY_TOKEN`，且迁移文档同步移除该映射后，才可移除本补丁；当前上游两处仍未吸收。
+
+---
+
+### [PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION] Hermes 不继承用户 shell 凭据
+
+| 字段     | 内容                                                                                  |
+| -------- | ------------------------------------------------------------------------------------- |
+| **文件** | `hermes_cli/env_loader.py`, `tests/hermes_cli/test_env_loader.py`, 外层 `config.yaml` |
+| **状态** | 🟡 本地安全边界；`secrets.ignore_ambient_credentials: true` 时启用                    |
+
+**问题**：用户的 shell 会 source `~/.secrets`，其中的 `DASHSCOPE_API_KEY`、`GEMINI_API_KEY` 等变量随父进程进入 Hermes。旧 `load_hermes_dotenv()` 只清理少数 profile routing key，有意保留所有 shell provider 凭据；credential pool 随后把这些用户侧变量自动 seed 为 Hermes 模型凭据。结果是未写入 `~/.hermes/.env`、未进入 `config.yaml` 主链的 provider 仍可被模型选择与辅助路由消费，跨越了用户侧环境与 Hermes 配置的所有权边界。
+
+**修复**：新增 opt-in `secrets.ignore_ambient_credentials`。启用后，加载 `~/.hermes/.env` 之后、执行 Hermes 显式 secret sources 之前，删除所有不在该 profile `.env` 中声明的已知 Hermes provider/tool 环境变量，并覆盖 `GOOGLE_APPLICATION_CREDENTIALS`、AWS credential chain 等 SDK 直读键；`PATH`、`HOME` 和无关用户环境变量不动。Bitwarden/OnePassword/managed env 等明确配置的 Hermes secret source 在清理后运行，仍可合法补回凭据。历史上由 ambient env seed 的 Alibaba、Gemini、Copilot pool 条目用 `hermes auth remove` 清理并 suppress，避免旧 token 继续被读取。
+
+**验证**：`test_strict_profile_ignores_ambient_hermes_credentials` 证明 profile `.env` 中的 Azure key 保留，而 shell 的 DashScope/Gemini/Google credential path 被清除、无关变量不受影响；`test_strict_profile_allows_explicit_secret_source_after_scrub` 证明 Hermes 显式 secret source 可在清理后重新注入。Step 8b 同时检查配置开关、生产函数和测试名。终态 fresh process 中 `hermes auth list` 不再出现 Alibaba、Alibaba Coding Plan、Gemini 或 Copilot，只保留 Hermes 自有 Azure pool；Bedrock/Vertex 继续走 IAM role / service-account 路径。
+
+**上游吸收判断**：上游提供 profile 级“只信任本 profile `.env` 与显式 secret sources、拒绝 ambient shell provider credentials”的等价开关，并覆盖 credential pool 自动 seed 与 SDK 直读键后可归档。
 
 ---
 
@@ -720,6 +746,23 @@ cat ~/.hermes/patches/.local-patches.base
 ---
 
 **类别：Provider、模型与多模态路由**
+
+### [PATCH-MODEL-CONFIGURED-ONLY] `/model` 只访问配置内主模型与 fallback
+
+| 字段     | 内容                                                                                                                                                                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `hermes_cli/model_switch.py`, `gateway/slash_commands.py`, `tests/hermes_cli/test_tools_config.py`, `tests/gateway/test_config.py`, `tests/run_agent/test_provider_fallback.py`, `tests/run_agent/test_compressor_fallback_update.py`, 外层 `config.yaml` |
+| **状态** | 🟡 本地模型访问边界；`model_catalog.configured_only: true` 时启用                                                                                                                                                                                         |
+
+**问题**：无参数 `/model` 原生调用 `list_authenticated_providers()`，展示整台机器上检测到凭据迹象的 provider 及其在线/缓存模型目录，而不是当前 profile 的配置集合。shell secrets、credential pool 或普通 `GITHUB_TOKEN` 都可能制造链外模型入口；文本 `/model <name> --provider <slug>` 还能直接切换到这些链外 provider。用户要求 Hermes 只能访问 `config.yaml` 中显式声明的主模型与 `fallback_providers`，引入新模型必须先手工改配置。Gateway 另有一层 raw-YAML 快速读取：若 fallback model 写成 `${VAR}`，列表/预校验会看到占位符，而共享切换核心看到展开后的值，导致同一合法 route 自相拒绝。
+
+**修复**：新增 configured-only 路由表，只从 `model.default/provider` 和有序 `fallback_providers` 构造模型 universe，不扫描 ambient credentials、auth pool、models.dev 或 provider `/models`。路由表复用配置层 `${VAR}` / `${env:VAR}` 展开语义，使 Gateway raw YAML、CLI `load_config()` 和共享核心比较同一 provider/model identity。无参数 `/model` 只显示这些精确 route；Gateway 文本/交互选择和共享 `switch_model()` 核心都只允许切换到同一集合，CLI/TUI/Dashboard 等其它入口同样无法绕过。链外 provider/model 直接拒绝，严格模式强制 session-scoped，并禁止 global switch 绕过手工配置边界。主动切换不改写 fallback 列表：primary 等于 fallback-A 时跳过重复 A、保留 B；primary 等于 fallback-B 时先回退 A、随后跳过重复 B。`auxiliary.compression` 继续读取独立配置，切换 primary 只改变摘要 route 失败时的 current-main fallback，不改变 compaction 首选 route。
+
+**验证**：configured-only helper 使用通用 primary/fallback-A/fallback-B fixture，断言列表完全由传入 config 动态生成，并覆盖 `${VAR}` / `${env:VAR}` 展开、provider-only/唯一 model 解析与链外拒绝；Gateway 边界测试证明 `/model` 显示展开后的 route、不出现任何未配置 provider，链外与 `--global` 在调用 switch 前被拒绝；共享 core 测试证明非 Gateway 调用面也受到同一 guard。fallback 回归成对覆盖“primary 等于 fallback-A 时跳过 A、使用 B”和“primary 等于 fallback-B 时先使用 A”；compressor 回归证明 primary 切换后主 runtime 更新，但独立 `summary_model` 原值保持不变。当前生产 config 的 Azure/Bedrock/Vertex 只是该动态规则的一次实例，未来替换具体 provider/model 不需要改补丁或测试。Step 8b 将上述生产锚点和测试纳入 8c 总闸门。
+
+**上游吸收判断**：上游提供 profile-owned configured-only picker/switch policy，能同时约束展示、typed switch、global persistence，并保留 primary/fallback 去重与 compaction 独立路由语义后可归档。
+
+---
 
 ### [PATCH-VERTEX-HIDDEN-THOUGHTS] Vertex 保留 thinking 但隐藏 thought 文本
 

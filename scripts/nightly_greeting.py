@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Build and send Chen's nightly daily report, then greet known Feishu groups.
+"""Sync Feishu org data, build/send Chen's report, then greet Feishu groups.
 
 Normal cron runs are intentionally silent on stdout. With Hermes cron
 ``--no-agent``, empty stdout means no extra delivery message; the only user
 visible side effects are the Feishu report submission and group messages.
+
+The organization sync is an isolated stage zero: its output never enters the
+daily-session material or generation prompt. Failure is non-blocking; it may
+notify the owner's Feishu DM, but is never broadcast to greeting groups.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ import sqlite3
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +38,9 @@ HERMES_HOME = Path.home() / ".hermes"
 STATE_DB = HERMES_HOME / "state.db"
 FEISHU_DOCS_SCRIPTS = HERMES_HOME / "my-skills/productivity/feishu-docs/scripts"
 GROUPS_YAML = HERMES_HOME / "groups.yaml"
+SANDBOX_CONFIG = HERMES_HOME / "plugins/sandbox/config.yaml"
+PEOPLE_SYNC_SCRIPT = HERMES_HOME / "scripts/pull_feishu_people.py"
+HERMES_VENV_PYTHON = HERMES_HOME / "hermes-agent/venv/bin/python"
 REPORT_PROJECT = Path("/Users/chenzhou/Documents/WhaleDocs/organization/Reporting_2026Q2")
 WORK_DIR = HERMES_HOME / "tmp/nightly_report"
 STATE_PATH = WORK_DIR / "state.json"
@@ -46,8 +54,10 @@ import feishu_common  # noqa: E402
 GROUP_ITEM_RE = re.compile(r"^\s*-\s")
 GROUP_CHAT_ID_RE = re.compile(r"\bchat_id:\s*(oc_[A-Za-z0-9_]+)")
 GROUP_NIGHTLY_OFF_RE = re.compile(r"^\s*nightly_greeting:\s*(?:false|no|off)\s*$", re.I)
+OWNER_CHAT_ID_RE = re.compile(r"^\s*-\s*(oc_[A-Za-z0-9_]+)\s*$")
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 JSON_OBJECT_RE = re.compile(r"\{.*\}", re.S)
+ORG_SYNC_SUMMARY_RE = re.compile(r"^summary-json:\s*(\{.*\})$", re.M)
 
 TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else dt.timezone(dt.timedelta(hours=8))
 MAX_CONTEXT_CHARS = 90000
@@ -69,8 +79,12 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         "--dryrun",
         action="store_true",
-        help="Send the prepared report and greeting preview to the main Feishu chat. No report submit, no group send.",
+        help=(
+            "Preview the org merge and send the report/greeting preview to the main Feishu chat. "
+            "No people.yaml apply, report submit, or group send."
+        ),
     )
+    parser.add_argument("--skip-org-sync", action="store_true", help="Skip the Feishu organization sync stage.")
     parser.add_argument("--skip-report", action="store_true", help="Do not submit the Feishu daily report.")
     parser.add_argument("--skip-greeting", action="store_true", help="Do not send the nightly group greeting.")
     parser.add_argument(
@@ -175,6 +189,25 @@ def load_group_ids(path: Path = GROUPS_YAML) -> list[str]:
     return group_ids
 
 
+def load_owner_chat_ids(path: Path = SANDBOX_CONFIG) -> list[str]:
+    """Return only owner-DM chat IDs from the sandbox security config."""
+    owner_ids: list[str] = []
+    in_owner_block = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith((" ", "\t")):
+            in_owner_block = line.strip() == "owner_feishu_chat_ids:"
+            continue
+        if in_owner_block and (match := OWNER_CHAT_ID_RE.match(line)):
+            chat_id = match.group(1)
+            if chat_id not in owner_ids:
+                owner_ids.append(chat_id)
+    if not owner_ids:
+        raise RuntimeError(f"No owner Feishu chat IDs found in {path}")
+    return owner_ids
+
+
 def send_message(token: str, chat_id: str, text: str) -> dict[str, Any]:
     url = f"{feishu_common.API}/im/v1/messages?receive_id_type=chat_id"
     payload = {
@@ -187,6 +220,86 @@ def send_message(token: str, chat_id: str, text: str) -> dict[str, Any]:
         raise RuntimeError(f"Failed to send to {chat_id}: {res}")
     log(f"Sent Feishu text to {chat_id}: {res}")
     return res
+
+
+def sync_feishu_organization(day: dt.date, *, apply: bool) -> dict[str, Any]:
+    """Run the isolated stage-zero org sync and persist its private log."""
+    python = HERMES_VENV_PYTHON if HERMES_VENV_PYTHON.exists() else Path(sys.executable)
+    cmd = [str(python), str(PEOPLE_SYNC_SCRIPT), "sync"]
+    if apply:
+        cmd.append("--apply")
+    else:
+        cmd.append("--summary-only")
+    log(f"Starting Feishu organization sync ({'apply' if apply else 'preview'})")
+    res = subprocess.run(
+        cmd,
+        cwd=str(HERMES_HOME),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=900,
+    )
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = WORK_DIR / f"{day.isoformat()}.org-sync.log"
+    output_path.write_text(res.stdout or "", encoding="utf-8")
+    if res.returncode != 0:
+        tail = " | ".join((res.stdout or "").strip().splitlines()[-3:])
+        raise RuntimeError(f"Feishu organization sync failed ({res.returncode}): {tail or 'no output'}")
+    log(f"Feishu organization sync completed; log saved to {output_path}")
+    match = ORG_SYNC_SUMMARY_RE.search(res.stdout or "")
+    summary = json.loads(match.group(1)) if match else {"added": [], "removed": []}
+    return {
+        "completed_at": dt.datetime.now(TZ).isoformat(),
+        "mode": "apply" if apply else "preview",
+        "log": str(output_path),
+        "added": summary.get("added") or [],
+        "removed": summary.get("removed") or [],
+    }
+
+
+def org_sync_change_text(summary: dict[str, Any]) -> str:
+    """Render only roster additions/removals; official field refreshes stay silent."""
+
+    def names(key: str) -> str:
+        people = summary.get(key) or []
+        values = [str(item.get("name") or item.get("open_id") or "").strip() for item in people]
+        values = [value for value in values if value]
+        return "、".join(values) if values else "无"
+
+    return f"新增人员：{names('added')}\n移除人员：{names('removed')}"
+
+
+def notify_owner_org_sync(
+    day: dt.date,
+    *,
+    summary: dict[str, Any] | None = None,
+    error: Exception | None = None,
+) -> None:
+    """Best-effort private result notice; never uses the group broadcast list."""
+    try:
+        owner_chat_id = load_owner_chat_ids()[0]
+        token = feishu_common.get_tenant_token()
+        if error is not None:
+            detail = re.sub(r"\s+", " ", str(error)).strip()[:500]
+            message = (
+                f"⚠️ {day.isoformat()} 飞书组织同步失败，已跳过该步骤，日报与晚安问候会继续正常执行。\n原因：{detail}"
+            )
+        else:
+            message = f"✅ {day.isoformat()} 飞书组织架构同步完成。\n{org_sync_change_text(summary or {})}"
+
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                send_message(token, owner_chat_id, message)
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if attempt < 3:
+                    time.sleep(attempt)
+        if last_error is not None:
+            raise last_error
+    except Exception as notify_error:  # noqa: BLE001
+        log(f"Could not notify owner about organization sync result: {notify_error}")
 
 
 def trim_message(content: str) -> str:
@@ -499,12 +612,13 @@ def split_sentences(text: str) -> list[str]:
 
 def load_state() -> dict[str, Any]:
     if not STATE_PATH.exists():
-        return {"reports": {}, "greetings": {}, "dry_runs": {}}
+        return {"org_syncs": {}, "reports": {}, "greetings": {}, "dry_runs": {}}
     try:
         data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
         log(f"State file unreadable, starting fresh: {exc}")
-        return {"reports": {}, "greetings": {}, "dry_runs": {}}
+        return {"org_syncs": {}, "reports": {}, "greetings": {}, "dry_runs": {}}
+    data.setdefault("org_syncs", {})
     data.setdefault("reports", {})
     data.setdefault("greetings", {})
     data.setdefault("dry_runs", {})
@@ -620,7 +734,11 @@ def preview_message(day: dt.date, draft: dict[str, str]) -> str:
     )
 
 
-def send_dry_run_preview(day: dt.date, draft: dict[str, str], state: dict[str, Any]) -> None:
+def send_dry_run_preview(
+    day: dt.date,
+    draft: dict[str, str],
+    state: dict[str, Any],
+) -> None:
     chat_id = resolve_main_chat_id()
     token = feishu_common.get_tenant_token()
     response = send_message(token, chat_id, preview_message(day, draft))
@@ -655,6 +773,35 @@ def run(args: argparse.Namespace) -> str | None:
 
         state = load_state()
         day_key = day.isoformat()
+        org_sync_result: dict[str, Any] | None = None
+
+        # Stage 0 — Feishu organization sync. This stage is deliberately
+        # isolated from session_text/draft generation below. Its failure is
+        # non-blocking and never enters the report/greeting error collection.
+        if not args.skip_org_sync:
+            try:
+                org_sync_result = {
+                    "status": "ok",
+                    **sync_feishu_organization(day, apply=not args.dry_run),
+                }
+                state["org_syncs"][day_key] = org_sync_result
+                save_state(state)
+                notify_owner_org_sync(day, summary=org_sync_result)
+            except Exception as exc:  # noqa: BLE001
+                log(f"Organization sync failed; continuing to report/greeting: {exc}")
+                state["org_syncs"][day_key] = {
+                    "status": "failed",
+                    "failed_at": dt.datetime.now(TZ).isoformat(),
+                    "error": re.sub(r"\s+", " ", str(exc)).strip()[:1000],
+                }
+                try:
+                    save_state(state)
+                except Exception as state_error:  # noqa: BLE001
+                    log(f"Could not persist organization sync failure state: {state_error}")
+                notify_owner_org_sync(day, error=exc)
+        else:
+            log("Feishu organization sync skipped by flag.")
+
         if args.dry_run and state["dry_runs"].get(day_key) and not args.force_dry_run:
             log(f"Dry-run preview already sent for {day_key}; exiting silently.")
             return None

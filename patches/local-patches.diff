@@ -2415,10 +2415,154 @@ index 7a2c53ab3a95b3735b554bb3e3708f4d92ef16e5..bb9f4c6059e0d54b770ffaaa5c6463ba
          _SESSION_CHAT_ID,
          _SESSION_CHAT_TYPE,
 diff --git a/gateway/slash_commands.py b/gateway/slash_commands.py
-index 523af310e97afcd74099af7405db58f3441cb08f..50d9f8b40fb6387ed1d517cc7a2a4455e8f07b06 100644
+index 523af310e97afcd74099af7405db58f3441cb08f..6f6885ac57e08589f825b24c33458245608547c4 100644
 --- a/gateway/slash_commands.py
 +++ b/gateway/slash_commands.py
-@@ -3605,7 +3605,7 @@ class GatewaySlashCommandsMixin:
+@@ -1720,8 +1720,11 @@ class GatewaySlashCommandsMixin:
+         from hermes_cli.model_switch import (
+             switch_model as _switch_model, parse_model_switch_args,
+             resolve_persist_behavior,
++            configured_only_model_catalog,
+             list_authenticated_providers,
++            list_configured_model_providers,
+             list_picker_providers,
++            resolve_configured_model_target,
+         )
+         from hermes_cli.providers import get_label
+ 
+@@ -1768,10 +1771,13 @@ class GatewaySlashCommandsMixin:
+         user_provs = None
+         custom_provs = None
+         excluded_provs = []
++        cfg = {}
++        configured_only = False
+         config_path = (_command_profile_home or _hermes_home) / "config.yaml"
+         try:
+             cfg = _load_gateway_config()
+             if cfg:
++                configured_only = configured_only_model_catalog(cfg)
+                 model_cfg = cfg.get("model", {})
+                 if isinstance(model_cfg, dict):
+                     current_model = model_cfg.get("default", "")
+@@ -1806,6 +1812,17 @@ class GatewaySlashCommandsMixin:
+             current_base_url = override.get("base_url", current_base_url)
+             current_api_key = override.get("api_key", current_api_key)
+ 
++        if configured_only:
++            # Strict mode is a session-level selector over the profile-owned
++            # primary/fallback universe. Changing that universe requires an
++            # explicit config.yaml edit; /model --global cannot bypass it.
++            if is_global_flag:
++                return (
++                    "❌ Configured-only model policy disables /model --global. "
++                    "Edit config.yaml to change the allowed primary/fallback models."
++                )
++            persist_global = False
++
+         # No args: show interactive picker (Telegram/Discord) or text list
+         if not model_input and not explicit_provider:
+             # Try interactive picker if the platform supports it
+@@ -1820,17 +1837,24 @@ class GatewaySlashCommandsMixin:
+                     # Offload blocking provider-listing (can fall through to a
+                     # synchronous urllib HTTP fetch on a stale cache) off the
+                     # event loop so the gateway doesn't freeze. See #41289.
+-                    providers = await asyncio.to_thread(
+-                        list_picker_providers,
+-                        current_provider=current_provider,
+-                        current_base_url=current_base_url,
+-                        current_model=current_model,
+-                        user_providers=user_provs,
+-                        custom_providers=custom_provs,
+-                        max_models=50,
+-                        include_moa=True,
+-                        excluded_providers=excluded_provs,
+-                    )
++                    if configured_only:
++                        providers = list_configured_model_providers(
++                            cfg,
++                            current_provider=current_provider,
++                            current_model=current_model,
++                        )
++                    else:
++                        providers = await asyncio.to_thread(
++                            list_picker_providers,
++                            current_provider=current_provider,
++                            current_base_url=current_base_url,
++                            current_model=current_model,
++                            user_providers=user_provs,
++                            custom_providers=custom_provs,
++                            max_models=50,
++                            include_moa=True,
++                            excluded_providers=excluded_provs,
++                        )
+                 except Exception:
+                     providers = []
+ 
+@@ -2129,16 +2153,23 @@ class GatewaySlashCommandsMixin:
+             try:
+                 # Offload blocking provider-listing off the event loop so the
+                 # gateway doesn't freeze on a stale-cache HTTP fetch. See #41289.
+-                providers = await asyncio.to_thread(
+-                    list_authenticated_providers,
+-                    current_provider=current_provider,
+-                    current_base_url=current_base_url,
+-                    current_model=current_model,
+-                    user_providers=user_provs,
+-                    custom_providers=custom_provs,
+-                    max_models=5,
+-                    excluded_providers=excluded_provs,
+-                )
++                if configured_only:
++                    providers = list_configured_model_providers(
++                        cfg,
++                        current_provider=current_provider,
++                        current_model=current_model,
++                    )
++                else:
++                    providers = await asyncio.to_thread(
++                        list_authenticated_providers,
++                        current_provider=current_provider,
++                        current_base_url=current_base_url,
++                        current_model=current_model,
++                        user_providers=user_provs,
++                        custom_providers=custom_provs,
++                        max_models=5,
++                        excluded_providers=excluded_provs,
++                    )
+                 for p in providers:
+                     tag = t("gateway.model.current_tag") if p["is_current"] else ""
+                     lines.append(f"**{p['name']}** `--provider {p['slug']}`{tag}:")
+@@ -2154,10 +2185,28 @@ class GatewaySlashCommandsMixin:
+ 
+             lines.append(t("gateway.model.usage_switch_model"))
+             lines.append(t("gateway.model.usage_switch_provider"))
+-            lines.append(t("gateway.model.usage_persist"))
++            if configured_only:
++                lines.append(
++                    "Configured-only mode: switches are session-scoped; "
++                    "edit config.yaml to change the allowed model set."
++                )
++            else:
++                lines.append(t("gateway.model.usage_persist"))
+             return "\n".join(lines)
+ 
+         # Perform the switch
++        if configured_only:
++            strict_provider, strict_model, strict_error = resolve_configured_model_target(
++                cfg,
++                target=model_input,
++                explicit_provider=explicit_provider,
++                current_provider=current_provider,
++            )
++            if strict_error:
++                return f"❌ {strict_error}"
++            explicit_provider = strict_provider
++            model_input = strict_model
++
+         skew_error = _model_switch_skew_guard()
+         if skew_error:
+             return skew_error
+@@ -3605,7 +3654,7 @@ class GatewaySlashCommandsMixin:
              /reasoning show|on               Show model reasoning in responses
              /reasoning hide|off              Hide model reasoning from responses
          """
@@ -2427,7 +2571,7 @@ index 523af310e97afcd74099af7405db58f3441cb08f..50d9f8b40fb6387ed1d517cc7a2a4455
  
          raw_args = event.get_command_args().strip()
          args, persist_global = self._parse_reasoning_command_args(raw_args)
-@@ -3652,7 +3652,7 @@ class GatewaySlashCommandsMixin:
+@@ -3652,7 +3701,7 @@ class GatewaySlashCommandsMixin:
  
              # Interactive picker on platforms that support it (parity with the
              # /model picker). Falls through to the text status card otherwise.
@@ -2436,7 +2580,7 @@ index 523af310e97afcd74099af7405db58f3441cb08f..50d9f8b40fb6387ed1d517cc7a2a4455
  
              async def _on_reasoning_choice(_chat_id: str, value: str) -> str:
                  return self._apply_reasoning_selection(
-@@ -3682,7 +3682,7 @@ class GatewaySlashCommandsMixin:
+@@ -3682,7 +3731,7 @@ class GatewaySlashCommandsMixin:
              )
  
          # Typed argument path — same applier the picker uses.
@@ -2445,7 +2589,7 @@ index 523af310e97afcd74099af7405db58f3441cb08f..50d9f8b40fb6387ed1d517cc7a2a4455
          return self._apply_reasoning_selection(
              session_key, platform_key, args, persist_global=persist_global
          )
-@@ -3917,10 +3917,14 @@ class GatewaySlashCommandsMixin:
+@@ -3917,10 +3966,14 @@ class GatewaySlashCommandsMixin:
          ``display.platforms.<platform>.tool_progress`` so each channel can
          have its own verbosity level independently.
          """
@@ -2462,7 +2606,7 @@ index 523af310e97afcd74099af7405db58f3441cb08f..50d9f8b40fb6387ed1d517cc7a2a4455
  
          # --- check config gate ------------------------------------------------
          try:
-@@ -3986,11 +3990,16 @@ class GatewaySlashCommandsMixin:
+@@ -3986,11 +4039,16 @@ class GatewaySlashCommandsMixin:
          are respected but not modified here — edit config.yaml directly for
          per-platform control.
          """
@@ -2481,7 +2625,7 @@ index 523af310e97afcd74099af7405db58f3441cb08f..50d9f8b40fb6387ed1d517cc7a2a4455
  
          # --- parse argument -------------------------------------------------
          arg = ""
-@@ -4154,16 +4163,16 @@ class GatewaySlashCommandsMixin:
+@@ -4154,16 +4212,16 @@ class GatewaySlashCommandsMixin:
              # normal gateway turn passes (gateway/run.py main turn), so external
              # context engines bind this temporary compression agent to the
              # original platform conversation instead of falling back to an
@@ -2724,6 +2868,74 @@ index e16de6060c9ef0a9e7a221eafea9fd547f6fcbea..540cc03fb0d141a42e7a4bad46e4d801
                  and not provider_accepts_vendor_slug
              ):
                  check_warn(
+diff --git a/hermes_cli/env_loader.py b/hermes_cli/env_loader.py
+index 05d6de052eca477b1e758eddd5027d520bb54a54..927f0c8b539e612ac8e227b71dfe1ab38e69644d 100644
+--- a/hermes_cli/env_loader.py
++++ b/hermes_cli/env_loader.py
+@@ -82,6 +82,18 @@ _PROFILE_MANAGED_ENV_KEYS: frozenset[str] = frozenset({
+     "COPILOT_ACP_BASE_URL",
+ })
+ 
++# Credential/config keys that are read by provider SDKs directly rather than
++# through OPTIONAL_ENV_VARS / _EXTRA_ENV_KEYS. Include them in strict ambient
++# isolation so a shell-sourced ~/.secrets file cannot silently configure a
++# Hermes provider outside this profile's own .env.
++_AMBIENT_ISOLATION_EXTRA_KEYS: frozenset[str] = frozenset({
++    "AWS_ACCESS_KEY_ID",
++    "AWS_SECRET_ACCESS_KEY",
++    "AWS_SESSION_TOKEN",
++    "AWS_WEB_IDENTITY_TOKEN_FILE",
++    "GOOGLE_APPLICATION_CREDENTIALS",
++})
++
+ 
+ def _env_keys_defined_in_dotenv(path: Path) -> set[str]:
+     """Return KEY names assigned in a dotenv file (including empty ``KEY=``).
+@@ -145,6 +157,33 @@ def _clear_known_keys_missing_from_dotenv(path: Path) -> None:
+             del os.environ[key]
+ 
+ 
++def ambient_credentials_disabled(
++    hermes_home: str | os.PathLike | None = None,
++) -> bool:
++    """Whether this profile refuses known Hermes vars inherited from the shell."""
++    home_path = Path(
++        hermes_home or os.getenv("HERMES_HOME", Path.home() / ".hermes")
++    )
++    value = _load_secrets_config(home_path).get("ignore_ambient_credentials", False)
++    return value is True or str(value).strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _clear_ambient_hermes_env(path: Path, home_path: Path) -> None:
++    """Keep only profile-owned Hermes vars when strict ambient isolation is on.
++
++    The profile's `.env` remains authoritative. Explicit Hermes secret sources
++    (`secrets.bitwarden`, OnePassword, managed env) run *after* this scrub and
++    may deliberately repopulate values. Unrelated shell variables are untouched.
++    """
++    if not path.exists() or not ambient_credentials_disabled(home_path):
++        return
++    defined = _env_keys_defined_in_dotenv(path)
++    known = _known_hermes_env_keys() | set(_AMBIENT_ISOLATION_EXTRA_KEYS)
++    for key in known:
++        if key not in defined:
++            os.environ.pop(key, None)
++
++
+ def get_secret_source(env_var: str) -> str | None:
+     """Return the label of the secret source that supplied ``env_var``, if any.
+ 
+@@ -498,6 +537,10 @@ def load_hermes_dotenv(
+         # Mirror reload_env() known-key cleanup so inherited Hermes keys
+         # absent from this profile's .env do not leak into the runtime.
+         _clear_known_keys_missing_from_dotenv(user_env)
++        # Optional strict boundary: reject provider/tool variables inherited
++        # from the user's shell (including a sourced ~/.secrets). This runs
++        # before explicit Hermes secret sources, which remain allowed.
++        _clear_ambient_hermes_env(user_env, home_path)
+ 
+     # Load .op.env AFTER .env so that .env values win, but the bootstrap
+     # token (OP_SERVICE_ACCOUNT_TOKEN) becomes available for
 diff --git a/hermes_cli/gateway.py b/hermes_cli/gateway.py
 index a949bb70dbbc2f3a9586ee347207323628236221..858e5065e2ffd743edf070c9b72d468fcb930d42 100644
 --- a/hermes_cli/gateway.py
@@ -2776,6 +2988,197 @@ index a949bb70dbbc2f3a9586ee347207323628236221..858e5065e2ffd743edf070c9b72d468f
      ]
      prog_args_xml = "\n        ".join(prog_args)
  
+diff --git a/hermes_cli/model_switch.py b/hermes_cli/model_switch.py
+index 9b88f8465fb3442167e82eff06ee60d4cc001ce2..917364d8144ea7ce5dd53ecbd8360d0c91b6a151 100644
+--- a/hermes_cli/model_switch.py
++++ b/hermes_cli/model_switch.py
+@@ -626,6 +626,144 @@ def resolve_persist_behavior(
+     return False
+ 
+ 
++def configured_only_model_catalog(config: dict[str, Any] | None) -> bool:
++    """Whether /model is restricted to config.model + fallback_providers."""
++    config = config if isinstance(config, dict) else {}
++    catalog = config.get("model_catalog")
++    if not isinstance(catalog, dict):
++        return False
++    value = catalog.get("configured_only", False)
++    return value is True or str(value).strip().lower() in {"1", "true", "yes", "on"}
++
++
++def configured_model_routes(config: dict[str, Any] | None) -> list[dict[str, str]]:
++    """Return the ordered model universe explicitly owned by this profile.
++
++    The primary route leads, followed by fallback_providers in their configured
++    order. Ambient credentials, credential pools, models.dev and live /models
++    catalogs never add entries to this list.
++    """
++    config = config if isinstance(config, dict) else {}
++    # The Gateway intentionally reads raw YAML for speed, while CLI/core
++    # switch paths use load_config() and therefore see `${VAR}` references
++    # expanded. Normalize the small route view here so listing, pre-validation,
++    # and the shared switch core compare the same provider/model identities.
++    try:
++        from hermes_cli.config import _expand_env_vars
++
++        config = _expand_env_vars(config)
++    except Exception:
++        pass
++    routes: list[dict[str, str]] = []
++    seen: set[tuple[str, str]] = set()
++
++    model_cfg = config.get("model")
++    if isinstance(model_cfg, dict):
++        provider = str(model_cfg.get("provider") or "").strip()
++        model = str(model_cfg.get("default") or model_cfg.get("model") or "").strip()
++        if provider and model:
++            seen.add((provider.lower(), model.lower()))
++            routes.append({"provider": provider, "model": model, "role": "primary"})
++
++    try:
++        from hermes_cli.fallback_config import get_fallback_chain
++
++        fallbacks = get_fallback_chain(config)
++    except Exception:
++        fallbacks = []
++    for entry in fallbacks:
++        provider = str(entry.get("provider") or "").strip()
++        model = str(entry.get("model") or "").strip()
++        identity = (provider.lower(), model.lower())
++        if not provider or not model or identity in seen:
++            continue
++        seen.add(identity)
++        routes.append({"provider": provider, "model": model, "role": "fallback"})
++    return routes
++
++
++def list_configured_model_providers(
++    config: dict[str, Any] | None,
++    *,
++    current_provider: str = "",
++    current_model: str = "",
++) -> list[dict]:
++    """Build /model rows from configured routes only, without catalog scans."""
++    grouped: dict[str, dict] = {}
++    order: list[str] = []
++    for route in configured_model_routes(config):
++        provider = route["provider"]
++        key = provider.lower()
++        if key not in grouped:
++            grouped[key] = {
++                "slug": provider,
++                "name": get_label(provider),
++                "is_current": provider.lower() == str(current_provider or "").lower(),
++                "is_user_defined": False,
++                "models": [],
++                "total_models": 0,
++                "source": "configured-only",
++            }
++            order.append(key)
++        if route["model"] not in grouped[key]["models"]:
++            grouped[key]["models"].append(route["model"])
++        grouped[key]["total_models"] = len(grouped[key]["models"])
++        if (
++            provider.lower() == str(current_provider or "").lower()
++            and route["model"].lower() == str(current_model or "").lower()
++        ):
++            grouped[key]["is_current"] = True
++    return [grouped[key] for key in order]
++
++
++def resolve_configured_model_target(
++    config: dict[str, Any] | None,
++    *,
++    target: str = "",
++    explicit_provider: str = "",
++    current_provider: str = "",
++) -> tuple[str, str, str]:
++    """Resolve a strict /model request to one configured route.
++
++    Returns ``(provider, model, error)``. A non-empty error means the request is
++    outside the profile-owned primary/fallback universe and must be rejected.
++    """
++    routes = configured_model_routes(config)
++    target = str(target or "").strip()
++    provider = str(explicit_provider or "").strip()
++
++    def _error() -> tuple[str, str, str]:
++        allowed = ", ".join(
++            f"{route['model']} --provider {route['provider']}" for route in routes
++        ) or "(none configured)"
++        return "", "", (
++            "Configured-only model policy rejected this route. Allowed: "
++            f"{allowed}. Edit config.yaml to change the allowed model set."
++        )
++
++    if provider:
++        candidates = [r for r in routes if r["provider"].lower() == provider.lower()]
++        if not candidates:
++            return _error()
++        if not target and len(candidates) == 1:
++            return candidates[0]["provider"], candidates[0]["model"], ""
++        for route in candidates:
++            if route["model"].lower() == target.lower():
++                return route["provider"], route["model"], ""
++        return _error()
++
++    if target:
++        matches = [r for r in routes if r["model"].lower() == target.lower()]
++        if len(matches) == 1:
++            return matches[0]["provider"], matches[0]["model"], ""
++        current_matches = [
++            r for r in matches if r["provider"].lower() == str(current_provider or "").lower()
++        ]
++        if len(current_matches) == 1:
++            return current_matches[0]["provider"], current_matches[0]["model"], ""
++    return _error()
++
++
+ # ---------------------------------------------------------------------------
+ # Single-owner /model request parsing + effective-model resolution
+ # ---------------------------------------------------------------------------
+@@ -1343,6 +1481,41 @@ def switch_model(
+     )
+     from hermes_cli.runtime_provider import resolve_runtime_provider
+ 
++    # Shared hard boundary for every switch surface (Gateway, CLI, TUI,
++    # Dashboard). The Gateway pre-resolves the same policy for clearer slash
++    # command copy, but the core must enforce it too so no other caller can
++    # bypass the profile-owned model universe.
++    try:
++        from hermes_cli.config import load_config
++
++        _strict_cfg = load_config()
++    except Exception:
++        _strict_cfg = {}
++    if configured_only_model_catalog(_strict_cfg):
++        if is_global:
++            return ModelSwitchResult(
++                success=False,
++                is_global=is_global,
++                error_message=(
++                    "Configured-only model policy disables global model switches. "
++                    "Edit config.yaml to change the allowed primary/fallback models."
++                ),
++            )
++        strict_provider, strict_model, strict_error = resolve_configured_model_target(
++            _strict_cfg,
++            target=raw_input,
++            explicit_provider=explicit_provider,
++            current_provider=current_provider,
++        )
++        if strict_error:
++            return ModelSwitchResult(
++                success=False,
++                is_global=is_global,
++                error_message=strict_error,
++            )
++        explicit_provider = strict_provider
++        raw_input = strict_model
++
+     resolved_alias = ""
+     new_model = raw_input.strip()
+     target_provider = current_provider
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
 index 9aaef475cdd82e496c1e51028698a90d06f965b6..04c3d5d20d4d35f226477317fbcd264bd02c76a4 100644
 --- a/hermes_cli/tools_config.py
@@ -5727,7 +6130,7 @@ index ccf7833b1991393a14eb5f9bca0573cb51da9520..6b1689bc1aed188cb2d74ff8b894da93
          assert agent_kwargs["checkpoints_enabled"] is True
          assert agent_kwargs["checkpoint_max_snapshots"] == 8
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index 29c71a387bc4003e702fea745e1cab60139a023b..a498a4f6a90579dfa7d0741ea34b8821519e8872 100644
+index 29c71a387bc4003e702fea745e1cab60139a023b..5c8b345597df037b05e07da9d0ee03f24d39390e 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
 @@ -794,19 +794,67 @@ class TestLoadGatewayConfig:
@@ -5807,6 +6210,125 @@ index 29c71a387bc4003e702fea745e1cab60139a023b..a498a4f6a90579dfa7d0741ea34b8821
  
      def test_bridges_unauthorized_dm_behavior_from_config_yaml(self, tmp_path, monkeypatch):
          hermes_home = tmp_path / ".hermes"
+@@ -1203,3 +1251,118 @@ class TestApiServerEnvOverride:
+         assert config.platforms[Platform.API_SERVER].enabled is False
+         # The key is still wired through for the shared listener.
+         assert config.platforms[Platform.API_SERVER].extra.get("key") == api_server_key
++
++
++# PATCH-MODEL-CONFIGURED-ONLY: real gateway /model boundary tests.
++def _strict_model_runner():
++    from gateway.run import GatewayRunner
++
++    runner = object.__new__(GatewayRunner)
++    runner.adapters = {}
++    runner._voice_mode = {}
++    runner._session_model_overrides = {}
++    runner._running_agents = {}
++    runner._agent_cache = {}
++    runner._agent_cache_lock = None
++    runner._session_db = None
++    runner.session_store = None
++    return runner
++
++
++def _strict_model_event(text: str):
++    from gateway.platforms.base import MessageEvent, MessageType
++    from gateway.session import SessionSource
++
++    return MessageEvent(
++        text=text,
++        message_type=MessageType.TEXT,
++        source=SessionSource(
++            platform=Platform.FEISHU,
++            user_id="owner",
++            chat_id="oc_owner",
++            chat_type="dm",
++        ),
++    )
++
++
++def _setup_strict_model_home(tmp_path, monkeypatch):
++    import yaml
++    import gateway.run as gateway_run
++
++    home = tmp_path / ".hermes"
++    home.mkdir()
++    (home / "config.yaml").write_text(
++        yaml.safe_dump(
++            {
++                "model": {"provider": "primary-provider", "default": "primary-model"},
++                "fallback_providers": [
++                    {"provider": "fallback-provider-a", "model": "fallback-model-a"},
++                    {"provider": "fallback-provider-b", "model": "fallback-model-b"},
++                ],
++                "model_catalog": {"configured_only": True},
++            },
++            sort_keys=False,
++        ),
++        encoding="utf-8",
++    )
++    monkeypatch.setattr(gateway_run, "_hermes_home", home)
++    monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
++    return home
++
++
++@pytest.mark.asyncio
++async def test_model_command_lists_only_configured_routes(tmp_path, monkeypatch):
++    _setup_strict_model_home(tmp_path, monkeypatch)
++    result = await _strict_model_runner()._handle_model_command(
++        _strict_model_event("/model")
++    )
++    assert result is not None
++    assert "primary-model" in result
++    assert "fallback-model-a" in result
++    assert "fallback-model-b" in result
++    assert "Qwen" not in result
++    assert "Copilot" not in result
++
++
++@pytest.mark.asyncio
++async def test_model_command_expands_configured_route_environment_references(
++    tmp_path, monkeypatch
++):
++    home = _setup_strict_model_home(tmp_path, monkeypatch)
++    config_path = home / "config.yaml"
++    config_path.write_text(
++        config_path.read_text(encoding="utf-8").replace(
++            "fallback-model-a", "${TEST_GATEWAY_FALLBACK_MODEL}"
++        ),
++        encoding="utf-8",
++    )
++    monkeypatch.setenv("TEST_GATEWAY_FALLBACK_MODEL", "expanded-fallback-model")
++
++    result = await _strict_model_runner()._handle_model_command(
++        _strict_model_event("/model")
++    )
++
++    assert result is not None
++    assert "expanded-fallback-model" in result
++    assert "${TEST_GATEWAY_FALLBACK_MODEL}" not in result
++
++
++@pytest.mark.asyncio
++async def test_model_command_rejects_chain_out_and_global(tmp_path, monkeypatch):
++    from unittest.mock import MagicMock
++
++    _setup_strict_model_home(tmp_path, monkeypatch)
++    switch = MagicMock()
++    monkeypatch.setattr("hermes_cli.model_switch.switch_model", switch)
++    runner = _strict_model_runner()
++    chain_out = await runner._handle_model_command(
++        _strict_model_event("/model outside-model --provider outside-provider")
++    )
++    global_switch = await runner._handle_model_command(
++        _strict_model_event(
++            "/model primary-model --provider primary-provider --global"
++        )
++    )
++    assert "Configured-only model policy rejected" in chain_out
++    assert "disables /model --global" in global_switch
++    switch.assert_not_called()
 diff --git a/tests/gateway/test_display_config.py b/tests/gateway/test_display_config.py
 index ccbfaade4d77e8482301bdf1286f700d5f3e47e3..a8b7220d4b0853d4c4634297a3d1754d3753fb0c 100644
 --- a/tests/gateway/test_display_config.py
@@ -12403,6 +12925,71 @@ index 3cae143d8b1043c4186fa2db49fbf73d43e4e5a2..281c21333744cc4b4d7dab21e64df8c7
  
  
  def test_run_doctor_accepts_kimi_coding_cn_provider(monkeypatch, tmp_path):
+diff --git a/tests/hermes_cli/test_env_loader.py b/tests/hermes_cli/test_env_loader.py
+index 1eb34a41c06b1e26e9319bcc3213d79da8315fe8..10d16343c2a893e18f7775485c225dd49f90c85b 100644
+--- a/tests/hermes_cli/test_env_loader.py
++++ b/tests/hermes_cli/test_env_loader.py
+@@ -6,6 +6,60 @@ import sys
+ from hermes_cli.env_loader import load_hermes_dotenv
+ 
+ 
++def test_strict_profile_ignores_ambient_hermes_credentials(tmp_path, monkeypatch):
++    """A profile can reject provider vars inherited from shell/~/.secrets."""
++    import hermes_cli.env_loader as env_loader
++
++    home = tmp_path / "hermes"
++    home.mkdir()
++    env_file = home / ".env"
++    env_file.write_text("AZURE_FOUNDRY_API_KEY=profile-key\n", encoding="utf-8")
++    (home / "config.yaml").write_text(
++        "secrets:\n  ignore_ambient_credentials: true\n",
++        encoding="utf-8",
++    )
++    monkeypatch.setenv("DASHSCOPE_API_KEY", "user-secret")
++    monkeypatch.setenv("GEMINI_API_KEY", "user-gemini")
++    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/user/ambient.json")
++    monkeypatch.setenv("UNRELATED_USER_VARIABLE", "keep-me")
++    monkeypatch.setattr(env_loader, "_apply_external_secret_sources", lambda _home: None)
++    monkeypatch.setattr(env_loader, "_apply_managed_env", lambda: None)
++    monkeypatch.setattr(env_loader, "_reapply_terminal_config_bridge", lambda _home: None)
++
++    load_hermes_dotenv(hermes_home=home)
++
++    assert os.environ["AZURE_FOUNDRY_API_KEY"] == "profile-key"
++    assert "DASHSCOPE_API_KEY" not in os.environ
++    assert "GEMINI_API_KEY" not in os.environ
++    assert "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ
++    assert os.environ["UNRELATED_USER_VARIABLE"] == "keep-me"
++
++
++def test_strict_profile_allows_explicit_secret_source_after_scrub(tmp_path, monkeypatch):
++    """Configured Hermes secret sources run after the ambient scrub."""
++    import hermes_cli.env_loader as env_loader
++
++    home = tmp_path / "hermes"
++    home.mkdir()
++    (home / ".env").write_text("PROFILE_MARKER=1\n", encoding="utf-8")
++    (home / "config.yaml").write_text(
++        "secrets:\n  ignore_ambient_credentials: true\n",
++        encoding="utf-8",
++    )
++    monkeypatch.setenv("DASHSCOPE_API_KEY", "ambient-value")
++
++    def apply_explicit(_home):
++        os.environ["DASHSCOPE_API_KEY"] = "hermes-source-value"
++
++    monkeypatch.setattr(env_loader, "_apply_external_secret_sources", apply_explicit)
++    monkeypatch.setattr(env_loader, "_apply_managed_env", lambda: None)
++    monkeypatch.setattr(env_loader, "_reapply_terminal_config_bridge", lambda _home: None)
++
++    load_hermes_dotenv(hermes_home=home)
++
++    assert os.environ["DASHSCOPE_API_KEY"] == "hermes-source-value"
++
++
+ def test_recovered_update_retry_skips_external_secret_sources(tmp_path, monkeypatch):
+     """The post-recovery updater must not remap native vault dependencies."""
+     import hermes_cli.env_loader as env_loader
 diff --git a/tests/hermes_cli/test_gateway.py b/tests/hermes_cli/test_gateway.py
 index 4e8cfe574794e13155db676728aed660d2b9f0a6..a2f7352059a8b9e1a899e4722d9935063f189421 100644
 --- a/tests/hermes_cli/test_gateway.py
@@ -12625,7 +13212,7 @@ index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd76
          """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
          config = tmp_path / "config.yaml"
 diff --git a/tests/hermes_cli/test_tools_config.py b/tests/hermes_cli/test_tools_config.py
-index b4618848c102b9d89c5863d91cf6aa514ba6fed1..b4a9a3ffa7fada4013b8b7c3062cbe5c9efe231c 100644
+index b4618848c102b9d89c5863d91cf6aa514ba6fed1..4fecea1ee6e1c4fbcf2ff045ef622de3043a635d 100644
 --- a/tests/hermes_cli/test_tools_config.py
 +++ b/tests/hermes_cli/test_tools_config.py
 @@ -763,6 +763,46 @@ class TestImagegenModelPicker:
@@ -12675,6 +13262,122 @@ index b4618848c102b9d89c5863d91cf6aa514ba6fed1..b4a9a3ffa7fada4013b8b7c3062cbe5c
  
  
  def test_get_effective_configurable_toolsets_dedupes_bundled_plugins():
+@@ -1169,3 +1209,115 @@ def test_explicit_plugin_toolset_admitted_against_real_a2a_plugin(monkeypatch):
+         f"plugin-provided 'a2a' toolset dropped by _get_platform_tools "
+         f"(Layer 2 of #81163); enabled={sorted(enabled)}"
+     )
++
++
++# PATCH-MODEL-CONFIGURED-ONLY: generic config-driven model universe tests.
++def _strict_model_config():
++    return {
++        "model": {"provider": "primary-provider", "default": "primary-model"},
++        "fallback_providers": [
++            {"provider": "fallback-provider-a", "model": "fallback-model-a"},
++            {"provider": "fallback-provider-b", "model": "fallback-model-b"},
++        ],
++        "model_catalog": {"configured_only": True},
++    }
++
++
++def test_configured_model_routes_are_dynamic_primary_then_fallbacks():
++    from hermes_cli.model_switch import configured_model_routes
++
++    assert configured_model_routes(_strict_model_config()) == [
++        {"provider": "primary-provider", "model": "primary-model", "role": "primary"},
++        {"provider": "fallback-provider-a", "model": "fallback-model-a", "role": "fallback"},
++        {"provider": "fallback-provider-b", "model": "fallback-model-b", "role": "fallback"},
++    ]
++
++
++def test_configured_model_routes_expand_environment_references(monkeypatch):
++    from hermes_cli.model_switch import configured_model_routes
++
++    monkeypatch.setenv("TEST_PRIMARY_MODEL", "expanded-primary")
++    monkeypatch.setenv("TEST_FALLBACK_MODEL", "expanded-fallback")
++    config = {
++        "model": {
++            "provider": "primary-provider",
++            "default": "${TEST_PRIMARY_MODEL}",
++        },
++        "fallback_providers": [
++            {
++                "provider": "fallback-provider-a",
++                "model": "${env:TEST_FALLBACK_MODEL}",
++            }
++        ],
++    }
++
++    assert configured_model_routes(config) == [
++        {
++            "provider": "primary-provider",
++            "model": "expanded-primary",
++            "role": "primary",
++        },
++        {
++            "provider": "fallback-provider-a",
++            "model": "expanded-fallback",
++            "role": "fallback",
++        },
++    ]
++
++
++def test_configured_model_picker_contains_only_config_models():
++    from hermes_cli.model_switch import list_configured_model_providers
++
++    rows = list_configured_model_providers(
++        _strict_model_config(),
++        current_provider="primary-provider",
++        current_model="primary-model",
++    )
++    assert [(row["slug"], row["models"]) for row in rows] == [
++        ("primary-provider", ["primary-model"]),
++        ("fallback-provider-a", ["fallback-model-a"]),
++        ("fallback-provider-b", ["fallback-model-b"]),
++    ]
++    assert sum(row["total_models"] for row in rows) == 3
++
++
++def test_configured_model_target_accepts_config_and_rejects_chain_out():
++    from hermes_cli.model_switch import resolve_configured_model_target
++
++    assert resolve_configured_model_target(
++        _strict_model_config(), explicit_provider="fallback-provider-a"
++    ) == ("fallback-provider-a", "fallback-model-a", "")
++    assert resolve_configured_model_target(
++        _strict_model_config(), target="fallback-model-b"
++    ) == ("fallback-provider-b", "fallback-model-b", "")
++    provider, model, error = resolve_configured_model_target(
++        _strict_model_config(),
++        target="outside-model",
++        explicit_provider="outside-provider",
++    )
++    assert not provider and not model
++    assert "Configured-only model policy rejected" in error
++
++
++def test_switch_model_core_rejects_chain_out_and_global(monkeypatch):
++    import hermes_cli.config as config_module
++    from hermes_cli.model_switch import switch_model
++
++    monkeypatch.setattr(config_module, "load_config", _strict_model_config)
++    chain_out = switch_model(
++        raw_input="outside-model",
++        current_provider="primary-provider",
++        current_model="primary-model",
++        explicit_provider="outside-provider",
++    )
++    global_switch = switch_model(
++        raw_input="primary-model",
++        current_provider="primary-provider",
++        current_model="primary-model",
++        explicit_provider="primary-provider",
++        is_global=True,
++    )
++    assert chain_out.success is False
++    assert "Configured-only model policy rejected" in chain_out.error_message
++    assert global_switch.success is False
++    assert "disables global model switches" in global_switch.error_message
 diff --git a/tests/hermes_cli/test_vertex_provider.py b/tests/hermes_cli/test_vertex_provider.py
 index 129c44a8eb3ad7bed02770913493364e5412a7da..78300a51b6a1f6a5f1a345962393e67ec0c06c5a 100644
 --- a/tests/hermes_cli/test_vertex_provider.py
@@ -12757,6 +13460,76 @@ index 129c44a8eb3ad7bed02770913493364e5412a7da..78300a51b6a1f6a5f1a345962393e67e
  def test_vertex_registered_in_provider_registry():
      """PROVIDER_REGISTRY (hermes_cli.auth) is what agent/auxiliary_client.py's
      resolve_provider_client() looks up before dispatching on auth_type. Without
+diff --git a/tests/run_agent/test_compressor_fallback_update.py b/tests/run_agent/test_compressor_fallback_update.py
+index a5ff87a6a97015da8972c5bee0e816d1845007e3..23117b7c9f2dd058edfa79f13540105145e71687 100644
+--- a/tests/run_agent/test_compressor_fallback_update.py
++++ b/tests/run_agent/test_compressor_fallback_update.py
+@@ -35,6 +35,7 @@ def _make_agent_with_compressor() -> AIAgent:
+         base_url="https://openrouter.ai/api/v1",
+         api_key="sk-primary",
+         provider="openrouter",
++        summary_model_override="independent-summary-model",
+         quiet_mode=True,
+     )
+     agent.context_compressor = compressor
+@@ -68,7 +69,6 @@ def test_compressor_updated_on_fallback(mock_ctx_len, mock_resolve):
+     assert c.base_url == "https://api.openai.com/v1"
+     assert c.api_key == "sk-fallback"
+     assert c.provider == "openai"
++    assert c.summary_model == "independent-summary-model"
+     assert c.context_length == 128_000
+     assert c.threshold_tokens == int(128_000 * c.threshold_percent)
+-
+-
+diff --git a/tests/run_agent/test_provider_fallback.py b/tests/run_agent/test_provider_fallback.py
+index 4faeb2b5592136aec10c2b0ee96c069523b01313..ebea1e12aba98785c62c0956b716f594441bb16b 100644
+--- a/tests/run_agent/test_provider_fallback.py
++++ b/tests/run_agent/test_provider_fallback.py
+@@ -86,6 +86,44 @@ class TestFallbackChainAdvancement:
+             assert agent.model == "gpt-4o"
+             assert agent._fallback_activated is True
+ 
++    def test_primary_fallback_a_skips_duplicate_and_falls_to_b(self):
++        fbs = [
++            {"provider": "fallback-provider-a", "model": "fallback-model-a"},
++            {"provider": "fallback-provider-b", "model": "fallback-model-b"},
++        ]
++        agent = _make_agent(fallback_model=fbs)
++        agent.provider = "fallback-provider-a"
++        agent.model = "fallback-model-a"
++        agent.base_url = ""
++        with patch(
++            "agent.auxiliary_client.resolve_provider_client",
++            return_value=(_mock_client("https://fallback-b.example/v1"), "fallback-model-b"),
++        ) as resolve:
++            assert agent._try_activate_fallback() is True
++            assert agent.provider == "fallback-provider-b"
++            assert agent.model == "fallback-model-b"
++            assert agent._fallback_index == 2
++            assert resolve.call_args.args[0] == "fallback-provider-b"
++
++    def test_primary_fallback_b_uses_a_before_skipping_duplicate(self):
++        fbs = [
++            {"provider": "fallback-provider-a", "model": "fallback-model-a"},
++            {"provider": "fallback-provider-b", "model": "fallback-model-b"},
++        ]
++        agent = _make_agent(fallback_model=fbs)
++        agent.provider = "fallback-provider-b"
++        agent.model = "fallback-model-b"
++        agent.base_url = ""
++        with patch(
++            "agent.auxiliary_client.resolve_provider_client",
++            return_value=(_mock_client("https://fallback-a.example/v1"), "fallback-model-a"),
++        ) as resolve:
++            assert agent._try_activate_fallback() is True
++            assert agent.provider == "fallback-provider-a"
++            assert agent.model == "fallback-model-a"
++            assert agent._fallback_index == 1
++            assert resolve.call_args.args[0] == "fallback-provider-a"
++
+ 
+ 
+     def test_skips_unconfigured_provider_to_next(self):
 diff --git a/tests/tools/test_approval.py b/tests/tools/test_approval.py
 index 1a75403436d99c68dced0bf718f9cd356d10ef66..81594fcbe563a596fb4833aafd3929b058933a7e 100644
 --- a/tests/tools/test_approval.py

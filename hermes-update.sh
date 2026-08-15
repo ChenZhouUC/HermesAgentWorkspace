@@ -95,7 +95,9 @@ PATCHED_FILES=(
     "gateway/session_context.py"
     "gateway/stream_consumer.py"
     "hermes_cli/doctor.py"
+    "hermes_cli/env_loader.py"
     "hermes_cli/gateway.py"
+    "hermes_cli/model_switch.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
@@ -123,6 +125,7 @@ PATCHED_FILES=(
     "tests/gateway/test_stream_consumer_silence.py"
     "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
+    "tests/hermes_cli/test_env_loader.py"
     "tests/hermes_cli/test_gateway.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
@@ -141,6 +144,8 @@ PATCHED_FILES=(
     "tests/tools/test_video_analyze.py"
     "agent/replay_cleanup.py"
     "tests/agent/test_replay_cleanup.py"
+    "tests/run_agent/test_provider_fallback.py"
+    "tests/run_agent/test_compressor_fallback_update.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
     "native/fts5_cjk/build.sh"
 )
@@ -1542,6 +1547,8 @@ _ARCHIVED_DELEGATE_ACP_ROUTING_OK=false
 _ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK=false
 _GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK=false
 _LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK=false
+_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK=false
+_MODEL_CONFIGURED_ONLY_PATCH_OK=false
 _ARCHIVED_LAZY_ACTIVE_ANCHOR_OK=false
 _SKILL_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
@@ -1713,6 +1720,56 @@ if [[ -f "${GATEWAY_CLI_PY}" && -f "${GATEWAY_CLI_TEST_PY}" ]]; then
 else
     warn "Could not locate gateway CLI source/tests — skipping launchd wrapper supervisor check"
     add_act "Check hermes-agent checkout for hermes_cli/gateway.py and tests/hermes_cli/test_gateway.py"
+fi
+
+# PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION: an opted-in profile accepts provider
+# variables only from ~/.hermes/.env or explicit Hermes secret sources, never
+# from the parent shell / a sourced ~/.secrets file.
+ENV_LOADER_PY="${HERMES_AGENT}/hermes_cli/env_loader.py"
+ENV_LOADER_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_env_loader.py"
+if [[ -f "${ENV_LOADER_PY}" && -f "${ENV_LOADER_TEST_PY}" ]]; then
+    if grep -q 'def ambient_credentials_disabled' "${ENV_LOADER_PY}" &&
+        grep -q 'def _clear_ambient_hermes_env' "${ENV_LOADER_PY}" &&
+        grep -q 'ignore_ambient_credentials' "${ENV_LOADER_PY}" &&
+        grep -q 'test_strict_profile_ignores_ambient_hermes_credentials' "${ENV_LOADER_TEST_PY}" &&
+        grep -q 'ignore_ambient_credentials: true' "${HERMES_HOME}/config.yaml"; then
+        ok "PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION active: shell credentials excluded"
+        _AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK=true
+    else
+        warn "PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION]"
+    fi
+else
+    warn "Could not locate env-loader source/tests — skipping ambient credential isolation check"
+fi
+
+# PATCH-MODEL-CONFIGURED-ONLY: /model is a session-scoped selector over the
+# config-owned primary/fallback universe, not a machine-wide credential scan.
+MODEL_SWITCH_PY="${HERMES_AGENT}/hermes_cli/model_switch.py"
+MODEL_SLASH_COMMANDS_PY="${HERMES_AGENT}/gateway/slash_commands.py"
+MODEL_CONFIGURED_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
+MODEL_GATEWAY_TEST_PY="${HERMES_AGENT}/tests/gateway/test_config.py"
+MODEL_FALLBACK_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_provider_fallback.py"
+COMPRESSOR_FALLBACK_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_compressor_fallback_update.py"
+if [[ -f "${MODEL_SWITCH_PY}" && -f "${MODEL_SLASH_COMMANDS_PY}" && -f "${MODEL_CONFIGURED_TEST_PY}" && -f "${MODEL_GATEWAY_TEST_PY}" ]]; then
+    if grep -q 'def configured_model_routes' "${MODEL_SWITCH_PY}" &&
+        grep -q 'def resolve_configured_model_target' "${MODEL_SWITCH_PY}" &&
+        grep -q 'Configured-only model policy disables /model --global' "${MODEL_SLASH_COMMANDS_PY}" &&
+        grep -q 'test_model_command_rejects_chain_out_and_global' "${MODEL_GATEWAY_TEST_PY}" &&
+        grep -q 'test_model_command_expands_configured_route_environment_references' "${MODEL_GATEWAY_TEST_PY}" &&
+        grep -q 'test_switch_model_core_rejects_chain_out_and_global' "${MODEL_CONFIGURED_TEST_PY}" &&
+        grep -q 'test_primary_fallback_a_skips_duplicate_and_falls_to_b' "${MODEL_FALLBACK_TEST_PY}" &&
+        grep -q 'test_primary_fallback_b_uses_a_before_skipping_duplicate' "${MODEL_FALLBACK_TEST_PY}" &&
+        grep -q 'summary_model == "independent-summary-model"' "${COMPRESSOR_FALLBACK_TEST_PY}" &&
+        grep -q 'configured_only: true' "${HERMES_HOME}/config.yaml"; then
+        ok "PATCH-MODEL-CONFIGURED-ONLY active: /model restricted to primary/fallback routes"
+        _MODEL_CONFIGURED_ONLY_PATCH_OK=true
+    else
+        warn "PATCH-MODEL-CONFIGURED-ONLY inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-MODEL-CONFIGURED-ONLY]"
+    fi
+else
+    warn "Could not locate configured-only model policy source/tests"
 fi
 
 if [[ -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
@@ -2528,7 +2585,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

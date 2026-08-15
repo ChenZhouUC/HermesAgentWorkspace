@@ -4,7 +4,8 @@
 The pull and the merge are intentionally separate so an automated objective
 pull can never clobber the subjective fields you set by hand:
 
-  pull   Fetch objective org data from Feishu and write people.draft.yaml.
+  pull   Fetch a complete active-employee snapshot from Feishu and write
+         people.draft.yaml.
          NEVER touches the production people.yaml.
 
   merge  Combine the draft's NEW data (objective facts, org structure) with the
@@ -12,19 +13,27 @@ pull can never clobber the subjective fields you set by hand:
          for review. With --apply, write the result back into people.yaml (.bak
          kept). Owner pinned to the top, everyone else sorted by employee_no.
 
+  sync   Pull, then merge. With --apply this is the unattended nightly path;
+         --summary-only writes only added/removed people for a dry-run review.
+
   check  Audit people.yaml formatting only (exit 1 when it deviates); --fix
          rewrites it in canonical form after verifying the data is unchanged.
 
 Field policy on merge:
-  Feishu-backed — refreshed when present in the draft; when Feishu omits a
-  field, keep the existing value:
+  Feishu-backed — authoritative. Values are refreshed from the latest complete
+  snapshot; a field omitted by Feishu is removed rather than retaining stale
+  local org data:
       name, role, department, employee_no, join_date, tenure,
       manager, direct_reports, total_reports
   Subjective — created blank for new people, NEVER overwritten if already set:
       address, background, behavior, stance, risks
   aliases — preserved for existing people; synthesized from the Feishu name for
   new people, then left untouched for later manual refinement.
+  Any unknown/local-only key is also preserved for still-active employees.
   Roster — the draft is authoritative; entries absent from it are removed.
+  Safety — API/page failures abort the snapshot. Applying a removal of more than
+  20% of the current roster requires --allow-large-removal, protecting against
+  accidental permission-scope shrinkage.
 
 Subordinate counts come from the management graph (each user's leader_user_id);
 employee_no + join_date reveal tenure / seniority.
@@ -40,6 +49,7 @@ Usage:
     python scripts/pull_feishu_people.py pull
     python scripts/pull_feishu_people.py merge            # → people.merged.yaml (review)
     python scripts/pull_feishu_people.py merge --apply     # → people.yaml (.bak kept)
+    python scripts/pull_feishu_people.py sync --apply      # nightly pull + apply
     python scripts/pull_feishu_people.py check             # audit formatting
     python scripts/pull_feishu_people.py check --fix       # normalize in place
 
@@ -54,6 +64,8 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import io
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -103,10 +115,11 @@ ALWAYS_REFRESH = [
 ]
 # Purely human-set — created blank for new people, never overwritten.
 SUBJECTIVE = ["address", "background", "behavior", "stance", "risks"]
+MAX_AUTOMATIC_REMOVAL_RATIO = 0.20
 
 # Canonical trailing comments, so every entry reads the same way. `role` carries
 # a different hint depending on whether Feishu supplied a job title.
-ROLE_COMMENT_FILLED = "职务（飞书自动，可改）"
+ROLE_COMMENT_FILLED = "职务（飞书组织同步，勿手改）"
 ROLE_COMMENT_EMPTY = "岗位（待填）"
 SUBJECTIVE_COMMENTS = {
     "address": "称呼（待填）",
@@ -143,6 +156,17 @@ def build_client():
     return lark.Client.builder().app_id(app_id).app_secret(app_secret).log_level(lark.LogLevel.ERROR).build()
 
 
+def is_active_employee(user) -> bool:
+    """Exclude people Feishu marks as resigned/exited/unjoined/inactive."""
+    status = getattr(user, "status", None)
+    if status is None:
+        return True
+    if any(bool(getattr(status, field, False)) for field in ("is_resigned", "is_exited", "is_unjoin")):
+        return False
+    activated = getattr(status, "is_activated", None)
+    return activated is not False
+
+
 def collect(client) -> tuple[dict, dict]:
     """Return (people_by_open_id, dept_name_by_id) of raw objective data."""
     from lark_oapi.api.contact.v3 import (
@@ -157,6 +181,8 @@ def collect(client) -> tuple[dict, dict]:
     if not scope.success():
         sys.exit(f"scope.list failed: code={scope.code} msg={scope.msg}")
     roots = list(scope.data.department_ids or [])
+    if not roots:
+        raise RuntimeError("Feishu contact scope returned no authorized root departments")
 
     dept_name: dict = {}
     people: dict = {}
@@ -172,11 +198,17 @@ def collect(client) -> tuple[dict, dict]:
             .user_id_type("open_id")
             .build()
         )
-        nm = getattr(r.data.department, "name", None) if r.success() else None
-        dept_name[did] = nm or did
+        if not r.success() or not getattr(r, "data", None) or not getattr(r.data, "department", None):
+            raise RuntimeError(f"department.get failed for {did}: code={r.code} msg={r.msg}")
+        nm = getattr(r.data.department, "name", None)
+        if not nm:
+            raise RuntimeError(f"department.get returned no name for {did}")
+        dept_name[did] = nm
         return dept_name[did]
 
     def add_user(u, fallback_dept):
+        if not is_active_employee(u):
+            return
         oid = getattr(u, "open_id", None)
         if not oid:
             return
@@ -217,8 +249,7 @@ def collect(client) -> tuple[dict, dict]:
                 b = b.page_token(token)
             r = client.contact.v3.user.find_by_department(b.build())
             if not r.success():
-                print(f"  [warn] users in {did}: code={r.code} msg={r.msg}", file=sys.stderr)
-                break
+                raise RuntimeError(f"users in {did} failed: code={r.code} msg={r.msg}")
             for u in r.data.items or []:
                 add_user(u, did)
             if getattr(r.data, "has_more", False) and getattr(r.data, "page_token", None):
@@ -238,7 +269,7 @@ def collect(client) -> tuple[dict, dict]:
                 b = b.page_token(token)
             r = client.contact.v3.department.children(b.build())
             if not r.success():
-                break
+                raise RuntimeError(f"department.children failed for {did}: code={r.code} msg={r.msg}")
             for ch in r.data.items or []:
                 cid = getattr(ch, "open_department_id", None) or getattr(ch, "department_id", None)
                 nm = getattr(ch, "name", None)
@@ -253,6 +284,11 @@ def collect(client) -> tuple[dict, dict]:
 
     for root in roots:
         walk(root)
+    if not people:
+        raise RuntimeError("Feishu organization snapshot contained no active employees")
+    missing_names = [oid for oid, entry in people.items() if not entry.get("name")]
+    if missing_names:
+        raise RuntimeError(f"Feishu organization snapshot has {len(missing_names)} employees without names")
 
     # Resolve manager names for leaders outside the pulled set (best effort).
     def resolve_name(oid: str):
@@ -265,7 +301,9 @@ def collect(client) -> tuple[dict, dict]:
             .department_id_type("open_department_id")
             .build()
         )
-        return getattr(r.data.user, "name", None) if r.success() else None
+        if not r.success() or not getattr(r, "data", None) or not getattr(r.data, "user", None):
+            raise RuntimeError(f"leader lookup failed for {oid}: code={r.code} msg={r.msg}")
+        return getattr(r.data.user, "name", None)
 
     name_cache: dict = {}
     for e in people.values():
@@ -533,6 +571,20 @@ def dump_sorted(yaml, doc) -> str:
     return text
 
 
+def atomic_write_private(path: Path, text: str) -> None:
+    """Atomically replace a private roster artifact with owner-only mode."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.chmod(0o600)
+        tmp.replace(path)
+        path.chmod(0o600)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 # --------------------------------------------------------------------------- #
 # Subcommands
 # --------------------------------------------------------------------------- #
@@ -555,13 +607,13 @@ def cmd_pull(args):
     doc["generated"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     doc["people"] = seq
     text = dump_sorted(yaml, doc)
-    DRAFT_FILE.write_text(
+    atomic_write_private(
+        DRAFT_FILE,
         prettier_format(
             "# OBJECTIVE SNAPSHOT from Feishu — do not hand-edit; run `merge` to combine\n"
             "# with people.yaml. This file never affects production until you merge.\n" + text,
             DRAFT_FILE.name,
         ),
-        encoding="utf-8",
     )
     have_mgr = sum(1 for e in people.values() if e.get("manager_name"))
     have_no = sum(1 for e in people.values() if e["employee_no"])
@@ -590,12 +642,24 @@ def cmd_merge(args):
     from ruamel.yaml.comments import CommentedMap
 
     removed_ids = [oid for oid in index if oid not in draft]
+    removed_people = [{"open_id": oid, "name": str(index[oid].get("name") or "")} for oid in removed_ids]
+    if args.apply and index and removed_ids and not args.allow_large_removal:
+        removal_ratio = len(removed_ids) / len(index)
+        if removal_ratio > MAX_AUTOMATIC_REMOVAL_RATIO:
+            raise RuntimeError(
+                f"Refusing to remove {len(removed_ids)}/{len(index)} people "
+                f"({removal_ratio:.1%}); this exceeds the automatic "
+                f"{MAX_AUTOMATIC_REMOVAL_RATIO:.0%} safety limit. Check Feishu "
+                "contact scope/API completeness, then rerun manually with "
+                "--allow-large-removal if the change is intentional."
+            )
     for ent in list(seq):
         if isinstance(ent, dict) and ent.get("open_id") in removed_ids:
             seq.remove(ent)
     index = {it["open_id"]: it for it in seq if isinstance(it, dict) and it.get("open_id")}
 
     added = updated = 0
+    added_people: list[dict[str, str]] = []
     for oid, d in draft.items():
         ent = index.get(oid)
         if ent is None:
@@ -604,11 +668,17 @@ def cmd_merge(args):
             seq.append(ent)
             index[oid] = ent
             added += 1
+            added_people.append({"open_id": oid, "name": str(d.get("name") or "")})
         else:
             updated += 1
         for f in ALWAYS_REFRESH:
             if f in d and d[f] not in (None, ""):
                 upsert(ent, f, d[f])
+            elif f in ent:
+                # Feishu-backed fields are authoritative. An omitted latest
+                # value must clear stale local org data rather than preserving it.
+                ent.ca.items.pop(f, None)
+                del ent[f]
         if "aliases" not in ent:
             upsert(ent, "aliases", aliases_from_name(d.get("name") or ent.get("name") or ""))
         for f in SUBJECTIVE:
@@ -616,27 +686,65 @@ def cmd_merge(args):
                 upsert(ent, f, None)
 
     text = dump_sorted(yaml, doc)
+    summary = {
+        "added": added_people,
+        "removed": removed_people,
+    }
 
     if args.apply:
         if PEOPLE_FILE.exists():
             shutil.copy2(PEOPLE_FILE, PEOPLE_FILE.with_suffix(".yaml.bak"))
-        PEOPLE_FILE.write_text(prettier_format(text, PEOPLE_FILE.name), encoding="utf-8")
+        atomic_write_private(PEOPLE_FILE, prettier_format(text, PEOPLE_FILE.name))
+    elif getattr(args, "summary_only", False):
+        from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
+        summary_doc = CommentedMap()
+        summary_doc["generated"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for key in ("added", "removed"):
+            seq = CommentedSeq()
+            for person in summary[key]:
+                item = CommentedMap()
+                item["open_id"] = person["open_id"]
+                item["name"] = person["name"]
+                seq.append(item)
+            summary_doc[key] = seq
+        buf = io.StringIO()
+        yaml.dump(summary_doc, buf)
+        atomic_write_private(
+            MERGED_FILE,
+            prettier_format(
+                "# MERGE SUMMARY — dry-run only; official field refreshes are intentionally omitted.\n"
+                + buf.getvalue(),
+                MERGED_FILE.name,
+            ),
+        )
     else:
-        MERGED_FILE.write_text(
+        atomic_write_private(
+            MERGED_FILE,
             prettier_format(
                 "# MERGE PREVIEW — objective fields from people.draft.yaml refreshed,\n"
                 "# your subjective fields preserved. Re-run with --apply to write people.yaml.\n" + text,
                 MERGED_FILE.name,
             ),
-            encoding="utf-8",
         )
 
     print(f"merged: {updated} updated, {added} new, {len(removed_ids)} departed removed", file=sys.stderr)
+    print(f"summary-json: {json.dumps(summary, ensure_ascii=False, sort_keys=True)}", file=sys.stderr)
     if args.apply:
         print(f"Applied → {PEOPLE_FILE} (backup: people.yaml.bak)", file=sys.stderr)
     else:
         print(f"Preview → {MERGED_FILE}", file=sys.stderr)
-        print("Review it, then: python scripts/pull_feishu_people.py merge --apply", file=sys.stderr)
+        if getattr(args, "summary_only", False):
+            print("Summary contains added/removed people only; official field refreshes are omitted.", file=sys.stderr)
+        else:
+            print("Review it, then: python scripts/pull_feishu_people.py merge --apply", file=sys.stderr)
+    return summary
+
+
+def cmd_sync(args):
+    """Pull a complete active roster, then preview or apply its merge."""
+    cmd_pull(args)
+    return cmd_merge(args)
 
 
 def cmd_check(args):
@@ -696,7 +804,7 @@ def cmd_check(args):
         sys.exit("ABORTED: normalization would change data, not just formatting.")
 
     shutil.copy2(PEOPLE_FILE, PEOPLE_FILE.with_suffix(".yaml.bak"))
-    PEOPLE_FILE.write_text(rewritten, encoding="utf-8")
+    atomic_write_private(PEOPLE_FILE, rewritten)
     print(f"Normalized → {PEOPLE_FILE} (backup: people.yaml.bak); data verified identical.", file=sys.stderr)
 
 
@@ -706,10 +814,32 @@ def main():
     sub.add_parser("pull", help="fetch objective org data → people.draft.yaml (never touches production)")
     mp = sub.add_parser("merge", help="combine draft + people.yaml → people.merged.yaml (or people.yaml with --apply)")
     mp.add_argument("--apply", action="store_true", help="write the merge result into people.yaml (.bak kept)")
+    mp.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="write only the added/removed roster summary (for dry-run review)",
+    )
+    mp.add_argument(
+        "--allow-large-removal",
+        action="store_true",
+        help="allow applying a roster removal larger than the 20%% automatic safety limit",
+    )
+    sp = sub.add_parser("sync", help="pull, then merge (preview by default; --apply for nightly sync)")
+    sp.add_argument("--apply", action="store_true", help="write the merge result into people.yaml (.bak kept)")
+    sp.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="write only the added/removed roster summary (for dry-run review)",
+    )
+    sp.add_argument(
+        "--allow-large-removal",
+        action="store_true",
+        help="allow applying a roster removal larger than the 20%% automatic safety limit",
+    )
     cp = sub.add_parser("check", help="audit people.yaml formatting (exit 1 if it differs)")
     cp.add_argument("--fix", action="store_true", help="rewrite people.yaml in canonical form (.bak kept)")
     args = ap.parse_args()
-    {"pull": cmd_pull, "merge": cmd_merge, "check": cmd_check}[args.cmd](args)
+    {"pull": cmd_pull, "merge": cmd_merge, "sync": cmd_sync, "check": cmd_check}[args.cmd](args)
 
 
 if __name__ == "__main__":
