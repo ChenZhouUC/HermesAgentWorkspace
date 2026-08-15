@@ -1,6 +1,6 @@
 User: 周琛 (琛哥). Address as 琛哥。Feishu open_id: ou_33eeacfbd0c0559b7b734f83503719ab.
 §
-Feishu: Prefers concise, well-structured docs/tables. Fast, direct, jargon-free replies (e.g., 'What is APAC'). Use version tables and @Gödel conventions when editing formal Feishu docs.
+Feishu/docs: concise, structured docs/tables; natural integration > append/dumps; restore baseline if flow is poor. Fast/direct jargon-free replies. Use version tables/@Gödel.
 §
 Tools: Safe direct execution. TUI>GUI; uses qwencode. Prefers first-party CLI/VSCode workflows and Homebrew package names on macOS. Local wiki before web. NEVER auto-invoke 'gh copilot'.
 §

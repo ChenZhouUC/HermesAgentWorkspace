@@ -11,13 +11,13 @@
 #   3. upstream transaction        (--update: one fetch/pull; reconcile: pinned SHA, no network)
 #   4. npm audit fix               (attempt non-breaking fixes; retain full residual audit output)
 #   4b. Skills mirror sync         (rsync --delete upstream content; preserve runtime metadata)
-#   5. Gateway launchd plist refresh (hermes gateway install --force, if needed)
-#   6. Ensure gateway running
+#   5. Gateway launchd plist state snapshot (no mutation while patches are reverted)
+#   6. Defer stopped-gateway recovery until patches are active
 #   7. zsh completion script regeneration
 #   8. Re-apply & verify local patches
 #      8a. Apply saved diff
 #      8b. Patch invariant gates     (structural sentinels + smoke checks)
-#      8c. Refresh saved diff + re-sync patched bundled skills
+#      8c. Refresh saved diff + re-sync patched bundled skills + final plist gate
 #      8d. Gateway restart         (reload patched Python modules into running process)
 #   8e. User-plugin compatibility checks (plugins/*/verify.sh)
 #   9. Health verification         (hermes doctor + gateway status)
@@ -66,7 +66,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.1 / main c896c09c42910c584c4c7d2325b58c14713ea42c, `hermes completion zsh` already emits the
+# As of v0.20.1 / main 45af7a71fcd420b4422d2c074b1ce58b9ce0d048, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -95,6 +95,7 @@ PATCHED_FILES=(
     "gateway/session_context.py"
     "gateway/stream_consumer.py"
     "hermes_cli/doctor.py"
+    "hermes_cli/gateway.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
@@ -122,6 +123,7 @@ PATCHED_FILES=(
     "tests/gateway/test_stream_consumer_silence.py"
     "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
+    "tests/hermes_cli/test_gateway.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
     "website/docs/reference/environment-variables.md"
@@ -1328,60 +1330,40 @@ else
     FINAL_RC=1
 fi
 
-# ── 5. Refresh gateway launchd plist ─────────────────────────────────────────
-# Only bootstrap the plist when the service is not already loaded. hermes update
-# handles plist installation; calling install --force on an already-bootstrapped
-# service triggers launchd exit 5 (Input/Output error). If the service is loaded
-# but not running (OnDemand=true), skip directly to step 6 (ensure gateway running).
-step "Gateway launchd plist"
+# ── 5. Snapshot gateway launchd plist state ──────────────────────────────────
+# Local source patches are still reverted at this point. A plist generated here
+# could therefore be current for bare upstream and immediately stale again once
+# Step 8 re-applies hermes_cli/gateway.py. Record the state only; authoritative
+# refresh/start verification happens after patch re-apply, before Step 8d/8e.
+step "Gateway launchd plist (pre-patch snapshot)"
 
 set +e
-GW_IS_RUNNING=false
-gw_running && GW_IS_RUNNING=true
 GW_IS_LOADED=false
 launchctl list 2>/dev/null | grep -q "ai.hermes.gateway" && GW_IS_LOADED=true
+GW_PLIST_STATUS=$(hermes gateway status 2>&1)
 set -e
 
-if $GW_IS_RUNNING; then
-    ok "Gateway running post-update — plist refresh not needed"
-    note "To force-refresh the plist manually: hermes gateway install --force"
+if printf '%s\n' "$GW_PLIST_STATUS" | grep -q 'Service definition is stale'; then
+    note "Gateway plist is stale in the bare-upstream window — deferring refresh until patches are active"
+elif printf '%s\n' "$GW_PLIST_STATUS" | grep -q 'Service definition matches the current Hermes install'; then
+    ok "Gateway plist matches bare upstream; post-patch freshness will be rechecked"
 elif $GW_IS_LOADED; then
-    ok "Gateway plist already loaded (OnDemand) — will start in step 6"
+    note "Gateway plist is loaded; post-patch freshness will be checked after Step 8"
 else
-    note "Gateway not bootstrapped — installing plist..."
-    set +e
-    hermes gateway install --force
-    GW_INSTALL_RC=$?
-    set -e
-    if [[ $GW_INSTALL_RC -eq 0 ]]; then
-        ok "Plist installed/refreshed"
-    else
-        warn "hermes gateway install --force returned $GW_INSTALL_RC"
-        add_act "Run manually: hermes gateway install --force"
-    fi
+    note "Gateway plist is not loaded — startup deferred until patches are active"
 fi
 
 # ── 6. Ensure gateway is running ──────────────────────────────────────────────
-# hermes update already restarts a running gateway; this step only fires if
-# the gateway was stopped before the update (or install --force started it).
+# Do not start a stopped gateway while source patches are reverted: a patched
+# service command (notably the launchd wrapper supervisor marker) would be
+# missing. The post-patch gate below owns startup and freshness.
 set +e
 GW_IS_RUNNING=false
 gw_running && GW_IS_RUNNING=true
 set -e
 
 if ! $GW_IS_RUNNING; then
-    note "Gateway not running — starting..."
-    set +e
-    hermes gateway start 2>&1
-    GW_START_RC=$?
-    set -e
-    sleep 3 # give launchd a moment to spawn the process
-    if [[ $GW_START_RC -eq 0 ]]; then
-        ok "Gateway started"
-    else
-        warn "hermes gateway start returned $GW_START_RC"
-        add_act "Run: hermes gateway start  (diagnose with: hermes logs)"
-    fi
+    note "Gateway not running in the bare-upstream window — deferring start until patches are active"
 fi
 
 # ── 7. Update zsh completions ─────────────────────────────────────────────────
@@ -1559,6 +1541,7 @@ _ARCHIVED_DASHBOARD_BUILD_CACHE_OK=false
 _ARCHIVED_DELEGATE_ACP_ROUTING_OK=false
 _ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK=false
 _GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK=false
+_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK=false
 _ARCHIVED_LAZY_ACTIVE_ANCHOR_OK=false
 _SKILL_PATCH_OK=false
 _FEISHU_DEPS_PATCH_OK=false
@@ -1709,6 +1692,27 @@ PYEOF
     fi
 else
     warn "Could not locate venv, Gemini chat transport, or its regression test — skipping cross-provider history check"
+fi
+
+# PATCH-LAUNCHD-WRAPPER-SUPERVISOR: launchd starts a stderr timestamp wrapper,
+# so the real gateway is a grandchild and must receive the explicit supervisor
+# marker. The detached fallback path must remain unmarked.
+GATEWAY_CLI_PY="${HERMES_AGENT}/hermes_cli/gateway.py"
+GATEWAY_CLI_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_gateway.py"
+if [[ -f "${GATEWAY_CLI_PY}" && -f "${GATEWAY_CLI_TEST_PY}" ]]; then
+    if grep -q 'external_supervisor: bool = False' "${GATEWAY_CLI_PY}" &&
+        grep -q '_gateway_run_command(external_supervisor=external_supervisor)' "${GATEWAY_CLI_PY}" &&
+        grep -q 'external_supervisor=True' "${GATEWAY_CLI_PY}" &&
+        grep -q 'test_launchd_stderr_wrapper_marks_gateway_as_externally_supervised' "${GATEWAY_CLI_TEST_PY}"; then
+        ok "PATCH-LAUNCHD-WRAPPER-SUPERVISOR active: wrapped launchd child keeps supervisor identity"
+        _LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK=true
+    else
+        warn "PATCH-LAUNCHD-WRAPPER-SUPERVISOR inactive — launchd wrapper may reject its own gateway child"
+        add_act "Re-apply: see PATCHES.md § [PATCH-LAUNCHD-WRAPPER-SUPERVISOR]"
+    fi
+else
+    warn "Could not locate gateway CLI source/tests — skipping launchd wrapper supervisor check"
+    add_act "Check hermes-agent checkout for hermes_cli/gateway.py and tests/hermes_cli/test_gateway.py"
 fi
 
 if [[ -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
@@ -2524,7 +2528,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
@@ -2617,6 +2621,52 @@ if $_PATCH_APPLY_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && [[ -f "${LLM_WIKI_SK
             add_warn "llm-wiki reset output: ${_LLM_WIKI_RESET_OUT//$'\n'/ | }"
         fi
         add_act "Run: hermes skills reset llm-wiki --restore --yes"
+        FINAL_RC=1
+    fi
+fi
+
+# The authoritative plist gate must run after local source patches are active.
+# A definition written in Step 5's bare-upstream window can become stale as soon
+# as hermes_cli/gateway.py is re-applied. Continue only when the final generated
+# definition is installed, launchd is supervising it, and a current PID exists.
+if $_PATCH_APPLY_OK; then
+    step "Verifying gateway launchd plist after patch re-apply"
+    set +e
+    _GW_POST_STATUS=$(hermes gateway status 2>&1)
+    set -e
+    _GW_POST_READY=false
+    if printf '%s\n' "${_GW_POST_STATUS}" | grep -q 'Service definition matches the current Hermes install' &&
+        printf '%s\n' "${_GW_POST_STATUS}" | grep -qE 'Gateway is supervised by launchd \(PID [0-9]+\)'; then
+        _GW_POST_READY=true
+    else
+        note "Final gateway definition is stale, unloaded, or stopped — refreshing through gateway start..."
+        set +e
+        _GW_POST_START_OUT=$(hermes gateway start 2>&1)
+        _GW_POST_START_RC=$?
+        set -e
+        _GW_POST_WAIT=$(gw_restart_wait_seconds)
+        _GW_POST_DEADLINE=$((SECONDS + _GW_POST_WAIT))
+        while ((SECONDS < _GW_POST_DEADLINE)); do
+            set +e
+            _GW_POST_STATUS=$(hermes gateway status 2>&1)
+            set -e
+            if printf '%s\n' "${_GW_POST_STATUS}" | grep -q 'Service definition matches the current Hermes install' &&
+                printf '%s\n' "${_GW_POST_STATUS}" | grep -qE 'Gateway is supervised by launchd \(PID [0-9]+\)'; then
+                _GW_POST_READY=true
+                break
+            fi
+            sleep 2
+        done
+        if [[ ${_GW_POST_START_RC} -ne 0 && -n "${_GW_POST_START_OUT:-}" ]]; then
+            add_warn "post-patch gateway start output: ${_GW_POST_START_OUT//$'\n'/ | }"
+        fi
+    fi
+
+    if $_GW_POST_READY; then
+        ok "Gateway plist current and launchd supervision active after patch re-apply"
+    else
+        fail "Post-patch gateway plist/start verification did not converge"
+        add_act "Inspect: hermes gateway status  (reload log: ~/.hermes/logs/launchd-reload.log)"
         FINAL_RC=1
     fi
 fi

@@ -396,10 +396,10 @@ delegation:
   api_key: ''
   api_mode: ''
   inherit_mcp_toolsets: true
-  max_iterations: 50
+  max_iterations: 250
   child_timeout_seconds: 600
   reasoning_effort: high
-  max_concurrent_children: 3
+  max_concurrent_children: 10
   max_spawn_depth: 1
   orchestrator_enabled: true
   subagent_auto_approve: false
@@ -579,7 +579,7 @@ paste_collapse_char_threshold: 2000
 vertex:
   project_id: ''
   region: global
-_config_version: 35
+_config_version: 37
 session_reset:
   mode: idle
   idle_minutes: 1440

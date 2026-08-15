@@ -10,7 +10,7 @@ updated: 2026-08-15
 > 主模型：**Azure AI Foundry**（`gpt-5.5`，参考 `codex-az`）
 > Fallback[0]：**AWS Bedrock Claude Opus 5**（application inference profile，参考 `claude-am`）
 > Fallback[1]：**Vertex AI Gemini 3.5 Flash**（标准 service account；同时承担 compression 与视频旁路）
-> 适用版本：Hermes Agent **v0.20.1**（upstream `c896c09c42910c584c4c7d2325b58c14713ea42c`，2026-08-15）
+> 适用版本：Hermes Agent **v0.20.1**（upstream `45af7a71fcd420b4422d2c074b1ce58b9ce0d048`，2026-08-15）
 > 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置主模型 + fallback 链 → 辅助脚本与代理注入 → 飞书接入 → 内容迁移 → 日常运维
@@ -753,7 +753,7 @@ rm -rf ~/.hermes
 
 | 现象                                                                                         | 排查思路                                                                                                                                                                                                                                                   |
 | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hermes chat` 报 401 / `Invalid Credentials`                                                 | 跑 `hermes doctor` 看是哪条链路；Azure 看 `AZURE_FOUNDRY_API_KEY`，Bedrock 看 AWS credential chain / profile ARN，Vertex 看 `GOOGLE_APPLICATION_CREDENTIALS` 指向的 SA JSON 是否存在                                                                        |
+| `hermes chat` 报 401 / `Invalid Credentials`                                                 | 跑 `hermes doctor` 看是哪条链路；Azure 看 `AZURE_FOUNDRY_API_KEY`，Bedrock 看 AWS credential chain / profile ARN，Vertex 看 `GOOGLE_APPLICATION_CREDENTIALS` 指向的 SA JSON 是否存在                                                                       |
 | Vertex 报 403 / `permission denied on project`                                               | SA 与 project 不匹配：确认 `VERTEX_PROJECT_ID` 就是该 SA 所属 project，`VERTEX_REGION` 与模型可用 location 一致                                                                                                                                            |
 | 主模型挂了不切 fallback                                                                      | `hermes fallback list` 检查顺序应为 Bedrock Opus 5 → Vertex Gemini 3.5 Flash；再跑 `hermes doctor` 检查 AWS/Vertex 连接                                                                                                                                    |
 | 飞书 bot 收到消息但不回复                                                                    | `hermes doctor`；`tail -50 ~/.hermes/logs/gateway.error.log`；检查模型 token / fallback 是否都失效                                                                                                                                                         |
@@ -781,6 +781,6 @@ launchd
 ---
 
 _文档更新时间：2026-08-15_
-_对应 Hermes Agent 版本：**v0.20.1**（upstream `c896c09c42910c584c4c7d2325b58c14713ea42c`，2026-08-15）_
+_对应 Hermes Agent 版本：**v0.20.1**（upstream `45af7a71fcd420b4422d2c074b1ce58b9ce0d048`，2026-08-15）_
 _主模型：Azure AI Foundry（`gpt-5.5`）Fallback[0]：AWS Bedrock Claude Opus 5；Fallback[1] / compression / 视频旁路：Vertex Gemini 3.5 Flash。_
 _本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_

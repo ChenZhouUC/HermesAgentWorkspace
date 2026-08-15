@@ -17,8 +17,8 @@
 #   5. Real platform toolset resolution keeps owner Feishu DMs unrestricted
 #      while Feishu groups receive only the reviewed structured surface.
 #   6. The plugin regression tests pass.
-#   7. The current gateway PID's runtime trace reports active=True and the new
-#      structured tools.
+#   7. launchd supervises the current wrapper, and the real gateway child PID's
+#      runtime trace reports active=True and the structured tools.
 #
 # Exit code: 0 = all good, 1 = at least one hard failure.
 
@@ -315,20 +315,37 @@ else
     fail=1
 fi
 
-# 7. Runtime trace for the current gateway process (HARD)
+# 7. Runtime trace for the real gateway child process (HARD). Newer launchd
+# plists supervise hermes_cli.stderr_timestamp directly, so `gateway status`
+# reports the wrapper PID while plugin registration logs use the child PID.
+# Prove both layers: launchd supervisor health from status, runtime identity
+# from gateway.status.get_running_pid().
 if [[ -r "${AGENT_LOG}" ]]; then
     gateway_status=$(hermes gateway status 2>&1 || true)
-    gateway_pid=$(echo "${gateway_status}" | sed -nE 's/.*PID[^0-9]*([0-9]+).*/\1/p' | head -1)
+    supervisor_pid=$(echo "${gateway_status}" | sed -nE 's/.*supervised by launchd \(PID ([0-9]+)\).*/\1/p' | head -1)
+    gateway_pid=""
+    if [[ -x "${VENV_PYTHON}" ]]; then
+        gateway_pid=$(
+            HERMES_HOME="${HERMES_HOME}" "${VENV_PYTHON}" - <<'PY' 2>/dev/null || true
+from gateway.status import get_running_pid
+
+print(get_running_pid(cleanup_stale=False) or "")
+PY
+        )
+    fi
     current_reg=""
     if [[ -n "${gateway_pid}" ]]; then
         current_reg=$(grep "sandbox: registered (pid=${gateway_pid}," "${AGENT_LOG}" | tail -1 || true)
     fi
-    if [[ -z "${gateway_pid}" ]]; then
-        echo "FAIL current gateway PID is unavailable"
+    if [[ -z "${supervisor_pid}" ]] || ! echo "${gateway_status}" | grep -q 'Service definition matches the current Hermes install'; then
+        echo "FAIL launchd supervisor/current service definition is unavailable"
         echo "     ${gateway_status}"
         fail=1
+    elif [[ -z "${gateway_pid}" ]]; then
+        echo "FAIL real gateway child PID is unavailable (launchd wrapper PID ${supervisor_pid})"
+        fail=1
     elif [[ -z "${current_reg}" ]]; then
-        echo "FAIL no sandbox registration trace for current gateway PID ${gateway_pid}"
+        echo "FAIL no sandbox registration trace for gateway child PID ${gateway_pid} (launchd wrapper PID ${supervisor_pid})"
         echo "     Run 'hermes plugins enable sandbox && hermes gateway restart' and re-check."
         fail=1
     elif echo "${current_reg}" | grep -q 'active=True' &&
@@ -338,13 +355,13 @@ if [[ -r "${AGENT_LOG}" ]]; then
         echo "${current_reg}" | grep -q 'feishu_doc_manage'; then
         # Strip the date+level prefix for readability.
         msg="${current_reg##*INFO }"
-        echo "OK   runtime: ${msg}"
+        echo "OK   runtime: launchd wrapper pid=${supervisor_pid}; ${msg}"
     elif echo "${current_reg}" | grep -q 'active=False'; then
         echo "FAIL plugin loaded but inactive: ${current_reg}"
         echo "     Check plugins/sandbox/config.yaml: owner_feishu_chat_ids must be a non-empty list."
         fail=1
     else
-        echo "FAIL current gateway PID ${gateway_pid} registered an incompatible sandbox version"
+        echo "FAIL gateway child PID ${gateway_pid} registered an incompatible sandbox version"
         echo "     Restart the gateway, then re-run this verifier."
         fail=1
     fi

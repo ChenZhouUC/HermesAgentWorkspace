@@ -9,6 +9,7 @@
 > - **边界判定**：一个补丁只能有一个可独立说明的责任边界、一个对应生命周期 gate（Step 3/4/7/8b/8e）和一个上游吸收条件。能被不同上游 PR 分别吸收的能力必须拆开；只有必须一起回滚、一起验收、一起吸收的改动才能合并。
 > - **上游合并某补丁**：把该补丁块整体移动到对应 archive 节，记录吸收 commit 和保留的回归 sentinel；同步更新 `PATCHED_FILES`、验证 gate 和 replay bundle。
 > - **每个语义 ID 的定义块在整份 PATCHES.md 里仅出现一次**——要么活跃、要么归档；依赖、验证和历史摘要可以引用 ID，但不得复制定义块。
+> - **分类结构**：所有活跃定义必须连续放在首个 `## Archive` 之前，按职责类别分组；所有 Archive 统一后置。禁止在 Archive 之后用“活跃定义续接”标题重新打开活跃区，避免活跃状态与生命周期位置错位。
 > - **审计叙事不累积**：升级期外的运行态审计/修复可在 `## 当前版本` 节下以带日期段落临时记录，但只存续到下一次"最近一次升级"摘要重写——重写时把仍有价值的事实并入 README 当周 row 后删除该段落；同一事件的长期容器只有 README 周 row（详见 playbook Step 4 叙事段生命周期规则）。
 > - `completions/_hermes` 类**工程外补丁**：由 `hermes-update.sh` Step 7 inline Python 在补全脚本生成后检测并修复；上游修好后脚本自动跳过、检测块保留为回归 sentinel（PATCH-ZSH-COMPLETION-SYNTAX 即此类）。
 
@@ -96,6 +97,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-VERTEX-HIDDEN-THOUGHTS: Vertex thought 文本不进入可见内容
   │   ├─ PATCH-VERTEX-DOCTOR: doctor 识别官方 Vertex profile
   │   ├─ PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY: Gemini fallback 接受其他模型产生的无签名工具历史
+  │   ├─ PATCH-LAUNCHD-WRAPPER-SUPERVISOR: launchd stderr wrapper 保留受监管身份
   │   ├─ PATCH-IMAGE-NATIVE-ROUTING: 主力模型图片能力识别（Gemini 3.x + azure-foundry）
   │   ├─ PATCH-VERTEX-VIDEO-ROUTING: Gemini 视频 native routing
   │   ├─ PATCH-VIDEO-SIDECAR: 主力读不了视频时旁路到链上能读的档（全局，不切主 provider）
@@ -126,7 +128,7 @@ Step 8d: Gateway restart（post-patch）
 
 Step 8e: User-plugin verification
   ├─ verifier 文件必须存在且可执行
-  ├─ PATCH-FEISHU-GROUP-SANDBOX: YAML 契约 + owner/group 真实 toolset + 23 个行为测试 + 当前 gateway PID runtime trace
+  ├─ PATCH-FEISHU-GROUP-SANDBOX: YAML 契约 + owner/group 真实 toolset + 23 个行为测试 + launchd wrapper / 真实 Gateway 子进程双层 runtime trace
   └─ 任一 verifier 非零 → FINAL_RC=1，整次升级不得报告成功
 ```
 
@@ -216,6 +218,7 @@ PATCHED_FILES=(
     "gateway/session_context.py"
     "gateway/stream_consumer.py"
     "hermes_cli/doctor.py"
+    "hermes_cli/gateway.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
@@ -243,6 +246,7 @@ PATCHED_FILES=(
     "tests/gateway/test_stream_consumer_silence.py"
     "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
+    "tests/hermes_cli/test_gateway.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
     "website/docs/reference/environment-variables.md"
@@ -250,10 +254,6 @@ PATCHED_FILES=(
     "website/docs/user-guide/messaging/feishu.md"
     "plugins/model-providers/vertex/__init__.py"
     "tests/hermes_cli/test_vertex_provider.py"
-    "agent/vertex_adapter.py"
-    "hermes_cli/auth.py"
-    "hermes_cli/runtime_provider.py"
-    "agent/auxiliary_client.py"
     "agent/image_routing.py"
     "agent/models_dev.py"
     "agent/transports/chat_completions.py"
@@ -269,7 +269,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（70 文件，2026-08-14 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（68 文件，2026-08-15 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -290,21 +290,23 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.1 (upstream `main` `c896c09c42910c584c4c7d2325b58c14713ea42c`，2026-08-14)
+## 当前版本：v0.20.1 (upstream `main` `45af7a71fcd420b4422d2c074b1ce58b9ce0d048`，2026-08-15)
 
-**活跃补丁**：当前共 33 个语义补丁。26 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
+**活跃补丁**：当前共 34 个语义补丁。27 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
-**最近一次升级（v0.20.0 → v0.20.1，+512 commits，basis `222465d84709379b65173b0283a6eea87516acfa` → `c896c09c42910c584c4c7d2325b58c14713ea42c`，2026-08-14）要点**：
+**最近一次升级（v0.20.1 → v0.20.1，+663 commits，basis `c896c09c42910c584c4c7d2325b58c14713ea42c` → `45af7a71fcd420b4422d2c074b1ce58b9ce0d048`，2026-08-15）要点**：
 
-- 上游主线：发布 **v0.20.1**（`720f0443`）。Gateway/session 集中修复跨 surface 的模型路由持久化与 resume（`b8f85f18` / `cdd0a260` / `56a41715`）、后台进程通知合并与全路径 secrets redaction（`cf09a30a` / `b9e7bead` / `6c7cfd66` / `84b4fb9e`）、compression 同轮预算 re-arm/refund（`72c828ca` / `380e4da3` / `fbec3c78`），并排除 launchd gateway 被 orphan reaper 误收割（`ce20857f`）。模型/provider 新增统一 selection guard、`model_overrides` schema、models.dev ETag 热路径与 pip entry-point provider（`91665309` / `dafdba32` / `acd8737c` / `dbbd8935`），Azure post-tool reasoning 抑制收窄（`f52feed1`），catalog 加入 Gemini 3.7 Flash（`b8d9230c`）。Slack 上游新增 native streaming/task cards（`47ed5e49` / `eb137762`）；Desktop/plugin/Windows 侧新增 setup_mcp consent、统一插件 capability、会话收件箱与 Windows-safe shard spawn（`adbc77eb` / `4d30bb6b` / `c896c09c`）。
-- patch apply / registry：70 个受管文件首轮 direct apply 失败，`git apply --3way` 仅有两处真实冲突，均按“上游增强 + 本地不变量并存”解决：`tests/gateway/test_run_progress_topics.py` 同时保留上游 Slack native task-card 回归与本地 Feishu group-scope 回归；`uv.lock` 同时采用上游 `python-telegram-bot==22.8` 和本地 Feishu `python-socks==2.8.1`。34 个活跃 PATCH 逐块对照裸 upstream 吸收条件，**0 新增 / 0 归档 / 0 收缩**；Step 8b 全绿。bundle/base/full-index 逐字节、cached 正向、worktree 反向和 index-clean 闭环通过。完整回归 **29 files 1109 passed / 0 failed / 3 skipped**；相对升级前 1091 的 +18 来自上游在既有四个受管测试文件中新增/参数化的 7 个测试块（Slack progress、session lookup、doctor npx browser、tools config），无测试文件减少或 collection 异常。
-- 依赖：venv 未重建，Python 3.12.13 / SQLite 3.53.1 保持；`uv lock --check` 通过，19 个 lazy backend 中 Slack 刷新、其余 current。官方 bundled skills **+3**（blocked-page-recovery、session-librarian、box）/ **15 updated**，外层 mirror reconcile 为 `+0/~1/-0` 的 llm-wiki 固定振荡。root `npm audit` 残余 **6 high**：Electron 40.10.2 两条 GHSA + extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 经 sanitize-html/vite 被上游 override/lock 阻挡；doctor 另报告 web 4 high、ui-tui 3 high，均属 Desktop/web build 链 P2、不影响飞书 gateway，禁止 `--force`。package-lock 104+/150- 为 npm workspace hoist/位置归一化，`package.json` 无语义改动，继续排除出 replay bundle。
-- 已知摩擦：固定 SHA `c896c09c4` 一次获取后事务正确保留在 apply failure，后续仅 `--reconcile`、明确 no fetch/pull。宿主安全策略拒绝 `git restore --staged`，按 playbook 新增 fallback 通过 `git ls-tree HEAD | git update-index --index-info` 只恢复 index；首次使用 zsh 保留变量 `path` 导致循环内 PATH 被覆盖，改名 `patch_file` 后收敛，该恢复路径已写回 update playbook。官方 updater、补丁 reconcile 与终态 config 写屏障均完成 old PID → new PID，最终 Gateway PID `64075`；sandbox verifier **23 passed** 且 runtime trace 绑定该终态 PID。
-- 配置漂移：官方迁移 **v34 → v35**，新增注释态 `fallback_model` 模板，无 deprecated key；主链路仍为 `azure-foundry/gpt-5.5`，fallback 仍为 Vertex Gemini 3.1 Pro Preview → Alibaba Qwen 3.7 Plus，`browser.backend: 'off'` 与其本地意图注释保留。Doctor 的 Azure、Gemini、Alibaba、Bedrock 连通均通过；仅上述 npm build-chain P2 和未配置的可选 provider/toolset 保留提示。
-
-**2026-08-15 模型链路与 PATCH 生命周期收敛**：自动链路改为 `azure-foundry/gpt-5.5 → bedrock/Claude Opus 5 application-inference-profile → vertex/google/gemini-3.5-flash`，compression 与末级 fallback 统一使用标准 Vertex Gemini 3.5 Flash。凭据只从 `~/.secrets` 映射到 0600 的 `.env`：Azure key/base、Bedrock Opus ARN/region、标准 Vertex SA/project/region；退出自动链的私有 Gemini、DashScope 与第二 Vertex 账号变量均移除。三个模型的 context metadata 分别为 1.05M / 1M / 1.048576M；配置统一 `threshold=0.7`、`threshold_tokens=700000`，并关闭 GPT-5.5 单独抬到 85% 的 autoraise，使 provider 切换后的 compressor 始终保留约 300k 余量。真实 110,164 字符 system prompt + 29 tools 请求三档均返回 `FULL_ROUTE_OK`，顺序激活严格为 Azure → Bedrock Opus 5 → Vertex Gemini 3.5 Flash，三档 compressor cap 均为 700k；720k 级真实 compression 命中 `aux_provider=vertex`，生成结构化摘要且四项关键事实全部保留在摘要或 protected head/tail 中，无 abort/降级。因配置不再使用第二 Vertex 账号和私有 Gemini gateway，`PATCH-VERTEX-FALLBACK` 与 `PATCH-GEMINI-CUSTOM-NATIVE-BASE` 连同源码 hunk、测试、Step 8b gate、受管文件和 `.env` 变量一起归档；`PATCH-FEISHU-MARKDOWN` 同轮补齐 `> **整行粗体**` 的 quote-bar 空格边界。受管全集 **29 files 1098 passed / 0 failed / 3 skipped**，Wiki 18 项 lint 全绿。
+- 上游主线：版本号保持 **v0.20.1**，但 main 前进 663 commits。Updater 增强 stale Git lock / shallow clone / native recovery 自愈（`7fe3bf042` / `ed4f91c4e` / `8f5e5e49a`）；Gateway/cron 加强 scheduled-task owner、stale claim 回收和独立 drain floor（`efdd715f8` / `22e638db7` / `45bb486b2`），after-turn restart 默认由 6h 收窄到 30min（`0c6761c51`）；Auth 新增 `key_cmd` secret source（`6efab2872`）；CLI/Gateway 新增 `/save` / `/export`（`26aa12337` / `23ad35b7f`）；Desktop/session/browser 继续集中修复多实例、多源 agent、未读状态、查找、附件与命名会话路由（`aff19d025` / `b44b99e62` / `c9a806e9`）。
+- patch apply / registry：首次 `--update` 在 66 个旧受管文件上经 3-way 回贴，18/66 个受管路径被新 upstream 修改但无真实冲突；33 个既有活跃 PATCH 逐项核验为 **0 新归档 / 0 新收缩**。真机运行态发现新上游 launchd stderr wrapper 未向真实 Gateway 子进程传 supervisor identity，导致 launchd respawn/refuse 循环和飞书主链路离线；新增 `PATCH-LAUNCHD-WRAPPER-SUPERVISOR`，补生产 argv + 回归 + Step 8b gate，活跃总数变为 **34**、工程内补丁 **27**、受管文件 **68**。注册表按 8 个职责类别重排，所有活跃定义连续置于 Archive 前；误放在 Archive 中的 `PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY` 回归活跃区（仅结构纠正、生命周期未变）。bundle/base/full-index 逐字节、cached 正向、worktree 反向与 index-clean 全闭环；最终 **30 files / 1139 passed / 0 failed / 3 skipped**。
+- 依赖：venv 未重建，Python 3.12.13 / SQLite 3.53.1 保持；20 个 active lazy backend 中 `terminal.modal` 刷新，其余 current。官方 updater 更新 15 个 bundled skills；终态 mirror 为 `+0/~1/-1`，删除项仅孤立 `.bundled_manifest_*.tmp`，runtime metadata 保留。root `npm audit` 仍为 **6 high**：Electron 40.10.2 两条 GHSA + extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 经 sanitize-html/vite 被上游 override/lock 阻挡；doctor 的 web 4 high / ui-tui 3 high 同属 Desktop/web build 链 P2，不影响飞书 gateway，禁止 `--force`。`package-lock.json` 104+/150- 继续作为 npm workspace hoist/位置漂移排除出 replay bundle。
+- 已知摩擦：本轮只执行一次 `--update` 并固定 `TARGET_SHA=45af7a71fcd4`，所有失败接管均为 `--reconcile`、明确 no fetch/pull。原 Step 5 在 patch 还原窗口刷新 plist，会用裸 upstream 定义覆盖补丁终态；现改为前置只快照、Step 8 回贴后再强制验证 definition current + launchd wrapper PID + real Gateway child PID。sandbox verifier 同步区分 wrapper 与 runtime PID，并把 23 项行为回归/注册 trace 绑定真实子进程。最后一次完整 reconcile exit 0、无 `✗`、事务状态清除。
+- 配置漂移：官方迁移 **v35 → v37**，按上游明确迁移把 `delegation.max_iterations` **50 → 250**（`50d98fc1f`）、`max_concurrent_children` **3 → 10**（`ce996d405`）；原有 provider/model/compression 链、`browser.backend: 'off'` 及其意图注释保持，YAML 引号噪音已恢复。Doctor 无 deprecated key，主配置 v37；仅上述 P2 npm build-chain 和未配置的可选 provider/toolset 保留提示。
 
 ---
+
+## 活跃 PATCH 定义（按类别）
+
+**类别：技能写入与治理**
 
 ### [PATCH-SKILL-CREATE-ROOT] 自定义 skill 创建到用户目录
 
@@ -322,6 +324,8 @@ cat ~/.hermes/patches/.local-patches.base
 **上游吸收判断**：仅当上游 create 路径已支持把首个 external skill root 作为默认写入目录，且对应创建/删除测试覆盖不存在目录时，才可移除本补丁；当前上游仍固定写入 `SKILLS_DIR / name`。**语义张力提示**（2026-08-03 审计）：post-26e0b1c 上游新增 `_background_review_write_guard()`，经 `is_external_skill_path()` 将 external_dirs 视为"externally owned、对自主 curation 只读"。该 guard 目前只作用于 background review fork，与本补丁的前台 create 不互斥；但上游把 external 当只读、本补丁把它当默认写入目标，方向相反——每轮升级须复核该 guard 的作用范围未扩大到 create 路径，若扩大则需与上游治理策略重新对齐而不是静默让 create 失败。
 
 ---
+
+**类别：升级事务、回放与依赖卫生**
 
 ### [PATCH-NPM-DEPENDENCY-HYGIENE] npm 漏洞修复与 install-script policy
 
@@ -364,13 +368,13 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `hermes-update.sh`                   |
 | **状态** | 🟢 自动化（Step 8 transaction gate） |
 
-**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。可重入审计又发现四个同类缺口：把可执行脚本 `source` 后调用预算函数会直接启动整轮升级；3-way apply 失败后的单次批量 restore 会因任一上游已删除 path 令整个 pathspec 失败；3-way 成功隐式留下 staged index；以及接管“bundle 存在、worktree 已裸”的中断现场时没有重新武装 EXIT trap。更严重的是，Step 2 会把仅部分受管文件存在的 diff 当成新 canonical bundle，可能把完整本地不变量集合永久降级为残缺快照。
+**问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。可重入审计又发现四个同类缺口：把可执行脚本 `source` 后调用预算函数会直接启动整轮升级；3-way apply 失败后的单次批量 restore 会因任一上游已删除 path 令整个 pathspec 失败；3-way 成功隐式留下 staged index；以及接管“bundle 存在、worktree 已裸”的中断现场时没有重新武装 EXIT trap。更严重的是，Step 2 会把仅部分受管文件存在的 diff 当成新 canonical bundle，可能把完整本地不变量集合永久降级为残缺快照。2026-08-15 又实抓一处同类运行态假阳性：Step 5 只因 Gateway 进程正在运行就跳过 plist freshness 检查，最终 status 已明确显示 service definition stale；首次修复又只等待 plist 文件变 current，未等 launchd 重新加载并产生新 PID，导致 verifier 在 reload 窗口拿不到当前进程。
 
-**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker、部分或全部受管 diff 意外为空、byte/cached/reverse replay 任一失败也设置非零。Step 8d 仅在事务 `runtime_dirty=1` 时捕获旧 PID、走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载并清脏标记。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀；`runtime_dirty=1` 但当前无 Gateway PID 时同样 `FINAL_RC=1` 并保留脏标记（2026-08-07 审计补：此前静默跳过整个 8d 块）；等待预算的解释器不可用 fallback 为 930s（本机 drain 900+30，2026-08-07 起替换与任何公式都不符的旧值 210）；HEAD/overlay 未变化的 reconcile 明确跳过重启。Step 7 补全脚本生成失败（sentinel 无法运行）同样设置非零。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。脚本新增 side-effect-free `--print-restart-wait-seconds` / `--print-patched-files` / `--print-patched-tests` / `--transaction-status` 与隔离事务 self-test，并在任何状态变更前拒绝 bash/zsh source 及 dirty index；patch rollback 改为逐路径恢复，HEAD 已删除的受管文件只在 apply 确实把它放入 index 时才清除，遇到同名 untracked 文件 fail closed。自动 3-way 成功后立即清 staged index；EXIT trap 在裸树接管时保持武装，恢复失败会清理半合并态并保留 bundle。Step 2 对部分 overlay fail closed，只有完整且可正反向 replay 的临时包才允许替换 canonical bundle。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
+**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker、部分或全部受管 diff 意外为空、byte/cached/reverse replay 任一失败也设置非零。Step 8d 仅在事务 `runtime_dirty=1` 时捕获旧 PID、走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载并清脏标记。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀；`runtime_dirty=1` 但当前无 Gateway PID 时同样 `FINAL_RC=1` 并保留脏标记（2026-08-07 审计补：此前静默跳过整个 8d 块）；等待预算的解释器不可用 fallback 为 930s（本机 drain 900+30，2026-08-07 起替换与任何公式都不符的旧值 210）；HEAD/overlay 未变化的 reconcile 明确跳过重启。Step 5 在 patch 还原窗口只做 plist 快照、不得改写最终定义；Step 8 回贴全部源码后再走官方 `gateway start` 自愈，并按同一动态预算等待“definition current + launchd wrapper supervised PID + real Gateway child PID”同时成立，任何超时或 verifier 抢跑都使整轮失败。Step 7 补全脚本生成失败（sentinel 无法运行）同样设置非零。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。脚本新增 side-effect-free `--print-restart-wait-seconds` / `--print-patched-files` / `--print-patched-tests` / `--transaction-status` 与隔离事务 self-test，并在任何状态变更前拒绝 bash/zsh source 及 dirty index；patch rollback 改为逐路径恢复，HEAD 已删除的受管文件只在 apply 确实把它放入 index 时才清除，遇到同名 untracked 文件 fail closed。自动 3-way 成功后立即清 staged index；EXIT trap 在裸树接管时保持武装，恢复失败会清理半合并态并保留 bundle。Step 2 对部分 overlay fail closed，只有完整且可正反向 replay 的临时包才允许替换 canonical bundle。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
 
-**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker、partial/empty `_REFRESHED` 和 replay-integrity 分支都包含 `FINAL_RC=1`；Step 8d 在 `runtime_dirty=1` 时必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s），并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`；`runtime_dirty=0` 必须跳过 PID churn。隔离执行脚本片段时，任一 gate 为 false、restart 非零、超时或返回相同 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。所有只读入口只输出现场状态且不改变仓库/Gateway；bash/zsh source 和 dirty index 在任何 update mutation 前返回非零；逐路径 restore 的 present/deleted/untracked 三种路径分别恢复、删除 apply 产物、保护用户文件。另以临时 Git repo 覆盖完整 overlay、61/62 部分 overlay、裸树 + bundle、3-way staged/冲突清理及 bundle byte/cached/reverse gate。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 PID。
+**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker、partial/empty `_REFRESHED` 和 replay-integrity 分支都包含 `FINAL_RC=1`；Step 8d 在 `runtime_dirty=1` 时必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s），并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`；`runtime_dirty=0` 必须跳过 PID churn。stale-plist 真机验证必须证明：裸 upstream 窗口只快照，补丁回贴后才生成最终 plist；只有 status 报 current definition + supervised wrapper PID，且 `gateway.status.get_running_pid()` 返回真实子进程，才允许进入 verifier。任一 gate 为 false、restart/refresh 非零、超时或返回相同/空 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。所有只读入口只输出现场状态且不改变仓库/Gateway；bash/zsh source 和 dirty index 在任何 update mutation 前返回非零；逐路径 restore 的 present/deleted/untracked 三种路径分别恢复、删除 apply 产物、保护用户文件。另以临时 Git repo 覆盖完整 overlay、61/62 部分 overlay、裸树 + bundle、3-way staged/冲突清理及 bundle byte/cached/reverse gate。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 runtime PID。
 
-**上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。**排空子项已被上游替代并完成对接**（2026-08-03，本轮升级已跨过 `db3f7e4eb`）：`hermes gateway restart` 原生排空——SIGUSR1 先拒新 turn、按 `agent.restart_after_turn_timeout`（默认 21600s）等 in-flight 归零才 stop，`restart_drain_timeout` 收窄为 stop 内强杀预算。本地 `gw_restart_wait_seconds()` 经 `_get_restart_exit_wait_budget()` 读取原生合并预算（本轮实测 22545s = 900 + 21600 + 15 + 30），不再自建平行等待逻辑；本补丁剩余职责为退出码总闸门与 PID 替换硬校验。
+**上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。**排空子项已被上游替代并完成对接**（2026-08-03，本轮升级已跨过 `db3f7e4eb`）：`hermes gateway restart` 原生排空——SIGUSR1 先拒新 turn、按 `agent.restart_after_turn_timeout` 等 in-flight 归零才 stop，`restart_drain_timeout` 收窄为 stop 内强杀预算。上游 `0c6761c51` 已把 after-turn 默认值从 6h 收窄到 30min；本地 `gw_restart_wait_seconds()` 经 `_get_restart_exit_wait_budget()` 读取原生合并预算，本轮新运行时实测 **2745s = 900 + 1800 + 15 + 30**。等待预算必须始终以只读入口当前输出为准，不在 wrapper 内复制默认值；本补丁剩余职责为退出码总闸门与 PID 替换硬校验。
 
 ---
 
@@ -425,6 +429,8 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+**类别：运行依赖与迁移兼容**
+
 ### [PATCH-FEISHU-SOCKS-DEPENDENCY] Feishu 代理依赖声明
 
 | 字段     | 内容                                                                                                                                |
@@ -458,6 +464,8 @@ cat ~/.hermes/patches/.local-patches.base
 **上游吸收判断**：当上游迁移脚本不再写入废弃的 `HERMES_GATEWAY_TOKEN`，且迁移文档同步移除该映射后，才可移除本补丁；当前上游两处仍未吸收。
 
 ---
+
+**类别：Feishu 接入、安全与会话语义**
 
 ### [PATCH-FEISHU-GROUP-ADMISSION] 群聊触发、上下文与当前发言人完整性
 
@@ -633,6 +641,8 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+**类别：Feishu 资源、文档与渲染**
+
 ### [PATCH-FEISHU-RESOURCE-ACCESS] 附件回看、Drive 链接与 tenant 文档读取
 
 | 字段     | 内容                                                                                                                                                                                 |
@@ -709,6 +719,8 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+**类别：Provider、模型与多模态路由**
+
 ### [PATCH-VERTEX-HIDDEN-THOUGHTS] Vertex 保留 thinking 但隐藏 thought 文本
 
 | 字段     | 内容                                                                                     |
@@ -753,37 +765,6 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## Archive — 本地模型链路收敛（2026-08-15）
-
-### [PATCH-VERTEX-FALLBACK] 第二 Vertex 账号作为独立 fallback
-
-| 字段     | 内容                                                                                                                                                                                                     |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/vertex_adapter.py`, `hermes_cli/auth.py`, `hermes_cli/runtime_provider.py`, `agent/auxiliary_client.py`, `plugins/model-providers/vertex/__init__.py`, `tests/hermes_cli/test_vertex_provider.py` |
-| **状态** | 🗄️ 已归档：当前只使用一个标准 Vertex 账号                                                                                                                                                                |
-
-**归档原因（2026-08-15）**：模型链路已改为 Azure GPT-5.5 → Bedrock Claude Opus 5 → 标准 `vertex/google/gemini-3.5-flash`，视频旁路与 compression 也复用同一标准 Vertex 凭据。第二账号不再提供独立能力，继续维护会扩大 provider/凭据/gate 面；因此删除全部 `vertex-fallback` provider、别名、第二 SA/project 解析、回归、Step 8b gate 与 `.env` 变量。若未来再次需要同 provider 的 per-project 配额隔离，优先使用上游 credential pool；只有它仍无法表达 per-entry SA/project 时才重新评估本补丁。
-
-**问题**（提出时的场景：主模型也是 Vertex 上的 `google/gemini-3.1-pro-preview`）：单账号/单 project 配额下频繁 `429 RESOURCE_EXHAUSTED`，回退到 Qwen 后行为与质量都跟主模型不一致。需求：fallback 换成**第二个 Vertex 账号**跑同一个 gemini-3.1-pro，行为与主模型一致，仅换账号绕开限额。两处架构约束使"同 provider 同模型换账号"无法直接配置：①`vertex` 不在 `hermes_cli.auth.PROVIDER_REGISTRY`（auto-extend 只收 `auth_type=="api_key"`），主模型靠 `resolve_runtime_provider()` 专门解析，而 **fallback 走 `resolve_provider_client()`，只从 `PROVIDER_REGISTRY.get()` 取 pconfig** → 现有 `auth_type=="vertex"` 分支对 fallback 是够不到的死代码；②fallback 去重（`chat_completion_helpers._try_activate_fallback`）对 `provider+model` 相同的条目直接跳过。此外 `get_vertex_credentials` 里 `_resolve_project_override()`（`VERTEX_PROJECT_ID`/config）会把任何账号的 token 重绑到主 project → 第二账号 403。
-
-**修复**：新增独立 provider `vertex-fallback`，复用同一 `VertexProfile`（自动继承 `PATCH-VERTEX-HIDDEN-THOUGHTS` 的单层抑制 → 行为一致），只换凭证：
-
-1. `agent/vertex_adapter.py`：新增 `get_vertex_fallback_config()` / `has_vertex_fallback_credentials()`，从 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID`（经 `_get_secret`）解析第二账号；给 `get_vertex_credentials`/`get_vertex_config` 加 `project_override`（显式项目优先）与 `apply_global_project_override=False`（不套用 `VERTEX_PROJECT_ID`），确保第二账号 token 锁在自己的 project；token 按 path 各自缓存 + 自动刷新（复用 `_creds_cache`）。
-2. `hermes_cli/auth.py`：在 `PROVIDER_REGISTRY` 显式登记 `vertex-fallback`（`auth_type="vertex"`，别名 `vertex2`/`vertex-secondary`），使 `resolve_provider_client` 能取到 pconfig 并命中 vertex 分支。
-3. `agent/auxiliary_client.py`：`resolve_provider_client` 的 `auth_type=="vertex"` 分支内，按 **registry 条目的 canonical id**（`pconfig.id == "vertex-fallback"`，2026-08-07 修复——此前按原始 provider 串判定，`vertex2`/`vertex-secondary` 别名会静默铸出主账号凭据，恰是配额耗尽的那个账号）改用 `get_vertex_fallback_config` / `has_vertex_fallback_credentials`。
-4. `plugins/model-providers/vertex/__init__.py`：用同一 `VertexProfile` 类再 `register_provider` 一个 `name="vertex-fallback"` 实例，使 `get_provider_profile("vertex-fallback")` 可解析（fallback 激活后 `_build_request_kwargs` 走 profile 路径拿到单层抑制）。
-5. `hermes_cli/runtime_provider.py`（2026-07-29 补缺口）：网关 fallback 链（`gateway/run.py` `_try_resolve_fallback_provider`）解析条目走 `resolve_runtime_provider(requested=...)` 而**不是** `resolve_provider_client`；其 Vertex 分支只认主账号 5 个别名，`vertex-fallback` 静默落到 generic 尾部解析器，"成功"返回 `provider="openrouter"` + **空 api_key**——网关据此打出误导性的 `Fallback provider resolved: vertex-fallback` 日志并把坏 kwargs 交给 `AIAgent`；init 因空 key 走 router 路径，又因 `openrouter` 在豁免集合（`{auto, openrouter, custom}`）里跳过 explicit fail-fast 与 init-time fallback，最终抛 `No LLM provider configured`，用户在群聊/私聊看到 "Sorry, I encountered an unexpected error"；且链上后续条目（末位的 DashScope 档，NO_PROXY 直连、代理瞬断时本可救场）永远轮不到。修复：在主 vertex 分支之后新增 `("vertex-fallback", "vertex2", "vertex-secondary")` 分支，经 `get_vertex_fallback_config()` 铸 token 返回 `provider="vertex-fallback"`；凭据不可解析时抛类型化 `AuthError`，使 fallback 链前进到下一条目。触发场景：本机代理（127.0.0.1:7897）瞬断时 `oauth2.googleapis.com` token 刷新失败（"No route to host" / SSL EOF，见 `logs/agent.log*`），主 Vertex 解析抛 AuthError 进入 fallback 链。
-
-**归档前适用性（2026-08-11 历史）**：当时 `vertex-fallback` 是链上唯一具备视频能力的档，`PATCH-VIDEO-SIDECAR` 直接依赖它。2026-08-15 已改由标准 `vertex/google/gemini-3.5-flash` 承担同一职责，本段仅保留当时为何继续维护第二账号的背景。
-
-归档前配套（历史）：`~/.hermes/.env` 曾使用 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID` 管理第二账号；这些键已于 2026-08-15 从 `.env` 删除。
-
-**验证**：Step 8b grep `agent/vertex_adapter.py` 存在 `def get_vertex_fallback_config` + `apply_global_project_override`；`hermes_cli/auth.py` 存在 `"vertex-fallback"`；`agent/auxiliary_client.py` 存在 `has_vertex_fallback_credentials`；`plugins/.../vertex/__init__.py` 存在 `name="vertex-fallback"`；`hermes_cli/runtime_provider.py` 存在 `"vertex-fallback", "vertex2", "vertex-secondary"` 分支；test 存在 `test_vertex_fallback_profile_registered` + `test_resolve_runtime_provider_vertex_fallback_mints_token` + `test_resolve_provider_client_alias_mints_fallback_credentials`（2026-08-07 新增：别名走 fallback 凭据、主账号铸 token 被断言不可达）。单测 14 passed / 0 failed（2026-08-07；含 7 条 fallback 回归）。真链路：`resolve_runtime_provider(requested='vertex-fallback')` 返回 `provider="vertex-fallback"`、base_url 锁定 `projects/gen-lang-client-0217395804`、api_key 为有效 OAuth token（修复前同调用返回 `provider="openrouter"` + 空 api_key）。真链路端到端：加载 `.env` 后 `get_vertex_fallback_config()` 返回 base_url 锁定 `projects/gen-lang-client-0217395804`（未被主 project 覆盖），`resolve_provider_client("vertex-fallback", model="google/gemini-3.1-pro-preview")` 返回可用 client 且真实调用返回干净答案（无 thought 段）。第二账号 SA 直连 Vertex `/v1`+`/v1beta1` global 均 200。
-
-**上游吸收判断**：若上游为 Vertex/OAuth-token 类 provider 提供多凭证轮换池（credential pool），或让 fallback 条目原生携带 per-entry `credentials_path`/`project`，可归档本补丁改用原生机制。**候选替代已进入当前树**（2026-08-03，d1afa160 已含）：`agent/credential_pool.py`（`CredentialPool`/`PooledCredential`，支持 `AUTH_TYPE_OAUTH`，`hermes_cli/auth.py` 与 `runtime_provider.py` 已接入）提供同 provider 多凭证 failover，但按 token/api-key 条目存储，**尚无 per-entry SA 文件 + 独立 GCP project 语义**——本补丁"第二账号绕 per-project 配额"的需求暂不能直接表达，本轮判定为继续保留本地实现；后续每轮复核该池是否补齐 SA-file/project 语义，补齐即迁移。同时注意 `ca5ce1110` 已把 auxiliary-client 的 provider-key 读取改走 profile secret scope，与本补丁在 `auxiliary_client.py` 的改写区域重叠（本轮 3-way 已干净并存），后续冲突按 scoped-read 形式适配本地分支。
-
----
-
 ### [PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY] Gemini fallback 接受跨模型工具历史
 
 | 字段     | 内容                                                                                             |
@@ -798,29 +779,6 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：`tests/agent/transports/test_chat_completions.py` 通过真实 `build_kwargs()` 边界构造 Azure/Codex 风格的 `skill_view` tool call（含 `call_id` / `response_item_id`、无 Gemini metadata），断言最终 provider request 删除 Codex 私有字段并注入嵌套兼容签名，同时原 history 不变；另覆盖已有真实签名 identity-preserve 与 legacy direct signature 规范化。Step 8b 直接 import `ChatCompletionsTransport` 并执行无签名历史转换，不依赖私有 helper 名；补丁测试必须由 `scripts/run_tests.sh` 运行。
 
 **上游吸收判断**：当上游 Chat Completions transport（或通用 provider-switch history adapter）原生在切换到 Gemini/Gemma 时，为所有无签名历史 function call 补充官方 skip-validator 哨兵，同时保持真实签名、非 Gemini 严格字段清理和 copy-on-write 不变量，并有跨 provider 回归测试后，可删除本地 hunk、Step 8b gate 和两个受管文件并将本块移入 Archive。仅有 `ToolCall.extra_content` 保留能力不算吸收。
-
----
-
-### [PATCH-GEMINI-CUSTOM-NATIVE-BASE] 自定义 Gemini gateway 保持原生 wire
-
-| 字段     | 内容                                                                                                                                                                                                                                                                                                                            |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/gemini_native_adapter.py`, `agent/agent_runtime_helpers.py`, `agent/chat_completion_helpers.py`, `agent/auxiliary_client.py`, `agent/transports/chat_completions.py`, `hermes_cli/doctor.py`, `tests/agent/test_gemini_native_adapter.py`, `tests/hermes_cli/test_gemini_provider.py`, `tests/hermes_cli/test_doctor.py` |
-| **状态** | 🗄️ 已归档：自动链路与 compression 均已迁移到标准 Vertex                                                                                                                                                                                                                                                                         |
-
-**归档原因（2026-08-15）**：私有 native gateway 的短请求与 compression 可用，但 110k 级完整 Hermes `systemInstruction` 稳定读超时；同内容折叠到 user 虽可返回，却会降低系统指令优先级，不能作为安全修复。当前链路已用标准 Vertex Gemini 3.5 Flash 替代，完整 prompt + 29 tools 实测通过，因此删除 private-base helper、completed-stream fallback、doctor probe、相关测试/gate 与 `GEMINI_*` `.env` 变量。只有再次启用私有 Gemini gateway，且其原生 systemInstruction 兼容性得到验证时才重新评估。
-
-**问题**：Hermes 文档把 `GEMINI_BASE_URL` 定义为 Google AI Studio / Gemini API 的 base URL override，但运行时只有域名包含 `generativelanguage.googleapis.com` 才创建 `GeminiNativeClient`。私有 Gemini gateway（例如 Gemini CLI 通过 `GOOGLE_GEMINI_BASE_URL=https://gateway.example` 使用的原生 `generateContent` 代理）因此被误判成 OpenAI-compatible endpoint，Hermes 会向不存在的 `/chat/completions` 发请求。2026-08-15 实测同一 gateway 的 `/v1beta/models/gemini-3.5-flash:generateContent` 返回 200，而 `/v1beta/openai/chat/completions` 返回 404、`/v1/chat/completions` 返回 503；仅复制 key/base 配置会让末级 fallback 与 compression 同时失效。
-
-**修复**：新增 provider-aware `is_native_gemini_provider_base_url()`：当 canonical provider 是 `gemini` 时，任意合法自定义 host 默认沿用原生 Gemini wire；只有 base URL 显式以 `/openai` 结尾才选择兼容面。hostname-strict 的 `is_native_gemini_base_url()` 保持不变，避免把其他 custom provider 误判为 Gemini。主 agent client factory、stream options、auxiliary client/pool 和 transport extra-body 过滤统一接入 provider-aware 判定；`GeminiNativeClient` 继续使用 `x-goog-api-key` 与 `models/{model}:generateContent`。私有 gateway 若未实现 `streamGenerateContent?alt=sse`，client 在收到 `stream=True` 时直接返回一次非流式 `generateContent` 的完整 response；Relay 的既有 completed-response 分支会交付该结果并把当前 session 后续调用切成非流式，不引入 heartbeat 私有协议，也不会掩盖 DNS/连接异常。Google 官方 host 保留真 SSE，显式 `/openai` 用户保持兼容路径。Doctor 不再对私有 native gateway 做 Bearer-auth `/models` 探测，而是选取当前 compression/fallback/main 配置中的 Gemini 模型，用 `GeminiNativeClient` 做最小 `generateContent` 健康检查。
-
-**验证**：`tests/agent/test_gemini_native_adapter.py` 断言私有 `/v1beta` 对 provider-aware helper 为 native、`/v1beta/openai` 为 compat，同时 generic helper 对私有 host 仍为 false；另用不实现 `.stream()` 的 fake HTTP client 证明私有 gateway 的 `stream=True` 走 `generateContent` 并直接返回含 content、finish reason 与 usage 的完整 response。`tests/hermes_cli/test_gemini_provider.py` 断言 `resolve_provider_client("gemini")` 在私有 `/v1beta` 创建 `GeminiNativeClient` 且不创建 OpenAI client，显式 `/openai` 反向成立；`tests/hermes_cli/test_doctor.py` 覆盖配置模型选择与 native doctor probe。Step 8b 真实 import helper、provider-client 构造和 doctor probe，不依赖 helper 名 grep；真实 gateway 接入验证使用 `~/.secrets` 的 key/base 映射到 `~/.hermes/.env` 后执行末级 fallback、compression 与顺序 failover。
-
-**上游吸收判断**：当上游明确规定 `GEMINI_BASE_URL` 的自定义 host 默认使用 native Gemini wire、保留 `/openai` 显式兼容 opt-in，并在主 agent、auxiliary、streaming、transport extra-body 与 private-gateway 回归测试上覆盖同等行为后，可删除本地 hunk、Step 8b gate 和新增受管文件，将本块移入 Archive。
-
----
-
-## Active PATCH definitions (continued)
 
 ### [PATCH-IMAGE-NATIVE-ROUTING] 主力模型图片能力识别与原生路由
 
@@ -883,6 +841,25 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+**类别：历史保留、审批与本地运行兼容**
+
+### [PATCH-LAUNCHD-WRAPPER-SUPERVISOR] launchd stderr wrapper 保留受监管身份
+
+| 字段     | 内容                                                        |
+| -------- | ----------------------------------------------------------- |
+| **文件** | `hermes_cli/gateway.py`, `tests/hermes_cli/test_gateway.py` |
+| **状态** | 🟡 未上游合并                                               |
+
+**问题**：上游 `45af7a71f` 的 launchd plist 为给 raw stderr 加时间戳，把真实 Gateway 命令包在 `hermes_cli.stderr_timestamp` 子进程之后。launchd 的原生 `XPC_SERVICE_NAME` 标记没有可靠传到这个二级子进程；真实 Gateway 因此认为自己是 shell 启动的未监管副本，而 `get_gateway_runtime_snapshot()` 又能看到 launchd job 已注册，触发多写者保护并以 `A gateway is already running under launchd` 主动 exit 1。launchd 随即按 KeepAlive 反复重启并再次被拒，飞书主链路完全离线。上游已提供 `gateway run --external-supervisor` / `HERMES_GATEWAY_EXTERNAL_SUPERVISOR` 作为 wrapper 丢失原生标记时的正式通道，但 plist 命令构造没有使用它。
+
+**修复**：给 `_gateway_run_command()` / `_timestamped_stderr_gateway_command()` 增加显式 `external_supervisor` 参数；只有 `generate_launchd_plist()` 的 timestamp wrapper 路径传 `True`，在真实 Gateway argv 末尾追加 `--external-supervisor`。`_spawn_detached_gateway()` 继续使用默认 `False`，避免把 launchd 不可用时的独立 fallback 错标成受监管进程。该修复不改变 launchd reload、drain、KeepAlive 或 stderr timestamp 行为，只恢复 supervisor identity。
+
+**验证**：`test_launchd_stderr_wrapper_marks_gateway_as_externally_supervised` 成对断言 supervised wrapper 的最终 argv 含 `--external-supervisor`，detached wrapper 不含；`tests/hermes_cli/test_gateway.py` 全量 28 passed。Step 8b 同时检查参数定义、生产调用、真实测试名并纳入 8c 总闸门。真机复现中旧 plist 的 launchd job 连续 `last exit code = 1` 且无 Gateway 子进程；补丁后 `hermes gateway start` 重新生成定义，status 恢复为 `Service definition matches` + supervised wrapper PID，`gateway.status.get_running_pid()` 返回实际子进程，sandbox verifier 的注册 trace 绑定后者。
+
+**上游吸收判断**：当上游 launchd plist 的 wrapped child 原生保留 `XPC_SERVICE_NAME`，或官方命令构造显式传递 `--external-supervisor` 并同时有“launchd wrapper 有标记 / detached fallback 无标记”的回归后，可移除本补丁。
+
+---
+
 ### [PATCH-HISTORY-RETENTION] 平台级回放历史保留窗
 
 | 字段     | 内容                                                                                                                                                                                                                    |
@@ -934,6 +911,8 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+**类别：外层插件与群聊能力边界**
+
 ### [PATCH-FEISHU-GROUP-SANDBOX] 群聊结构化 tmp 与固定文档动作边界
 
 | 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -952,6 +931,56 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset 精确且固定脚本全部存在；通过真实 `discover_plugins()` + `_get_platform_tools()` 解析，断言 owner Feishu 仍含 terminal/process/read/write/patch/execute_code/skill_manage，群聊只含 `group_cache` / `feishu_doc_manage` 与只读工具，并通过 `get_tool_definitions(... skip_tool_search_assembly=True)` + `tool_search.dispatch_tool_search/dispatch_tool_describe` 证明这两个 sandbox 工具在 Feishu group 范围内可发现、可描述，不依赖模型盲猜 schema；随后直接调用 sandbox `_on_pre_tool_call`，断言真实群聊放行 `tool_search` / `tool_describe` 但仍拦截 `terminal`，避免 dispatch-only 绿色而 Feishu 群运行态被 hook 拦住；`PATCH-FEISHU-GROUP-SCOPE` 的 `_run_agent` 边界测试进一步证明真实 consumer 确实把群 toolset 交给 Agent，而不是只在独立解析器里得到正确结果；确认 hook 名、fire site、`ctx.register_tool()` 和 `/usr/bin/sandbox-exec`；运行 23 个插件回归，覆盖跨群隔离、路径穿越/symlink、无 terminal/直接写面、真实 owner ID 全量放行、固定 action/参数、argv 无 shell、群工具响应不泄漏宿主绝对 workspace 路径、群聊工具发现/描述桥不被 sandbox 误拦、凭据错误输出脱敏、50 MB 下载上限、真实进程沙箱外写拒绝、配置加载和工具注册；另有一条源码哨兵断言 `read_docx_to_markdown.py` 不在模块顶层 `import requests` 且两个联网函数的惰性导入**计数恰为 2**（2026-08-07 收紧：旧断言为 ≥1 存在性检查，删除其中一个惰性导入仍会通过），双向负例（提升到顶层／删除任一惰性导入）均会失败；`read_docx_to_markdown.py` 已列入 expected_scripts，使其缺失报友好错误而非裸 FileNotFoundError；最后要求注册日志的 PID 与当前 gateway PID 一致、`active=True` 且包含两个结构化工具和两个只读桥工具。verifier 缺失、不可执行、配置/toolset 漂移、测试失败或 runtime trace 不匹配都会设置升级 `FINAL_RC=1`。本补丁由外层 Git 保存，`hermes update` 不覆盖；`local-patches.diff` 只监管 `PATCHED_FILES` 中的工程内语义补丁，并必须与 `hermes-agent` 实际 diff（排除已知 `package-lock.json` 噪音）逐字节一致。
 
 **上游吸收判断**：如果上游原生提供按会话隔离的可写工作区、无 shell 的固定动作工具、子进程写范围沙箱和 owner-DM/group 独立工具面，可迁移到上游能力并归档本补丁；在此之前不得恢复群聊通用 terminal。
+
+---
+
+## Archive — 本地模型链路收敛（2026-08-15）
+
+### [PATCH-VERTEX-FALLBACK] 第二 Vertex 账号作为独立 fallback
+
+| 字段     | 内容                                                                                                                                                                                                     |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/vertex_adapter.py`, `hermes_cli/auth.py`, `hermes_cli/runtime_provider.py`, `agent/auxiliary_client.py`, `plugins/model-providers/vertex/__init__.py`, `tests/hermes_cli/test_vertex_provider.py` |
+| **状态** | 🗄️ 已归档：当前只使用一个标准 Vertex 账号                                                                                                                                                                |
+
+**归档原因（2026-08-15）**：模型链路已改为 Azure GPT-5.5 → Bedrock Claude Opus 5 → 标准 `vertex/google/gemini-3.5-flash`，视频旁路与 compression 也复用同一标准 Vertex 凭据。第二账号不再提供独立能力，继续维护会扩大 provider/凭据/gate 面；因此删除全部 `vertex-fallback` provider、别名、第二 SA/project 解析、回归、Step 8b gate 与 `.env` 变量。若未来再次需要同 provider 的 per-project 配额隔离，优先使用上游 credential pool；只有它仍无法表达 per-entry SA/project 时才重新评估本补丁。
+
+**问题**（提出时的场景：主模型也是 Vertex 上的 `google/gemini-3.1-pro-preview`）：单账号/单 project 配额下频繁 `429 RESOURCE_EXHAUSTED`，回退到 Qwen 后行为与质量都跟主模型不一致。需求：fallback 换成**第二个 Vertex 账号**跑同一个 gemini-3.1-pro，行为与主模型一致，仅换账号绕开限额。两处架构约束使"同 provider 同模型换账号"无法直接配置：①`vertex` 不在 `hermes_cli.auth.PROVIDER_REGISTRY`（auto-extend 只收 `auth_type=="api_key"`），主模型靠 `resolve_runtime_provider()` 专门解析，而 **fallback 走 `resolve_provider_client()`，只从 `PROVIDER_REGISTRY.get()` 取 pconfig** → 现有 `auth_type=="vertex"` 分支对 fallback 是够不到的死代码；②fallback 去重（`chat_completion_helpers._try_activate_fallback`）对 `provider+model` 相同的条目直接跳过。此外 `get_vertex_credentials` 里 `_resolve_project_override()`（`VERTEX_PROJECT_ID`/config）会把任何账号的 token 重绑到主 project → 第二账号 403。
+
+**修复**：新增独立 provider `vertex-fallback`，复用同一 `VertexProfile`（自动继承 `PATCH-VERTEX-HIDDEN-THOUGHTS` 的单层抑制 → 行为一致），只换凭证：
+
+1. `agent/vertex_adapter.py`：新增 `get_vertex_fallback_config()` / `has_vertex_fallback_credentials()`，从 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID`（经 `_get_secret`）解析第二账号；给 `get_vertex_credentials`/`get_vertex_config` 加 `project_override`（显式项目优先）与 `apply_global_project_override=False`（不套用 `VERTEX_PROJECT_ID`），确保第二账号 token 锁在自己的 project；token 按 path 各自缓存 + 自动刷新（复用 `_creds_cache`）。
+2. `hermes_cli/auth.py`：在 `PROVIDER_REGISTRY` 显式登记 `vertex-fallback`（`auth_type="vertex"`，别名 `vertex2`/`vertex-secondary`），使 `resolve_provider_client` 能取到 pconfig 并命中 vertex 分支。
+3. `agent/auxiliary_client.py`：`resolve_provider_client` 的 `auth_type=="vertex"` 分支内，按 **registry 条目的 canonical id**（`pconfig.id == "vertex-fallback"`，2026-08-07 修复——此前按原始 provider 串判定，`vertex2`/`vertex-secondary` 别名会静默铸出主账号凭据，恰是配额耗尽的那个账号）改用 `get_vertex_fallback_config` / `has_vertex_fallback_credentials`。
+4. `plugins/model-providers/vertex/__init__.py`：用同一 `VertexProfile` 类再 `register_provider` 一个 `name="vertex-fallback"` 实例，使 `get_provider_profile("vertex-fallback")` 可解析（fallback 激活后 `_build_request_kwargs` 走 profile 路径拿到单层抑制）。
+5. `hermes_cli/runtime_provider.py`（2026-07-29 补缺口）：网关 fallback 链（`gateway/run.py` `_try_resolve_fallback_provider`）解析条目走 `resolve_runtime_provider(requested=...)` 而**不是** `resolve_provider_client`；其 Vertex 分支只认主账号 5 个别名，`vertex-fallback` 静默落到 generic 尾部解析器，"成功"返回 `provider="openrouter"` + **空 api_key**——网关据此打出误导性的 `Fallback provider resolved: vertex-fallback` 日志并把坏 kwargs 交给 `AIAgent`；init 因空 key 走 router 路径，又因 `openrouter` 在豁免集合（`{auto, openrouter, custom}`）里跳过 explicit fail-fast 与 init-time fallback，最终抛 `No LLM provider configured`，用户在群聊/私聊看到 "Sorry, I encountered an unexpected error"；且链上后续条目（末位的 DashScope 档，NO_PROXY 直连、代理瞬断时本可救场）永远轮不到。修复：在主 vertex 分支之后新增 `("vertex-fallback", "vertex2", "vertex-secondary")` 分支，经 `get_vertex_fallback_config()` 铸 token 返回 `provider="vertex-fallback"`；凭据不可解析时抛类型化 `AuthError`，使 fallback 链前进到下一条目。触发场景：本机代理（127.0.0.1:7897）瞬断时 `oauth2.googleapis.com` token 刷新失败（"No route to host" / SSL EOF，见 `logs/agent.log*`），主 Vertex 解析抛 AuthError 进入 fallback 链。
+
+**归档前适用性（2026-08-11 历史）**：当时 `vertex-fallback` 是链上唯一具备视频能力的档，`PATCH-VIDEO-SIDECAR` 直接依赖它。2026-08-15 已改由标准 `vertex/google/gemini-3.5-flash` 承担同一职责，本段仅保留当时为何继续维护第二账号的背景。
+
+归档前配套（历史）：`~/.hermes/.env` 曾使用 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID` 管理第二账号；这些键已于 2026-08-15 从 `.env` 删除。
+
+**验证**：Step 8b grep `agent/vertex_adapter.py` 存在 `def get_vertex_fallback_config` + `apply_global_project_override`；`hermes_cli/auth.py` 存在 `"vertex-fallback"`；`agent/auxiliary_client.py` 存在 `has_vertex_fallback_credentials`；`plugins/.../vertex/__init__.py` 存在 `name="vertex-fallback"`；`hermes_cli/runtime_provider.py` 存在 `"vertex-fallback", "vertex2", "vertex-secondary"` 分支；test 存在 `test_vertex_fallback_profile_registered` + `test_resolve_runtime_provider_vertex_fallback_mints_token` + `test_resolve_provider_client_alias_mints_fallback_credentials`（2026-08-07 新增：别名走 fallback 凭据、主账号铸 token 被断言不可达）。单测 14 passed / 0 failed（2026-08-07；含 7 条 fallback 回归）。真链路：`resolve_runtime_provider(requested='vertex-fallback')` 返回 `provider="vertex-fallback"`、base_url 锁定 `projects/gen-lang-client-0217395804`、api_key 为有效 OAuth token（修复前同调用返回 `provider="openrouter"` + 空 api_key）。真链路端到端：加载 `.env` 后 `get_vertex_fallback_config()` 返回 base_url 锁定 `projects/gen-lang-client-0217395804`（未被主 project 覆盖），`resolve_provider_client("vertex-fallback", model="google/gemini-3.1-pro-preview")` 返回可用 client 且真实调用返回干净答案（无 thought 段）。第二账号 SA 直连 Vertex `/v1`+`/v1beta1` global 均 200。
+
+**上游吸收判断**：若上游为 Vertex/OAuth-token 类 provider 提供多凭证轮换池（credential pool），或让 fallback 条目原生携带 per-entry `credentials_path`/`project`，可归档本补丁改用原生机制。**候选替代已进入当前树**（2026-08-03，d1afa160 已含）：`agent/credential_pool.py`（`CredentialPool`/`PooledCredential`，支持 `AUTH_TYPE_OAUTH`，`hermes_cli/auth.py` 与 `runtime_provider.py` 已接入）提供同 provider 多凭证 failover，但按 token/api-key 条目存储，**尚无 per-entry SA 文件 + 独立 GCP project 语义**——本补丁"第二账号绕 per-project 配额"的需求暂不能直接表达，本轮判定为继续保留本地实现；后续每轮复核该池是否补齐 SA-file/project 语义，补齐即迁移。同时注意 `ca5ce1110` 已把 auxiliary-client 的 provider-key 读取改走 profile secret scope，与本补丁在 `auxiliary_client.py` 的改写区域重叠（本轮 3-way 已干净并存），后续冲突按 scoped-read 形式适配本地分支。
+
+---
+
+### [PATCH-GEMINI-CUSTOM-NATIVE-BASE] 自定义 Gemini gateway 保持原生 wire
+
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/gemini_native_adapter.py`, `agent/agent_runtime_helpers.py`, `agent/chat_completion_helpers.py`, `agent/auxiliary_client.py`, `agent/transports/chat_completions.py`, `hermes_cli/doctor.py`, `tests/agent/test_gemini_native_adapter.py`, `tests/hermes_cli/test_gemini_provider.py`, `tests/hermes_cli/test_doctor.py` |
+| **状态** | 🗄️ 已归档：自动链路与 compression 均已迁移到标准 Vertex                                                                                                                                                                                                                                                                         |
+
+**归档原因（2026-08-15）**：私有 native gateway 的短请求与 compression 可用，但 110k 级完整 Hermes `systemInstruction` 稳定读超时；同内容折叠到 user 虽可返回，却会降低系统指令优先级，不能作为安全修复。当前链路已用标准 Vertex Gemini 3.5 Flash 替代，完整 prompt + 29 tools 实测通过，因此删除 private-base helper、completed-stream fallback、doctor probe、相关测试/gate 与 `GEMINI_*` `.env` 变量。只有再次启用私有 Gemini gateway，且其原生 systemInstruction 兼容性得到验证时才重新评估。
+
+**问题**：Hermes 文档把 `GEMINI_BASE_URL` 定义为 Google AI Studio / Gemini API 的 base URL override，但运行时只有域名包含 `generativelanguage.googleapis.com` 才创建 `GeminiNativeClient`。私有 Gemini gateway（例如 Gemini CLI 通过 `GOOGLE_GEMINI_BASE_URL=https://gateway.example` 使用的原生 `generateContent` 代理）因此被误判成 OpenAI-compatible endpoint，Hermes 会向不存在的 `/chat/completions` 发请求。2026-08-15 实测同一 gateway 的 `/v1beta/models/gemini-3.5-flash:generateContent` 返回 200，而 `/v1beta/openai/chat/completions` 返回 404、`/v1/chat/completions` 返回 503；仅复制 key/base 配置会让末级 fallback 与 compression 同时失效。
+
+**修复**：新增 provider-aware `is_native_gemini_provider_base_url()`：当 canonical provider 是 `gemini` 时，任意合法自定义 host 默认沿用原生 Gemini wire；只有 base URL 显式以 `/openai` 结尾才选择兼容面。hostname-strict 的 `is_native_gemini_base_url()` 保持不变，避免把其他 custom provider 误判为 Gemini。主 agent client factory、stream options、auxiliary client/pool 和 transport extra-body 过滤统一接入 provider-aware 判定；`GeminiNativeClient` 继续使用 `x-goog-api-key` 与 `models/{model}:generateContent`。私有 gateway 若未实现 `streamGenerateContent?alt=sse`，client 在收到 `stream=True` 时直接返回一次非流式 `generateContent` 的完整 response；Relay 的既有 completed-response 分支会交付该结果并把当前 session 后续调用切成非流式，不引入 heartbeat 私有协议，也不会掩盖 DNS/连接异常。Google 官方 host 保留真 SSE，显式 `/openai` 用户保持兼容路径。Doctor 不再对私有 native gateway 做 Bearer-auth `/models` 探测，而是选取当前 compression/fallback/main 配置中的 Gemini 模型，用 `GeminiNativeClient` 做最小 `generateContent` 健康检查。
+
+**验证**：`tests/agent/test_gemini_native_adapter.py` 断言私有 `/v1beta` 对 provider-aware helper 为 native、`/v1beta/openai` 为 compat，同时 generic helper 对私有 host 仍为 false；另用不实现 `.stream()` 的 fake HTTP client 证明私有 gateway 的 `stream=True` 走 `generateContent` 并直接返回含 content、finish reason 与 usage 的完整 response。`tests/hermes_cli/test_gemini_provider.py` 断言 `resolve_provider_client("gemini")` 在私有 `/v1beta` 创建 `GeminiNativeClient` 且不创建 OpenAI client，显式 `/openai` 反向成立；`tests/hermes_cli/test_doctor.py` 覆盖配置模型选择与 native doctor probe。Step 8b 真实 import helper、provider-client 构造和 doctor probe，不依赖 helper 名 grep；真实 gateway 接入验证使用 `~/.secrets` 的 key/base 映射到 `~/.hermes/.env` 后执行末级 fallback、compression 与顺序 failover。
+
+**上游吸收判断**：当上游明确规定 `GEMINI_BASE_URL` 的自定义 host 默认使用 native Gemini wire、保留 `/openai` 显式兼容 opt-in，并在主 agent、auxiliary、streaming、transport extra-body 与 private-gateway 回归测试上覆盖同等行为后，可删除本地 hunk、Step 8b gate 和新增受管文件，将本块移入 Archive。
 
 ---
 
