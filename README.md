@@ -1283,7 +1283,9 @@ hermes cron run JOB_ID       # 立即执行一次
 
 `~/.hermes/cron/jobs.json` 是 Hermes 持续读写的 live store，不是稳定的声明式配置：除任务定义外还包含 `last_run_at`、`next_run_at`、执行状态、投递错误和 claim 等运行字段，因此本仓库将它保留在本机并通过 `.gitignore` 排除。需要迁移或备份 Cron 任务时使用 `hermes backup --quick` / `hermes backup` 和 `hermes import`，不要依赖 Git 同步该文件。
 
-当前 `日报和晚安问候` 任务由 `scripts/nightly_greeting.py` 以 no-agent 模式执行，固定顺序为：① 同步飞书组织架构；② 从当日 Hermes 会话提取日报素材并提交日报；③ 向 `groups.yaml` 中未关闭 `nightly_greeting` 的群发送晚安词。组织同步与后两阶段严格隔离：飞书可提供的在职人员、岗位、部门、上级等字段以最新完整快照为准，离职人员移除；aliases、称谓、背景、沟通偏好及其它飞书无法提供的自定义字段继续保留。同步成功或失败都会单独通知 sandbox 配置中的 owner 私聊；成功只报告新增/移除人员，失败报告原因。同步失败不会阻断日报和晚安，也不会把同步结果注入日报素材或群发内容。dry-run 只写新增/移除人员预览，不覆盖 `people.yaml`。
+当前 `日报和晚安问候` 任务由 `scripts/nightly_greeting.py` 以 no-agent 模式执行。任务首先按中国工作日历判断：周末和法定休息日直接跳过整个流程（调休补班日照常执行），只有显式传入 `--ignore-holiday` 才会绕过；工作日固定顺序为：① 同步飞书组织架构；② 从当日 Hermes 会话提取日报素材并提交日报；③ 向 `groups.yaml` 中未关闭 `nightly_greeting` 的群发送晚安词。组织同步与后两阶段严格隔离：飞书可提供的在职人员、岗位、部门、上级等字段以最新完整快照为准，离职人员移除；aliases、称谓、背景、沟通偏好及其它飞书无法提供的自定义字段继续保留。同步成功或失败都会单独通知 sandbox 配置中的 owner 私聊；成功只报告新增/移除人员，失败报告原因。同步失败不会阻断日报和晚安，也不会把同步结果注入日报素材或群发内容。dry-run 只写新增/移除人员预览，不覆盖 `people.yaml`。
+
+可选参数遵循固定优先级：非工作日守卫最先执行且仅 `--ignore-holiday` 可绕过；`--skip-org-sync`、`--skip-report`、`--skip-greeting` 显式关闭对应阶段，并优先于同阶段的 force 参数；`--force-report`、`--force-greeting` 只绕过当天成功标记；`--dry-run` / `--dryrun` / 位置参数 `dryrun`（或 `dry-run`）只做组织预览并将日报/晚安预览发送到主私聊，不覆盖人员文件、不提交日报、不群发；`--force-dry-run` / `--force-dryrun` 在已有当天预览标记时重新发送；`--date YYYY-MM-DD` 统一决定工作日判断、会话范围和状态键。
 
 ---
 

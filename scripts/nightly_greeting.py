@@ -71,10 +71,23 @@ def log(message: str) -> None:
     print(f"[nightly] {message}", file=sys.stderr, flush=True)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_date_arg(value: str) -> str:
+    try:
+        dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid date {value!r}; expected YYYY-MM-DD") from exc
+    return value
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", nargs="?", choices=("dryrun", "dry-run"), help=argparse.SUPPRESS)
-    parser.add_argument("--date", help="Local date to process, YYYY-MM-DD. Defaults to today.")
+    parser.add_argument(
+        "--date",
+        type=parse_date_arg,
+        metavar="YYYY-MM-DD",
+        help="Local date to process. Defaults to today.",
+    )
     parser.add_argument(
         "--dry-run",
         "--dryrun",
@@ -104,7 +117,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run even on weekends / Chinese statutory holidays (skip the rest-day guard).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.mode in {"dryrun", "dry-run"} or args.force_dry_run:
         args.dry_run = True
     return args
@@ -283,6 +296,11 @@ def notify_owner_org_sync(
             detail = re.sub(r"\s+", " ", str(error)).strip()[:500]
             message = (
                 f"⚠️ {day.isoformat()} 飞书组织同步失败，已跳过该步骤，日报与晚安问候会继续正常执行。\n原因：{detail}"
+            )
+        elif (summary or {}).get("mode") == "preview":
+            message = (
+                f"🔎 {day.isoformat()} 飞书组织架构同步预览完成（未写入 people.yaml）。\n"
+                f"{org_sync_change_text(summary or {})}"
             )
         else:
             message = f"✅ {day.isoformat()} 飞书组织架构同步完成。\n{org_sync_change_text(summary or {})}"
@@ -771,8 +789,16 @@ def run(args: argparse.Namespace) -> str | None:
         if not acquired:
             return None
 
-        state = load_state()
         day_key = day.isoformat()
+
+        # A rest day skips the entire workflow, including organization sync.
+        # Only the dedicated override may run this task on weekends / holidays;
+        # dry-run and force flags do not implicitly bypass the calendar guard.
+        if not args.ignore_holiday and not is_chinese_workday(day):
+            log(f"{day_key} is a Chinese rest day (weekend/holiday); skipping the entire nightly task.")
+            return None
+
+        state = load_state()
         org_sync_result: dict[str, Any] | None = None
 
         # Stage 0 — Feishu organization sync. This stage is deliberately
@@ -806,24 +832,10 @@ def run(args: argparse.Namespace) -> str | None:
             log(f"Dry-run preview already sent for {day_key}; exiting silently.")
             return None
 
-        report_done = bool(state["reports"].get(day_key)) or args.skip_report
-        greeting_done = bool(state["greetings"].get(day_key)) or args.skip_greeting
-        if not args.dry_run and report_done and greeting_done and not args.force_report and not args.force_greeting:
-            log(f"Nightly report and greeting already completed for {day_key}; exiting silently.")
-            return None
-
-        # Skip non-workdays (weekends + Chinese statutory holidays). A daily work
-        # report makes no sense on a rest day; bail before the expensive Hermes
-        # generation. Explicit overrides (dry-run / --force-* / --ignore-holiday)
-        # bypass the guard. 调休补班 weekends count as workdays and still send.
-        if (
-            not args.dry_run
-            and not args.ignore_holiday
-            and not args.force_report
-            and not args.force_greeting
-            and not is_chinese_workday(day)
-        ):
-            log(f"{day_key} is a Chinese rest day (weekend/holiday); skipping report and greeting.")
+        report_pending = not args.skip_report and (args.force_report or not state["reports"].get(day_key))
+        greeting_pending = not args.skip_greeting and (args.force_greeting or not state["greetings"].get(day_key))
+        if not args.dry_run and not report_pending and not greeting_pending:
+            log(f"No report or greeting delivery is pending for {day_key}; exiting silently.")
             return None
 
         session_text = read_daily_sessions(day)
