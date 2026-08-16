@@ -102,7 +102,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-MODEL-CONFIGURED-ONLY: /model 只访问主模型与 fallback 配置集合
   │   ├─ PATCH-IMAGE-NATIVE-ROUTING: 主力模型图片能力识别（Gemini 3.x + azure-foundry）
   │   ├─ PATCH-VERTEX-VIDEO-ROUTING: Gemini 视频 native routing
-  │   ├─ PATCH-VIDEO-SIDECAR: 主力读不了视频时旁路到链上能读的档（全局，不切主 provider）
+  │   ├─ PATCH-MULTIMODAL-SIDECAR: 主力读不了媒体时旁路到链上能读的档（全局，不切主 provider）
   │   ├─ PATCH-LAZY-ACTIVATION: 上游首项依赖身份锚点回归 sentinel（✅ 已归档）
   │   ├─ PATCH-HISTORY-RETENTION: 平台级回放时间窗/条数上界
   │   ├─ PATCH-APPROVAL-DARWIN-TMP: Darwin 临时路径别名归一化
@@ -248,6 +248,7 @@ PATCHED_FILES=(
     "tests/gateway/test_background_command.py"
     "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
+    "tests/gateway/test_telegram_audio_vs_voice.py"
     "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_env_loader.py"
@@ -276,7 +277,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（73 文件，2026-08-15 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（74 文件，2026-08-16 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -310,6 +311,8 @@ cat ~/.hermes/patches/.local-patches.base
 - 配置漂移：官方迁移 **v35 → v37**，按上游明确迁移把 `delegation.max_iterations` **50 → 250**（`50d98fc1f`）、`max_concurrent_children` **3 → 10**（`ce996d405`）；原有 provider/model/compression 链、`browser.backend: 'off'` 及其意图注释保持，YAML 引号噪音已恢复。Doctor 无 deprecated key，主配置 v37；仅上述 P2 npm build-chain 和未配置的可选 provider/toolset 保留提示。
 
 **2026-08-15 模型凭据与选择边界收敛**：`PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION` 启用 profile 严格环境边界，Hermes 不再继承用户 shell / `~/.secrets` 的 DashScope、Gemini 等模型凭据；历史 ambient pool 条目已通过 auth remove + source suppression 清理，`GITHUB_TOKEN` 文件/环境本身保留给 Skills Hub，但不再作为 Copilot 模型入口。`PATCH-MODEL-CONFIGURED-ONLY` 让 `/model` 的展示和 typed switch 都只动态读取 `config.model + fallback_providers`，并统一展开 `${VAR}` / `${env:VAR}` route，禁止链外与 `--global`；具体 provider/model 不写死，未来手工改 config 即自动更新集合。主动把 primary 切到任一 fallback 时，运行时按 backend identity 跳过重复项并至少保留另一条 fallback；compression 的独立 configured provider/model 不随 primary 切换。受管文件 **68 → 73**、活跃 PATCH **34 → 36**；规范回归 **33 files / 1192 passed / 0 failed / 3 skipped**，reconcile exit 0 并完成 Gateway planned restart。
+
+**2026-08-16 多模态 native-first 与 Flash sidecar 收敛**：AWS 官方模型卡与实际 Bedrock wire 证明 Claude Opus 5 支持 Image、不支持 Audio/Video；OpenAI GPT-5.5 为 Text+Image；Google Gemini 3.5 Flash 支持 Text/Image/Audio/Video 及 PDF/text 文件。`PATCH-IMAGE-NATIVE-ROUTING` 新增 Bedrock Claude 3+ inference-profile 能力识别，当前三条 route 图片全部 native。原 `PATCH-VIDEO-SIDECAR` 按同一生命周期扩展并改名 `PATCH-MULTIMODAL-SIDECAR`：普通音频、语音 STT 全失败、非 native 视频、图片 text 档与本地空抽取 PDF 才旁路到链上 capable route，只发送当前媒体 + 4,000 字有界上下文，不切主模型、不重放 transcript、不重复分析；真实 Bedrock 图片（2.3s）、Vertex 音频（2.7s）、PDF（3.8s）与视频（3.3s）canary 全绿。受管文件 **73 → 74**，规范回归 **34 files / 1210 passed / 0 failed / 3 skipped**，reconcile exit 0 并完成 Gateway planned restart。
 
 ---
 
@@ -825,24 +828,25 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-IMAGE-NATIVE-ROUTING] 主力模型图片能力识别与原生路由
 
-| 字段     | 内容                                                                                 |
-| -------- | ------------------------------------------------------------------------------------ |
-| **文件** | `agent/image_routing.py`, `agent/models_dev.py`, `tests/agent/test_image_routing.py` |
-| **状态** | 🟡 未上游合并                                                                        |
+| 字段     | 内容                                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/image_routing.py`, `agent/models_dev.py`, `tests/agent/test_image_routing.py`, `tests/gateway/test_image_input_routing_runtime.py` |
+| **状态** | 🟡 未上游合并                                                                                                                             |
 
-**问题**：`image_input_mode:auto` 只在能力**确认为 True** 时走 native，其余一律 `return "text"`（`image_routing.py` 决策尾部），退回 auxiliary `vision_analyze` 文本预分析。两个不同来源都会让能力"未知"：
+**问题**：`image_input_mode:auto` 只在能力**确认为 True** 时走 native，其余一律 `return "text"`（`image_routing.py` 决策尾部），退回 auxiliary `vision_analyze` 文本预分析。三个不同来源都会让能力"未知"：
 
 - **Vertex**：OpenAI-compatible endpoint 没有可靠 `/models` discovery，模型目录也可能尚未收录 Gemini 3.x preview slug；Vertex-only 安装还没有辅助 vision 凭据，退化后直接失败。
 - **azure-foundry**：`PROVIDER_TO_MODELS_DEV` 缺少该 provider 条目（2026-08-11 定位），`_get_provider_models()` 返回 None → `get_model_capabilities()` 返回 None → **该 provider 下所有模型的全部能力都查不到**（vision/tools/reasoning/limit）。gpt-5.5 因此被判 `image=text`，尽管目录里 `azure.gpt-5.5` 明确是 `modalities.input: [text, image, pdf]`、且实测 Responses API + `input_image` 原生读图正常（5.78s 正确识别）。后果不是失败而是静默绕路：同一模型被调两次（先 `vision_analyze` 生成描述、再拿二手描述回答），细节（小字、坐标、渐变）在中转丢失。
+- **Bedrock Claude**：inference-profile ARN 把真实模型 ID 放在最后一个 `/` 后（如 `global.anthropic.claude-opus-5`），无法映射到 models.dev。Claude Opus 5 官方模型卡明确支持 Image、不支持 Video，本机又以合成红蓝图穿过实际 Bedrock wire 在 2.3s 返回正确结果；但能力未知使 Gateway 先用同一 Opus 做一次文本预分析，主 turn 又再次调用 `vision_analyze`，造成重复读图与长延迟。
 
 **修复**：两个能力来源、一个不变量（主力模型能读图就必须原生读）：
 
-- 窄口径 `_known_provider_model_supports_vision(provider, model)`，仅对标准 Vertex 常见别名和 Gemini 3.x 命名返回 `True`；其他组合继续走 config override、模型目录和原有 probe，不做泛化乐观判断。
+- 窄口径 `_known_provider_model_supports_vision(provider, model)`：标准 Vertex Gemini 3.x，以及 Bedrock Claude 3+ Haiku/Sonnet/Opus 的 foundation ID、geo/global ID 与可解析 inference-profile ARN 返回 `True`；Claude v2、Nova Micro、opaque application-profile 名继续未知/fail-closed。显式 `supports_vision: false` 仍优先覆盖。
 - `PROVIDER_TO_MODELS_DEV` 新增 `"azure-foundry": "azure"`。选 `azure` 而非 `azure-cognitive-services`：前者是后者的严格超集（+14 模型 / -0，gpt-5.x 覆盖一致）。这是**接目录**而非加白名单——一次修复该 provider 全部 82 个模型的 vision/tools/reasoning/limit，且随上游目录自动更新，不需要为每个新模型维护本地清单。上下文长度另有独立静态表（`model_metadata.py` 已含 `gpt-5.5: 1050000`），不受此缺口影响。
 
-**验证**：Step 8b 锁定 known-provider helper、标准 `"vertex"`、Gemini 3.5 Flash slug、`test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry`、`"azure-foundry": "azure"` 映射与 `test_auto_native_for_azure_foundry_gpt55_from_catalog`。回归确认判定不过度泛化：gpt-5.5 / Gemini 3.x → native，纯文本模型继续走 text。
+**验证**：Step 8b 锁定 known-provider helper、标准 `"vertex"`、Gemini 3.5 Flash slug、Bedrock Opus inference-profile 与 Gateway 真实边界测试、`"azure-foundry": "azure"` 映射及 Azure catalog 测试。`test_fallback_chain_models_all_route_images_natively` 证明当前 Azure GPT-5.5 → Bedrock Opus 5 → Vertex Gemini 3.5 Flash 三档图片全部 native；反例证明 Claude v2、opaque profile 与 Nova Micro 不被误开。
 
-**上游吸收判断**：两个单元共享"auto 模式下主力模型图片能力识别"这一责任边界与同一 Step 8b gate，必须一起回滚验收。上游 capability catalog 或 provider profile 同时稳定声明 Vertex Gemini 3.x 与 azure-foundry 的图片能力后可归档；只吸收其中一侧则相应收缩本块而不整体移除。
+**上游吸收判断**：三个单元共享"auto 模式下主力模型图片能力识别"这一责任边界与同一 Step 8b gate，必须一起回滚验收。上游 capability catalog/provider profile 同时稳定声明 Vertex Gemini 3.x、azure-foundry 和 Bedrock inference-profile Claude 3+ 图片能力后可归档；只吸收部分 provider 则相应收缩本块。
 
 ---
 
@@ -863,24 +867,24 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-VIDEO-SIDECAR] 主力模型读不了视频时的旁路读取
+### [PATCH-MULTIMODAL-SIDECAR] 主力模型读不了媒体时的旁路读取
 
-| 字段     | 内容                                                                                                                                                                                               |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/image_routing.py`, `gateway/run.py`, `tools/vision_tools.py`, `tests/agent/test_image_routing.py`, `tests/gateway/test_image_input_routing_runtime.py`, `tests/tools/test_video_analyze.py` |
-| **状态** | 🟡 未上游合并；与 `PATCH-VERTEX-VIDEO-ROUTING` 互补（native 走主力，本补丁走旁路）                                                                                                                 |
+| 字段     | 内容                                                                                                                                                                                                                                                |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/image_routing.py`, `gateway/run.py`, `tools/vision_tools.py`, `tests/agent/test_image_routing.py`, `tests/gateway/test_image_input_routing_runtime.py`, `tests/gateway/test_telegram_audio_vs_voice.py`, `tests/tools/test_video_analyze.py` |
+| **状态** | 🟡 未上游合并；主模型 native 优先，本补丁为图片/音频/视频/PDF 的有界旁路                                                                                                                                                                            |
 
-**问题**：主力从 Vertex 切到 `azure-foundry/gpt-5.5` 后视频彻底读不了。`decide_video_input_mode` 返回 `text` 是**正确**的（gpt-5.5 的 models.dev 输入模态为 `text/image/pdf`，强行内联会整轮失败），但 `text` 档只是注入一个 path note、指望 agent 自己用工具拆帧——而群聊沙箱恰好挡掉了 `search_files`/`tool_search` 等所需工具（Data Pipeline Workshop 2026-08-11 19:20 实测三次工具拒绝、32.7s 空转）。于是出现"链上明明有能读视频的 Vertex 档，却因为它只是 fallback 而用不上"的空洞：native 路径要求**主力**具备视频能力，fallback 只在主力**报错**时才激活，而这里主力不报错。
+**问题**：原 sidecar 只覆盖视频。普通音频附件只留下文件路径，语音 STT 失败后也没有媒体理解兜底；扫描 PDF/空文本 PDF 本地抽取失败后只能让 agent 再调工具；未知/文本型图片主模型还可能让 `vision_analyze:auto` 重新选择当前模型，重复分析。Google 官方 Gemini 3.5 Flash 模型卡实际支持 Text、Image、Audio、Video，并原生接受 `application/pdf`/`text/plain`；当前 Vertex OpenAI-compatible wire 已用合成 440Hz WAV（2.7s）和 ORCHID-42 PDF（3.8s）真调用验证 `image_url` + 对应 `data:` MIME 可用。
 
-**修复**：新增第三条路径——旁路（sidecar）。`pick_video_sidecar_route(cfg)` 按 `get_fallback_chain()` 的既有顺序返回链上第一个能读视频的 `(provider, model)`（复用 `_known_provider_model_supports_video` 白名单，不引入第二套判定）；`_prepare_inbound_message_text` 在 `_vid_mode != "native"` 且仍有视频时调用 `_enrich_message_with_video_sidecar`，把**视频字节 + 本轮 caption/引用上下文**作为一次自包含请求发给该档，返回的文本描述前置进 message_text，主会话（gpt-5.5）照常接管并输出。
+**修复**：把 picker/执行器泛化为 `pick_multimodal_sidecar_route(cfg, kind)` 与 `_enrich_message_with_multimodal_sidecar(..., kind=...)`，按 `get_fallback_chain()` 顺序为 image/audio/video/document 选择真实具备该模态的 route。主模型已确认 native 时不绕路；图片 text 档、普通音频附件、语音 STT 全失败、非 native 视频，以及 PDF/text 本地抽取为空时，才发送**单个媒体字节 + 本轮 caption/引用上下文**。Gemini Flash 支持的 inline MIME 统一使用 `image_url` + `data:<mime>;base64`；14 MB raw 上限、文件读安全守卫、失败保留原 path-note/工具路径。文本与可提取文档继续本地处理，不无条件外发；DOCX/XLSX/PPTX 等模型卡未列的 MIME 不进入 sidecar。
 
-关键取舍——**旁路而非切 provider**：把整轮路由到 Vertex 会把**全量 transcript** 重放给第二个后端，跨 issuer 混用 api_mode 与 reasoning 载荷（azure `codex_responses` 的 `reasoning.encrypted_content` 封在签发端，跨端重放报 400 `invalid_encrypted_content`）。旁路只发一次请求，主模型的会话、身份、工具与历史全部不变；输出以纯文本进入主会话，因此**全局生效**（DM 与所有群同一条链路），无需按群 pin 模型。上下文上界 `_VIDEO_SIDECAR_CONTEXT_MAX_CHARS=4000`（只带 caption+ 引用，绝不带 transcript），超时 `_VIDEO_SIDECAR_TIMEOUT_SECONDS=420`（14 MB 上传 + 多帧分析远超图片默认 120s）。任一视频失败/超 14 MB/文件缺失都**保留原 path-note 降级**，不静默丢弃。
+关键取舍——**旁路而非切 provider**：整轮切到 Vertex 会重放全量 transcript，并可能跨 issuer 携带不可重放的 reasoning 载荷。sidecar 只发一次独立请求，主模型身份、工具、历史和 fallback 状态不变；输出以纯文本进入主会话。上下文统一上限 4,000 字；图片 120s、音频/PDF 180s、视频 420s。语音优先本地 STT，只有全失败才旁路，避免重复计费和双份转写。
 
 附带修复（同一责任边界，故并入本补丁）：`video_analyze_tool` 原先只发 `video_url` content part，而 Vertex OpenAI-compat 端点直接 400 `Unrecognized 'type' field in an object element of an array 'content' field; found: 'video_url'`——agent 自己调 `video_analyze` 在 Vertex 上是**硬失败**。改为捕获该错误后以 `image_url` + `data:video/*;base64` 形状重试一次（Vertex 对所有内联媒体都用这个形状）。不做 per-provider 硬表：DashScope/Qwen-VL 确实要 `video_url`，只有 provider 明确拒绝时才换形状。
 
-**验证**：Step 8b 11 锚点（picker 定义、复用 `get_fallback_chain`、sidecar 方法、**生产接线** `pick_video_sidecar_route(_load_gateway_config())`、上下文上界常量、形状重试、5 个测试名）。`test_prepare_runs_video_sidecar_when_main_model_lacks_video` 穿过真实 `_prepare_inbound_message_text` 断言：Bedrock Opus 5 不被误判为 video provider，继续命中后续标准 `vertex/google/gemini-3.5-flash`；描述入正文、path-note 消失、wire 形状是 `image_url`+`data:video/mp4`、只带 caption + 引用、native buffer 未残留。`test_prepare_keeps_path_note_when_no_link_can_read_video` 断言链上无视频能力时 sidecar 一次都不调用且 path-note 保留。
+**验证**：Step 8b 锁定通用 picker、audio/document 能力、data URL 构造、四类生产接线、上下文上界、视频形状兼容重试及端到端测试。Gateway 回归分别穿过真实 `_prepare_inbound_message_text` 证明：视频→Vertex、普通 WAV→Vertex 且不进 STT、扫描 PDF 本地空结果→Vertex；均断言 `data:video/audio/application-pdf` wire、无全 transcript、成功后不留 path note。无能力 route、超限/不支持 MIME 与本地 STT 成功均保持原行为。
 
-**上游吸收判断**：若上游提供"能力不足时按 capability 自动选辅助后端"的通用机制（即 auxiliary 任务可声明所需模态并自动落到链上具备该模态的档），可归档 picker 与 sidecar 两部分；`video_url`/`image_url` 形状协商若被上游 provider profile 吸收，可单独收缩该 hunk。**隐式合约依赖**：picker 依赖 `hermes_cli.fallback_config.get_fallback_chain` 的返回形状（list[dict] 带 `provider`/`model`）——注意它**只接受 dict/list 条目**，裸字符串 `fallback_model` 返回 `[]`；每轮升级复核该函数签名。
+**上游吸收判断**：若上游提供"能力不足时按 modality/capability 自动选辅助后端"的通用机制，覆盖图片、音频、视频与 PDF/text 文件，且保证 bounded current-turn context、native-first、无 transcript replay、无重复分析，可归档通用 picker/sidecar；provider profile 原生提供媒体 part 形状协商时可单独收缩兼容 hunk。picker 仍依赖 `get_fallback_chain()` 的 list[dict] 契约。
 
 ---
 
@@ -998,7 +1002,7 @@ cat ~/.hermes/patches/.local-patches.base
 4. `plugins/model-providers/vertex/__init__.py`：用同一 `VertexProfile` 类再 `register_provider` 一个 `name="vertex-fallback"` 实例，使 `get_provider_profile("vertex-fallback")` 可解析（fallback 激活后 `_build_request_kwargs` 走 profile 路径拿到单层抑制）。
 5. `hermes_cli/runtime_provider.py`（2026-07-29 补缺口）：网关 fallback 链（`gateway/run.py` `_try_resolve_fallback_provider`）解析条目走 `resolve_runtime_provider(requested=...)` 而**不是** `resolve_provider_client`；其 Vertex 分支只认主账号 5 个别名，`vertex-fallback` 静默落到 generic 尾部解析器，"成功"返回 `provider="openrouter"` + **空 api_key**——网关据此打出误导性的 `Fallback provider resolved: vertex-fallback` 日志并把坏 kwargs 交给 `AIAgent`；init 因空 key 走 router 路径，又因 `openrouter` 在豁免集合（`{auto, openrouter, custom}`）里跳过 explicit fail-fast 与 init-time fallback，最终抛 `No LLM provider configured`，用户在群聊/私聊看到 "Sorry, I encountered an unexpected error"；且链上后续条目（末位的 DashScope 档，NO_PROXY 直连、代理瞬断时本可救场）永远轮不到。修复：在主 vertex 分支之后新增 `("vertex-fallback", "vertex2", "vertex-secondary")` 分支，经 `get_vertex_fallback_config()` 铸 token 返回 `provider="vertex-fallback"`；凭据不可解析时抛类型化 `AuthError`，使 fallback 链前进到下一条目。触发场景：本机代理（127.0.0.1:7897）瞬断时 `oauth2.googleapis.com` token 刷新失败（"No route to host" / SSL EOF，见 `logs/agent.log*`），主 Vertex 解析抛 AuthError 进入 fallback 链。
 
-**归档前适用性（2026-08-11 历史）**：当时 `vertex-fallback` 是链上唯一具备视频能力的档，`PATCH-VIDEO-SIDECAR` 直接依赖它。2026-08-15 已改由标准 `vertex/google/gemini-3.5-flash` 承担同一职责，本段仅保留当时为何继续维护第二账号的背景。
+**归档前适用性（2026-08-11 历史）**：当时 `vertex-fallback` 是链上唯一具备视频能力的档，现 `PATCH-MULTIMODAL-SIDECAR` 的前身 `PATCH-VIDEO-SIDECAR` 直接依赖它。2026-08-15 已改由标准 `vertex/google/gemini-3.5-flash` 承担同一职责，本段仅保留当时为何继续维护第二账号的背景。
 
 归档前配套（历史）：`~/.hermes/.env` 曾使用 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID` 管理第二账号；这些键已于 2026-08-15 从 `.env` 删除。
 

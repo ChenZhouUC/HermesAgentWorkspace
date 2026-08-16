@@ -123,6 +123,7 @@ PATCHED_FILES=(
     "tests/gateway/test_background_command.py"
     "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
+    "tests/gateway/test_telegram_audio_vs_voice.py"
     "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_env_loader.py"
@@ -1569,7 +1570,7 @@ _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _IMAGE_NATIVE_ROUTING_PATCH_OK=false
 _VERTEX_VIDEO_ROUTING_PATCH_OK=false
-_VIDEO_SIDECAR_PATCH_OK=false
+_MULTIMODAL_SIDECAR_PATCH_OK=false
 _HISTORY_RETENTION_PATCH_OK=false
 _APPROVAL_TEMP_CLEANUP_PATCH_OK=false
 _FTS5_CJK_BUILD_PATCH_OK=false
@@ -2422,9 +2423,9 @@ fi
 
 # PATCH-IMAGE-NATIVE-ROUTING: main-model image capability must be recognised so
 # auto mode routes natively instead of degrading to auxiliary text analysis.
-# Two capability sources, one invariant: Vertex Gemini 3.x via the narrow
-# known-provider allowlist (no reliable /models discovery), azure-foundry via
-# the models.dev catalog it was missing a provider mapping for.
+# Three capability sources, one invariant: Vertex Gemini 3.x and Bedrock
+# Claude 3+ inference-profile IDs via narrow known-provider recognition,
+# azure-foundry via the models.dev catalog it was missing a provider mapping for.
 IMAGE_ROUTING_PY="${HERMES_AGENT}/agent/image_routing.py"
 IMAGE_ROUTING_TEST_PY="${HERMES_AGENT}/tests/agent/test_image_routing.py"
 IMAGE_ROUTING_RUNTIME_TEST_PY="${HERMES_AGENT}/tests/gateway/test_image_input_routing_runtime.py"
@@ -2435,9 +2436,12 @@ if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${MODELS_
         grep -q '"vertex"' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'gemini-3.5-flash' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_bedrock_claude_opus_inference_profile_supports_vision' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_fallback_chain_models_all_route_images_natively' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_gateway_bedrock_claude_inference_profile_routes_image_native' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q '"azure-foundry": "azure"' "${MODELS_DEV_PY}" 2>/dev/null &&
         grep -q 'test_auto_native_for_azure_foundry_gpt55_from_catalog' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-IMAGE-NATIVE-ROUTING active: Gemini 3.x + azure-foundry images route natively"
+        ok "PATCH-IMAGE-NATIVE-ROUTING active: Azure GPT + Bedrock Claude + Vertex Gemini images route natively"
         _IMAGE_NATIVE_ROUTING_PATCH_OK=true
     else
         warn "PATCH-IMAGE-NATIVE-ROUTING inactive or partial"
@@ -2468,33 +2472,41 @@ else
     warn "Could not locate PATCH-VERTEX-VIDEO-ROUTING files"
 fi
 
-# PATCH-VIDEO-SIDECAR: when the main model cannot read video, delegate ONLY the
-# video read to the first video-capable link in the fallback chain and inject
-# its description as text — no turn-wide provider switch, no transcript replay.
-# Also carries the video_url→image_url part-shape retry that makes the agent's
-# own video_analyze tool work on Vertex (which 400s on a video_url part).
+# PATCH-MULTIMODAL-SIDECAR: delegate only current-turn image/audio/video/PDF
+# bytes plus bounded caption/quote context to a capable configured route — no
+# turn-wide provider switch or transcript replay. Also carries the
+# video_url→image_url compatibility retry for Vertex video tool calls.
 VISION_TOOLS_PY="${HERMES_AGENT}/tools/vision_tools.py"
 VIDEO_ANALYZE_TEST_PY="${HERMES_AGENT}/tests/tools/test_video_analyze.py"
 if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${VISION_TOOLS_PY}" && -f "${VIDEO_ANALYZE_TEST_PY}" ]]; then
-    if grep -q 'def pick_video_sidecar_route' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+    if grep -q 'def pick_multimodal_sidecar_route' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q 'def _known_provider_model_supports_audio' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
+        grep -q 'def build_multimodal_sidecar_data_url' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'get_fallback_chain' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
-        grep -q '_enrich_message_with_video_sidecar' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '_enrich_message_with_multimodal_sidecar' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'pick_video_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q '_VIDEO_SIDECAR_CONTEXT_MAX_CHARS' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'pick_audio_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'pick_document_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '_MULTIMODAL_SIDECAR_CONTEXT_MAX_CHARS' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q "retrying as 'image_url'" "${VISION_TOOLS_PY}" 2>/dev/null &&
         grep -q 'test_picks_fallback_when_main_model_cannot_read_video' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_none_when_no_link_can_read_video' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_audio_sidecar_follows_chain_to_vertex' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_pdf_sidecar_data_url_uses_pdf_mime' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_runs_video_sidecar_when_main_model_lacks_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_keeps_path_note_when_no_link_can_read_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_prepare_runs_audio_sidecar_for_audio_attachment' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_prepare_runs_pdf_sidecar_when_local_extraction_is_empty' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_audio_attachment_context_note_format' "${HERMES_AGENT}/tests/gateway/test_telegram_audio_vs_voice.py" 2>/dev/null &&
         grep -q 'test_video_url_rejection_retries_as_image_url' "${VIDEO_ANALYZE_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-VIDEO-SIDECAR active: video-capable fallback link describes video in-text"
-        _VIDEO_SIDECAR_PATCH_OK=true
+        ok "PATCH-MULTIMODAL-SIDECAR active: capable route reads image/audio/video/PDF in-text"
+        _MULTIMODAL_SIDECAR_PATCH_OK=true
     else
-        warn "PATCH-VIDEO-SIDECAR inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-VIDEO-SIDECAR]"
+        warn "PATCH-MULTIMODAL-SIDECAR inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-MULTIMODAL-SIDECAR]"
     fi
 else
-    warn "Could not locate PATCH-VIDEO-SIDECAR files"
+    warn "Could not locate PATCH-MULTIMODAL-SIDECAR files"
 fi
 
 # PATCH-HISTORY-RETENTION: replay-history retention window (time + count) for shared group
@@ -2585,7 +2597,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_VIDEO_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
