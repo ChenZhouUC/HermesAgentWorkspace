@@ -110,6 +110,8 @@ compression:
   threshold: 0.7
   threshold_tokens: 700000
   target_ratio: 0.2
+  # Keep the established verbatim-tail semantics; upstream also offers lean.
+  tail_mode: legacy
   protect_last_n: 40
   hygiene_hard_message_limit: 400
   protect_first_n: 3

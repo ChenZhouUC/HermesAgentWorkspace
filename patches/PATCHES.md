@@ -34,11 +34,11 @@
 
 ```
 Transaction: fixed upstream snapshot（PATCH-UPDATE-TRANSACTION-PIN）
-  ├─ `--update`：仅在无未完成事务时允许一次 scoped official fetch
+  ├─ `--update`：新事务执行 scoped official fetch；若 acquisition 从未取得 SHA、状态仍为 pending，可恰好恢复一次同一获取
   ├─ fetch 写专用事务 ref 后立即固定 TARGET_SHA；失败/中断以 0600 状态文件持久化
   ├─ 官方 updater 经临时 Git 代理消费 TARGET_SHA（内置 fetch no-op，origin/main 被替换）
   ├─ 默认/`--reconcile`：只围绕 TARGET_SHA 做本地收敛，禁止网络获取
-  ├─ 未完成事务存在时，即使再次传 `--update` 也只接管固定 SHA
+  ├─ 未完成事务已有 target 时，即使再次传 `--update` 也只接管固定 SHA；无 target 时不得改用 reconcile 伪造完成
   └─ 仅整支脚本 exit 0 删除事务状态；origin/main 后续前进留给下一次用户升级
 
 Step 2: Save & Clean
@@ -96,6 +96,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-FEISHU-SSRF-TEST-SYSPROXY: SSRF rebind 测试对宿主系统代理 hermetic
   │   ├─ PATCH-VERTEX-HIDDEN-THOUGHTS: Vertex thought 文本不进入可见内容
   │   ├─ PATCH-VERTEX-DOCTOR: doctor 识别官方 Vertex profile
+  │   ├─ PATCH-DOCTOR-TEST-NETWORK-ISOLATION: doctor 单测不访问真实网络/宿主命令
   │   ├─ PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY: Gemini fallback 接受其他模型产生的无签名工具历史
   │   ├─ PATCH-LAUNCHD-WRAPPER-SUPERVISOR: launchd stderr wrapper 保留受监管身份
   │   ├─ PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION: 不继承 shell/~/.secrets 的 Hermes 凭据
@@ -298,25 +299,25 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.1 (upstream `main` `45af7a71fcd420b4422d2c074b1ce58b9ce0d048`，2026-08-15)
+## 当前版本：v0.20.1 (upstream `main` `8ad055414bcae75486952c5080d366679e074c1b`，2026-08-16)
 
-**活跃补丁**：当前共 36 个语义补丁。29 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
+**活跃补丁**：当前共 37 个语义补丁。30 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
-**最近一次升级（v0.20.1 → v0.20.1，+663 commits，basis `c896c09c42910c584c4c7d2325b58c14713ea42c` → `45af7a71fcd420b4422d2c074b1ce58b9ce0d048`，2026-08-15）要点**：
+**最近一次升级（v0.20.1 → v0.20.1，+60 commits，basis `45af7a71fcd420b4422d2c074b1ce58b9ce0d048` → `8ad055414bcae75486952c5080d366679e074c1b`，2026-08-16）要点**：
 
-- 上游主线：版本号保持 **v0.20.1**，但 main 前进 663 commits。Updater 增强 stale Git lock / shallow clone / native recovery 自愈（`7fe3bf042` / `ed4f91c4e` / `8f5e5e49a`）；Gateway/cron 加强 scheduled-task owner、stale claim 回收和独立 drain floor（`efdd715f8` / `22e638db7` / `45bb486b2`），after-turn restart 默认由 6h 收窄到 30min（`0c6761c51`）；Auth 新增 `key_cmd` secret source（`6efab2872`）；CLI/Gateway 新增 `/save` / `/export`（`26aa12337` / `23ad35b7f`）；Desktop/session/browser 继续集中修复多实例、多源 agent、未读状态、查找、附件与命名会话路由（`aff19d025` / `b44b99e62` / `c9a806e9`）。
-- patch apply / registry：首次 `--update` 在 66 个旧受管文件上经 3-way 回贴，18/66 个受管路径被新 upstream 修改但无真实冲突；33 个既有活跃 PATCH 逐项核验为 **0 新归档 / 0 新收缩**。真机运行态发现新上游 launchd stderr wrapper 未向真实 Gateway 子进程传 supervisor identity，导致 launchd respawn/refuse 循环和飞书主链路离线；新增 `PATCH-LAUNCHD-WRAPPER-SUPERVISOR`，补生产 argv + 回归 + Step 8b gate，活跃总数变为 **34**、工程内补丁 **27**、受管文件 **68**。注册表按 8 个职责类别重排，所有活跃定义连续置于 Archive 前；误放在 Archive 中的 `PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY` 回归活跃区（仅结构纠正、生命周期未变）。bundle/base/full-index 逐字节、cached 正向、worktree 反向与 index-clean 全闭环；最终 **30 files / 1139 passed / 0 failed / 3 skipped**。
-- 依赖：venv 未重建，Python 3.12.13 / SQLite 3.53.1 保持；20 个 active lazy backend 中 `terminal.modal` 刷新，其余 current。官方 updater 更新 15 个 bundled skills；终态 mirror 为 `+0/~1/-1`，删除项仅孤立 `.bundled_manifest_*.tmp`，runtime metadata 保留。root `npm audit` 仍为 **6 high**：Electron 40.10.2 两条 GHSA + extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 经 sanitize-html/vite 被上游 override/lock 阻挡；doctor 的 web 4 high / ui-tui 3 high 同属 Desktop/web build 链 P2，不影响飞书 gateway，禁止 `--force`。`package-lock.json` 104+/150- 继续作为 npm workspace hoist/位置漂移排除出 replay bundle。
-- 已知摩擦：本轮只执行一次 `--update` 并固定 `TARGET_SHA=45af7a71fcd4`，所有失败接管均为 `--reconcile`、明确 no fetch/pull。原 Step 5 在 patch 还原窗口刷新 plist，会用裸 upstream 定义覆盖补丁终态；现改为前置只快照、Step 8 回贴后再强制验证 definition current + launchd wrapper PID + real Gateway child PID。sandbox verifier 同步区分 wrapper 与 runtime PID，并把 23 项行为回归/注册 trace 绑定真实子进程。最后一次完整 reconcile exit 0、无 `✗`、事务状态清除。
-- 配置漂移：官方迁移 **v35 → v37**，按上游明确迁移把 `delegation.max_iterations` **50 → 250**（`50d98fc1f`）、`max_concurrent_children` **3 → 10**（`ce996d405`）；原有 provider/model/compression 链、`browser.backend: 'off'` 及其意图注释保持，YAML 引号噪音已恢复。Doctor 无 deprecated key，主配置 v37；仅上述 P2 npm build-chain 和未配置的可选 provider/toolset 保留提示。
+- 上游主线：版本号保持 **v0.20.1**，main 前进 60 commits。Compression 新增 `tail_mode`（legacy/lean）、digest/anchor index/region recovery 与 watermark/concurrent-tail 修复（`8fe9025ab` / `7a82457ed` / `c4bbb14e5` / `21d3e6370` / `652f5c2eb` / `406c5daf0`）；Gateway/session 新增 finalize hook 离主循环、durable row id、foreign Codex/Claude session import/resume 与 terminal breadcrumbs（`763b10c32` / `2e9dcb7c5` / `04c61f294` / `d6f02e349`）；hooks 增加 `pre_tool_call modify` 与共享 fail-closed approve（`d083b8559` / `20fcc11a0`）；computer-use/browser target/auth 边界、MCP OAuth DCR secret 和 Desktop Skills/session UI 继续演进（`48dd9c87c` / `20cf326bd` / `9975180a5` / `d5773bfc3`）；terminal 新增管道 build/test 失败掩盖提示（`8ad055414`）。
+- patch apply / registry：74-file bundle 在新基线上 **clean apply**；upstream 仅触及 5 个受管文件（`prompt_builder`、`gateway/run`、`gateway/slash_commands`、`env_loader`、configuration docs），逐项均与本地不变量正交，36 个既有 PATCH 判定 **0 新吸收 / 0 新归档 / 0 新收缩**。规范 runner 首轮暴露 `test_doctor.py` 真实网络导致 300s kill/121s retry，新建 `PATCH-DOCTOR-TEST-NETWORK-ISOLATION`，活跃变为 **37**、工程内 **30**；全文件降至 13.7s，最终 **34 files / 1219 passed / 0 failed / 3 skipped**，无 FLAKY。bundle/base/full-index、cached 正向、worktree 反向与 index-clean 全闭环。
+- 依赖：venv 未重建，Python 3.12.13 / SQLite 3.53.1 保持；20 个 active lazy backend 全部 current。官方 updater 更新 16 个 bundled skills，终态 mirror `+0/~1/-0`（llm-wiki 固定振荡，runtime metadata 保留）。root `npm audit` 仍为 **6 high**：Electron 40.10.2 两条 GHSA + extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 被上游 override/lock 阻挡；doctor 的 web 4 high / ui-tui 3 high 同属 Desktop/web build 链 P2，不影响飞书 gateway，禁止 `--force`。`package-lock.json` 仅 workspace hoist/位置归一化，继续排除出 replay bundle。
+- 已知摩擦：首次 HTTPS acquisition 3 次 transport retry 均超时，事务安全停在 `phase=acquiring / target_sha=pending` 并恢复补丁；GitHub SSH 443 认证正常，按脚本 recovery clause 用进程级 `insteadOf` 接管同一 acquisition，固定 `TARGET_SHA=8ad055414bca`，remote 未改且交互遗留 `.skip_upstream_prompt` 已删除。由此修订 playbook：只有从未取得 SHA 的 pending acquisition 可再用一次恢复性 `--update`，target 一旦存在后续全部 `--reconcile`。最终 reconcile exit 0、无 `✗`、事务状态清除。
+- 配置漂移：主配置仍为 v37，无 deprecated key；上游新增 `compression.tail_mode`，本机显式设为 `legacy` 保持既有 verbatim-tail 语义，不自动切换到 lean。Azure → Bedrock → Vertex fallback、Vertex compression、统一 700k threshold、`browser.backend: 'off'` 与 Feishu 能力边界保持；仅上述 P2 npm build-chain 和未配置的可选 provider/toolset 保留提示。
 
 **2026-08-15 模型凭据与选择边界收敛**：`PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION` 启用 profile 严格环境边界，Hermes 不再继承用户 shell / `~/.secrets` 的 DashScope、Gemini 等模型凭据；历史 ambient pool 条目已通过 auth remove + source suppression 清理，`GITHUB_TOKEN` 文件/环境本身保留给 Skills Hub，但不再作为 Copilot 模型入口。`PATCH-MODEL-CONFIGURED-ONLY` 让 `/model` 的展示和 typed switch 都只动态读取 `config.model + fallback_providers`，并统一展开 `${VAR}` / `${env:VAR}` route，禁止链外与 `--global`；具体 provider/model 不写死，未来手工改 config 即自动更新集合。主动把 primary 切到任一 fallback 时，运行时按 backend identity 跳过重复项并至少保留另一条 fallback；compression 的独立 configured provider/model 不随 primary 切换。受管文件 **68 → 73**、活跃 PATCH **34 → 36**；规范回归 **33 files / 1192 passed / 0 failed / 3 skipped**，reconcile exit 0 并完成 Gateway planned restart。
 
-**2026-08-16 多模态 native-first 与 Flash sidecar 收敛**：AWS 官方模型卡与实际 Bedrock wire 证明 Claude Opus 5 支持 Image、不支持 Audio/Video；OpenAI GPT-5.5 为 Text+Image；Google Gemini 3.5 Flash 支持 Text/Image/Audio/Video 及 PDF/text 文件。`PATCH-IMAGE-NATIVE-ROUTING` 新增 Bedrock Claude 3+ inference-profile 能力识别，当前三条 route 图片全部 native。原 `PATCH-VIDEO-SIDECAR` 按同一生命周期扩展并改名 `PATCH-MULTIMODAL-SIDECAR`：普通音频、语音 STT 全失败、非 native 视频、图片 text 档与本地空抽取 PDF 才旁路到链上 capable route，只发送当前媒体 + 4,000 字有界上下文，不切主模型、不重放 transcript、不重复分析；真实 Bedrock 图片（2.3s）、Vertex 音频（2.7s）、PDF（3.8s）与视频（3.3s）canary 全绿。受管文件 **73 → 74**，规范回归最终 **34 files / 1218 passed / 0 failed / 3 skipped**，reconcile exit 0 并完成 Gateway planned restart。
+**2026-08-16 多模态 native-first 与 Flash sidecar 收敛**：AWS 官方模型卡与实际 Bedrock wire 证明 Claude Opus 5 支持 Image、不支持 Audio/Video；OpenAI GPT-5.5 为 Text+Image；Google Gemini 3.5 Flash 支持 Text/Image/Audio/Video 及 PDF/text 文件。`PATCH-IMAGE-NATIVE-ROUTING` 新增 Bedrock Claude 3+ inference-profile 能力识别，当前三条 route 图片全部 native。原 `PATCH-VIDEO-SIDECAR` 按同一生命周期扩展并改名 `PATCH-MULTIMODAL-SIDECAR`：普通音频、语音 STT 全失败、非 native 视频、图片 text 档与本地空抽取 PDF 才旁路到链上 capable route，只发送当前媒体 + 4,000 字有界上下文，不切主模型、不重放 transcript、不重复分析；真实 Bedrock 图片（2.3s）、Vertex 音频（2.7s）、PDF（3.8s）与视频（3.3s）canary 全绿。受管文件 **73 → 74**，规范回归最终 **34 files / 1219 passed / 0 failed / 3 skipped**，reconcile exit 0 并完成 Gateway planned restart。
 
-**2026-08-16 群聊工具、文件与沙箱全面审计**：真实 dispatcher 证明 web、wiki read/search、3 个只读 skill 与 deferred `group_cache` 可执行；修复 `clarify` toolset/hook 漂移，并明确群聊不暴露 `vision_analyze` / `image_generate`，多模态由入站链处理。`PATCH-FEISHU-GROUP-SANDBOX` 新增群优先 allowlist、当前消息/显式引用资源 provenance、可信文档 mutation 用户、handler 双层校验、search 默认 wiki 路径及 `post_tool_call` 精确本轮 web cache artifact grant；历史回填不授权、其他群/全局 cache/任意 bot 可读文档继续 fail closed。Feishu adapter 矩阵新增群音频与群 Drive/PDF，Gateway group consumer 覆盖图片 native、音视频 sidecar 与 PDF/HTML/TXT/DOCX/XLSX/PPTX/ODT；插件 **32 passed**，规范回归最终 **34 files / 1218 passed / 0 failed / 3 skipped**。
+**2026-08-16 群聊工具、文件与沙箱全面审计**：真实 dispatcher 证明 web、wiki read/search、3 个只读 skill 与 deferred `group_cache` 可执行；修复 `clarify` toolset/hook 漂移，并明确群聊不暴露 `vision_analyze` / `image_generate`，多模态由入站链处理。`PATCH-FEISHU-GROUP-SANDBOX` 新增群优先 allowlist、当前消息/显式引用资源 provenance、可信文档 mutation 用户、handler 双层校验、search 默认 wiki 路径及 `post_tool_call` 精确本轮 web cache artifact grant；历史回填不授权、其他群/全局 cache/任意 bot 可读文档继续 fail closed。Feishu adapter 矩阵新增群音频与群 Drive/PDF，Gateway group consumer 覆盖图片 native、音视频 sidecar 与 PDF/HTML/TXT/DOCX/XLSX/PPTX/ODT；插件 **32 passed**，规范回归最终 **34 files / 1219 passed / 0 failed / 3 skipped**。
 
-**2026-08-16 附件内容交付与 path-free 收敛**：真实 `Data Pipeline Workshop` PDF turn 证明文本已抽取却仍因绝对 cache path 诱发一次被群沙箱拒绝的 `read_file`。本轮在既有三个生命周期内收敛：`PATCH-FEISHU-RESOURCE-ACCESS` 将独立附件回填扩到 audio，窗口/消息/文件/超时改为配置化 300s/3/6/8s，引用文本不再预下载资源或写路径；`PATCH-DOCUMENT-EXTRACTION` 成功/失败提示 path-free，并用逐页 coverage 触发混合扫描 PDF 视觉补读；`PATCH-MULTIMODAL-SIDECAR` 的 native/sidecar 成功不再外显路径、provider/model/ARN，全部 reader 失败统一给明确 `FAILED` 状态。新增主私聊/群聊、audio 回填、重复下载反例、混合 PDF 与超限媒体回归；受管集合仍为 **74 files / 34 tests / 36 active PATCHES**，规范回归 **1218 passed / 0 failed / 3 skipped**，sandbox **32 passed**。
+**2026-08-16 附件内容交付与 path-free 收敛**：真实 `Data Pipeline Workshop` PDF turn 证明文本已抽取却仍因绝对 cache path 诱发一次被群沙箱拒绝的 `read_file`。本轮在既有三个生命周期内收敛：`PATCH-FEISHU-RESOURCE-ACCESS` 将独立附件回填扩到 audio，窗口/消息/文件/超时改为配置化 300s/3/6/8s，引用文本不再预下载资源或写路径；`PATCH-DOCUMENT-EXTRACTION` 成功/失败提示 path-free，并用逐页 coverage 触发混合扫描 PDF 视觉补读；`PATCH-MULTIMODAL-SIDECAR` 的 native/sidecar 成功不再外显路径、provider/model/ARN，全部 reader 失败统一给明确 `FAILED` 状态。新增主私聊/群聊、audio 回填、重复下载反例、混合 PDF 与超限媒体回归；受管集合仍为 **74 files / 34 tests**，最终 **37 active PATCHES / 1219 passed / 0 failed / 3 skipped**，sandbox **32 passed**。
 
 ---
 
@@ -812,6 +813,23 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：Step 8b grep `hermes_cli/doctor.py` 中存在 `_get_provider_profile`、`GOOGLE_APPLICATION_CREDENTIALS`、`"vertex"` 与 `AZURE_FOUNDRY_API_KEY`，并 grep `tests/hermes_cli/test_doctor.py` 中存在 `test_run_doctor_accepts_vertex_provider_and_google_model_slugs`（parametrize 覆盖 `vertex` / `google-vertex`）与 `test_detects_vertex_region_the_adapter_actually_reads`。实际 `hermes doctor` 必须同时识别 Azure、Bedrock 与标准 Vertex，不得再依赖已移除的 DashScope/Gemini key 偶然通过。
 
 **上游吸收判断**：若上游 doctor 原生读取 model-provider plugin registry，或官方 registry/catalog 把 `vertex` 与其 `google/*` OpenAI-compatible 模型名纳入健康检查策略，可归档本补丁。
+
+---
+
+### [PATCH-DOCTOR-TEST-NETWORK-ISOLATION] Doctor 配置测试不访问真实网络
+
+| 字段     | 内容                                 |
+| -------- | ------------------------------------ |
+| **文件** | `tests/hermes_cli/test_doctor.py`    |
+| **状态** | 🟡 未上游合并；测试 hermeticity 补丁 |
+
+**问题**：`tests/hermes_cli/test_doctor.py` 的多数用例只验证配置、展示或单个 provider 分支，却会完整穿过宿主命令、npm audit 和 31 路 API Connectivity。`TestDoctorStaleMaxIterationsDrift` 还误以为 Tool Availability 阶段的 `SystemExit` 能短路网络，但该 section 实际更晚；同一 pytest 进程里由 `.env`、用户凭据或前序用例留下的 provider 状态因此触发真实 HTTP/SDK 探测。2026-08-16 升级到 `8ad055414` 后，规范 runner 首轮在 300 秒预算耗尽被杀，重试仍耗时 121 秒才通过，形成“0 failed 但有 flaky file”的不可接受终态。
+
+**修复**：新增 file-local autouse fixture，为未显式 mock 的 `subprocess.run` / `httpx.get` 提供立即返回的中性结果，并默认关闭 ambient OpenRouter、Anthropic、Bedrock 探测；专门测试网络/gh/subprocess 行为的用例在 fixture 之后安装自己的 fake，仍走原断言。`TestDoctorStaleMaxIterationsDrift` 再额外清空 provider cache，保证写入的 fake `.env` 不会扩大 probe 列表。生产 doctor 零改动，所有真实分支顺序和配置解析保持。
+
+**验证**：`test_drift_check_does_not_run_connectivity_probes` 把 `httpx.get` 改成调用即失败；规范 runner 中全文件 **57 passed / 13.7s**（修复前 121s，首轮曾 >300s），且专门的 Kimi/DashScope/OAuth/gh mock 用例继续通过。规范 runner 必须连续完成该文件且不出现 per-file kill / retry / FLAKY 标记。Step 8b 同时锚定 autouse fixture、负例测试名、provider cache 清空和禁止 HTTP 的断言文本，任一丢失都阻断 bundle 刷新。
+
+**上游吸收判断**：上游为 doctor 单测提供等价的 file-wide hermetic fixture，或为 `run_doctor` 提供 section-scoped no-network/no-system-I/O 入口，并保留网络调用即失败的反例后可归档；仅提高 per-file 超时或依赖重试不算吸收。
 
 ---
 

@@ -152,6 +152,7 @@ _hermes() {
                 computer-use)
                     local -a computer_use_cmds
                     computer_use_cmds=(
+                    'browser-approve:Mint a single-use token authorizing browser attachment for o'
                     'doctor:Run cua-driver `health_report` and surface the check matrix'
                     'install:Install or repair the cua-driver binary (macOS/Windows/Linux'
                     'permissions:Check or grant macOS Accessibility + Screen Recording (macOS'
@@ -527,6 +528,7 @@ _hermes() {
                     'clean-markers:Permanently clear stale tool-call marker content left by ses'
                     'delete:Delete a specific session'
                     'export:Export sessions to JSONL, Markdown, or QMD'
+                    'import:Import a Claude Code or Codex CLI session into Hermes'
                     'list:List recent sessions'
                     'optimize:Reclaim disk space: merge FTS5 segments + VACUUM (no data ch'
                     'optimize-storage:Migrate the search index to the compact v23 layout (reclaims'

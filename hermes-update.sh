@@ -66,7 +66,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.1 / main 45af7a71fcd420b4422d2c074b1ce58b9ce0d048, `hermes completion zsh` already emits the
+# As of v0.20.1 / main 8ad055414bcae75486952c5080d366679e074c1b, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -1568,6 +1568,7 @@ _FEISHU_MARKDOWN_PATCH_OK=false
 _FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
+_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK=false
 _IMAGE_NATIVE_ROUTING_PATCH_OK=false
 _VERTEX_VIDEO_ROUTING_PATCH_OK=false
 _MULTIMODAL_SIDECAR_PATCH_OK=false
@@ -2434,6 +2435,25 @@ else
     warn "Could not locate PATCH-VERTEX-DOCTOR files"
 fi
 
+# PATCH-DOCTOR-TEST-NETWORK-ISOLATION: doctor unit tests must not inherit host
+# network/provider/package-tool state. A file-local autouse fixture supplies
+# immediate neutral IO defaults; branch-specific tests replace them with their
+# own fakes, and config-drift tests additionally empty the provider cache.
+if [[ -f "${DOCTOR_TEST_PY}" ]]; then
+    if grep -q 'def _doctor_test_external_io_isolation' "${DOCTOR_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_drift_check_does_not_run_connectivity_probes' "${DOCTOR_TEST_PY}" 2>/dev/null &&
+        grep -q 'monkeypatch.setattr(doctor_mod, "_APIKEY_PROVIDERS_CACHE", \[\])' "${DOCTOR_TEST_PY}" 2>/dev/null &&
+        grep -q 'config drift tests must not perform HTTP probes' "${DOCTOR_TEST_PY}" 2>/dev/null; then
+        ok "Doctor config-test network isolation patch: active (no real connectivity probes)"
+        _DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK=true
+    else
+        warn "Doctor config-test network isolation patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-DOCTOR-TEST-NETWORK-ISOLATION]"
+    fi
+else
+    warn "Could not locate PATCH-DOCTOR-TEST-NETWORK-ISOLATION file"
+fi
+
 # PATCH-IMAGE-NATIVE-ROUTING: main-model image capability must be recognised so
 # auto mode routes natively instead of degrading to auxiliary text analysis.
 # Three capability sources, one invariant: Vertex Gemini 3.x and Bedrock
@@ -2614,7 +2634,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
