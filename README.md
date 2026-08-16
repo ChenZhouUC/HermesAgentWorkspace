@@ -72,7 +72,7 @@
 | `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用）         |
 | `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）               |
 | `hermes-update.sh`           | 一键更新脚本（入库，随版本变更同步维护）                 |
-| `scripts/`                   | Vertex token 刷新、Logi watchdog 等 LaunchAgent 助手脚本 |
+| `scripts/`                   | 日报/组织同步、代理注入、Logi watchdog、Wiki lint 等脚本 |
 | `SOUL.md`                    | Agent 人格与语气配置                                     |
 | `README.md`                  | 本文档                                                   |
 
@@ -90,7 +90,7 @@
 ├── credentials/           # service-account JSON 等本地凭据（.gitignore 排除）
 ├── config.yaml            # 主配置（入库）
 ├── SOUL.md                # Agent 人格（入库）
-├── scripts/               # Vertex token 刷新 / Logi watchdog 等 LaunchAgent 助手脚本（入库）
+├── scripts/               # 日报/组织同步、代理注入、Logi watchdog、Wiki lint 等脚本（入库）
 ├── completions/
 │   └── _hermes            # zsh 补全脚本（#compdef 格式，fpath 加载）
 ├── memories/
@@ -244,7 +244,7 @@ hermes claw migrate
 > **已知 Bug（截至 v0.9.0）**：`hermes claw migrate` 对 `.env` 的写入有三处问题，迁移完成后**必须**手动校对：
 >
 > 1. `GOOGLE_API_KEY=${GEMINI_API_KEY}` — dotenv 不展开变量，需替换为实际 key 值
-> 2. `BAILIAN_API_KEY=${BAILIAN_API_KEY}` — 自循环引用，需替换为实际 key 值（注：当前配置已改用内置 `alibaba` provider，`BAILIAN_API_KEY` 不再需要，仅迁移时需注意）
+> 2. `BAILIAN_API_KEY=${BAILIAN_API_KEY}` — 自循环引用，需替换为实际 key 值（当前配置已不使用 Bailian/Alibaba provider；该变量仅在迁移旧配置时需要辨认和清理）
 
 **飞书迁移**（迁移工具不支持，需手动配置）：
 
@@ -319,7 +319,7 @@ ln -sf ~/.hermes/hermes-agent/venv/bin/hermes ~/.local/bin/hermes
 
 `PYTHON_VERSION` 不写死，按当前 `pyproject.toml` 的约束和本机已安装版本选择即可。2026-05-20 这次新机恢复使用的是本机 `pyenv` 的 `3.12.7`，满足当时上游 `requires-python = ">=3.11"`。
 
-如果使用官方 Vertex Provider，先确认 `.env` 里有服务账号 JSON 路径，且 `config.yaml` 使用 `provider: vertex`：
+如果使用官方 Vertex Provider，先确认 `.env` 里有服务账号 JSON 路径，且 `config.yaml` 的主模型、fallback 或 auxiliary 路由中存在 `provider: vertex`：
 
 ```bash
 rg '^(GOOGLE_APPLICATION_CREDENTIALS|VERTEX_CREDENTIALS_PATH)=' ~/.hermes/.env
@@ -485,7 +485,7 @@ Feishu 群里独立附件消息本身不能携带 @Hermes，因此当前配置�
 | `agent.reasoning_effort`                                  | high                    | 主 agent 推理强度（none/low/medium/high/xhigh）                            |
 | `agent.reasoning_overrides.gemini-3.5-flash`              | high                    | 末级 Flash fallback 使用高思考，与压缩模型保持一致                         |
 | `delegation.reasoning_effort`                             | high                    | 子 agent / orchestrator 推理强度（空字符串表示继承主 agent）               |
-| `display.personality`                                     | kawaii                  | 显示风格                                                                   |
+| `display.personality`                                     | none（配置为空）        | 显示风格；如需恢复可在会话中执行 `/personality kawaii`                     |
 | `display.show_reasoning`                                  | false                   | 是否在 TUI / 飞书等前端展示 reasoning 内容（依赖模型返回 reasoning）       |
 | `display.streaming`                                       | true                    | 控制 **CLI/TUI 终端**逐 token 流式（仅终端，不影响平台前端）               |
 | `streaming.enabled`                                       | false                   | 控制**飞书等 IM 前端**逐 token edit 流式；当前关闭，避免 markdown 渲染失真 |
@@ -531,9 +531,11 @@ Hermes 有**两套独立的流式机制**，配置项分别落在不同的 names
 
 **为什么飞书流式当前关闭**：
 
-飞书 token 流式开启后会出现 markdown 渲染失真——根因是 `gateway/platforms/feishu.py` 的 `_build_outbound_payload()` 每次 edit 重新探测 markdown 痕迹（`_MARKDOWN_HINT_RE` 要求 `**bold**`、`1.`、` ``` ` 等成对/完整出现），但流式中间帧的 buffer 经常处在"半开"状态（如 `**Hel`、` ` ``hello `），探测失败 → 走 plain text → 飞书 `update_message` 不能切换 msg_type → 后续 edit 全部锁死成 text → 用户看到 markdown 原文。
+飞书 token 流式开启后会出现 markdown 渲染失真——根因是 `hermes-agent/plugins/platforms/feishu/adapter.py` 的 `_build_outbound_payload()` 每次 edit 重新探测 markdown 痕迹（`_MARKDOWN_HINT_RE` 要求 `**bold**`、`1.`、` ``` ` 等成对/完整出现），但流式中间帧的 buffer 经常处在"半开"状态（如 `**Hel`、` ` ``hello `），探测失败 → 走 plain text → 飞书 `update_message` 不能切换 msg_type → 后续 edit 全部锁死成 text → 用户看到 markdown 原文。
 
 要重新开启流式且不丢格式，需要本地 patch（暂未实现）：让 `edit_message` 路径强制 `msg_type=post`，绕过 buffer-stage detection。在该 patch 落地前，飞书侧维持非流式整段输出，保留加粗/序号/列表渲染。
+
+<a id="vertex-provider"></a>
 
 ### Vertex Provider（末级 fallback、压缩与多模态旁路）
 
@@ -861,7 +863,7 @@ bash ~/.hermes/plugins/sandbox/verify.sh
 ### 为什么放在 Hermes 配置仓库
 
 - 触发场景（Amphetamine session）都是为 Hermes 工作开的，与 Hermes 使用习惯绑定
-- `scripts/` 下已有 vertex 系列双 LaunchAgent 模式（refresh + wake），命名空间 / 日志路径 / install 模式可直接复用
+- `scripts/` 已有 launchd 辅助脚本与安装器，可复用相同的命名空间、日志路径和幂等安装模式
 - 这两个 LaunchAgent 都是 OS 服务，生命周期独立于 Hermes 进程（Hermes 不在时也照常工作）
 
 ### 安装
@@ -1039,7 +1041,7 @@ bash ~/.hermes/hermes-update.sh --reconcile
 | 5    | Gateway plist 前置快照                    | patch 尚未回贴时只记录 plist 是否 stale/loaded，不在裸 upstream 窗口改写定义；权威刷新延后到 Step 8                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | 6    | Gateway 运行态前置检查                    | 若此时未运行也暂缓启动，避免用未回贴的 `gateway.py` 生成最终 service command；Step 8 回贴后统一恢复                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | 7    | `hermes completion zsh`                   | 重新生成 zsh 补全脚本；若上游回滚到坏的 `_arguments` 语法则自动重新应用 PATCH-ZSH-COMPLETION-SYNTAX（v0.13.0 起上游已修复 commit `fe61d95b4`，detection 块作为回归 sentinel 保留），随后清除 zcompdump 缓存                                                                                                                                                                                                                                                                                                                       |
-| 8    | **Re-apply & verify patches**             | 原子回放 `patches/local-patches.diff`（3-way 成功后自动清 staged index），再按 `PATCHES.md` 中每个语义补丁分别验证 gate；68/68 live diff 覆盖、full-index 逐字节一致、cached 正向、worktree 反向和 index-clean 全部通过后才刷新 replay bundle/base。回贴后再用最终 `gateway.py` 验证/刷新 plist，必须同时得到 current definition、launchd wrapper PID 与真实 Gateway 子进程；Step 8d 仅在事务 `runtime_dirty=1` 时排空重启并要求 PID 替换，无变化 reconcile 不制造 PID。`llm-wiki` 随后同步到 runtime mirror 并重建 manifest 基线 |
+| 8    | **Re-apply & verify patches**             | 原子回放 `patches/local-patches.diff`（3-way 成功后自动清 staged index），再按 `PATCHES.md` 中每个语义补丁分别验证 gate；74/74 live diff 覆盖、full-index 逐字节一致、cached 正向、worktree 反向和 index-clean 全部通过后才刷新 replay bundle/base。回贴后再用最终 `gateway.py` 验证/刷新 plist，必须同时得到 current definition、launchd wrapper PID 与真实 Gateway 子进程；Step 8d 仅在事务 `runtime_dirty=1` 时排空重启并要求 PID 替换，无变化 reconcile 不制造 PID。`llm-wiki` 随后同步到 runtime mirror 并重建 manifest 基线 |
 | 8e   | **Verify user plugins**                   | 强制验证 `PATCH-FEISHU-GROUP-SANDBOX` 等配置仓库用户插件：verifier 必须存在且可执行；结构化检查 YAML/固定脚本，真实解析 owner/group toolset，运行行为测试；launchd wrapper 健康由 status 证明，插件注册 trace 绑定 `gateway.status.get_running_pid()` 返回的真实 Gateway 子进程 PID。任一失败令整次升级非零退出                                                                                                                                                                                                                   |
 | 9    | `hermes doctor` + `hermes gateway status` | 验证更新结果；若 gateway 因 update / post-patch restart 处于未加载状态，脚本会自动补一次最终恢复（`install --force` / `start`）后再判定                                                                                                                                                                                                                                                                                                                                                                                           |
 
@@ -1133,7 +1135,7 @@ hermes --continue "session-name"
 hermes --resume SESSION_ID
 
 # 预加载特定 Skill
-hermes --skills devops
+hermes --skills network-diagnostics
 
 # 跳过所有危险命令确认（谨慎使用）
 hermes --yolo
@@ -1156,8 +1158,8 @@ hermes --yolo
 
 ```bash
 hermes sessions list         # 列出所有历史会话
-hermes sessions rename ID    # 重命名会话
-hermes sessions export ID    # 导出会话
+hermes sessions rename ID "新标题"                                # 重命名会话
+hermes sessions export --session-id ID --format md session-export # 导出指定会话
 hermes sessions delete ID    # 删除会话
 hermes sessions prune        # 清理旧会话
 ```
@@ -1167,34 +1169,34 @@ hermes sessions prune        # 清理旧会话
 ### 模型选择
 
 ```bash
-hermes model                 # 交互式选择默认 provider 和模型（TUI 选择器）
-hermes model list            # 列出可用模型
+hermes model                          # 交互式选择默认 provider 和模型（TUI 选择器）
+hermes config get model               # 查看当前主模型
+hermes config get fallback_providers  # 查看当前 fallback 链
 ```
 
 **会话内切换**：
 
-| 命令                            | 说明                       |
-| ------------------------------- | -------------------------- |
-| `/model gemini-3.1-pro-preview` | 临时切换（仅当前会话）     |
-| `/model qwen3-max --global`     | 切换并持久化到 config.yaml |
+| 命令                                               | 说明                                 |
+| -------------------------------------------------- | ------------------------------------ |
+| `/model`                                           | 展示当前配置允许的三条 route         |
+| `/model gpt-5.5 --provider azure-foundry`          | 当前会话切回默认主模型               |
+| `/model google/gemini-3.5-flash --provider vertex` | 当前会话切到配置中的 Vertex fallback |
 
-**通过 `hermes config set` 切换**（脚本化 / 非交互式）：
+当前启用了 `model_catalog.configured_only: true`：会话内 `/model` 只能在 `config.model + fallback_providers` 构成的集合中切换，且 `/model --global` 会被拒绝。需要改变允许集合或以后新会话的默认模型时，显式编辑配置：
 
 ```bash
-# 切换主模型
-hermes config set model.provider alibaba
-hermes config set model.default qwen3-max
-
-# 切换 fallback 模型
-hermes config set fallback_model.provider gemini
-hermes config set fallback_model.model gemini-3.1-pro-preview
+hermes config edit
+hermes config get model
+hermes config get fallback_providers
 ```
 
-**直接编辑配置文件**：`hermes config edit`（用 `$EDITOR` 打开 config.yaml）。
+修改顶层 `model` / `fallback_providers` 后重启 Gateway，使飞书等后台新会话使用新配置。旧的单项 `fallback_model` 仅用于兼容迁移，不应再作为当前配置入口：
 
-> 💡 **fallback_model** 的配置说明见上方 [config.yaml 主配置](#configyaml-主配置) 节。
+```bash
+hermes gateway restart
+```
 
-> ⚠️ **Thinking 模型注意**：`gemini-3.1-pro-preview` 等 thinking 模型在会话内通过 `/model` 切换后，thinking 标签可能污染上下文，引发 400 级联错误。
+> Vertex thinking、跨 provider 工具历史与隐藏 thought 文本的当前边界见上方 [Thinking / Reasoning 配置](#thinking--reasoning-配置) 与 [Vertex Provider](#vertex-provider)。
 
 ### Skills 技能包
 
@@ -1217,9 +1219,9 @@ Skills 是 Hermes 的知识/工具扩展模块，按需加载，不常驻 contex
 自定义 skill 存放于 `~/.hermes/my-skills/`（通过 `external_dirs` 注册），不在 `skills/` 目录下，因此镜像同步**不会触及**自定义 skill。
 
 ```bash
-hermes skills list            # 列出 Skills Hub 可用的 skills
-hermes skills install devops  # 手动安装指定 skill（首次或删后恢复）
-hermes skills update          # 强制刷新全部 skills
+hermes skills list                # 列出当前已安装的 builtin / local / hub skills
+hermes skills install SKILL_NAME  # 从已配置 registry 安装指定 skill
+hermes skills update              # 强制刷新全部 hub skills
 ```
 
 #### 自定义 Skills
@@ -1232,14 +1234,18 @@ skills:
     - ~/.hermes/my-skills
 ```
 
-当前自定义 skills：
+当前共有 16 个 local skills；以 `hermes skills list` 和 `my-skills/*/*/SKILL.md` 为权威来源：
 
-| Skill                   | 分类                 | 说明                                                              |
-| ----------------------- | -------------------- | ----------------------------------------------------------------- |
-| `feishu-docs`           | productivity         | 飞书文档读取（Bot API 绕过登录墙）与创建（Import API + 权限管理） |
-| `hacker-news`           | feeds                | 通过 Firebase API 抓取 HN 技术新闻（绕过 CAPTCHA）                |
-| `memory-management`     | —                    | 记忆工具报错处理指南（容量超限、状态异常等）                      |
-| `agentic-demo-pipeline` | software-development | Codex + Copilot 双 Agent 自动化 Demo 开发流水线（调研→代码→文档） |
+| 分类                 | 当前 local skills                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| autonomous-ai-agents | `custom-skill-governance`, `hermes-agent-meta-ops`                                                                             |
+| creative             | `character-voices`, `vector-graphics`                                                                                          |
+| database             | `postgres-manager`                                                                                                             |
+| devops               | `network-diagnostics`, `system-hardware-diagnostics`                                                                           |
+| media                | `video-analysis`                                                                                                               |
+| productivity         | `educational-doc-writing`, `excel-processing`, `feishu-docs`, `feishu-groups`, `feishu-people-search`, `technical-translation` |
+| red-teaming          | `agent-reconnaissance`                                                                                                         |
+| research             | `wiki-content-extraction`                                                                                                      |
 
 新增自定义 skill：在 `~/.hermes/my-skills/` 下创建目录，写 `SKILL.md`；随主仓库提交即可生效（无需重启）。
 
@@ -1273,8 +1279,8 @@ skills:
 ```bash
 hermes cron list             # 列出所有定时任务
 hermes cron create           # 创建新任务（交互式）
-hermes cron enable JOB_ID    # 启用任务
-hermes cron disable JOB_ID   # 禁用任务
+hermes cron resume JOB_ID    # 恢复任务
+hermes cron pause JOB_ID     # 暂停任务
 hermes cron delete JOB_ID    # 删除任务
 hermes cron run JOB_ID       # 立即执行一次
 ```
@@ -1414,14 +1420,14 @@ Agent 可以主动搜索历史会话（使用 `session_search` 工具），用�
 
 除记忆文件外，Hermes 按用途提供其他知识存储方式：
 
-| 类型         | 存放位置                         | 加载时机                  | 适合内容                             |
-| ------------ | -------------------------------- | ------------------------- | ------------------------------------ |
-| 持久记忆     | `memories/MEMORY.md` + `USER.md` | 每次会话自动注入          | 高频偏好、环境事实                   |
-| **LLM Wiki** | `~/.hermes/wiki/`（可自定义）    | 按需检索，Agent 主动查询  | **长期知识积累、技术笔记、领域知识** |
-| Skills       | `skills/<name>/`                 | 按需调用（`/skill-name`） | 操作手册、流程文档、领域知识         |
-| 项目上下文   | 项目目录下 `AGENTS.md`           | 进入该目录时自动注入      | 项目架构、编码规范                   |
-| 按需注入     | 任意路径，`@file:` / `@folder:`  | 手动在消息中触发          | 临时大文档、参考资料                 |
-| 历史回溯     | `state.db`（自动）               | Agent 主动搜索时          | 所有历史会话内容                     |
+| 类型         | 存放位置                                       | 加载时机                  | 适合内容                             |
+| ------------ | ---------------------------------------------- | ------------------------- | ------------------------------------ |
+| 持久记忆     | `memories/MEMORY.md` + `USER.md`               | 每次会话自动注入          | 高频偏好、环境事实                   |
+| **LLM Wiki** | `~/.hermes/wiki/`（可自定义）                  | 按需检索，Agent 主动查询  | **长期知识积累、技术笔记、领域知识** |
+| Skills       | `skills/<name>/` 或 `my-skills/<分类>/<name>/` | 按需调用（`/skill-name`） | 操作手册、流程文档、领域知识         |
+| 项目上下文   | 项目目录下 `AGENTS.md`                         | 进入该目录时自动注入      | 项目架构、编码规范                   |
+| 按需注入     | 任意路径，`@file:` / `@folder:`                | 手动在消息中触发          | 临时大文档、参考资料                 |
+| 历史回溯     | `state.db`（自动）                             | Agent 主动搜索时          | 所有历史会话内容                     |
 
 **各层的分工**：MEMORY.md 放「每次对话都用得到的高频事实」，LLM Wiki 放「需要长期积累和检索的领域知识」，Session Search 负责「翻历史记录」。三层互补，不重叠。
 
@@ -1442,14 +1448,17 @@ Agent 可以主动搜索历史会话（使用 `session_search` 工具），用�
 
 ```
 ~/.hermes/wiki/
-├── SCHEMA.md       # Wiki 的规则、领域范围、Tag 分类体系（Agent 每次先读这里）
-├── index.md        # 所有页面的一行摘要目录（Agent 的导航地图）
-├── log.md          # 所有操作的时间戳日志（追加写入，可回溯）
-├── raw/            # 原始资料（不可修改）：文章、论文、会议记录
-├── entities/       # 实体页：人物、公司、产品、工具
-├── concepts/       # 概念页：技术原理、方法论
-├── comparisons/    # 对比分析页
-└── queries/        # 值得保存的深度查询结果
+├── SCHEMA.md       # 单一权威规则：Layer、frontmatter、链接、生命周期与 lint
+├── index.md        # Active Layer 2 节点注册表
+├── log.md          # 结构性维护的按日合并日志
+├── _living/        # Layer 1：用户维护、持续更新的私有活体文档
+├── raw/            # Layer 1：带公开版本属性的外部文章、论文等原始材料
+├── entities/       # Active Layer 2：实体节点
+├── concepts/       # Active Layer 2：概念节点
+├── comparisons/    # Active Layer 2：横向对比节点
+├── queries/        # Active Layer 2：问题驱动指南
+├── _archive/       # 可选：不再 active、但仍有历史价值的归档节点
+└── .obsidian/      # Obsidian vault 的本地载体配置与插件
 ```
 
 #### 配置
@@ -1460,7 +1469,7 @@ Agent 可以主动搜索历史会话（使用 `session_search` 工具），用�
 WIKI_PATH=/absolute/path/to/wiki
 ```
 
-Feishu 群聊的沙箱当前只放行 `~/.hermes/wiki`。如果修改 `WIKI_PATH`，必须同步更新 `plugins/sandbox/config.yaml` 的 `allowed_read_roots_for_outsider_groups`；群聊查询始终用 `read_file` / `search_files` 并显式传入 wiki 路径，不能用 `terminal` 探测，也不能省略 `search_files.path`。
+Feishu 群聊的沙箱当前只放行 `~/.hermes/wiki`。如果修改 `WIKI_PATH`，必须同步更新 `plugins/sandbox/config.yaml` 的 `allowed_read_roots_for_outsider_groups`；群聊查询使用 `read_file` / `search_files`，不能用 `terminal` 探测。`read_file` 需要显式文件路径；`search_files.path` 省略、为空或为 `.` 时，sandbox 会安全重写到首个允许的 wiki 根目录。
 
 #### 基本使用
 
