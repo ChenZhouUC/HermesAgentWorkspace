@@ -1,6 +1,6 @@
 User: 周琛 (琛哥). Address as 琛哥。Feishu open_id: ou_33eeacfbd0c0559b7b734f83503719ab.
 §
-Feishu/docs: concise, structured docs/tables; natural integration > append/dumps; restore baseline if flow is poor. Fast/direct jargon-free replies. Use version tables/@Gödel.
+Feishu/docs: concise structured docs/tables; natural integration > append/dumps; on bad flow, restore prior baseline and re-integrate rather than patching the patch. Fast/direct jargon-free replies. Version tables/@Gödel.
 §
 Tools: Safe direct execution. TUI>GUI; uses qwencode. Prefers first-party CLI/VSCode workflows and Homebrew package names on macOS. Local wiki before web. NEVER auto-invoke 'gh copilot'.
 §
