@@ -7,8 +7,8 @@
 #   bash ~/.hermes/plugins/sandbox/verify.sh
 #
 # What it checks (in order, cheapest first):
-#   1. Upstream VALID_HOOKS still declares both hook names we depend on
-#      (pre_gateway_dispatch, pre_tool_call). HARD FAIL if missing — the
+#   1. Upstream VALID_HOOKS still declares all hook names we depend on
+#      (pre_gateway_dispatch, pre_tool_call, post_tool_call). HARD FAIL if missing — the
 #      plugin's register() will be a no-op when the hook name is gone.
 #   2. Fire sites for both hooks still exist in upstream source.
 #   3. Structured tool registration remains available upstream.
@@ -40,7 +40,7 @@ fail=0
 echo "=== sandbox plugin compatibility check ==="
 
 # 1. VALID_HOOKS membership (HARD)
-for hook in pre_gateway_dispatch pre_tool_call; do
+for hook in pre_gateway_dispatch pre_tool_call post_tool_call; do
     if [[ -r "${PLUGINS_SRC}" ]] && grep -qF "\"${hook}\"" "${PLUGINS_SRC}"; then
         echo "OK   ${hook} is in VALID_HOOKS"
     else
@@ -61,6 +61,12 @@ if [[ -r "${MODEL_TOOLS}" ]] && grep -q 'pre_tool_call' "${MODEL_TOOLS}"; then
     echo "OK   pre_tool_call fired from model_tools.py"
 else
     echo "FAIL pre_tool_call fire site not found in model_tools.py"
+    fail=1
+fi
+if [[ -r "${MODEL_TOOLS}" ]] && grep -q 'post_tool_call' "${MODEL_TOOLS}"; then
+    echo "OK   post_tool_call fired from model_tools.py"
+else
+    echo "FAIL post_tool_call fire site not found in model_tools.py"
     fail=1
 fi
 
@@ -137,6 +143,9 @@ assert not any(
 
 assert plugin.get("owner_feishu_chat_ids"), "owner Feishu chat id must be configured"
 assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
+    "clarify",
+    "web_search",
+    "web_extract",
     "tool_search",
     "tool_describe",
     "skills_list",
@@ -147,6 +156,9 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "group_cache",
     "feishu_doc_manage",
 }
+mutation_users = set(plugin.get("trusted_feishu_user_ids_for_group_mutations") or [])
+assert mutation_users, "trusted group mutation user ids must be configured"
+assert mutation_users.issubset(set(feishu.get("assistant_user_ids") or []))
 assert plugin.get("allowed_read_roots_for_outsider_groups") == ["~/.hermes/wiki"]
 assert plugin.get("group_workspace_root") == "~/.hermes/tmp/group-workspaces"
 assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []) == {
@@ -214,7 +226,7 @@ import importlib
 from hermes_cli.config import load_config
 from hermes_cli.plugins import discover_plugins
 from hermes_cli.tools_config import _get_platform_tools
-from model_tools import get_tool_definitions
+from model_tools import get_tool_definitions, handle_function_call
 from toolsets import resolve_toolset
 from tools import tool_search
 
@@ -250,7 +262,7 @@ assert {
 }.issubset(owner_tools)
 
 assert "sandbox_group" in group_toolsets
-assert {"group_cache", "feishu_doc_manage", "read_file", "search_files"}.issubset(group_tools)
+assert {"clarify", "web_search", "web_extract", "group_cache", "feishu_doc_manage", "read_file", "search_files"}.issubset(group_tools)
 assert not {
     "terminal",
     "process",
@@ -259,6 +271,7 @@ assert not {
     "execute_code",
     "skill_manage",
 }.intersection(group_tools)
+assert not {"vision_analyze", "image_generate"}.intersection(group_tools)
 
 # The gray-test group and all Feishu groups share this same platform scope:
 # sandbox tools must be discoverable/describable through the deferred-tool
@@ -291,12 +304,76 @@ sandbox = importlib.import_module("hermes_plugins.sandbox")
 sandbox._current_platform.set("feishu")
 sandbox._current_chat_id.set("oc_verify_group")
 sandbox._current_chat_type.set("group")
+sandbox._current_user_id.set("ou_untrusted_verify")
+sandbox._current_resource_refs.set(frozenset())
+assert sandbox._on_pre_tool_call(tool_name="clarify", args={"question": "pick one"}) is None
 assert sandbox._on_pre_tool_call(tool_name="tool_search", args={"query": "group cache"}) is None
 assert sandbox._on_pre_tool_call(tool_name="tool_describe", args={"name": "group_cache"}) is None
+assert sandbox._on_pre_tool_call(tool_name="vision_analyze", args={"image_url": "/tmp/x.png"}) == {
+    "action": "block",
+    "message": sandbox._BLOCK_MESSAGE,
+}
 assert sandbox._on_pre_tool_call(tool_name="terminal", args={"command": "id"}) == {
     "action": "block",
     "message": sandbox._BLOCK_MESSAGE,
 }
+
+# Exercise the real deferred bridge: tool_call unwraps to the scoped
+# underlying tool, then the sandbox hook sees the real name. Out-of-scope tools
+# remain unavailable even if a model guesses their registry name.
+cache_result = handle_function_call(
+    "tool_call",
+    {"name": "group_cache", "arguments": {"action": "list", "path": "."}},
+    task_id="sandbox-verify",
+    enabled_toolsets=group_toolsets,
+)
+assert '"success": true' in cache_result
+terminal_result = handle_function_call(
+    "tool_call",
+    {"name": "terminal", "arguments": {"command": "id"}},
+    task_id="sandbox-verify",
+    enabled_toolsets=group_toolsets,
+)
+assert "not a deferrable tool" in terminal_result
+doc_mutation_result = handle_function_call(
+    "tool_call",
+    {
+        "name": "feishu_doc_manage",
+        "arguments": {"action": "create", "title": "audit", "content": "# audit"},
+    },
+    task_id="sandbox-verify",
+    enabled_toolsets=group_toolsets,
+)
+assert "受信任的维护者" in doc_mutation_result
+
+# Default search_files path is rewritten to the verified wiki root instead of
+# the process cwd, so the documented default invocation is both useful and safe.
+search_args = {"pattern": "__sandbox_verify_no_match__"}
+assert sandbox._on_pre_tool_call(tool_name="search_files", args=search_args) is None
+assert search_args["path"] == str(sandbox._GROUP_ALLOWED_READ_ROOTS[0])
+
+# Feishu resource reads are bound to URLs/tokens explicitly present in the
+# current group message; arbitrary bot-readable documents are not ambient.
+from types import SimpleNamespace
+token = "doxcnSandboxVerifyToken"
+url = f"https://whales.feishu.cn/docx/{token}"
+sandbox._on_pre_gateway_dispatch(SimpleNamespace(
+    source=SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="oc_verify_group",
+        chat_type="group",
+        user_id="ou_untrusted_verify",
+    ),
+    text=f"read {url}",
+    reply_to_text="",
+    channel_context="",
+))
+assert sandbox._on_pre_tool_call(
+    tool_name="feishu_doc_read", args={"doc_token": token}
+) is None
+assert sandbox._on_pre_tool_call(
+    tool_name="feishu_doc_read", args={"doc_token": "doxcnOtherToken"}
+) == {"action": "block", "message": sandbox._RESOURCE_BLOCK_MESSAGE}
 PY
     ); then
     echo "OK   runtime toolsets keep owner Feishu DM full, Feishu groups restricted, and sandbox tools discoverable through hooks"

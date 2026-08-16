@@ -627,6 +627,12 @@ feishu:
   history_backfill_limit: 30
   history_backfill_seconds: 1800
   history_backfill_max_chars: 6000
+  # Standalone Feishu media cannot carry @Hermes. A same-sender mention within
+  # this bounded window recovers the current image/file/video/audio attachment.
+  attachment_backfill_window_seconds: 300
+  attachment_backfill_max_messages: 3
+  attachment_backfill_max_files: 6
+  attachment_backfill_timeout_seconds: 8
   missed_event_backfill: true
   missed_event_backfill_seconds: 21600
   missed_event_backfill_limit: 50

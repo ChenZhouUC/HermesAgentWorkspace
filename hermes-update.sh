@@ -2257,6 +2257,8 @@ if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" 
         grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_BACKFILL_WINDOW_SECONDS' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_FEISHU_BACKFILL_MSG_TYPES = frozenset({"image", "file", "media", "audio"})' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'attachment_backfill_window_seconds' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_backfilled_attachment_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'if text == "/":' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'can_backfill_group = ' "${FEISHU_PY}" 2>/dev/null &&
@@ -2271,7 +2273,12 @@ if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" 
         grep -q '"\.odt": "application/vnd.oasis.opendocument.text"' "${PLATFORMS_BASE_PY}" 2>/dev/null &&
         grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_explicit_requote_is_not_suppressed_and_media_video_is_preserved' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_sender_window_backfill_includes_audio_and_uses_configured_window' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_fetch_message_text_uses_path_free_attachment_placeholder' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_group_attachment_backfill_failure_reaches_model_as_status' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quoted_resource_matrix_reaches_event_across_dm_and_group_triggers' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'group_audio_attachment' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'group_drive_pdf' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quoted_merge_forward_expands_children_and_attachments' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_merge_forward_reply_context_is_not_cut_at_generic_500_chars' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'class TestFeishuDriveFileLinks' "${FEISHU_TEST_PY}" 2>/dev/null &&
@@ -2294,14 +2301,20 @@ fi
 READ_EXTRACT_PY="${HERMES_AGENT}/tools/read_extract.py"
 READ_EXTRACT_TEST_PY="${HERMES_AGENT}/tests/tools/test_read_extract.py"
 DOCUMENT_CONTEXT_TEST_PY="${HERMES_AGENT}/tests/gateway/test_document_context_note.py"
-if [[ -f "${GATEWAY_RUN_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TEST_PY}" && -f "${DOCUMENT_CONTEXT_TEST_PY}" && -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
+GROUP_MEDIA_RUNTIME_TEST_PY="${HERMES_AGENT}/tests/gateway/test_image_input_routing_runtime.py"
+if [[ -f "${GATEWAY_RUN_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TEST_PY}" && -f "${DOCUMENT_CONTEXT_TEST_PY}" && -f "${GROUP_MEDIA_RUNTIME_TEST_PY}" && -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
     if grep -q 'def _extract_inbound_document' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'def _attachment_failure_note' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'def _extract_pdf' "${READ_EXTRACT_PY}" 2>/dev/null &&
+        grep -q 'def pdf_needs_visual_fallback' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'def _extract_html_file' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'class TestCommonDocumentExtraction' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_native_overlap_formats_remain_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_anydoc_only_formats_not_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_extract_inbound_html_without_terminal_access' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_text_note_mentions_included_content_without_path' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_prepare_adds_pdf_visual_sidecar_when_text_coverage_has_gaps' "${GROUP_MEDIA_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_document_matrix_reaches_user_turn' "${GROUP_MEDIA_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'pypdf==6.14.2' "${PYPROJECT}" 2>/dev/null &&
         grep -q 'pypdf==6.14.2' "${LAZY_DEPS_PY}" 2>/dev/null; then
         ok "PATCH-DOCUMENT-EXTRACTION active: trusted PDF/HTML/Office/OpenDocument readers + inbound wiring"
@@ -2484,6 +2497,8 @@ if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_R
         grep -q 'def build_multimodal_sidecar_data_url' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'get_fallback_chain' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q '_enrich_message_with_multimodal_sidecar' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'Do not attempt to reopen a host cache path' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '\[Image attachment {index} included\]' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'pick_video_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'pick_audio_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'pick_document_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
@@ -2494,9 +2509,11 @@ if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_R
         grep -q 'test_audio_sidecar_follows_chain_to_vertex' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_pdf_sidecar_data_url_uses_pdf_mime' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_runs_video_sidecar_when_main_model_lacks_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_prepare_keeps_path_note_when_no_link_can_read_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_prepare_reports_path_free_failure_when_no_link_can_read_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_runs_audio_sidecar_for_audio_attachment' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_runs_pdf_sidecar_when_local_extraction_is_empty' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_prepare_adds_pdf_visual_sidecar_when_text_coverage_has_gaps' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_image_native_and_audio_video_sidecars' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_audio_attachment_context_note_format' "${HERMES_AGENT}/tests/gateway/test_telegram_audio_vs_voice.py" 2>/dev/null &&
         grep -q 'test_video_url_rejection_retries_as_image_url' "${VIDEO_ANALYZE_TEST_PY}" 2>/dev/null; then
         ok "PATCH-MULTIMODAL-SIDECAR active: capable route reads image/audio/video/PDF in-text"

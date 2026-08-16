@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional, Set, Tuple
 from urllib.parse import urlparse
@@ -44,12 +45,16 @@ _current_chat_type: contextvars.ContextVar[Optional[str]] = contextvars.ContextV
 _current_user_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "sandbox_current_user_id", default=None
 )
+_current_resource_refs: contextvars.ContextVar[FrozenSet[str]] = contextvars.ContextVar(
+    "sandbox_current_resource_refs", default=frozenset()
+)
 
 
 _CONFIG_LOADED = False
 _OWNER_CHAT_IDS: FrozenSet[str] = frozenset()
 _ALLOWED_TOOLS: FrozenSet[str] = frozenset()
 _GROUP_ALLOWED_TOOLS: FrozenSet[str] = frozenset()
+_GROUP_MUTATION_USER_IDS: FrozenSet[str] = frozenset()
 _GROUP_ALLOWED_READ_ROOTS: Tuple[Path, ...] = tuple()
 _GROUP_WORKSPACE_ROOT: Optional[Path] = None
 _GROUP_ALLOWED_SCRIPT_ACTIONS: FrozenSet[str] = frozenset()
@@ -63,6 +68,8 @@ _BLOCK_MESSAGE = "This tool is not available in this chat."
 _READ_ROOT_BLOCK_MESSAGE = "群聊只允许读取 wiki 和当前群自己的临时工作区。"
 _CONFIG_BLOCK_MESSAGE = "群聊安全配置未成功加载，工具调用已按设计拒绝。"
 _GROUP_CONTEXT_MESSAGE = "This tool is available only inside a configured Feishu group chat."
+_RESOURCE_BLOCK_MESSAGE = "群聊只能访问当前消息明确引用的飞书资源。"
+_MUTATION_BLOCK_MESSAGE = "群聊中的飞书文档修改仅允许受信任的维护者执行。"
 
 _READ_PATH_TOOLS: FrozenSet[str] = frozenset({"read_file", "search_files"})
 _GROUP_CHAT_TYPES: FrozenSet[str] = frozenset({"group", "channel", "forum", "thread"})
@@ -71,6 +78,12 @@ _SCRIPT_TOOL = "feishu_doc_manage"
 _MAX_FILE_CONTENT_BYTES = 1_000_000
 _MAX_TOOL_OUTPUT_CHARS = 100_000
 _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
+_FEISHU_URL_RE = re.compile(r"https://[^\s<>\"']+")
+_EXPLICIT_TOKEN_RE = re.compile(r"(?i)\b(?:doc_token|file_token)\s*[:=]\s*([A-Za-z0-9_-]{5,200})")
+_MUTATING_SCRIPT_ACTIONS = frozenset({"create", "append", "rebuild", "delete"})
+_WEB_EXTRACT_PATH_RE = re.compile(r"(?m)^Full text saved to:\s*(.+?)\s*$")
+_EPHEMERAL_READ_PATHS_BY_CHAT: Dict[str, Set[Path]] = {}
+_EPHEMERAL_READ_PATHS_LOCK = threading.Lock()
 _BEARER_OUTPUT_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _SECRET_OUTPUT_RE = re.compile(
     r"""(?ix)
@@ -275,7 +288,54 @@ def _read_path_allowed_for_group(path_text: str, chat_id: str) -> bool:
     resolved = _resolve_tool_path(path_text)
     if _GROUP_WORKSPACE_ROOT and _path_within(resolved, _GROUP_WORKSPACE_ROOT):
         return _path_within(resolved, _workspace_for_chat(chat_id))
+    with _EPHEMERAL_READ_PATHS_LOCK:
+        if resolved in _EPHEMERAL_READ_PATHS_BY_CHAT.get(chat_id, set()):
+            return True
     return any(_path_within(resolved, root) for root in _GROUP_ALLOWED_READ_ROOTS)
+
+
+def _clear_ephemeral_read_paths(chat_id: Any) -> None:
+    text = str(chat_id or "")
+    if not text:
+        return
+    with _EPHEMERAL_READ_PATHS_LOCK:
+        _EPHEMERAL_READ_PATHS_BY_CHAT.pop(text, None)
+
+
+def _record_web_extract_paths(chat_id: str, result: Any) -> None:
+    """Allow only exact cache/web files emitted by this group's last extract."""
+    if not chat_id:
+        return
+    payload = result
+    if isinstance(result, str):
+        try:
+            payload = json.loads(result)
+        except Exception:
+            payload = result
+    entries: list[tuple[str, str]] = []
+    if isinstance(payload, dict) and isinstance(payload.get("results"), list):
+        for entry in payload["results"]:
+            if isinstance(entry, dict) and isinstance(entry.get("url"), str) and isinstance(entry.get("content"), str):
+                entries.append((entry["url"], entry["content"]))
+
+    web_root = (_expand_path(os.getenv("HERMES_HOME", "~/.hermes")) / "cache" / "web").resolve(strict=False)
+    accepted: Set[Path] = set()
+    for url, text in entries:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "page").replace(":", "_")
+        slug = re.sub(r"[^A-Za-z0-9._-]", "-", host)[:60].strip("-") or "page"
+        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:10]
+        expected = (web_root / f"{slug}-{digest}.md").resolve(strict=False)
+        for raw in _WEB_EXTRACT_PATH_RE.findall(text):
+            path = _resolve_tool_path(raw.strip())
+            if path == expected and _path_within(path, web_root) and path.is_file():
+                accepted.add(path)
+            if len(accepted) >= 5:
+                break
+    if not accepted:
+        return
+    with _EPHEMERAL_READ_PATHS_LOCK:
+        _EPHEMERAL_READ_PATHS_BY_CHAT[chat_id] = accepted
 
 
 def _list_workspace(target: Path, workspace: Path, recursive: bool) -> list[dict[str, Any]]:
@@ -412,6 +472,63 @@ def _feishu_url(value: Any, *, file_only: bool = False) -> str:
     return text
 
 
+def _resource_ref_candidates(value: Any) -> FrozenSet[str]:
+    """Canonical URL/token identities for one Feishu resource argument."""
+    text = str(value or "").strip().rstrip(".,;:!?)]}>")
+    if not text:
+        return frozenset()
+    refs = {text}
+    parsed = urlparse(text)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "https" and (host.endswith(".feishu.cn") or host.endswith(".larksuite.com")):
+        refs.add(f"https://{host}{parsed.path.rstrip('/')}")
+        for marker in ("/docx/", "/docs/", "/file/"):
+            if marker in parsed.path:
+                token = parsed.path.split(marker, 1)[1].split("/", 1)[0]
+                if _DOC_TOKEN_RE.fullmatch(token):
+                    refs.add(token)
+    elif _DOC_TOKEN_RE.fullmatch(text):
+        refs.add(text)
+    return frozenset(refs)
+
+
+def _event_resource_refs(event: Any) -> FrozenSet[str]:
+    refs: set[str] = set()
+    # Only the active message and its explicit reply target grant resource
+    # provenance. Backfilled channel_context is ambient history: treating URLs
+    # there as authorized would let a later participant reuse an unrelated old
+    # link without explicitly referencing it.
+    for attr in ("text", "reply_to_text"):
+        value = getattr(event, attr, None)
+        if not isinstance(value, str):
+            continue
+        for url in _FEISHU_URL_RE.findall(value):
+            refs.update(_resource_ref_candidates(url))
+        for token in _EXPLICIT_TOKEN_RE.findall(value):
+            refs.add(token)
+    return frozenset(refs)
+
+
+def _resource_was_referenced(value: Any) -> bool:
+    return bool(_resource_ref_candidates(value).intersection(_current_resource_refs.get()))
+
+
+def _group_doc_action_block(args: Any) -> Optional[str]:
+    """Return a block message for an unauthorized structured doc action."""
+    if not isinstance(args, dict):
+        return _MUTATION_BLOCK_MESSAGE
+    action = str(args.get("action") or "")
+    if action in _MUTATING_SCRIPT_ACTIONS:
+        if str(_current_user_id.get() or "") not in _GROUP_MUTATION_USER_IDS:
+            return _MUTATION_BLOCK_MESSAGE
+        if action != "create" and not _resource_was_referenced(args.get("doc_token")):
+            return _MUTATION_BLOCK_MESSAGE
+    elif action in {"read_url", "download_file"}:
+        if not _resource_was_referenced(args.get("url")):
+            return _RESOURCE_BLOCK_MESSAGE
+    return None
+
+
 def _markdown_source(args: Dict[str, Any], workspace: Path) -> Path:
     content = args.get("content")
     relative = args.get("markdown_path")
@@ -521,6 +638,9 @@ def _run_trusted_script(script: Path, argv: list[str], workspace: Path) -> subpr
 
 def _handle_feishu_doc_manage(args: Dict[str, Any], **_kwargs: Any) -> str:
     chat_id = _require_group_context()
+    block_message = _group_doc_action_block(args)
+    if block_message is not None:
+        raise PermissionError(block_message)
     workspace = _workspace_for_chat(chat_id)
     action, script, argv = _build_script_argv(args, workspace)
     actor = str(_current_user_id.get() or "unknown")
@@ -567,10 +687,12 @@ def _group_tools_available() -> bool:
 
 def _load_config() -> bool:
     global _CONFIG_LOADED, _OWNER_CHAT_IDS, _ALLOWED_TOOLS, _GROUP_ALLOWED_TOOLS
+    global _GROUP_MUTATION_USER_IDS
     global _GROUP_ALLOWED_READ_ROOTS, _GROUP_WORKSPACE_ROOT, _GROUP_ALLOWED_SCRIPT_ACTIONS
     global _FEISHU_DOC_SCRIPTS_ROOT, _PYTHON_EXECUTABLE, _SCRIPT_TIMEOUT_SECONDS
     global _GROUP_MAX_DOWNLOAD_BYTES
     global _REQUIRE_PROCESS_SANDBOX, _BLOCK_MESSAGE, _READ_ROOT_BLOCK_MESSAGE
+    global _RESOURCE_BLOCK_MESSAGE, _MUTATION_BLOCK_MESSAGE
 
     _CONFIG_LOADED = False
     cfg_path = Path(__file__).parent / "config.yaml"
@@ -608,6 +730,7 @@ def _load_config() -> bool:
     _OWNER_CHAT_IDS = frozenset(owners)
     _ALLOWED_TOOLS = frozenset(str(item) for item in allowed)
     _GROUP_ALLOWED_TOOLS = frozenset(str(item) for item in group_allowed)
+    _GROUP_MUTATION_USER_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_user_ids_for_group_mutations")))
     _GROUP_ALLOWED_READ_ROOTS = _coerce_paths(data.get("allowed_read_roots_for_outsider_groups"))
     _GROUP_WORKSPACE_ROOT = _expand_path(workspace_value)
     _GROUP_ALLOWED_SCRIPT_ACTIONS = actions
@@ -637,10 +760,16 @@ def _load_config() -> bool:
 
     message = data.get("block_message")
     read_message = data.get("read_root_block_message")
+    resource_message = data.get("resource_block_message")
+    mutation_message = data.get("mutation_block_message")
     if isinstance(message, str) and message.strip():
         _BLOCK_MESSAGE = message
     if isinstance(read_message, str) and read_message.strip():
         _READ_ROOT_BLOCK_MESSAGE = read_message
+    if isinstance(resource_message, str) and resource_message.strip():
+        _RESOURCE_BLOCK_MESSAGE = resource_message
+    if isinstance(mutation_message, str) and mutation_message.strip():
+        _MUTATION_BLOCK_MESSAGE = mutation_message
 
     _CONFIG_LOADED = True
     return True
@@ -648,13 +777,32 @@ def _load_config() -> bool:
 
 def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict[str, Any]]:
     if event is None or getattr(event, "source", None) is None:
+        _current_platform.set(None)
+        _current_chat_id.set(None)
+        _current_chat_type.set(None)
+        _current_user_id.set(None)
+        _current_resource_refs.set(frozenset())
         return None
     source = event.source
+    _clear_ephemeral_read_paths(getattr(source, "chat_id", None))
     platform = getattr(source, "platform", None)
     _current_platform.set(platform.value if platform else None)
     _current_chat_id.set(getattr(source, "chat_id", None))
     _current_chat_type.set(str(getattr(source, "chat_type", "") or "").lower() or None)
     _current_user_id.set(getattr(source, "user_id", None))
+    _current_resource_refs.set(_event_resource_refs(event))
+    return None
+
+
+def _on_post_tool_call(
+    tool_name: str = "",
+    result: Any = None,
+    **_kwargs: Any,
+) -> None:
+    if not _CONFIG_LOADED or not _is_group_context():
+        return None
+    if tool_name == "web_extract":
+        _record_web_extract_paths(str(_current_chat_id.get() or ""), result)
     return None
 
 
@@ -667,16 +815,40 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
     chat_id = str(_current_chat_id.get() or "")
     if chat_id in _OWNER_CHAT_IDS:
         return None
-    if tool_name in _ALLOWED_TOOLS:
-        return None
 
     chat_type = _current_chat_type.get()
-    if chat_type in _GROUP_CHAT_TYPES and tool_name in _GROUP_ALLOWED_TOOLS:
+    if chat_type in _GROUP_CHAT_TYPES:
+        if tool_name not in _GROUP_ALLOWED_TOOLS:
+            logger.info(
+                "sandbox: blocked group tool=%s chat=%s chat_type=%s",
+                tool_name,
+                chat_id,
+                chat_type,
+            )
+            return {"action": "block", "message": _BLOCK_MESSAGE}
         if tool_name in _READ_PATH_TOOLS:
+            if (
+                tool_name == "search_files"
+                and isinstance(args, dict)
+                and str(args.get("path") or ".").strip() in {"", "."}
+                and _GROUP_ALLOWED_READ_ROOTS
+            ):
+                args["path"] = str(_GROUP_ALLOWED_READ_ROOTS[0])
             path_text = _tool_read_path(tool_name, args)
             if not _read_path_allowed_for_group(path_text, chat_id):
                 logger.info("sandbox: blocked group read tool=%s path=%s chat=%s", tool_name, path_text, chat_id)
                 return {"action": "block", "message": _READ_ROOT_BLOCK_MESSAGE}
+        if tool_name == "feishu_doc_read":
+            token = args.get("doc_token") if isinstance(args, dict) else None
+            if not _resource_was_referenced(token):
+                return {"action": "block", "message": _RESOURCE_BLOCK_MESSAGE}
+        if tool_name == _SCRIPT_TOOL:
+            block_message = _group_doc_action_block(args)
+            if block_message is not None:
+                return {"action": "block", "message": block_message}
+        return None
+
+    if tool_name in _ALLOWED_TOOLS:
         return None
 
     logger.info("sandbox: blocked tool=%s chat=%s chat_type=%s", tool_name, chat_id, chat_type)
@@ -703,9 +875,10 @@ def register(ctx: Any) -> None:
     )
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
+    ctx.register_hook("post_tool_call", _on_post_tool_call)
     logger.info(
         "sandbox: registered (pid=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
-        "workspace_root=%s, script_actions=%s, process_sandbox=%s)",
+        "workspace_root=%s, script_actions=%s, mutation_users=%s, process_sandbox=%s)",
         os.getpid(),
         loaded,
         sorted(_OWNER_CHAT_IDS),
@@ -713,5 +886,6 @@ def register(ctx: Any) -> None:
         [str(path) for path in _GROUP_ALLOWED_READ_ROOTS],
         _GROUP_WORKSPACE_ROOT,
         sorted(_GROUP_ALLOWED_SCRIPT_ACTIONS),
+        sorted(_GROUP_MUTATION_USER_IDS),
         _REQUIRE_PROCESS_SANDBOX,
     )

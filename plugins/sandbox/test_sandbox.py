@@ -4,6 +4,7 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -30,6 +31,9 @@ def group_config(tmp_path, monkeypatch):
         "_GROUP_ALLOWED_TOOLS",
         frozenset(
             {
+                "clarify",
+                "web_search",
+                "web_extract",
                 "tool_search",
                 "tool_describe",
                 "skills_list",
@@ -41,6 +45,11 @@ def group_config(tmp_path, monkeypatch):
                 "feishu_doc_manage",
             }
         ),
+    )
+    monkeypatch.setattr(
+        sandbox,
+        "_GROUP_MUTATION_USER_IDS",
+        frozenset({"trusted-user"}),
     )
     wiki_root = (tmp_path / "wiki").resolve()
     wiki_root.mkdir()
@@ -55,9 +64,12 @@ def group_config(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "_PYTHON_EXECUTABLE", Path(sys.executable).resolve())
     monkeypatch.setattr(sandbox, "_REQUIRE_PROCESS_SANDBOX", True)
     monkeypatch.setattr(sandbox, "_SCRIPT_TIMEOUT_SECONDS", 30)
+    monkeypatch.setattr(sandbox, "_EPHEMERAL_READ_PATHS_BY_CHAT", {})
     sandbox._current_platform.set("feishu")
     sandbox._current_chat_id.set("group-one")
     sandbox._current_chat_type.set("group")
+    sandbox._current_user_id.set("trusted-user")
+    sandbox._current_resource_refs.set(frozenset())
     return {
         "workspace_root": workspace_root,
         "scripts_root": scripts_root,
@@ -114,6 +126,7 @@ def test_group_cache_and_doc_tool_do_not_return_absolute_workspace_paths(group_c
         return subprocess.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
 
     monkeypatch.setattr(sandbox, "_run_trusted_script", fake_run)
+    sandbox._current_resource_refs.set(sandbox._resource_ref_candidates("doxcnToken_123"))
     cache_result = _result(
         sandbox._handle_group_cache({"action": "write", "path": "drafts/doc.md", "content": "hello", "overwrite": True})
     )
@@ -165,9 +178,21 @@ def test_direct_reads_allow_wiki_and_only_the_current_group_workspace(group_conf
     }
 
 
+def test_direct_read_rejects_wiki_symlink_escape(group_config, tmp_path):
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("secret", encoding="utf-8")
+    link = group_config["wiki_root"] / "outside-link.txt"
+    link.symlink_to(outside)
+
+    assert sandbox._on_pre_tool_call(tool_name="read_file", args={"path": str(link)}) == {
+        "action": "block",
+        "message": sandbox._READ_ROOT_BLOCK_MESSAGE,
+    }
+
+
 def test_group_has_no_terminal_or_direct_write_surface(group_config, tmp_path):
     assert sandbox._on_pre_tool_call(tool_name="group_cache", args={"action": "list"}) is None
-    assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete"}) is None
+    assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "create"}) is None
     for tool in ("terminal", "process", "write_file", "patch", "skill_manage"):
         assert sandbox._on_pre_tool_call(tool_name=tool, args={}) == {
             "action": "block",
@@ -182,6 +207,166 @@ def test_group_has_no_terminal_or_direct_write_surface(group_config, tmp_path):
 def test_group_allows_readonly_tool_discovery_bridge(group_config):
     assert sandbox._on_pre_tool_call(tool_name="tool_search", args={"query": "group cache"}) is None
     assert sandbox._on_pre_tool_call(tool_name="tool_describe", args={"name": "group_cache"}) is None
+
+
+def test_group_allows_declared_core_tools_but_not_outsider_dm_vision_tools(group_config):
+    for tool in ("clarify", "web_search", "web_extract"):
+        assert sandbox._on_pre_tool_call(tool_name=tool, args={}) is None
+    for tool in ("vision_analyze", "image_generate"):
+        assert sandbox._on_pre_tool_call(tool_name=tool, args={}) == {
+            "action": "block",
+            "message": sandbox._BLOCK_MESSAGE,
+        }
+
+
+def test_group_search_default_is_rewritten_to_wiki_root(group_config):
+    args = {"pattern": "Hermes"}
+    assert sandbox._on_pre_tool_call(tool_name="search_files", args=args) is None
+    assert args["path"] == str(group_config["wiki_root"])
+
+
+def test_group_feishu_reads_require_current_message_reference(group_config):
+    token = "doxcnAuditToken_123"
+    url = f"https://whales.feishu.cn/docx/{token}"
+    event = SimpleNamespace(
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="feishu"),
+            chat_id="group-one",
+            chat_type="group",
+            user_id="member-user",
+        ),
+        text=f"请读取 {url}",
+        reply_to_text="",
+        channel_context="",
+    )
+    sandbox._on_pre_gateway_dispatch(event)
+
+    assert sandbox._on_pre_tool_call(tool_name="feishu_doc_read", args={"doc_token": token}) is None
+    assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "read_url", "url": url}) is None
+    assert sandbox._on_pre_tool_call(tool_name="feishu_doc_read", args={"doc_token": "doxcnOtherToken"}) == {
+        "action": "block",
+        "message": sandbox._RESOURCE_BLOCK_MESSAGE,
+    }
+
+
+def test_group_mutations_require_trusted_user_and_explicit_target(group_config):
+    token = "doxcnAuditToken_123"
+    url = f"https://whales.feishu.cn/docx/{token}"
+    sandbox._current_resource_refs.set(sandbox._resource_ref_candidates(url))
+
+    sandbox._current_user_id.set("member-user")
+    assert sandbox._on_pre_tool_call(
+        tool_name="feishu_doc_manage",
+        args={"action": "append", "doc_token": token},
+    ) == {"action": "block", "message": sandbox._MUTATION_BLOCK_MESSAGE}
+
+    sandbox._current_user_id.set("trusted-user")
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name="feishu_doc_manage",
+            args={"action": "append", "doc_token": token},
+        )
+        is None
+    )
+    assert sandbox._on_pre_tool_call(
+        tool_name="feishu_doc_manage",
+        args={"action": "delete", "doc_token": "doxcnOtherToken"},
+    ) == {"action": "block", "message": sandbox._MUTATION_BLOCK_MESSAGE}
+
+    with pytest.raises(PermissionError, match="仅允许受信任"):
+        sandbox._handle_feishu_doc_manage({"action": "delete", "doc_token": "doxcnOtherToken"})
+
+
+def test_new_gateway_event_clears_stale_resource_references(group_config):
+    sandbox._current_resource_refs.set(frozenset({"doxcnStaleToken"}))
+    event = SimpleNamespace(
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="feishu"),
+            chat_id="group-one",
+            chat_type="group",
+            user_id="member-user",
+        ),
+        text="普通消息",
+        reply_to_text="",
+        channel_context="",
+    )
+    sandbox._on_pre_gateway_dispatch(event)
+    assert sandbox._current_resource_refs.get() == frozenset()
+
+    sandbox._current_resource_refs.set(frozenset({"doxcnStaleAgain"}))
+    sandbox._on_pre_gateway_dispatch(None)
+    assert sandbox._current_platform.get() is None
+    assert sandbox._current_resource_refs.get() == frozenset()
+
+
+def test_channel_history_does_not_grant_feishu_resource_access(group_config):
+    token = "doxcnHistoryOnlyToken"
+    event = SimpleNamespace(
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="feishu"),
+            chat_id="group-one",
+            chat_type="group",
+            user_id="member-user",
+        ),
+        text="当前消息没有链接",
+        reply_to_text="",
+        channel_context=f"Earlier: https://whales.feishu.cn/docx/{token}",
+    )
+    sandbox._on_pre_gateway_dispatch(event)
+    assert sandbox._on_pre_tool_call(tool_name="feishu_doc_read", args={"doc_token": token}) == {
+        "action": "block",
+        "message": sandbox._RESOURCE_BLOCK_MESSAGE,
+    }
+
+
+def test_web_extract_grants_only_exact_current_group_cache_file(group_config, tmp_path, monkeypatch):
+    hermes_home = tmp_path / ".hermes"
+    web_root = hermes_home / "cache" / "web"
+    web_root.mkdir(parents=True)
+    url = "https://example.com/long-page"
+    digest = sandbox.hashlib.sha256(url.encode("utf-8")).hexdigest()[:10]
+    allowed = web_root / f"example.com-{digest}.md"
+    denied = web_root / "denied.md"
+    allowed.write_text("full page", encoding="utf-8")
+    denied.write_text("other page", encoding="utf-8")
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    sandbox._on_post_tool_call(
+        tool_name="web_extract",
+        result=json.dumps(
+            {
+                "results": [
+                    {
+                        "url": url,
+                        "content": (f"Full text saved to: {denied}\nFull text saved to: {allowed}\n"),
+                    }
+                ]
+            }
+        ),
+    )
+    assert sandbox._on_pre_tool_call(tool_name="read_file", args={"path": str(allowed)}) is None
+    assert sandbox._on_pre_tool_call(tool_name="read_file", args={"path": str(denied)}) == {
+        "action": "block",
+        "message": sandbox._READ_ROOT_BLOCK_MESSAGE,
+    }
+
+    # A new message in the same chat revokes the prior turn's cache grant.
+    sandbox._on_pre_gateway_dispatch(
+        SimpleNamespace(
+            source=SimpleNamespace(
+                platform=SimpleNamespace(value="feishu"),
+                chat_id="group-one",
+                chat_type="group",
+                user_id="member-user",
+            ),
+            text="next turn",
+            reply_to_text="",
+        )
+    )
+    assert sandbox._on_pre_tool_call(tool_name="read_file", args={"path": str(allowed)}) == {
+        "action": "block",
+        "message": sandbox._READ_ROOT_BLOCK_MESSAGE,
+    }
 
 
 def test_invalid_config_fails_closed_for_feishu_but_not_cli(group_config, monkeypatch):
@@ -199,6 +384,17 @@ def test_owner_dm_keeps_full_access(group_config):
     sandbox._current_chat_id.set("owner-dm")
     sandbox._current_chat_type.set("private")
     assert sandbox._on_pre_tool_call(tool_name="terminal", args={"command": "echo ok"}) is None
+
+
+def test_outsider_dm_keeps_safe_base_allowlist(group_config):
+    sandbox._current_chat_id.set("outsider-dm")
+    sandbox._current_chat_type.set("private")
+    for tool in ("web_search", "web_extract", "vision_analyze", "image_generate"):
+        assert sandbox._on_pre_tool_call(tool_name=tool, args={}) is None
+    assert sandbox._on_pre_tool_call(tool_name="terminal", args={}) == {
+        "action": "block",
+        "message": sandbox._BLOCK_MESSAGE,
+    }
 
 
 def test_script_tool_schema_has_no_command_script_path_or_raw_argv():
@@ -383,7 +579,11 @@ def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
 
     assert {item["name"] for item in calls["tools"]} == {"group_cache", "feishu_doc_manage"}
     assert {item["toolset"] for item in calls["tools"]} == {"sandbox_group"}
-    assert {name for name, _callback in calls["hooks"]} == {"pre_gateway_dispatch", "pre_tool_call"}
+    assert {name for name, _callback in calls["hooks"]} == {
+        "pre_gateway_dispatch",
+        "pre_tool_call",
+        "post_tool_call",
+    }
 
     sandbox._current_platform.set("feishu")
     sandbox._current_chat_id.set(next(iter(sandbox._OWNER_CHAT_IDS)))
