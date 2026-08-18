@@ -6,8 +6,8 @@ Normal cron runs are intentionally silent on stdout. With Hermes cron
 visible side effects are the Feishu report submission and group messages.
 
 The organization sync is an isolated stage zero: its output never enters the
-daily-session material or generation prompt. Failure is non-blocking; it may
-notify the owner's Feishu DM, but is never broadcast to greeting groups.
+daily-session material or generation prompt. Sync failure is non-blocking and
+its result notice goes only to the owner's Feishu DM, never greeting groups.
 """
 
 from __future__ import annotations
@@ -273,6 +273,9 @@ def sync_feishu_organization(day: dt.date, *, apply: bool) -> dict[str, Any]:
 def org_sync_change_text(summary: dict[str, Any]) -> str:
     """Render only roster additions/removals; official field refreshes stay silent."""
 
+    if not (summary.get("added") or summary.get("removed")):
+        return "本次未发现人员新增或移除。"
+
     def names(key: str) -> str:
         people = summary.get(key) or []
         values = [str(item.get("name") or item.get("open_id") or "").strip() for item in people]
@@ -288,36 +291,33 @@ def notify_owner_org_sync(
     summary: dict[str, Any] | None = None,
     error: Exception | None = None,
 ) -> None:
-    """Best-effort private result notice; never uses the group broadcast list."""
-    try:
-        owner_chat_id = load_owner_chat_ids()[0]
-        token = feishu_common.get_tenant_token()
-        if error is not None:
-            detail = re.sub(r"\s+", " ", str(error)).strip()[:500]
-            message = (
-                f"⚠️ {day.isoformat()} 飞书组织同步失败，已跳过该步骤，日报与晚安问候会继续正常执行。\n原因：{detail}"
-            )
-        elif (summary or {}).get("mode") == "preview":
-            message = (
-                f"🔎 {day.isoformat()} 飞书组织架构同步预览完成（未写入 people.yaml）。\n"
-                f"{org_sync_change_text(summary or {})}"
-            )
-        else:
-            message = f"✅ {day.isoformat()} 飞书组织架构同步完成。\n{org_sync_change_text(summary or {})}"
+    """Send the private result notice; never uses the group broadcast list."""
+    owner_chat_id = load_owner_chat_ids()[0]
+    if error is not None:
+        detail = re.sub(r"\s+", " ", str(error)).strip()[:500]
+        message = f"⚠️ {day.isoformat()} 飞书组织同步失败，已跳过该步骤，日报与晚安问候会继续正常执行。\n原因：{detail}"
+    elif (summary or {}).get("mode") == "preview":
+        message = (
+            f"🔎 {day.isoformat()} 飞书组织架构同步预览完成（未写入 people.yaml）。\n"
+            f"{org_sync_change_text(summary or {})}"
+        )
+    else:
+        message = f"✅ {day.isoformat()} 飞书组织架构同步完成。\n{org_sync_change_text(summary or {})}"
 
-        last_error: Exception | None = None
-        for attempt in range(1, 4):
-            try:
-                send_message(token, owner_chat_id, message)
-                return
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-                if attempt < 3:
-                    time.sleep(attempt)
-        if last_error is not None:
-            raise last_error
-    except Exception as notify_error:  # noqa: BLE001
-        log(f"Could not notify owner about organization sync result: {notify_error}")
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            # Token acquisition is part of the delivery attempt. Keeping it
+            # outside this loop made a transient auth/API connection failure
+            # bypass all message retries and disappear as a successful cron.
+            token = feishu_common.get_tenant_token()
+            send_message(token, owner_chat_id, message)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt < 3:
+                time.sleep(attempt)
+    raise RuntimeError(f"Could not notify owner about organization sync result: {last_error}") from last_error
 
 
 def trim_message(content: str) -> str:
@@ -800,10 +800,13 @@ def run(args: argparse.Namespace) -> str | None:
 
         state = load_state()
         org_sync_result: dict[str, Any] | None = None
+        org_sync_error: Exception | None = None
+        org_sync_notice_error: Exception | None = None
 
         # Stage 0 — Feishu organization sync. This stage is deliberately
         # isolated from session_text/draft generation below. Its failure is
-        # non-blocking and never enters the report/greeting error collection.
+        # non-blocking and never enters the report/greeting error collection;
+        # only a repeatedly undeliverable private notice fails the cron later.
         if not args.skip_org_sync:
             try:
                 org_sync_result = {
@@ -812,8 +815,8 @@ def run(args: argparse.Namespace) -> str | None:
                 }
                 state["org_syncs"][day_key] = org_sync_result
                 save_state(state)
-                notify_owner_org_sync(day, summary=org_sync_result)
             except Exception as exc:  # noqa: BLE001
+                org_sync_error = exc
                 log(f"Organization sync failed; continuing to report/greeting: {exc}")
                 state["org_syncs"][day_key] = {
                     "status": "failed",
@@ -824,18 +827,37 @@ def run(args: argparse.Namespace) -> str | None:
                     save_state(state)
                 except Exception as state_error:  # noqa: BLE001
                     log(f"Could not persist organization sync failure state: {state_error}")
-                notify_owner_org_sync(day, error=exc)
+
+            try:
+                notify_owner_org_sync(day, summary=org_sync_result, error=org_sync_error)
+            except Exception as exc:  # noqa: BLE001
+                org_sync_notice_error = exc
+                log(f"Organization sync notice failed; will retry after report/greeting: {exc}")
         else:
             log("Feishu organization sync skipped by flag.")
 
+        def retry_org_sync_notice() -> Exception | None:
+            if org_sync_notice_error is None:
+                return None
+            log("Retrying organization sync notice after the remaining nightly stages.")
+            try:
+                notify_owner_org_sync(day, summary=org_sync_result, error=org_sync_error)
+            except Exception as exc:  # noqa: BLE001
+                return exc
+            return None
+
         if args.dry_run and state["dry_runs"].get(day_key) and not args.force_dry_run:
             log(f"Dry-run preview already sent for {day_key}; exiting silently.")
+            if notice_error := retry_org_sync_notice():
+                raise RuntimeError(f"organization sync notice: {notice_error}")
             return None
 
         report_pending = not args.skip_report and (args.force_report or not state["reports"].get(day_key))
         greeting_pending = not args.skip_greeting and (args.force_greeting or not state["greetings"].get(day_key))
         if not args.dry_run and not report_pending and not greeting_pending:
             log(f"No report or greeting delivery is pending for {day_key}; exiting silently.")
+            if notice_error := retry_org_sync_notice():
+                raise RuntimeError(f"organization sync notice: {notice_error}")
             return None
 
         session_text = read_daily_sessions(day)
@@ -844,6 +866,8 @@ def run(args: argparse.Namespace) -> str | None:
 
         if args.dry_run:
             send_dry_run_preview(day, draft, state)
+            if notice_error := retry_org_sync_notice():
+                raise RuntimeError(f"organization sync notice: {notice_error}")
             return None
 
         # Report and greeting are decoupled: a failure in one must not block the
@@ -886,6 +910,9 @@ def run(args: argparse.Namespace) -> str | None:
                     errors.append(f"greeting: {exc}")
         else:
             log("Greeting skipped by flag.")
+
+        if notice_error := retry_org_sync_notice():
+            errors.append(f"organization sync notice: {notice_error}")
 
         if errors:
             raise RuntimeError("; ".join(errors))

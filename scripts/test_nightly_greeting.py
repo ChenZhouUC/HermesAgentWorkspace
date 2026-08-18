@@ -480,6 +480,103 @@ class NightlyOrganizationStageTests(unittest.TestCase):
         self.assertLess(calls.index("report"), calls.index("greeting"))
         self.assertEqual(state["org_syncs"]["2026-08-14"]["status"], "failed")
 
+    def test_notice_failure_is_retried_after_report_and_greeting(self) -> None:
+        calls: list[str] = []
+        state = {"org_syncs": {}, "reports": {}, "greetings": {}, "dry_runs": {}}
+        sync_result = {
+            "completed_at": "2026-08-17T22:00:00+08:00",
+            "mode": "apply",
+            "log": "sync.log",
+            "added": [],
+            "removed": [],
+        }
+
+        def notify(_day: dt.date, **_kwargs) -> None:
+            attempt = 1 + sum(item.startswith("notify:") for item in calls)
+            calls.append(f"notify:{attempt}")
+            if attempt == 1:
+                raise RuntimeError("temporary delivery failure")
+
+        with (
+            patch.object(nightly, "nightly_lock", acquired_lock),
+            patch.object(nightly, "is_chinese_workday", return_value=True),
+            patch.object(nightly, "load_state", return_value=state),
+            patch.object(nightly, "save_state"),
+            patch.object(nightly, "sync_feishu_organization", return_value=sync_result),
+            patch.object(nightly, "notify_owner_org_sync", side_effect=notify),
+            patch.object(
+                nightly,
+                "read_daily_sessions",
+                side_effect=lambda _day: calls.append("sessions") or "SESSION",
+            ),
+            patch.object(
+                nightly,
+                "run_hermes_generation",
+                return_value={"today": "1. 完成", "plan": "1. 计划", "goodnight": nightly.default_goodnight()},
+            ),
+            patch.object(nightly, "write_artifacts"),
+            patch.object(
+                nightly,
+                "submit_report",
+                side_effect=lambda _day, _draft: calls.append("report") or "report.log",
+            ),
+            patch.object(
+                nightly,
+                "send_greetings",
+                side_effect=lambda _day, _text: calls.append("greeting") or [{"group_id": "oc_group"}],
+            ),
+        ):
+            nightly.run(make_args())
+
+        self.assertEqual([item for item in calls if item.startswith("notify:")], ["notify:1", "notify:2"])
+        self.assertLess(calls.index("greeting"), calls.index("notify:2"))
+
+    def test_repeated_notice_failure_marks_cron_run_failed_after_other_stages(self) -> None:
+        calls: list[str] = []
+        state = {"org_syncs": {}, "reports": {}, "greetings": {}, "dry_runs": {}}
+        sync_result = {
+            "completed_at": "2026-08-17T22:00:00+08:00",
+            "mode": "apply",
+            "log": "sync.log",
+            "added": [],
+            "removed": [],
+        }
+
+        with (
+            patch.object(nightly, "nightly_lock", acquired_lock),
+            patch.object(nightly, "is_chinese_workday", return_value=True),
+            patch.object(nightly, "load_state", return_value=state),
+            patch.object(nightly, "save_state"),
+            patch.object(nightly, "sync_feishu_organization", return_value=sync_result),
+            patch.object(
+                nightly,
+                "notify_owner_org_sync",
+                side_effect=RuntimeError("delivery unavailable"),
+            ) as notify,
+            patch.object(nightly, "read_daily_sessions", return_value="SESSION"),
+            patch.object(
+                nightly,
+                "run_hermes_generation",
+                return_value={"today": "1. 完成", "plan": "1. 计划", "goodnight": nightly.default_goodnight()},
+            ),
+            patch.object(nightly, "write_artifacts"),
+            patch.object(
+                nightly,
+                "submit_report",
+                side_effect=lambda _day, _draft: calls.append("report") or "report.log",
+            ),
+            patch.object(
+                nightly,
+                "send_greetings",
+                side_effect=lambda _day, _text: calls.append("greeting") or [{"group_id": "oc_group"}],
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "organization sync notice"):
+                nightly.run(make_args())
+
+        self.assertEqual(notify.call_count, 2)
+        self.assertEqual(calls, ["report", "greeting"])
+
     def test_success_notification_shows_only_added_removed_and_uses_owner_chat(self) -> None:
         sent: list[tuple[str, str]] = []
         with (
@@ -505,6 +602,60 @@ class NightlyOrganizationStageTests(unittest.TestCase):
         self.assertIn("新增人员：新同事", sent[0][1])
         self.assertIn("移除人员：离职同事", sent[0][1])
         self.assertNotIn("不应展示", sent[0][1])
+
+    def test_success_notification_explicitly_confirms_no_roster_changes(self) -> None:
+        sent: list[str] = []
+        with (
+            patch.object(nightly, "load_owner_chat_ids", return_value=["oc_owner"]),
+            patch.object(nightly.feishu_common, "get_tenant_token", return_value="token"),
+            patch.object(
+                nightly,
+                "send_message",
+                side_effect=lambda _token, _chat_id, text: sent.append(text) or {},
+            ),
+        ):
+            nightly.notify_owner_org_sync(
+                dt.date(2026, 8, 17),
+                summary={"mode": "apply", "added": [], "removed": []},
+            )
+
+        self.assertIn("飞书组织架构同步完成", sent[0])
+        self.assertIn("本次未发现人员新增或移除", sent[0])
+
+    def test_notification_retries_token_acquisition_as_part_of_delivery(self) -> None:
+        with (
+            patch.object(nightly, "load_owner_chat_ids", return_value=["oc_owner"]),
+            patch.object(
+                nightly.feishu_common,
+                "get_tenant_token",
+                side_effect=[RuntimeError("proxy unavailable"), "token"],
+            ) as get_token,
+            patch.object(nightly, "send_message", return_value={}) as send_message,
+            patch.object(nightly.time, "sleep"),
+        ):
+            nightly.notify_owner_org_sync(
+                dt.date(2026, 8, 17),
+                summary={"mode": "apply", "added": [], "removed": []},
+            )
+
+        self.assertEqual(get_token.call_count, 2)
+        send_message.assert_called_once()
+
+    def test_notification_failure_is_not_silently_swallowed(self) -> None:
+        with (
+            patch.object(nightly, "load_owner_chat_ids", return_value=["oc_owner"]),
+            patch.object(
+                nightly.feishu_common,
+                "get_tenant_token",
+                side_effect=RuntimeError("proxy unavailable"),
+            ),
+            patch.object(nightly.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Could not notify owner"):
+                nightly.notify_owner_org_sync(
+                    dt.date(2026, 8, 17),
+                    error=RuntimeError("organization unavailable"),
+                )
 
     def test_preview_notification_is_explicitly_non_applying(self) -> None:
         sent: list[str] = []
