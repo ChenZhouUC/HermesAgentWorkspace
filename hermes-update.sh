@@ -148,6 +148,16 @@ PATCHED_FILES=(
     "tests/run_agent/test_provider_fallback.py"
     "tests/run_agent/test_compressor_fallback_update.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
+    "agent/conversation_loop.py"
+    "agent/tool_executor.py"
+    "agent/mcp_task_protocol.py"
+    "tools/mcp_tool.py"
+    "tools/mcp_tasks_extension.py"
+    "tests/run_agent/test_tool_call_incremental_persistence.py"
+    "tests/tools/test_mcp_tasks_extension.py"
+    "tests/tools/test_mcp_utility_capability_gating.py"
+    "tests/tools/test_mcp_tool.py"
+    "website/docs/user-guide/features/mcp.md"
     "native/fts5_cjk/build.sh"
 )
 
@@ -222,18 +232,64 @@ _restore_patched_files_to_head() {
         if git cat-file -e "HEAD:${_f}" 2>/dev/null; then
             git restore --source=HEAD --staged --worktree -- "${_f}" 2>/dev/null || _restore_rc=1
         else
-            # Delete only a path that the failed apply actually placed in the
-            # index. Leave an unrelated untracked file untouched and fail
-            # closed so the user can recover it explicitly.
+            # PATCHED_FILES membership is the exact deletion authorization for
+            # a replay-created path that has no upstream counterpart. Remove
+            # any index entry, then the exact worktree file; unrelated
+            # untracked paths are never passed to this helper.
             if git ls-files --error-unmatch -- "${_f}" >/dev/null 2>&1; then
                 git rm -f --cached --ignore-unmatch -- "${_f}" >/dev/null 2>&1 || _restore_rc=1
+            fi
+            if [[ -e "${_f}" || -L "${_f}" ]]; then
                 rm -f -- "${_f}" || _restore_rc=1
-            elif [[ -e "${_f}" || -L "${_f}" ]]; then
-                _restore_rc=1
             fi
         fi
     done
     return "${_restore_rc}"
+}
+
+# Return 0 when a managed path differs from upstream, including new untracked
+# or ignored files that ordinary `git diff HEAD -- <path>` cannot see.
+_managed_path_differs_from_head() {
+    local _f="$1"
+    if git cat-file -e "HEAD:${_f}" 2>/dev/null; then
+        ! git --no-pager diff --quiet HEAD -- "${_f}" 2>/dev/null
+    else
+        [[ -e "${_f}" || -L "${_f}" ]]
+    fi
+}
+
+# Materialize a complete full-index bundle through an isolated temporary
+# index. This is deterministic for tracked edits, deletions, and new/ignored
+# managed files, while the real index stays byte-for-byte untouched.
+_write_managed_bundle() {
+    local _output="$1"
+    shift
+    local _tmp_dir
+    local _tmp_index
+    local _f
+    _tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/hermes-patch-index.XXXXXX") || return 1
+    _tmp_index="${_tmp_dir}/index"
+    if ! GIT_INDEX_FILE="${_tmp_index}" git read-tree HEAD; then
+        rm -rf -- "${_tmp_dir}"
+        return 1
+    fi
+    for _f in "$@"; do
+        if [[ -e "${_f}" || -L "${_f}" ]]; then
+            GIT_INDEX_FILE="${_tmp_index}" git add -f -- "${_f}" || {
+                rm -rf -- "${_tmp_dir}"
+                return 1
+            }
+        else
+            GIT_INDEX_FILE="${_tmp_index}" git rm -f --cached --ignore-unmatch -- "${_f}" >/dev/null 2>&1 || {
+                rm -rf -- "${_tmp_dir}"
+                return 1
+            }
+        fi
+    done
+    GIT_INDEX_FILE="${_tmp_index}" git --no-pager diff --cached --full-index HEAD -- "$@" >"${_output}"
+    local _rc=$?
+    rm -rf -- "${_tmp_dir}"
+    return "${_rc}"
 }
 
 # PATCH-UPDATE-GIT-FETCH-RETRY + PATCH-UPDATE-TRANSACTION-PIN: acquire exactly
@@ -1009,7 +1065,7 @@ cd "${HERMES_AGENT}"
 
 _CHANGED_PATCH_FILES=()
 for _f in "${PATCHED_FILES[@]}"; do
-    if ! git --no-pager diff --quiet HEAD -- "${_f}" 2>/dev/null; then
+    if _managed_path_differs_from_head "${_f}"; then
         _CHANGED_PATCH_FILES+=("${_f}")
     fi
 done
@@ -1027,7 +1083,7 @@ if [[ ${#_CHANGED_PATCH_FILES[@]} -gt 0 ]]; then
         exit 1
     fi
 
-    if ! git --no-pager diff --full-index HEAD -- "${_CHANGED_PATCH_FILES[@]}" >"${PATCH_FILE}.tmp"; then
+    if ! _write_managed_bundle "${PATCH_FILE}.tmp" "${_CHANGED_PATCH_FILES[@]}"; then
         rm -f -- "${PATCH_FILE}.tmp"
         fail "Could not generate replay bundle; previous canonical bundle was preserved"
         exit 1
@@ -1573,6 +1629,7 @@ _IMAGE_NATIVE_ROUTING_PATCH_OK=false
 _VERTEX_VIDEO_ROUTING_PATCH_OK=false
 _MULTIMODAL_SIDECAR_PATCH_OK=false
 _HISTORY_RETENTION_PATCH_OK=false
+_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK=false
 _APPROVAL_TEMP_CLEANUP_PATCH_OK=false
 _FTS5_CJK_BUILD_PATCH_OK=false
 _COMPACTION_LIFECYCLE_SILENCE_PATCH_OK=false
@@ -2573,6 +2630,37 @@ else
     warn "Could not locate PATCH-HISTORY-RETENTION files"
 fi
 
+# PATCH-MCP-TASKS-ASYNC-HANDOFF: negotiate the standard MCP Tasks extension,
+# register generic task lifecycle utilities, and terminate the current Agent
+# turn with a deterministic receipt when tools/call returns resultType=task.
+# Long-running work stays server-side; querying happens in a later user turn.
+MCP_TASK_PROTOCOL_PY="${HERMES_AGENT}/agent/mcp_task_protocol.py"
+MCP_TASKS_EXTENSION_PY="${HERMES_AGENT}/tools/mcp_tasks_extension.py"
+MCP_TOOL_PY="${HERMES_AGENT}/tools/mcp_tool.py"
+CONVERSATION_LOOP_PY="${HERMES_AGENT}/agent/conversation_loop.py"
+MCP_TASKS_EXTENSION_TEST_PY="${HERMES_AGENT}/tests/tools/test_mcp_tasks_extension.py"
+MCP_TASK_PERSIST_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_tool_call_incremental_persistence.py"
+MCP_UTILITY_GATE_TEST_PY="${HERMES_AGENT}/tests/tools/test_mcp_utility_capability_gating.py"
+if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MCP_TOOL_PY}" &&
+    -f "${CONVERSATION_LOOP_PY}" && -f "${MCP_TASKS_EXTENSION_TEST_PY}" &&
+    -f "${MCP_TASK_PERSIST_TEST_PY}" && -f "${MCP_UTILITY_GATE_TEST_PY}" ]]; then
+    if grep -q 'TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
+        grep -q 'server_supports_tasks(server.initialize_result)' "${MCP_TOOL_PY}" 2>/dev/null &&
+        grep -q 'mcp_prefixed_tool_name(server_name, "tasks_get")' "${MCP_TOOL_PY}" 2>/dev/null &&
+        grep -q 'direct_task_response(messages)' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
+        grep -q 'test_mcp_task_handle_ends_turn_without_second_model_call' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_task_aware_call_advertises_extension_and_accepts_task_handle' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_tasks_extension_registers_standard_task_utilities' "${MCP_UTILITY_GATE_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-MCP-TASKS-ASYNC-HANDOFF active: standard task handles return without a second LLM call"
+        _MCP_TASKS_ASYNC_HANDOFF_PATCH_OK=true
+    else
+        warn "PATCH-MCP-TASKS-ASYNC-HANDOFF inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-MCP-TASKS-ASYNC-HANDOFF]"
+    fi
+else
+    warn "Could not locate PATCH-MCP-TASKS-ASYNC-HANDOFF files"
+fi
+
 # PATCH-APPROVAL-DARWIN-TMP: approval temp-cleanup exemption on Darwin. Upstream 0c8bcd339's
 # _is_verification_artifact_cleanup realpath()s the temp dir but not the
 # operand, so on Darwin (/tmp -> /private/tmp, /var/folders ->
@@ -2634,7 +2722,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
@@ -2645,7 +2733,7 @@ if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUI
         _REFRESHED=()
         _UNCHANGED_MANAGED=()
         for _f in "${PATCHED_FILES[@]}"; do
-            if ! git --no-pager diff --quiet HEAD -- "${_f}" 2>/dev/null; then
+            if _managed_path_differs_from_head "${_f}"; then
                 _REFRESHED+=("${_f}")
             else
                 _UNCHANGED_MANAGED+=("${_f}")
@@ -2666,16 +2754,18 @@ if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUI
             FINAL_RC=1
         elif [[ ${#_REFRESHED[@]} -gt 0 ]]; then
             _REPLAY_VERIFY_OK=false
-            if git --no-pager diff --full-index HEAD -- "${_REFRESHED[@]}" >"${PATCH_FILE}.tmp" &&
+            if _write_managed_bundle "${PATCH_FILE}.tmp" "${_REFRESHED[@]}" &&
                 _bundle_matches_patched_files "${PATCH_FILE}.tmp" &&
                 ! grep -nE '^\+?(<<<<<<<|=======|>>>>>>>)' "${PATCH_FILE}.tmp" >/dev/null 2>&1 &&
                 git diff --cached --quiet &&
                 git apply --cached --check "${PATCH_FILE}.tmp" 2>/dev/null &&
                 git diff --cached --quiet &&
                 git apply --check --reverse "${PATCH_FILE}.tmp" 2>/dev/null &&
-                cmp -s "${PATCH_FILE}.tmp" <(git --no-pager diff --full-index HEAD -- "${PATCHED_FILES[@]}"); then
+                _write_managed_bundle "${PATCH_FILE}.compare" "${PATCHED_FILES[@]}" &&
+                cmp -s "${PATCH_FILE}.tmp" "${PATCH_FILE}.compare"; then
                 _REPLAY_VERIFY_OK=true
             fi
+            rm -f -- "${PATCH_FILE}.compare"
 
             if $_REPLAY_VERIFY_OK; then
                 # Record upstream base provenance only after the physical

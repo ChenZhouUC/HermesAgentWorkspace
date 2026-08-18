@@ -123,6 +123,14 @@ assert (root.get("skills") or {}).get("platform_allowed", {}).get("feishu_group"
 assert (root.get("approvals") or {}).get("mode") == "manual"
 assert root.get("command_allowlist") == []
 assert "sandbox" in set((root.get("plugins") or {}).get("enabled") or [])
+hypertex_mcp = (root.get("mcp_servers") or {}).get("hypertex") or {}
+assert int(hypertex_mcp.get("timeout") or 0) == 30
+assert int(hypertex_mcp.get("idle_timeout_seconds") or 0) == 60
+assert set(((hypertex_mcp.get("tools") or {}).get("include") or [])) == {
+    "hypertex_list_cases",
+    "hypertex_create_case",
+    "hypertex_get_case",
+}
 feishu = root.get("feishu") or {}
 assert feishu.get("default_group_policy") == "open"
 assert feishu.get("require_mention") is True
@@ -142,6 +150,10 @@ assert not any(
 )
 
 assert plugin.get("owner_feishu_chat_ids"), "owner Feishu chat id must be configured"
+assert plugin.get("hypertex_asset_staging_root") == "~/.hermes/tmp/hypertex-assets"
+assert int(plugin.get("hypertex_max_asset_bytes") or 0) == 50000000
+assert int(plugin.get("hypertex_max_assets_per_turn") or 0) == 6
+assert int(plugin.get("hypertex_asset_staging_ttl_seconds") or 0) == 86400
 assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "clarify",
     "web_search",
@@ -302,6 +314,42 @@ assert '"name": "feishu_doc_manage"' in describe_doc
 # above alone can be green while Feishu groups still block the bridge tools.
 sandbox = importlib.import_module("hermes_plugins.sandbox")
 sandbox._current_platform.set("feishu")
+sandbox._current_chat_id.set(next(iter(sandbox._OWNER_CHAT_IDS)))
+sandbox._current_chat_type.set("private")
+sandbox._current_media_paths.set(tuple())
+sandbox._current_hypertex_call_count.set(0)
+owner_hypertex_args = {
+    "prompt": "verify",
+    "owner_username": "chenzhou",
+    "agent": "qwen",
+    "type": "brochure",
+    "asset_paths": ["/etc/passwd"],
+}
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._HYPERTEX_CREATE_TOOL,
+    args=owner_hypertex_args,
+) is None
+assert owner_hypertex_args == {
+    "prompt": "verify",
+    "owner_username": "hermes",
+    "agent": "codex",
+    "type": "deck",
+    "asset_paths": [],
+}
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._HYPERTEX_TASK_TOOL,
+    args={"task_id": 2},
+) == {"action": "block", "message": sandbox._HYPERTEX_ONE_CALL_MESSAGE}
+
+sandbox._current_hypertex_call_count.set(0)
+owner_task_args = {"task_id": "2"}
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._HYPERTEX_TASK_TOOL,
+    args=owner_task_args,
+) is None
+assert owner_task_args == {"task_id": "2"}
+
+sandbox._current_platform.set("feishu")
 sandbox._current_chat_id.set("oc_verify_group")
 sandbox._current_chat_type.set("group")
 sandbox._current_user_id.set("ou_untrusted_verify")
@@ -411,8 +459,17 @@ PY
         )
     fi
     current_reg=""
+    current_mcp_tasks=""
     if [[ -n "${gateway_pid}" ]]; then
         current_reg=$(grep "sandbox: registered (pid=${gateway_pid}," "${AGENT_LOG}" | tail -1 || true)
+        current_reg_line=$(grep -n "sandbox: registered (pid=${gateway_pid}," "${AGENT_LOG}" | tail -1 | cut -d: -f1 || true)
+        if [[ -n "${current_reg_line}" ]]; then
+            for _mcp_wait_attempt in {1..20}; do
+                current_mcp_tasks=$(tail -n "+${current_reg_line}" "${AGENT_LOG}" | grep "MCP server 'hypertex'.*mcp__hypertex__tasks_get.*mcp__hypertex__tasks_cancel.*mcp__hypertex__tasks_update" | head -1 || true)
+                [[ -n "${current_mcp_tasks}" ]] && break
+                sleep 0.5
+            done
+        fi
     fi
     if [[ -z "${supervisor_pid}" ]] || ! echo "${gateway_status}" | grep -q 'Service definition matches the current Hermes install'; then
         echo "FAIL launchd supervisor/current service definition is unavailable"
@@ -424,6 +481,9 @@ PY
     elif [[ -z "${current_reg}" ]]; then
         echo "FAIL no sandbox registration trace for gateway child PID ${gateway_pid} (launchd wrapper PID ${supervisor_pid})"
         echo "     Run 'hermes plugins enable sandbox && hermes gateway restart' and re-check."
+        fail=1
+    elif [[ -z "${current_mcp_tasks}" ]]; then
+        echo "FAIL no standard MCP Tasks registration after sandbox trace for gateway child PID ${gateway_pid}"
         fail=1
     elif echo "${current_reg}" | grep -q 'active=True' &&
         echo "${current_reg}" | grep -q 'tool_search' &&

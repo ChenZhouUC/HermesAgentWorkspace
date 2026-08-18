@@ -14,6 +14,7 @@ import plugins.sandbox as sandbox
 @pytest.fixture
 def group_config(tmp_path, monkeypatch):
     workspace_root = (tmp_path / "tmp" / "group-workspaces").resolve()
+    hypertex_staging_root = (tmp_path / "tmp" / "hypertex-assets").resolve()
     scripts_root = (tmp_path / "my-skills" / "feishu-docs" / "scripts").resolve()
     scripts_root.mkdir(parents=True)
     for filename in sandbox._FEISHU_SCRIPT_FILES.values():
@@ -55,6 +56,10 @@ def group_config(tmp_path, monkeypatch):
     wiki_root.mkdir()
     monkeypatch.setattr(sandbox, "_GROUP_ALLOWED_READ_ROOTS", (wiki_root,))
     monkeypatch.setattr(sandbox, "_GROUP_WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr(sandbox, "_HYPERTEX_ASSET_STAGING_ROOT", hypertex_staging_root)
+    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSET_BYTES", 50_000_000)
+    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSETS_PER_TURN", 6)
+    monkeypatch.setattr(sandbox, "_HYPERTEX_ASSET_STAGING_TTL_SECONDS", 86_400)
     monkeypatch.setattr(
         sandbox,
         "_GROUP_ALLOWED_SCRIPT_ACTIONS",
@@ -70,8 +75,12 @@ def group_config(tmp_path, monkeypatch):
     sandbox._current_chat_type.set("group")
     sandbox._current_user_id.set("trusted-user")
     sandbox._current_resource_refs.set(frozenset())
+    sandbox._current_media_paths.set(tuple())
+    sandbox._current_hypertex_staged_paths.set(tuple())
+    sandbox._current_hypertex_call_count.set(0)
     return {
         "workspace_root": workspace_root,
+        "hypertex_staging_root": hypertex_staging_root,
         "scripts_root": scripts_root,
         "wiki_root": wiki_root,
     }
@@ -384,6 +393,108 @@ def test_owner_dm_keeps_full_access(group_config):
     sandbox._current_chat_id.set("owner-dm")
     sandbox._current_chat_type.set("private")
     assert sandbox._on_pre_tool_call(tool_name="terminal", args={"command": "echo ok"}) is None
+
+
+def test_owner_dm_hypertex_create_is_pinned_and_stages_current_attachments(group_config, tmp_path):
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first = first_dir / "doc_aaaaaaaaaaaa_Report.pdf"
+    second = second_dir / "doc_bbbbbbbbbbbb_Report.pdf"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    event = SimpleNamespace(
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="feishu"),
+            chat_id="owner-dm",
+            chat_type="private",
+            user_id="owner-user",
+        ),
+        text="做一份演示文稿",
+        reply_to_text="",
+        channel_context="",
+        media_urls=[str(first), str(second)],
+    )
+    sandbox._on_pre_gateway_dispatch(event)
+    args = {
+        "prompt": "做一份演示文稿",
+        "owner_username": "chenzhou",
+        "agent": "qwen",
+        "type": "brochure",
+        "asset_paths": ["/etc/passwd"],
+    }
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
+    assert args["owner_username"] == "hermes"
+    assert args["agent"] == "codex"
+    assert args["type"] == "deck"
+    staged = [Path(path) for path in args["asset_paths"]]
+    assert [path.name for path in staged] == ["Report.pdf", "Report-2.pdf"]
+    assert [path.read_bytes() for path in staged] == [b"first", b"second"]
+    assert all(path.is_relative_to(group_config["hypertex_staging_root"]) for path in staged)
+
+
+def test_owner_dm_hypertex_reads_are_pinned_to_contributor(group_config):
+    sandbox._current_chat_id.set("owner-dm")
+    sandbox._current_chat_type.set("private")
+    for tool_name in (
+        sandbox._HYPERTEX_LIST_TOOL,
+        sandbox._HYPERTEX_CASE_TOOL,
+    ):
+        sandbox._current_hypertex_call_count.set(0)
+        args = {"username": "chenzhou"}
+        assert sandbox._on_pre_tool_call(tool_name=tool_name, args=args) is None
+        assert args["username"] == "hermes"
+
+    sandbox._current_hypertex_call_count.set(0)
+    task_args = {"task_id": "2"}
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_TASK_TOOL, args=task_args) is None
+    assert task_args == {"task_id": "2"}
+
+
+def test_owner_dm_allows_only_one_hypertex_call_per_inbound_turn(group_config):
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="owner-dm",
+        chat_type="private",
+        user_id="owner-user",
+    )
+    sandbox._on_pre_gateway_dispatch(SimpleNamespace(source=source, text="create", reply_to_text="", media_urls=[]))
+    create_args = {"prompt": "create"}
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=create_args) is None
+
+    query_args = {"task_id": 2}
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_TASK_TOOL, args=query_args) == {
+        "action": "block",
+        "message": sandbox._HYPERTEX_ONE_CALL_MESSAGE,
+    }
+
+    sandbox._on_pre_gateway_dispatch(SimpleNamespace(source=source, text="query", reply_to_text="", media_urls=[]))
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_TASK_TOOL, args=query_args) is None
+    assert query_args == {"task_id": 2}
+
+
+def test_new_owner_dm_turn_drops_previous_hypertex_attachments(group_config, tmp_path):
+    attachment = tmp_path / "doc_aaaaaaaaaaaa_Source.pptx"
+    attachment.write_bytes(b"pptx")
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="owner-dm",
+        chat_type="private",
+        user_id="owner-user",
+    )
+    sandbox._on_pre_gateway_dispatch(
+        SimpleNamespace(source=source, text="first", reply_to_text="", media_urls=[str(attachment)])
+    )
+    first_args = {"prompt": "first"}
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=first_args) is None
+    assert first_args["asset_paths"]
+
+    sandbox._on_pre_gateway_dispatch(SimpleNamespace(source=source, text="second", reply_to_text="", media_urls=[]))
+    second_args = {"prompt": "second"}
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=second_args) is None
+    assert second_args["asset_paths"] == []
 
 
 def test_outsider_dm_keeps_safe_base_allowlist(group_config):

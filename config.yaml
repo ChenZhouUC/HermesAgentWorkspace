@@ -5,7 +5,7 @@ model:
   context_length: 1048576
 fallback_providers:
   - provider: bedrock
-    model: '${CLAUDE_AM_OPUS_ARN}'
+    model: ${CLAUDE_AM_OPUS_ARN}
   - provider: vertex
     model: google/gemini-3.5-flash
 toolsets:
@@ -28,9 +28,9 @@ agent:
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
   disabled_toolsets: []
-  reasoning_effort: high
   reasoning_overrides:
     gemini-3.5-flash: high
+  reasoning_effort: high
 terminal:
   backend: local
   modal_mode: auto
@@ -45,6 +45,7 @@ terminal:
   singularity_image: docker://nikolaik/python-nodejs:python3.11-nodejs20
   modal_image: nikolaik/python-nodejs:python3.11-nodejs20
   daytona_image: nikolaik/python-nodejs:python3.11-nodejs20
+  vercel_runtime: node24
   container_cpu: 1
   container_memory: 5120
   container_disk: 51200
@@ -54,15 +55,11 @@ terminal:
   docker_extra_args: []
   docker_run_as_host_user: false
   persistent_shell: true
-  vercel_runtime: node24
 web:
   backend: tavily
   search_backend: ''
   extract_backend: ''
 browser:
-  # 'off' pins the built-in browser_* tools (agent-browser); upstream a1835c8c1
-  # made Browser Use CLI the default, which would uvx-download a never-installed
-  # package on first use — opt in deliberately, not by default fallthrough.
   backend: 'off'
   inactivity_timeout: 120
   command_timeout: 30
@@ -87,8 +84,8 @@ checkpoints:
   max_file_size_mb: 10
   auto_prune: false
   retention_days: 7
-  delete_orphans: true
   min_interval_hours: 24
+  delete_orphans: true
 file_read_max_chars: 100000
 tool_output:
   max_bytes: 50000
@@ -110,26 +107,14 @@ compression:
   threshold: 0.7
   threshold_tokens: 700000
   target_ratio: 0.2
-  # Keep the established verbatim-tail semantics; upstream also offers lean.
   tail_mode: legacy
   protect_last_n: 40
+  proactive_prune_tokens: 48000
   hygiene_hard_message_limit: 400
   protect_first_n: 3
   abort_on_summary_failure: false
   codex_gpt55_autoraise: false
-  proactive_prune_tokens: 48000
   idle_compact_after_seconds: 1800
-kanban:
-  dispatch_in_gateway: true
-  dispatch_interval_seconds: 60
-  failure_limit: 2
-  worker_log_rotate_bytes: 2097152
-  worker_log_backup_count: 1
-  orchestrator_profile: ''
-  default_assignee: ''
-  auto_decompose: true
-  auto_decompose_per_tick: 3
-  dispatch_stale_timeout_seconds: 14400
 prompt_caching:
   cache_ttl: 5m
 openrouter:
@@ -137,7 +122,7 @@ openrouter:
   response_cache_ttl: 300
   min_coding_score: 0.65
 bedrock:
-  region: '${AWS_REGION}'
+  region: ${AWS_REGION}
   discovery:
     enabled: true
     provider_filter: []
@@ -501,6 +486,17 @@ security:
 cron:
   wrap_response: true
   script_timeout_seconds: 900
+kanban:
+  dispatch_in_gateway: true
+  dispatch_interval_seconds: 60
+  failure_limit: 2
+  worker_log_rotate_bytes: 2097152
+  worker_log_backup_count: 1
+  orchestrator_profile: ''
+  default_assignee: ''
+  auto_decompose: true
+  auto_decompose_per_tick: 3
+  dispatch_stale_timeout_seconds: 14400
 code_execution:
   mode: project
 tools:
@@ -524,16 +520,16 @@ model_catalog:
 network:
   force_ipv4: false
 gateway:
-  history_retention:
-    feishu_group:
-      max_age_seconds: 21600
-      max_messages: 30
   message_timestamps:
     enabled: false
   strict: false
   media_delivery_allow_dirs: []
   trust_recent_files: true
   trust_recent_files_seconds: 600
+  history_retention:
+    feishu_group:
+      max_age_seconds: 21600
+      max_messages: 30
 streaming:
   enabled: false
   transport: edit
@@ -544,11 +540,11 @@ streaming:
 sessions:
   auto_prune: false
   retention_days: 90
+  auto_archive: true
+  auto_archive_days: 14
   vacuum_after_prune: true
   min_interval_hours: 24
   write_json_snapshots: false
-  auto_archive: true
-  auto_archive_days: 14
 onboarding:
   seen:
     busy_input_prompt: true
@@ -568,10 +564,6 @@ x_search:
   timeout_seconds: 180
   retries: 2
 secrets:
-  # Ignore known Hermes provider/tool variables inherited from the user's
-  # shell (for example via ~/.secrets). Only ~/.hermes/.env and explicitly
-  # configured Hermes secret sources may populate them.
-  ignore_ambient_credentials: true
   bitwarden:
     enabled: false
     access_token_env: BWS_ACCESS_TOKEN
@@ -580,6 +572,7 @@ secrets:
     override_existing: true
     auto_install: true
     server_url: ''
+  ignore_ambient_credentials: true
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
@@ -629,8 +622,6 @@ feishu:
   history_backfill_limit: 30
   history_backfill_seconds: 1800
   history_backfill_max_chars: 6000
-  # Standalone Feishu media cannot carry @Hermes. A same-sender mention within
-  # this bounded window recovers the current image/file/video/audio attachment.
   attachment_backfill_window_seconds: 300
   attachment_backfill_max_messages: 3
   attachment_backfill_max_files: 6
@@ -655,6 +646,21 @@ plugins:
   enabled:
     - sandbox
   disabled: []
+mcp_servers:
+  hypertex:
+    command: /Users/chenzhou/Documents/WhaleDocs/slides/hypertex/hypertex.sh
+    args:
+      - mcp
+    connect_timeout: 30.0
+    timeout: 30
+    keepalive_interval: 86400
+    idle_timeout_seconds: 60
+    tools:
+      include:
+        - hypertex_list_cases
+        - hypertex_create_case
+        - hypertex_get_case
+    enabled: true
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.

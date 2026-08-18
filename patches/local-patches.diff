@@ -1,3 +1,22 @@
+diff --git a/agent/conversation_loop.py b/agent/conversation_loop.py
+index ba11804a97bb21da476518bd970833dafbaed852..7f54186a7164816c4b47a814445baa659a716b18 100644
+--- a/agent/conversation_loop.py
++++ b/agent/conversation_loop.py
+@@ -7101,6 +7101,14 @@ def run_conversation(
+                                 pass
+                     break
+ 
++                from agent.mcp_task_protocol import direct_task_response
++
++                _mcp_task_response = direct_task_response(messages)
++                if _mcp_task_response is not None:
++                    final_response, _turn_exit_reason = _mcp_task_response
++                    append_message(messages, {"role": "assistant", "content": final_response})
++                    break
++
+                 # Reset per-turn retry counters after successful tool
+                 # execution so a single truncation doesn't poison the
+                 # entire conversation.
 diff --git a/agent/image_routing.py b/agent/image_routing.py
 index a3762fccd4aa535fbd8ae6bb82bedc01c46745ec..37f52e424ddc9f00c56afb4a05ef6abda78f75d3 100644
 --- a/agent/image_routing.py
@@ -647,6 +666,120 @@ index a3762fccd4aa535fbd8ae6bb82bedc01c46745ec..37f52e424ddc9f00c56afb4a05ef6abd
 +    "NATIVE_VIDEO_MAX_BYTES",
 +    "MULTIMODAL_SIDECAR_MAX_BYTES",
  ]
+diff --git a/agent/mcp_task_protocol.py b/agent/mcp_task_protocol.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..a9b7e547bd4743c91b10df20ed0656267067ab95
+--- /dev/null
++++ b/agent/mcp_task_protocol.py
+@@ -0,0 +1,108 @@
++"""MCP Tasks extension helpers shared by tool execution and the agent loop.
++
++The MCP Tasks extension returns a durable task handle instead of an ordinary
++``CallToolResult``.  That handle is a control-plane result: feeding it back to
++the model for a second wording pass adds latency and can wedge an otherwise
++successful asynchronous submission.  These helpers recognize only standard
++MCP task result shapes from MCP-prefixed tools and render bounded,
++deterministic user receipts.
++"""
++
++from __future__ import annotations
++
++import json
++from typing import Any
++
++
++MCP_TOOL_PREFIX = "mcp__"
++MCP_TASK_METADATA_KEY = "_mcp_task_result"
++
++
++def _payload(result: Any) -> dict[str, Any] | None:
++    if isinstance(result, dict):
++        return result
++    if not isinstance(result, str):
++        return None
++    try:
++        parsed = json.loads(result)
++    except (TypeError, ValueError):
++        return None
++    return parsed if isinstance(parsed, dict) else None
++
++
++def task_result_metadata(tool_name: str, result: Any) -> dict[str, Any] | None:
++    """Return a validated task result plus protocol provenance."""
++    if not str(tool_name or "").startswith(MCP_TOOL_PREFIX):
++        return None
++    payload = _payload(result)
++    if not payload:
++        return None
++    result_type = str(payload.get("resultType") or "")
++    task_id = str(payload.get("taskId") or "").strip()
++    status = str(payload.get("status") or "").strip()
++    if not task_id or not status:
++        return None
++    if result_type == "task":
++        kind = "created"
++    elif result_type == "complete" and str(tool_name).endswith("__tasks_get"):
++        kind = "status"
++    else:
++        return None
++    server_parts = str(tool_name).split("__", 2)
++    server = server_parts[1] if len(server_parts) == 3 else ""
++    return {"kind": kind, "server": server, "task": payload}
++
++
++def attach_task_result_metadata(
++    tool_message: dict[str, Any], tool_name: str, result: Any
++) -> None:
++    metadata = task_result_metadata(tool_name, result)
++    if metadata is not None:
++        tool_message[MCP_TASK_METADATA_KEY] = metadata
++
++
++def _task_lines(metadata: dict[str, Any]) -> list[str]:
++    task = metadata["task"]
++    kind = metadata["kind"]
++    lines = ["MCP 异步任务已受理。" if kind == "created" else "MCP 任务状态已更新。"]
++    server = str(metadata.get("server") or "").strip()
++    if server:
++        lines.append(f"- server: `{server}`")
++    lines.append(f"- task_id: `{task['taskId']}`")
++    lines.append(f"- status: `{task['status']}`")
++    status_message = str(task.get("statusMessage") or "").strip()
++    if status_message:
++        lines.append(f"- detail: {status_message[:500]}")
++    poll_interval = task.get("pollIntervalMs")
++    if isinstance(poll_interval, int) and poll_interval > 0:
++        lines.append(f"- suggested_poll: {poll_interval / 1000:g}s")
++    if kind == "created":
++        lines.append("后续可在新消息中使用 task_id 查询状态。")
++    elif task.get("result") is not None:
++        rendered = json.dumps(task["result"], ensure_ascii=False, indent=2)
++        lines.extend(("", "结果：", f"```json\n{rendered[:4000]}\n```"))
++    elif task.get("error") is not None:
++        rendered = json.dumps(task["error"], ensure_ascii=False, indent=2)
++        lines.extend(("", "错误：", f"```json\n{rendered[:2000]}\n```"))
++    return lines
++
++
++def direct_task_response(messages: list[dict[str, Any]]) -> tuple[str, str] | None:
++    """Render trailing MCP task result(s) and return ``(text, exit_reason)``."""
++    metadata_items: list[dict[str, Any]] = []
++    for message in reversed(messages):
++        if not isinstance(message, dict) or message.get("role") != "tool":
++            break
++        metadata = message.get(MCP_TASK_METADATA_KEY)
++        if isinstance(metadata, dict):
++            metadata_items.append(metadata)
++    if not metadata_items:
++        return None
++    metadata_items.reverse()
++    sections = ["\n".join(_task_lines(item)) for item in metadata_items]
++    reason = (
++        "mcp_task_created"
++        if any(item.get("kind") == "created" for item in metadata_items)
++        else "mcp_task_status"
++    )
++    return "\n\n".join(sections), reason
 diff --git a/agent/models_dev.py b/agent/models_dev.py
 index fca9201eb69db9f4a617726ee2d3cc1748e2811b..45b3bedbdc1143a2ad41e2d38d31be1b1bd66d77 100644
 --- a/agent/models_dev.py
@@ -975,6 +1108,30 @@ index 0454f3f7e946e78ce0dfc363806e20b15657f3c1..5740ca81be2cf964674534913b281fbe
              if str(skill_name) in disabled:
                  continue
              if not skill_matches_platform(frontmatter):
+diff --git a/agent/tool_executor.py b/agent/tool_executor.py
+index 71a43f195ad531f58063a0c18f421487ab589ea4..27384735a267c3c708b2a81cf83bf9d79d1bfb5d 100644
+--- a/agent/tool_executor.py
++++ b/agent/tool_executor.py
+@@ -1712,6 +1712,9 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
+             tc.id,
+             effect_disposition=effect_disposition,
+         )
++        from agent.mcp_task_protocol import attach_task_result_metadata
++
++        attach_task_result_metadata(tool_message, name, display_function_result)
+         messages.append(tool_message)
+         risk_metadata = tool_message.get("_tool_output_risk")
+         if not _flush_session_db_after_tool_progress(
+@@ -2518,6 +2521,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
+             tool_call.id,
+             effect_disposition="unknown" if _execution_timed_out else None,
+         )
++        from agent.mcp_task_protocol import attach_task_result_metadata
++
++        attach_task_result_metadata(tool_message, function_name, display_function_result)
+         messages.append(tool_message)
+         risk_metadata = tool_message.get("_tool_output_risk")
+         if not _flush_session_db_after_tool_progress(
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
 index f6f0cd51842a0bf07b8350bff5dacef0dc55abd5..2fe5402c994ee99a43d04dd2d5d23e020ff2e2e0 100644
 --- a/agent/transports/chat_completions.py
@@ -15567,6 +15724,78 @@ index 4faeb2b5592136aec10c2b0ee96c069523b01313..ebea1e12aba98785c62c0956b716f594
  
  
      def test_skips_unconfigured_provider_to_next(self):
+diff --git a/tests/run_agent/test_tool_call_incremental_persistence.py b/tests/run_agent/test_tool_call_incremental_persistence.py
+index 20a2c2de9dc557a9c03f5056d8efa0e1eefd04fa..f1f63a3b29235371241c291303ed6253cd8d71bf 100644
+--- a/tests/run_agent/test_tool_call_incremental_persistence.py
++++ b/tests/run_agent/test_tool_call_incremental_persistence.py
+@@ -23,6 +23,7 @@ makes the corresponding assertion fail.
+ """
+ 
+ import copy
++import json
+ from types import SimpleNamespace
+ from pathlib import Path
+ import tempfile
+@@ -51,13 +52,14 @@ def _make_tool_defs(*names: str) -> list:
+     ]
+ 
+ 
+-def _make_agent():
++def _make_agent(*tool_names: str):
++    resolved_tool_names = tool_names or ("web_search",)
+     hermes_home = Path(tempfile.mkdtemp(prefix="hermes-test-home-"))
+     (hermes_home / "logs").mkdir(parents=True, exist_ok=True)
+     with (
+         patch(
+             "run_agent.get_tool_definitions",
+-            return_value=_make_tool_defs("web_search"),
++            return_value=_make_tool_defs(*resolved_tool_names),
+         ),
+         patch("run_agent.check_toolset_requirements", return_value={}),
+         patch("run_agent.OpenAI"),
+@@ -171,6 +173,42 @@ def test_run_conversation_flushes_assistant_tool_call_before_execution():
+     assert result["final_response"] == "done"
+ 
+ 
++def test_mcp_task_handle_ends_turn_without_second_model_call():
++    tool_name = "mcp__demo__start_report"
++    agent = _make_agent(tool_name)
++    tool_call = _mock_tool_call(name=tool_name, call_id="task-call")
++    agent.client.chat.completions.create.side_effect = [
++        _mock_response(content="", finish_reason="tool_calls", tool_calls=[tool_call]),
++        AssertionError("a standard MCP task handle must not trigger a second model call"),
++    ]
++    task_handle = json.dumps(
++        {
++            "resultType": "task",
++            "taskId": "task-42",
++            "status": "working",
++            "statusMessage": "Queued",
++            "createdAt": "2026-08-18T10:00:00+08:00",
++            "lastUpdatedAt": "2026-08-18T10:00:00+08:00",
++            "ttlMs": None,
++            "pollIntervalMs": 5000,
++        }
++    )
++
++    with (
++        patch("run_agent.handle_function_call", return_value=task_handle),
++        patch.object(agent, "_persist_session"),
++        patch.object(agent, "_save_trajectory"),
++        patch.object(agent, "_cleanup_task_resources"),
++    ):
++        result = agent.run_conversation("start the report")
++
++    assert agent.client.chat.completions.create.call_count == 1
++    assert result["completed"] is True
++    assert result["turn_exit_reason"] == "mcp_task_created"
++    assert "task-42" in result["final_response"]
++    assert "demo" in result["final_response"]
++
++
+ def test_interim_assistant_is_durable_before_ui_projection_on_abnormal_exit(tmp_path):
+     """A visible interim assistant row must survive an immediate process exit.
+ 
 diff --git a/tests/tools/test_approval.py b/tests/tools/test_approval.py
 index 1a75403436d99c68dced0bf718f9cd356d10ef66..81594fcbe563a596fb4833aafd3929b058933a7e 100644
 --- a/tests/tools/test_approval.py
@@ -15826,6 +16055,189 @@ index ed7571da56238c27759cc897f108ebe37aec47b2..4db29a2af45f67e9252e7154bb68573f
      def test_drive_tools_require_file_token(self):
          for tool_name in self.EXPECTED_TOOLS:
              if tool_name == "feishu_doc_read":
+diff --git a/tests/tools/test_mcp_tasks_extension.py b/tests/tools/test_mcp_tasks_extension.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..77d2df89ee49eb61c65cfa419bb426ce121e3e0b
+--- /dev/null
++++ b/tests/tools/test_mcp_tasks_extension.py
+@@ -0,0 +1,88 @@
++from __future__ import annotations
++
++import asyncio
++
++from tools.mcp_tasks_extension import (
++    TASKS_EXTENSION_ID,
++    call_tool,
++    server_supports_tasks,
++    task_request,
++)
++
++
++class _Session:
++    def __init__(self, response):
++        self.response = response
++        self.requests = []
++        self.validated = []
++
++    async def send_request(self, request, result_type):
++        self.requests.append(request.model_dump(mode="json"))
++        return result_type.model_validate(self.response)
++
++    async def _validate_tool_result(self, name, result):
++        self.validated.append((name, result))
++
++
++def test_task_aware_call_advertises_extension_and_accepts_task_handle():
++    session = _Session({
++        "resultType": "task",
++        "taskId": "42",
++        "status": "working",
++        "createdAt": "2026-08-18T00:00:00Z",
++        "lastUpdatedAt": "2026-08-18T00:00:00Z",
++        "ttlMs": None,
++    })
++
++    kind, result = asyncio.run(call_tool(session, "start", {"x": 1}))
++
++    assert kind == "task"
++    assert result["taskId"] == "42"
++    meta = session.requests[0]["params"]["_meta"]
++    assert meta["io.modelcontextprotocol/clientCapabilities"]["extensions"] == {
++        TASKS_EXTENSION_ID: {}
++    }
++    assert session.validated == []
++
++
++def test_task_aware_call_preserves_standard_call_tool_result_validation():
++    session = _Session({
++        "content": [{"type": "text", "text": "done"}],
++        "isError": False,
++    })
++
++    kind, result = asyncio.run(call_tool(session, "read", {}))
++
++    assert kind == "complete"
++    assert result.content[0].text == "done"
++    assert session.validated[0][0] == "read"
++
++
++def test_task_request_uses_standard_method_and_task_id():
++    session = _Session({
++        "resultType": "complete",
++        "taskId": "42",
++        "status": "working",
++        "createdAt": "2026-08-18T00:00:00Z",
++        "lastUpdatedAt": "2026-08-18T00:00:00Z",
++        "ttlMs": None,
++    })
++
++    result = asyncio.run(task_request(session, "tasks/get", {"taskId": "42"}))
++
++    assert result["taskId"] == "42"
++    assert session.requests[0] == {
++        "method": "tasks/get",
++        "params": {"taskId": "42"},
++    }
++
++
++def test_server_support_is_driven_by_negotiated_extension():
++    class _Caps:
++        extensions = {TASKS_EXTENSION_ID: {}}
++
++    class _Init:
++        capabilities = _Caps()
++
++    assert server_supports_tasks(_Init()) is True
++    assert server_supports_tasks(None) is False
+diff --git a/tests/tools/test_mcp_tool.py b/tests/tools/test_mcp_tool.py
+index 831154bdd75222f0cc39ea928eb5b63df9020107..7b1ce8baf601ae7789b58aa2d68d4a1875c1e203 100644
+--- a/tests/tools/test_mcp_tool.py
++++ b/tests/tools/test_mcp_tool.py
+@@ -1468,16 +1468,19 @@ class TestConfigurableTimeouts:
+ class TestUtilitySchemas:
+     """Tests for _build_utility_schemas() and the schema format of utility tools."""
+ 
+-    def test_builds_four_utility_schemas(self):
++    def test_builds_resource_prompt_and_task_utility_schemas(self):
+         from tools.mcp_tool import _build_utility_schemas
+ 
+         schemas = _build_utility_schemas("myserver")
+-        assert len(schemas) == 4
++        assert len(schemas) == 7
+         names = [s["schema"]["name"] for s in schemas]
+         assert "mcp__myserver__list_resources" in names
+         assert "mcp__myserver__read_resource" in names
+         assert "mcp__myserver__list_prompts" in names
+         assert "mcp__myserver__get_prompt" in names
++        assert "mcp__myserver__tasks_get" in names
++        assert "mcp__myserver__tasks_update" in names
++        assert "mcp__myserver__tasks_cancel" in names
+ 
+     def test_read_resource_schema_requires_uri(self):
+         from tools.mcp_tool import _build_utility_schemas
+diff --git a/tests/tools/test_mcp_utility_capability_gating.py b/tests/tools/test_mcp_utility_capability_gating.py
+index af5d6a19bd7aeac23cf1d2137e87684abd8db440..8a4084915a0b8f3f0a8e10ef694a45d764d3e235 100644
+--- a/tests/tools/test_mcp_utility_capability_gating.py
++++ b/tests/tools/test_mcp_utility_capability_gating.py
+@@ -30,7 +30,7 @@ from types import SimpleNamespace
+ from unittest.mock import MagicMock
+ 
+ 
+-def _make_init_result(*, resources: bool, prompts: bool):
++def _make_init_result(*, resources: bool, prompts: bool, tasks: bool = False):
+     """Build a fake ``InitializeResult`` whose ``capabilities`` sub-object
+     matches a server that advertises exactly the given capability set.
+ 
+@@ -43,6 +43,9 @@ def _make_init_result(*, resources: bool, prompts: bool):
+     caps_attrs: dict = {"tools": SimpleNamespace(listChanged=True)}
+     caps_attrs["resources"] = SimpleNamespace(listChanged=True) if resources else None
+     caps_attrs["prompts"] = SimpleNamespace(listChanged=True) if prompts else None
++    caps_attrs["extensions"] = (
++        {"io.modelcontextprotocol/tasks": {}} if tasks else {}
++    )
+     return SimpleNamespace(capabilities=SimpleNamespace(**caps_attrs))
+ 
+ 
+@@ -105,6 +108,19 @@ class TestCapabilityGatedRegistration:
+             "list_resources", "read_resource", "list_prompts", "get_prompt",
+         }
+ 
++    def test_tasks_extension_registers_standard_task_utilities(self):
++        from tools.mcp_tool import _select_utility_schemas
++
++        server = _make_fake_server(
++            initialize_result=_make_init_result(
++                resources=False, prompts=False, tasks=True
++            )
++        )
++        selected = _select_utility_schemas("tasks", server, {})
++        assert _handler_keys(selected) == {
++            "tasks_get", "tasks_update", "tasks_cancel"
++        }
++
+ 
+ class TestConfigFilterStillApplies:
+     """Per-server config flags ``tools.resources: false`` / ``tools.prompts: false``
+@@ -136,6 +152,19 @@ class TestConfigFilterStillApplies:
+         )
+         assert _handler_keys(selected) == {"list_resources", "read_resource"}
+ 
++    def test_config_disables_tasks_even_when_advertised(self):
++        from tools.mcp_tool import _select_utility_schemas
++
++        server = _make_fake_server(
++            initialize_result=_make_init_result(
++                resources=False, prompts=False, tasks=True
++            )
++        )
++        selected = _select_utility_schemas(
++            "tasks-filtered", server, {"tools": {"tasks": False}}
++        )
++        assert _handler_keys(selected) == set()
++
+ 
+ class TestLegacyFallback:
+     """When ``initialize_result`` is missing (older test fixtures or code
 diff --git a/tests/tools/test_read_extract.py b/tests/tools/test_read_extract.py
 index de2069c8cd2dda3dd1bcedb3e1c3632621ec3064..1a63706595351639c72b939ef41ac1ff187e79b4 100644
 --- a/tests/tools/test_read_extract.py
@@ -16506,6 +16918,286 @@ index 88cf6e78b58d2e6b5f0c4a222ec7fd48f1dd41a6..adf6cfa4fb25febd3b1af86690e50c0e
      ),
      # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
+diff --git a/tools/mcp_tasks_extension.py b/tools/mcp_tasks_extension.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..beea431fd8cf0c654d8ccc292c4634cae9c01650
+--- /dev/null
++++ b/tools/mcp_tasks_extension.py
+@@ -0,0 +1,70 @@
++"""Wire helpers for the ``io.modelcontextprotocol/tasks`` MCP extension.
++
++The installed MCP SDK does not yet expose the 2026 Tasks extension client
++methods, but its ``BaseSession.send_request`` supports arbitrary typed JSON-RPC
++requests.  Keep the small extension shim here so ``tools/mcp_tool.py`` remains
++focused on transport lifecycle and registry wiring.
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++from pydantic import RootModel
++
++
++TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"
++
++
++class _RawRequest(RootModel[dict[str, Any]]):
++    pass
++
++
++class _RawResult(RootModel[dict[str, Any]]):
++    pass
++
++
++def client_capability_meta() -> dict[str, Any]:
++    return {
++        "io.modelcontextprotocol/clientCapabilities": {
++            "extensions": {TASKS_EXTENSION_ID: {}}
++        }
++    }
++
++
++def server_supports_tasks(initialize_result: Any) -> bool:
++    capabilities = getattr(initialize_result, "capabilities", None)
++    extensions = getattr(capabilities, "extensions", None)
++    return isinstance(extensions, dict) and TASKS_EXTENSION_ID in extensions
++
++
++async def call_tool(
++    session: Any, name: str, arguments: dict[str, Any] | None
++) -> tuple[str, Any]:
++    request = _RawRequest({
++        "method": "tools/call",
++        "params": {
++            "name": name,
++            "arguments": arguments or {},
++            "_meta": client_capability_meta(),
++        },
++    })
++    raw = (await session.send_request(request, _RawResult)).root
++    if raw.get("resultType") == "task":
++        return "task", raw
++
++    from mcp import types
++
++    result = types.CallToolResult.model_validate(raw)
++    if not result.isError:
++        validate = getattr(session, "_validate_tool_result", None)
++        if callable(validate):
++            await validate(name, result)
++    return "complete", result
++
++
++async def task_request(
++    session: Any, method: str, params: dict[str, Any]
++) -> dict[str, Any]:
++    request = _RawRequest({"method": method, "params": params})
++    return (await session.send_request(request, _RawResult)).root
+diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py
+index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116ea761ca8 100644
+--- a/tools/mcp_tool.py
++++ b/tools/mcp_tool.py
+@@ -5429,7 +5429,16 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+                 # it and detect the gateway platform / session for routing.
+                 server._pending_call_context = contextvars.copy_context()
+                 try:
+-                    result = await server.session.call_tool(tool_name, arguments=args)
++                    from tools.mcp_tasks_extension import call_tool as call_task_aware_tool
++                    from tools.mcp_tasks_extension import server_supports_tasks
++
++                    if server_supports_tasks(server.initialize_result):
++                        result_kind, result = await call_task_aware_tool(
++                            server.session, tool_name, args
++                        )
++                    else:
++                        result_kind = "complete"
++                        result = await server.session.call_tool(tool_name, arguments=args)
+                 finally:
+                     server._pending_call_context = None
+             # The RPC round-trip completed — the session is demonstrably
+@@ -5438,6 +5447,8 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+             _mark_proven = getattr(server, "_mark_session_proven", None)
+             if _mark_proven is not None:
+                 _mark_proven()
++            if result_kind == "task":
++                return json.dumps(result, ensure_ascii=False)
+             # MCP CallToolResult has .content (list of content blocks) and .isError
+             if result.isError:
+                 error_text = ""
+@@ -5811,6 +5822,47 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
+     return _handler
+ 
+ 
++def _make_task_request_handler(server_name: str, tool_timeout: float, method: str):
++    """Return a sync handler for a standard MCP Tasks extension method."""
++
++    def _handler(args: dict, **kwargs) -> str:
++        server = _get_connected_server_for_call(server_name)
++        if not server or not server.session:
++            return tool_error(f"MCP server '{server_name}' is not connected")
++
++        task_id = str(args.get("task_id") or "").strip()
++        if not task_id:
++            return tool_error("Missing required parameter 'task_id'")
++        params: dict[str, Any] = {"taskId": task_id}
++        if method == "tasks/update":
++            responses = args.get("input_responses")
++            if not isinstance(responses, dict):
++                return tool_error("'input_responses' must be an object")
++            params["inputResponses"] = responses
++
++        async def _call():
++            from tools.mcp_tasks_extension import task_request
++
++            _mark_server_call_started(server)
++            async with server._rpc_lock:
++                return json.dumps(
++                    await task_request(server.session, method, params),
++                    ensure_ascii=False,
++                )
++
++        try:
++            return _run_on_mcp_loop(_call, timeout=tool_timeout)
++        except InterruptedError:
++            return _interrupted_call_result()
++        except Exception as exc:
++            logger.error("MCP %s/%s failed: %s", server_name, method, exc)
++            return tool_error(_sanitize_error(
++                f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}"
++            ))
++
++    return _handler
++
++
+ def _make_check_fn(server_name: str):
+     """Return a check function that verifies the MCP connection is alive."""
+ 
+@@ -6038,7 +6090,7 @@ def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
+ 
+ 
+ def _build_utility_schemas(server_name: str) -> List[dict]:
+-    """Build schemas for the MCP utility tools (resources & prompts).
++    """Build schemas for MCP resource, prompt, and task utilities.
+ 
+     Returns a list of (schema, handler_factory_name) tuples encoded as dicts
+     with keys: schema, handler_key.
+@@ -6106,6 +6158,48 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
+             },
+             "handler_key": "get_prompt",
+         },
++        {
++            "schema": {
++                "name": mcp_prefixed_tool_name(server_name, "tasks_get"),
++                "description": f"Get a standard asynchronous task from MCP server '{server_name}'",
++                "parameters": {
++                    "type": "object",
++                    "properties": {"task_id": {"type": "string"}},
++                    "required": ["task_id"],
++                },
++            },
++            "handler_key": "tasks_get",
++        },
++        {
++            "schema": {
++                "name": mcp_prefixed_tool_name(server_name, "tasks_cancel"),
++                "description": f"Request cancellation of an asynchronous task on MCP server '{server_name}'",
++                "parameters": {
++                    "type": "object",
++                    "properties": {"task_id": {"type": "string"}},
++                    "required": ["task_id"],
++                },
++            },
++            "handler_key": "tasks_cancel",
++        },
++        {
++            "schema": {
++                "name": mcp_prefixed_tool_name(server_name, "tasks_update"),
++                "description": f"Provide requested input to an asynchronous task on MCP server '{server_name}'",
++                "parameters": {
++                    "type": "object",
++                    "properties": {
++                        "task_id": {"type": "string"},
++                        "input_responses": {
++                            "type": "object",
++                            "additionalProperties": True,
++                        },
++                    },
++                    "required": ["task_id", "input_responses"],
++                },
++            },
++            "handler_key": "tasks_update",
++        },
+     ]
+ 
+ 
+@@ -6224,6 +6318,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+     tools_filter = config.get("tools") or {}
+     resources_enabled = _parse_boolish(tools_filter.get("resources"), default=True)
+     prompts_enabled = _parse_boolish(tools_filter.get("prompts"), default=True)
++    tasks_enabled = _parse_boolish(tools_filter.get("tasks"), default=True)
+ 
+     # ``initialize_result.capabilities`` is the source of truth: its sub-objects
+     # (``resources``, ``prompts``) are non-None iff the server advertises that
+@@ -6234,6 +6329,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+     init_result = getattr(server, "initialize_result", None)
+     if init_result is not None:
+         advertised_caps = getattr(init_result, "capabilities", None)
++    from tools.mcp_tasks_extension import server_supports_tasks
++
++    tasks_advertised = server_supports_tasks(init_result)
+ 
+     selected: List[dict] = []
+     for entry in _build_utility_schemas(server_name):
+@@ -6244,6 +6342,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+         if handler_key in {"list_prompts", "get_prompt"} and not prompts_enabled:
+             logger.debug("MCP server '%s': skipping utility '%s' (prompts disabled)", server_name, handler_key)
+             continue
++        if handler_key.startswith("tasks_"):
++            if not tasks_enabled or not tasks_advertised:
++                logger.debug(
++                    "MCP server '%s': skipping utility '%s' (Tasks extension unavailable)",
++                    server_name,
++                    handler_key,
++                )
++                continue
++            selected.append(entry)
++            continue
+ 
+         # Preferred gate: check the server's advertised capabilities. Skip
+         # if the capability is explicitly not advertised.
+@@ -6382,6 +6490,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
+         "read_resource": _make_read_resource_handler,
+         "list_prompts": _make_list_prompts_handler,
+         "get_prompt": _make_get_prompt_handler,
++        "tasks_get": lambda server_name, timeout: _make_task_request_handler(
++            server_name, timeout, "tasks/get"
++        ),
++        "tasks_cancel": lambda server_name, timeout: _make_task_request_handler(
++            server_name, timeout, "tasks/cancel"
++        ),
++        "tasks_update": lambda server_name, timeout: _make_task_request_handler(
++            server_name, timeout, "tasks/update"
++        ),
+     }
+     for entry in _select_utility_schemas(name, server, config):
+         schema = entry["schema"]
+@@ -6632,6 +6749,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
+         "read_resource": _make_read_resource_handler,
+         "list_prompts": _make_list_prompts_handler,
+         "get_prompt": _make_get_prompt_handler,
++        "tasks_get": lambda server_name, timeout: _make_task_request_handler(
++            server_name, timeout, "tasks/get"
++        ),
++        "tasks_cancel": lambda server_name, timeout: _make_task_request_handler(
++            server_name, timeout, "tasks/cancel"
++        ),
++        "tasks_update": lambda server_name, timeout: _make_task_request_handler(
++            server_name, timeout, "tasks/update"
++        ),
+     }
+     for raw in utility_tools_from_cache_entry(entry):
+         if not isinstance(raw, dict):
 diff --git a/tools/read_extract.py b/tools/read_extract.py
 index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd1e74eeb4 100644
 --- a/tools/read_extract.py
@@ -17503,6 +18195,52 @@ index 6bf1376e655098f41c6f8a26966b7cb98f064c7a..7de45eca0ea9dc98b3ca5d25fcfddea8
  ## Git Worktree Isolation
  
  Enable isolated git worktrees for running multiple agents in parallel on the same repo:
+diff --git a/website/docs/user-guide/features/mcp.md b/website/docs/user-guide/features/mcp.md
+index ca85ba855b40f7b114c7c65662ed7ffbd26d0d64..c7c3c90b1b27898c5a6bf2da5451492971c5968b 100644
+--- a/website/docs/user-guide/features/mcp.md
++++ b/website/docs/user-guide/features/mcp.md
+@@ -19,7 +19,7 @@ The `mcpServers` block in your `~/.claude.json` maps to `mcp_servers` in Hermes'
+ - Access to external tool ecosystems without writing a native Hermes tool first
+ - Local stdio servers and remote HTTP MCP servers in the same config
+ - Automatic tool discovery and registration at startup
+-- Utility wrappers for MCP resources and prompts when supported by the server
++- Utility wrappers for MCP resources, prompts, and asynchronous Tasks when supported by the server
+ - Per-server filtering so you can expose only the MCP tools you actually want Hermes to see
+ 
+ ## Quick start
+@@ -458,12 +458,16 @@ In practice, you usually do not need to call the prefixed name manually — Herm
+ 
+ ## MCP utility tools
+ 
+-When supported, Hermes also registers utility tools around MCP resources and prompts:
++When supported, Hermes also registers utility tools around MCP resources, prompts, and the standard
++`io.modelcontextprotocol/tasks` extension:
+ 
+ - `list_resources`
+ - `read_resource`
+ - `list_prompts`
+ - `get_prompt`
++- `tasks_get`
++- `tasks_update`
++- `tasks_cancel`
+ 
+ These are registered per server with the same prefix pattern, for example:
+ 
+@@ -475,8 +479,13 @@ These are registered per server with the same prefix pattern, for example:
+ These utility tools are now capability-aware:
+ - Hermes only registers resource utilities if the MCP session actually supports resource operations
+ - Hermes only registers prompt utilities if the MCP session actually supports prompt operations
++- Hermes only registers task utilities if the server advertises the Tasks extension
+ 
+-So a server that exposes callable tools but no resources/prompts will not get those extra wrappers.
++When `tools/call` returns a standard `resultType: "task"` handle, Hermes records the tool result,
++renders a deterministic task receipt, and ends the current agent turn without another model call.
++The task continues on the MCP server; query it later through that server's generated `tasks_get`
++utility. A server that exposes callable tools but no resources, prompts, or Tasks support will not
++get those extra wrappers.
+ 
+ ## Per-server filtering
+ 
 diff --git a/website/docs/user-guide/messaging/feishu.md b/website/docs/user-guide/messaging/feishu.md
 index 1c5a66543e4318f20cc38e404b3cabf32850520b..701bd2e27254950969289fb56efa00cc47ad490f 100644
 --- a/website/docs/user-guide/messaging/feishu.md

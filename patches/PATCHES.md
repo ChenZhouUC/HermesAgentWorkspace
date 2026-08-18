@@ -274,11 +274,21 @@ PATCHED_FILES=(
     "tests/run_agent/test_provider_fallback.py"
     "tests/run_agent/test_compressor_fallback_update.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
+    "agent/conversation_loop.py"
+    "agent/tool_executor.py"
+    "agent/mcp_task_protocol.py"
+    "tools/mcp_tool.py"
+    "tools/mcp_tasks_extension.py"
+    "tests/run_agent/test_tool_call_incremental_persistence.py"
+    "tests/tools/test_mcp_tasks_extension.py"
+    "tests/tools/test_mcp_utility_capability_gating.py"
+    "tests/tools/test_mcp_tool.py"
+    "website/docs/user-guide/features/mcp.md"
     "native/fts5_cjk/build.sh"
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（74 文件，2026-08-16 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（84 文件，2026-08-18 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -299,9 +309,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.1 (upstream `main` `8ad055414bcae75486952c5080d366679e074c1b`，2026-08-16)
+## 当前版本：v0.20.1 (upstream `main` `8ad055414bcae75486952c5080d366679e074c1b`，2026-08-18)
 
-**活跃补丁**：当前共 37 个语义补丁。30 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
+**活跃补丁**：当前共 38 个语义补丁。31 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
 **最近一次升级（v0.20.1 → v0.20.1，+60 commits，basis `45af7a71fcd420b4422d2c074b1ce58b9ce0d048` → `8ad055414bcae75486952c5080d366679e074c1b`，2026-08-16）要点**：
 
@@ -319,9 +329,30 @@ cat ~/.hermes/patches/.local-patches.base
 
 **2026-08-16 附件内容交付与 path-free 收敛**：真实 `Data Pipeline Workshop` PDF turn 证明文本已抽取却仍因绝对 cache path 诱发一次被群沙箱拒绝的 `read_file`。本轮在既有三个生命周期内收敛：`PATCH-FEISHU-RESOURCE-ACCESS` 将独立附件回填扩到 audio，窗口/消息/文件/超时改为配置化 300s/3/6/8s，引用文本不再预下载资源或写路径；`PATCH-DOCUMENT-EXTRACTION` 成功/失败提示 path-free，并用逐页 coverage 触发混合扫描 PDF 视觉补读；`PATCH-MULTIMODAL-SIDECAR` 的 native/sidecar 成功不再外显路径、provider/model/ARN，全部 reader 失败统一给明确 `FAILED` 状态。新增主私聊/群聊、audio 回填、重复下载反例、混合 PDF 与超限媒体回归；受管集合仍为 **74 files / 34 tests**，最终 **37 active PATCHES / 1219 passed / 0 failed / 3 skipped**，sandbox **32 passed**。
 
+**2026-08-18 MCP Tasks 异步回执收敛**：真实 HyperTeX MCP 创建在 0.54s 内已返回 task handle，但 Hermes 把普通工具结果再次送入 LLM，第二次推理 120s 无 SSE 后才重连回执。新增 `PATCH-MCP-TASKS-ASYNC-HANDOFF`：MCP client 按 `io.modelcontextprotocol/tasks` 协商能力、兼容普通 `CallToolResult` 与标准 `resultType=task`、按 server capability 动态生成 `tasks_get/update/cancel`；Agent 在 assistant→tool 结果已持久化后生成确定性 task receipt 并结束本轮，不自动轮询、不增加第二次模型调用。受管集合 **74 → 84 files / 34 → 38 tests**；replay 另收敛 upstream 不存在/被 ignore 的受管新文件，改用临时 index 生成完整 full-index bundle，修复 81/84 partial coverage。终态规范 runner **38 files / 1342 passed / 0 failed / 3 skipped**，sandbox **36 passed**，reconcile exit 0，bundle/base/full-index、cached 正向、worktree 反向与 index-clean 闭环全绿。
+
 ---
 
 ## 活跃 PATCH 定义（按类别）
+
+**类别：MCP 协议与异步任务**
+
+### [PATCH-MCP-TASKS-ASYNC-HANDOFF] 标准异步 task handle 即时回执
+
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                           |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **文件** | `agent/{conversation_loop.py,tool_executor.py,mcp_task_protocol.py}`, `tools/{mcp_tool.py,mcp_tasks_extension.py}`, `tests/run_agent/test_tool_call_incremental_persistence.py`, `tests/tools/{test_mcp_tasks_extension.py,test_mcp_utility_capability_gating.py,test_mcp_tool.py}`, `website/docs/user-guide/features/mcp.md` |
+| **状态** | 🟡 未上游合并：当前 upstream MCP client 只把 `tools/call` 解析成普通 `CallToolResult`，Agent 工具轮后仍无条件进入下一次模型调用；没有标准 Tasks extension capability negotiation、task lifecycle utilities 或确定性 receipt 终止路径。                                                                                         |
+
+**问题**：MCP 长任务即使在 server 侧已异步入队并立即返回 durable handle，Hermes 仍把结果当普通工具文本追加到上下文，再发起一次 LLM 调用组织回复。真实飞书 turn 中 HyperTeX `tools/call` 仅 0.54s，第二次 Azure Responses 推理却 120s 无 SSE，导致用户 160.5s 后才收到 task ID；同类 provider 抖动会把“任务已受理”伪装成主会话卡死。依靠特定 server/tool 名称短路会把第三方产品耦合进 core，也无法覆盖其它符合 MCP Tasks 规范的 server。
+
+**修复**：新增窄协议模块 `tools/mcp_tasks_extension.py`，在 server 广告 `io.modelcontextprotocol/tasks` 时给 `tools/call` 注入 per-request client capability，并用 raw typed request 同时接受普通 result 与 `resultType="task"`；基于同一 capability 动态注册通用 `tasks_get` / `tasks_update` / `tasks_cancel` utilities。`agent/mcp_task_protocol.py` 只认 MCP 前缀工具的标准 task shape，提取有限字段并生成确定性回执；串行/并行 executor 都把 task metadata 绑定到已持久化 tool message，conversation loop 在 guardrail 与增量持久化成功后追加最终 assistant receipt 并退出本轮，保持角色配对与 prompt cache，不自动轮询、不再调用 LLM。普通 MCP 结果、未广告 extension 的 server 和非 MCP 工具行为不变。
+
+**验证**：Step 8b 同时锚定 extension ID、task-aware dispatch、动态 `tasks_get` schema、conversation-loop `direct_task_response` 和三条行为测试。`test_mcp_task_handle_ends_turn_without_second_model_call` 在修复前真实得到 4 次 API 调用（第二次断言失败后进入 3 次 retry），修复后严格为 1；`test_mcp_tasks_extension.py` 覆盖 capability metadata、标准结果兼容、`tasks/get` wire request 与 server capability gate；`test_mcp_utility_capability_gating.py` 覆盖仅广告 Tasks 时三工具注册及配置关闭；`test_mcp_tool.py` 锁定完整 utility schema。规范 runner、full-index bundle、cached 正向、worktree 反向、index-clean 与最终 Gateway PID 下的 MCP/sandbox verifier 共同构成终态门禁。
+
+**上游吸收判断**：当 upstream Hermes MCP client 原生支持当前 `io.modelcontextprotocol/tasks` extension 的 capability negotiation、`CreateTaskResult`/`tasks/get|update|cancel` 生命周期和 capability-gated model tools，并且 Agent 在标准 task handle 已持久化后能用确定性回执结束交互 turn、无需第二次 LLM 调用，同时有等价的串行/并行与角色配对回归时，可删除本补丁。仅 SDK 出现 Task 类型、仅 server 返回自定义 `task_id`、或仅 UI 提前显示工具结果都不算吸收。
+
+---
 
 **类别：技能写入与治理**
 
@@ -368,11 +399,11 @@ cat ~/.hermes/patches/.local-patches.base
 | **文件** | `hermes-update.sh`, `local-patches.diff`     |
 | **状态** | 🟢 自动化（Step 2 / Step 8c `--full-index`） |
 
-**问题**：`git diff` 默认按对象库规模自动决定 `index` 行的 SHA 缩写长度。bundle 生成后即使源码 hunk 完全不变，后续 fetch/apply 增加对象也可能让 live diff 从 9 位变成 10 位，导致 playbook 要求的逐字节 `cmp` 失败；只刷新一次默认缩写 bundle 仍会复发。
+**问题**：`git diff` 默认按对象库规模自动决定 `index` 行的 SHA 缩写长度。bundle 生成后即使源码 hunk 完全不变，后续 fetch/apply 增加对象也可能让 live diff 从 9 位变成 10 位，导致 playbook 要求的逐字节 `cmp` 失败；只刷新一次默认缩写 bundle 仍会复发。2026-08-18 新增文件又暴露另一个物理缺口：`git diff HEAD -- <untracked>` 为空，因此合法的 new-file hunk 虽已进入 canonical bundle，回贴后 Step 8c 仍把三个新文件误报为 zero-diff，得到 81/84 partial coverage。
 
-**修复**：Step 2 保存与 Step 8c 刷新统一使用 `git diff --full-index`，playbook 的 live-diff 核验也固定同一参数。bundle 的对象 ID 始终写完整 SHA，不再依赖仓库当前的自动缩写宽度。2026-08-06 收尾审计把原先仅由 playbook 人工执行的物理闭环下沉进两个 bundle 发布点：临时包必须通过 conflict-marker、index-clean（2026-08-07 起 Step 2 链内显式 `git diff --cached --quiet`，不再只依赖 preflight 继承）、cached 正向、worktree 反向检查，Step 8c 再与现场 full-index diff 逐字节比较；只有全绿才替换 canonical bundle/base。注意 8c 的 cmp 是"刷新输出 vs canonical 写入"的一致性闸，当 `_REFRESHED` 与 `PATCHED_FILES` 全等时两侧同源，不能替代 playbook Step 3 的独立现场复核。Step 2 另要求已有 bundle 时全部受管路径都有 live diff，禁止用中断产生的部分 overlay 覆盖完整旧包。
+**修复**：Step 2 保存与 Step 8c 刷新统一使用 `git diff --full-index`，playbook 的 live-diff 核验也固定同一参数。bundle 的对象 ID 始终写完整 SHA，不再依赖仓库当前的自动缩写宽度。2026-08-06 收尾审计把原先仅由 playbook 人工执行的物理闭环下沉进两个 bundle 发布点：临时包必须通过 conflict-marker、index-clean（2026-08-07 起 Step 2 链内显式 `git diff --cached --quiet`，不再只依赖 preflight 继承）、cached 正向、worktree 反向检查，Step 8c 再与现场 full-index diff 逐字节比较；只有全绿才替换 canonical bundle/base。2026-08-18 起 Step 2/8c 不再依赖真实 index 的 ITA 可见性：`_managed_path_differs_from_head` 显式把「HEAD 不存在 + 工作树存在」判为 new-file diff，`_write_managed_bundle` 则从 HEAD 在临时 index 中精确 add/rm 本轮路径后生成 cached full-index diff，同时覆盖 tracked 修改、删除、untracked 新文件和 upstream-ignored 但已登记的 skill；真实 index 始终不变。裸窗口的逐路径 restore 只接受 `PATCHED_FILES`，因此可安全删除上游不存在的精确 replay-created 文件，不会扫描其它 untracked 路径。注意 8c 的 cmp 是"刷新输出 vs canonical 写入"的一致性闸，当 `_REFRESHED` 与 `PATCHED_FILES` 全等时两侧同源，不能替代 playbook Step 3 的独立现场复核。Step 2 另要求已有 bundle 时全部受管路径都有 live diff，禁止用中断产生的部分 overlay 覆盖完整旧包。
 
-**验证**：`bash hermes-update.sh --print-patched-files` 输出必须与 bundle path 集合、live modified 集合一一相等；脚本 Step 2/8c 日志必须明确报告完整文件数，Step 8c 报 `refreshed and replay-verified`。独立复核时，`cmp -s <(git -C hermes-agent diff --full-index HEAD -- "${PATCHED_FILES[@]}") patches/local-patches.diff`、正向 cached、反向 worktree 与两次 index-clean check 必须同时通过。隔离构造 61/62 的部分 overlay 时 Step 2 必须在写 canonical bundle 前非零退出；Step 8c 的单个 zero-diff path 也必须阻断刷新并点名该路径。
+**验证**：`bash hermes-update.sh --print-patched-files` 输出必须与 bundle path 集合、live modified 集合一一相等；脚本 Step 2/8c 日志必须明确报告完整文件数，Step 8c 报 `refreshed and replay-verified`。独立复核时用与脚本相同的临时-index full-index 生成器与 `patches/local-patches.diff` 比较，正向 cached、反向 worktree 与两次真实 index-clean check 必须同时通过。隔离构造 61/62 的部分 overlay 时 Step 2 必须在写 canonical bundle 前非零退出；Step 8c 的单个 zero-diff path 也必须阻断刷新并点名该路径。对上游不存在的受管新文件，修复前必须稳定复现 81/84 partial coverage，修复后 Step 2/8c 都必须报 84/84，bundle 包含每个 `new file mode`，并且真实 index 在 capture/apply/refresh 前后均保持 clean。
 
 **上游吸收判断**：这是外层 replay bundle 的本地持久化格式；只有未来迁移到不含动态缩写元数据的等价稳定格式，或不再维护本地 replay bundle 时，才可归档。
 
@@ -984,10 +1015,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-GROUP-SANDBOX] 群聊结构化 tmp 与固定文档动作边界
 
-| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | 配置仓库：`config.yaml`, `plugins/sandbox/{__init__.py,config.yaml,plugin.yaml,test_sandbox.py,verify.sh}`, `my-skills/productivity/feishu-docs/{SKILL.md,scripts/create_new_doc_from_md.py,scripts/download_feishu_file.py,scripts/feishu_common.py,scripts/read_docx_to_markdown.py,scripts/read_feishu_url.py}`, `memories/MEMORY.md`, `hermes-update.sh`, `hermes-update.md`, `README.md`（均不属于内层 `PATCHED_FILES`） |
-| **状态** | 🟢 配置仓库用户插件补丁；升级保留，Step 8e 强制回归                                                                                                                                                                                                                                                                                                                                                                           |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | 配置仓库：`config.yaml`, `plugins/sandbox/{__init__.py,config.yaml,plugin.yaml,test_sandbox.py,verify.sh}`, `my-skills/productivity/{hypertex-mcp/SKILL.md,feishu-docs/{SKILL.md,scripts/create_new_doc_from_md.py,scripts/download_feishu_file.py,scripts/feishu_common.py,scripts/read_docx_to_markdown.py,scripts/read_feishu_url.py}}`, `memories/MEMORY.md`, `hermes-update.sh`, `hermes-update.md`, `README.md`（均不属于内层 `PATCHED_FILES`） |
+| **状态** | 🟢 配置仓库用户插件补丁；升级保留，Step 8e 强制回归                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 **依赖**：`PATCH-FEISHU-GROUP-SCOPE` 提供 `feishu_group` namespace，并保证真实 Gateway consumer 使用该 key；`PATCH-PLATFORM-CAPABILITY-SCOPE` 提供只读工具集，`PATCH-FEISHU-GROUP-APPROVAL` 提供审批层纵深防线。依赖缺失时 Step 8b/8e 分别失败，不允许把插件显示为健康。
 
@@ -997,11 +1028,13 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：从 `platform_toolsets.feishu_group` 删除 `terminal`，新增用户插件 toolset `sandbox_group`，仅暴露两个结构化入口：`group_cache` 在 `~/.hermes/tmp/group-workspaces/<chat-id-hash>/` 内执行文本文件 CRUD；`feishu_doc_manage` 将 `create/append/rebuild/delete/read_url/download_file` 六个 action 映射到管理员预装的固定脚本文件。模型不能提交 shell、脚本路径或原始 argv，工作区文件永远只作数据。工作区路径按群哈希隔离且校验相对路径、realpath 和 symlink containment；根目录权限为 `0700`；工具响应只返回相对路径和 `workspace_id`，不向群聊暴露宿主绝对路径。`tool_search` / `tool_describe` 作为只读工具目录桥在群聊显式放行，使 deferred 的 `group_cache` / `feishu_doc_manage` 能被发现和描述；`tool_call` 在 agent 执行器中先按当前 `feishu_group` toolset 解包为底层工具，再由 sandbox hook 看到真实工具名。脚本以 argv + `shell=False` 执行，macOS `sandbox-exec` profile 由插件生成并由整个子进程树继承：允许读取/执行/联网，但只允许写当前群工作区；OS 进程沙箱不可用或配置加载失败时 fail closed。群聊下载限制为单文件 50 MB，`TMPDIR` 和原子更新备份都重定向到当前群工作区；stdout/stderr 回传前统一脱敏 Bearer token、Feishu app secret 与 tenant token，上传失败也切断会暴露 curl Authorization argv 的异常链。wiki 仅可直接读取 `~/.hermes/wiki`；`skills` / `my-skills` 只能经 `skills_readonly` 查看 allowlist 中的 `llm-wiki` 与 `feishu-docs`，不能直接写。`known_plugin_toolsets` 把 `sandbox_group` 标记为已知但只在 `feishu_group` 显式启用；普通 `feishu` 不配置平台覆盖，owner chat 又在 `pre_tool_call` 最前面无条件放行，因此主私聊保留 terminal、文件读写、代码执行、skill 管理、浏览器和 cron 等完整默认工具面。`tmp` 不整目录删除，因为 `scripts/nightly_greeting.py` 仍使用 `tmp/nightly_report`；群聊统一使用上述 tmp 子树，不改用 cache。
 
+**2026-08-18 owner DM HyperTeX 收紧**：在不放宽群聊/outsider 能力面的前提下，owner DM 的 `hypertex_create_case` 固定 `hermes` Contributor、`codex`、`deck`，仅把当前 Feishu turn 附件复制到 0700 私有暂存目录并注入。HyperTeX 原始工具面收缩为 list/create/get_case，状态查询改用 MCP Tasks 协商生成的 `mcp__hypertex__tasks_get`；每个入站 turn 最多一次 HyperTeX 调用，新 turn 的 task 查询不再伪造旧 `username` 参数。
+
 08-16 收紧后，群聊先应用独立 allowlist（明确包含 `clarify` / web / 只读知识 / 结构化工具），不再继承 outsider-DM 的 vision/image 工具；图片、音频、视频和扫描 PDF 统一由 Gateway 入站 native/sidecar 处理。`pre_gateway_dispatch` 仅从当前 `event.text` 与显式 `reply_to_text` 收集飞书 URL/token，历史 `channel_context` 不授予权限；群文档读取/下载必须命中该 provenance，文档 mutation 还需当前 `user_id` 位于 `trusted_feishu_user_ids_for_group_mutations`，append/rebuild/delete 同时要求目标文档本轮被明确引用。相同判定在 hook 与 `feishu_doc_manage` handler 双层执行。`search_files` 缺省 `path="."` 安全重写为 wiki 根。新增 `post_tool_call` 只解析本群 `web_extract` 的结构化结果，将本轮精确 `cache/web/<file>` 临时授权给该群，最多 5 个、新消息立即撤销、其他 cache/群均不可读。
 
 `read_url` 依赖链另有一处解释器耦合：`read_feishu_url.py` 只借用 `read_docx_to_markdown.py` 的纯渲染函数 `parse_blocks`，但后者在模块顶层 `import requests`，因此任何缺 `requests` 的解释器执行该链都会整条失败（现场表现为 `ModuleNotFoundError: No module named 'requests'`，可追至 2026-05-18，与 v0.19.0 升级无关）。根因是 `SKILL.md` 长期把 `uv run --with requests python` 作为这些脚本的规范调用方式：`~/.hermes` 下没有 `pyproject.toml` / `.venv` / `.python-version`，`uv run python` 会自行拉起一个与 hermes venv 无关的临时解释器（实测 uv 0.11.32 选到 CPython 3.13.14），其中并无 `requests`，只有 `--with requests` 才被临时注入；venv 解释器本身是 3.12.13 且 `requests==2.33.0` 为 pin 死的直接依赖。因此凡是漏掉 `--with requests`（如原 `SKILL.md:188` 的裸 `python ... append_md_to_doc.py`），或该链上任何模块在顶层 import requests 时，都会退化成 `ModuleNotFoundError`。`__pycache__` 中并存 `cpython-313` / `cpython-314` 字节码正是这些非 venv 解释器执行过的物证。配套修正 `SKILL.md`：`188` 行改为 venv 绝对路径，`232` 行依赖说明改为「首选 `~/.hermes/hermes-agent/venv/bin/python`（已 pin `requests`，无需 `--with`）」并写明裸 `uv run python` 为何不可用。修复把 `import requests` 下移进 `get_tenant_access_token()` 与 `download_doc_to_md()` 两个真正联网的函数，使纯渲染路径回到 stdlib-only；同时 `_handle_feishu_doc_manage` 的 start/end 日志补记 `python=<解释器路径>`，让后续同类故障可从 `agent.log` 直接判定实际解释器。
 
-**验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset/可信 mutation 用户/固定脚本均精确；真实解析 owner/group toolset，断言群聊不含 vision/image/terminal/write surface。除 search/describe 外，verifier 现穿过真实 `handle_function_call("tool_call" → "group_cache")`，证明 bridge scope、底层 hook 与 handler 可执行，同时 terminal scope 与非可信文档 mutation 被拦；`clarify`、web、默认 wiki search、当前消息资源 provenance 正反例均直接走 hook。32 个插件回归覆盖跨群隔离、wiki/workspace symlink/path traversal、群优先 allowlist、outsider-DM 兼容、资源 provenance、历史链接不授权、可信 mutation 双层校验、web_extract 精确临时文件授权/新消息撤销、固定 argv、凭据脱敏、50 MB 下载上限和真实进程沙箱外写拒绝。工程内回归再用真实 Feishu group source 锁定图片 native、音频/视频 sidecar，以及 PDF/HTML/TXT/DOCX/XLSX/PPTX/ODT 内容进入 user turn；Feishu adapter 最高边界矩阵新增群音频与群 Drive/PDF。最后要求三个 hook/fire site、`ctx.register_tool()`、sandbox-exec 和当前 Gateway 子进程注册 trace 全绿。任一失败设置升级 `FINAL_RC=1`。
+**验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset/可信 mutation 用户/固定脚本与 HyperTeX 原始工具集合均精确；真实解析 owner/group toolset，断言群聊不含 vision/image/terminal/write surface。除 search/describe 外，verifier 现穿过真实 `handle_function_call("tool_call" → "group_cache")`，证明 bridge scope、底层 hook 与 handler 可执行，同时 terminal scope 与非可信文档 mutation 被拦；owner HyperTeX 另覆盖创建参数/附件固定、同轮查询拦截、新 turn `tasks_get` 原样参数。`clarify`、web、默认 wiki search、当前消息资源 provenance 正反例均直接走 hook。插件回归覆盖跨群隔离、wiki/workspace symlink/path traversal、群优先 allowlist、outsider-DM 兼容、资源 provenance、历史链接不授权、可信 mutation 双层校验、web_extract 精确临时文件授权/新消息撤销、固定 argv、凭据脱敏、50 MB 下载上限和真实进程沙箱外写拒绝。工程内回归再用真实 Feishu group source 锁定图片 native、音频/视频 sidecar，以及 PDF/HTML/TXT/DOCX/XLSX/PPTX/ODT 内容进入 user turn；Feishu adapter 最高边界矩阵新增群音频与群 Drive/PDF。最后要求三个 hook/fire site、`ctx.register_tool()`、sandbox-exec 和当前 Gateway 真实子进程 PID 之后同时存在 `active=True` structured-tools trace 与 `mcp__hypertex__tasks_get/update/cancel` 注册 trace。任一失败设置升级 `FINAL_RC=1`。
 
 **上游吸收判断**：如果上游原生提供按会话隔离的可写工作区、无 shell 的固定动作工具、子进程写范围沙箱、owner-DM/group 独立工具面、当前消息资源 provenance 与安全的 deferred-tool bridge，可迁移到上游能力并归档本补丁；在此之前不得恢复群聊通用 terminal，也不得开放全局 cache/任意 bot 可读文档。
 

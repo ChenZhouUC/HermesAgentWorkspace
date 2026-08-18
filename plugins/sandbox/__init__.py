@@ -10,6 +10,12 @@ Feishu DMs get a small safe allowlist. Feishu groups additionally get:
 Groups never receive the generic terminal or write-file tools. Trusted script
 execution uses argv (never a shell) and, on macOS, ``sandbox-exec`` restricts
 the whole process tree to writes inside that group's workspace.
+
+The owner DM also has a narrow HyperTeX bridge: MCP calls are pinned to the
+``hermes`` Contributor, ``deck`` case type, and ``codex`` RuntimeAgent. Files
+attached to the current Feishu turn are copied into a private stable staging
+directory and injected into ``hypertex_create_case`` without exposing cache
+paths to the model.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional, Set, Tuple
 from urllib.parse import urlparse
@@ -48,6 +55,15 @@ _current_user_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar
 _current_resource_refs: contextvars.ContextVar[FrozenSet[str]] = contextvars.ContextVar(
     "sandbox_current_resource_refs", default=frozenset()
 )
+_current_media_paths: contextvars.ContextVar[Tuple[str, ...]] = contextvars.ContextVar(
+    "sandbox_current_media_paths", default=tuple()
+)
+_current_hypertex_staged_paths: contextvars.ContextVar[Tuple[str, ...]] = contextvars.ContextVar(
+    "sandbox_current_hypertex_staged_paths", default=tuple()
+)
+_current_hypertex_call_count: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "sandbox_current_hypertex_call_count", default=0
+)
 
 
 _CONFIG_LOADED = False
@@ -60,8 +76,12 @@ _GROUP_WORKSPACE_ROOT: Optional[Path] = None
 _GROUP_ALLOWED_SCRIPT_ACTIONS: FrozenSet[str] = frozenset()
 _FEISHU_DOC_SCRIPTS_ROOT: Optional[Path] = None
 _PYTHON_EXECUTABLE: Optional[Path] = None
+_HYPERTEX_ASSET_STAGING_ROOT: Optional[Path] = None
 _SCRIPT_TIMEOUT_SECONDS = 300
 _GROUP_MAX_DOWNLOAD_BYTES = 50_000_000
+_HYPERTEX_MAX_ASSET_BYTES = 50_000_000
+_HYPERTEX_MAX_ASSETS_PER_TURN = 6
+_HYPERTEX_ASSET_STAGING_TTL_SECONDS = 86_400
 _REQUIRE_PROCESS_SANDBOX = True
 
 _BLOCK_MESSAGE = "This tool is not available in this chat."
@@ -75,6 +95,15 @@ _READ_PATH_TOOLS: FrozenSet[str] = frozenset({"read_file", "search_files"})
 _GROUP_CHAT_TYPES: FrozenSet[str] = frozenset({"group", "channel", "forum", "thread"})
 _WORKSPACE_TOOL = "group_cache"
 _SCRIPT_TOOL = "feishu_doc_manage"
+_HYPERTEX_LIST_TOOL = "mcp__hypertex__hypertex_list_cases"
+_HYPERTEX_CREATE_TOOL = "mcp__hypertex__hypertex_create_case"
+_HYPERTEX_TASK_TOOL = "mcp__hypertex__tasks_get"
+_HYPERTEX_CASE_TOOL = "mcp__hypertex__hypertex_get_case"
+_HYPERTEX_TOOLS = frozenset({_HYPERTEX_LIST_TOOL, _HYPERTEX_CREATE_TOOL, _HYPERTEX_TASK_TOOL, _HYPERTEX_CASE_TOOL})
+_HYPERTEX_USERNAME = "hermes"
+_HYPERTEX_AGENT = "codex"
+_HYPERTEX_CASE_TYPE = "deck"
+_HYPERTEX_ONE_CALL_MESSAGE = "本轮已经调用过 HyperTeX。请直接根据已有结果回复用户；状态查询或重试请等待用户下一条消息。"
 _MAX_FILE_CONTENT_BYTES = 1_000_000
 _MAX_TOOL_OUTPUT_CHARS = 100_000
 _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
@@ -212,6 +241,119 @@ def _path_within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _hypertex_asset_name(source: Path) -> str:
+    """Recover a safe user-facing filename from Hermes cache naming."""
+    name = source.name
+    parts = name.split("_", 2)
+    if name.startswith("doc_") and len(parts) == 3:
+        name = parts[2]
+    name = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(name).name).strip(" ._")
+    return name[:180] or "attachment"
+
+
+def _unique_hypertex_asset_name(name: str, used: Set[str]) -> str:
+    candidate = name
+    stem = Path(name).stem or "attachment"
+    suffix = Path(name).suffix
+    index = 2
+    while candidate.casefold() in used:
+        candidate = f"{stem}-{index}{suffix}"
+        index += 1
+    used.add(candidate.casefold())
+    return candidate
+
+
+def _cleanup_hypertex_asset_staging(root: Path) -> None:
+    cutoff = time.time() - _HYPERTEX_ASSET_STAGING_TTL_SECONDS
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            if entry.is_symlink() or not entry.is_dir() or entry.stat().st_mtime >= cutoff:
+                continue
+            resolved = entry.resolve(strict=False)
+            if _path_within(resolved, root) and resolved != root:
+                shutil.rmtree(resolved)
+        except OSError:
+            logger.debug("sandbox: failed to clean old HyperTeX staging path %s", entry, exc_info=True)
+
+
+def _stage_current_hypertex_assets() -> Tuple[str, ...]:
+    cached = _current_hypertex_staged_paths.get()
+    if cached:
+        return cached
+
+    source_paths = _current_media_paths.get()
+    if not source_paths:
+        return tuple()
+    if _HYPERTEX_ASSET_STAGING_ROOT is None:
+        raise RuntimeError("HyperTeX asset staging root is not configured")
+    if len(source_paths) > _HYPERTEX_MAX_ASSETS_PER_TURN:
+        raise ValueError(f"at most {_HYPERTEX_MAX_ASSETS_PER_TURN} attachments are supported")
+
+    root = _HYPERTEX_ASSET_STAGING_ROOT.resolve(strict=False)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    _cleanup_hypertex_asset_staging(root)
+    turn_dir = Path(tempfile.mkdtemp(prefix="turn-", dir=root)).resolve(strict=False)
+    if not _path_within(turn_dir, root):
+        raise RuntimeError("invalid HyperTeX staging directory")
+    os.chmod(turn_dir, 0o700)
+
+    staged: list[str] = []
+    used_names: Set[str] = set()
+    try:
+        for raw_path in source_paths:
+            source = Path(raw_path).expanduser()
+            if source.is_symlink() or not source.is_file():
+                raise FileNotFoundError("an attached file is no longer available")
+            size = source.stat().st_size
+            if size > _HYPERTEX_MAX_ASSET_BYTES:
+                raise ValueError(f"attachment exceeds the {_HYPERTEX_MAX_ASSET_BYTES // 1_000_000} MB HyperTeX limit")
+            name = _unique_hypertex_asset_name(_hypertex_asset_name(source), used_names)
+            destination = (turn_dir / name).resolve(strict=False)
+            if not _path_within(destination, turn_dir):
+                raise RuntimeError("invalid HyperTeX asset filename")
+            shutil.copy2(source, destination)
+            staged.append(str(destination))
+    except Exception:
+        shutil.rmtree(turn_dir, ignore_errors=True)
+        raise
+
+    result = tuple(staged)
+    _current_hypertex_staged_paths.set(result)
+    return result
+
+
+def _prepare_owner_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str, Any]]:
+    if tool_name not in _HYPERTEX_TOOLS:
+        return None
+    if not isinstance(args, dict):
+        return {"action": "block", "message": "HyperTeX 工具参数格式无效，请重新提交。"}
+    if _current_hypertex_call_count.get() >= 1:
+        return {"action": "block", "message": _HYPERTEX_ONE_CALL_MESSAGE}
+    _current_hypertex_call_count.set(1)
+
+    if tool_name == _HYPERTEX_CREATE_TOOL:
+        try:
+            staged_paths = _stage_current_hypertex_assets()
+        except Exception as exc:
+            logger.warning("sandbox: HyperTeX attachment staging failed: %s", exc, exc_info=True)
+            return {
+                "action": "block",
+                "message": "附件未能安全暂存给 HyperTeX，请重新发送附件后再试。",
+            }
+        args["owner_username"] = _HYPERTEX_USERNAME
+        args["agent"] = _HYPERTEX_AGENT
+        args["type"] = _HYPERTEX_CASE_TYPE
+        args["asset_paths"] = list(staged_paths)
+    elif tool_name in {_HYPERTEX_LIST_TOOL, _HYPERTEX_CASE_TOOL}:
+        args["username"] = _HYPERTEX_USERNAME
+    return None
 
 
 def _tool_read_path(tool_name: str, args: Any) -> str:
@@ -690,7 +832,9 @@ def _load_config() -> bool:
     global _GROUP_MUTATION_USER_IDS
     global _GROUP_ALLOWED_READ_ROOTS, _GROUP_WORKSPACE_ROOT, _GROUP_ALLOWED_SCRIPT_ACTIONS
     global _FEISHU_DOC_SCRIPTS_ROOT, _PYTHON_EXECUTABLE, _SCRIPT_TIMEOUT_SECONDS
-    global _GROUP_MAX_DOWNLOAD_BYTES
+    global _GROUP_MAX_DOWNLOAD_BYTES, _HYPERTEX_ASSET_STAGING_ROOT
+    global _HYPERTEX_MAX_ASSET_BYTES, _HYPERTEX_MAX_ASSETS_PER_TURN
+    global _HYPERTEX_ASSET_STAGING_TTL_SECONDS
     global _REQUIRE_PROCESS_SANDBOX, _BLOCK_MESSAGE, _READ_ROOT_BLOCK_MESSAGE
     global _RESOURCE_BLOCK_MESSAGE, _MUTATION_BLOCK_MESSAGE
 
@@ -718,8 +862,14 @@ def _load_config() -> bool:
     workspace_value = data.get("group_workspace_root")
     scripts_value = data.get("feishu_doc_scripts_root")
     python_value = data.get("python_executable")
-    if not all(isinstance(value, str) and value.strip() for value in (workspace_value, scripts_value, python_value)):
-        logger.error("sandbox: workspace, scripts root, and Python executable must be configured")
+    hypertex_staging_value = data.get("hypertex_asset_staging_root")
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (workspace_value, scripts_value, python_value, hypertex_staging_value)
+    ):
+        logger.error(
+            "sandbox: workspace, scripts root, Python executable, and HyperTeX staging root must be configured"
+        )
         return False
 
     actions = frozenset(str(item) for item in script_actions)
@@ -736,6 +886,7 @@ def _load_config() -> bool:
     _GROUP_ALLOWED_SCRIPT_ACTIONS = actions
     _FEISHU_DOC_SCRIPTS_ROOT = _expand_path(scripts_value)
     _PYTHON_EXECUTABLE = _expand_path(python_value)
+    _HYPERTEX_ASSET_STAGING_ROOT = _expand_path(hypertex_staging_value)
     _REQUIRE_PROCESS_SANDBOX = bool(data.get("require_process_sandbox", True))
     try:
         _SCRIPT_TIMEOUT_SECONDS = max(1, min(900, int(data.get("script_timeout_seconds", 300))))
@@ -743,8 +894,20 @@ def _load_config() -> bool:
             1_000_000,
             min(500_000_000, int(data.get("group_max_download_bytes", 50_000_000))),
         )
+        _HYPERTEX_MAX_ASSET_BYTES = max(
+            1_000_000,
+            min(500_000_000, int(data.get("hypertex_max_asset_bytes", 50_000_000))),
+        )
+        _HYPERTEX_MAX_ASSETS_PER_TURN = max(
+            1,
+            min(20, int(data.get("hypertex_max_assets_per_turn", 6))),
+        )
+        _HYPERTEX_ASSET_STAGING_TTL_SECONDS = max(
+            3_600,
+            min(604_800, int(data.get("hypertex_asset_staging_ttl_seconds", 86_400))),
+        )
     except (TypeError, ValueError):
-        logger.error("sandbox: script timeout and download limit must be integers")
+        logger.error("sandbox: script, download, and HyperTeX staging limits must be integers")
         return False
 
     if _REQUIRE_PROCESS_SANDBOX and not Path("/usr/bin/sandbox-exec").is_file():
@@ -782,6 +945,9 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
         _current_chat_type.set(None)
         _current_user_id.set(None)
         _current_resource_refs.set(frozenset())
+        _current_media_paths.set(tuple())
+        _current_hypertex_staged_paths.set(tuple())
+        _current_hypertex_call_count.set(0)
         return None
     source = event.source
     _clear_ephemeral_read_paths(getattr(source, "chat_id", None))
@@ -791,6 +957,11 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
     _current_chat_type.set(str(getattr(source, "chat_type", "") or "").lower() or None)
     _current_user_id.set(getattr(source, "user_id", None))
     _current_resource_refs.set(_event_resource_refs(event))
+    _current_media_paths.set(
+        tuple(str(path) for path in (getattr(event, "media_urls", None) or []) if str(path).strip())
+    )
+    _current_hypertex_staged_paths.set(tuple())
+    _current_hypertex_call_count.set(0)
     return None
 
 
@@ -814,7 +985,7 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
 
     chat_id = str(_current_chat_id.get() or "")
     if chat_id in _OWNER_CHAT_IDS:
-        return None
+        return _prepare_owner_hypertex_call(tool_name, args)
 
     chat_type = _current_chat_type.get()
     if chat_type in _GROUP_CHAT_TYPES:

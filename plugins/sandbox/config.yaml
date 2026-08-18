@@ -7,6 +7,15 @@
 owner_feishu_chat_ids:
   - oc_c8221472cf59b202ccd0682cf6cea296
 
+# The owner DM may attach files to a natural-language HyperTeX request. The
+# sandbox plugin copies only the current turn's cached attachments here, then
+# injects the stable paths into the MCP call without exposing host paths to the
+# model. Staged files are private and expire after one day.
+hypertex_asset_staging_root: ~/.hermes/tmp/hypertex-assets
+hypertex_max_asset_bytes: 50000000
+hypertex_max_assets_per_turn: 6
+hypertex_asset_staging_ttl_seconds: 86400
+
 allowed_tools_for_outsiders:
   - web_search
   - web_extract
