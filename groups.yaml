@@ -71,7 +71,7 @@ groups:
     service_hours: 每日 12:00–20:00（北京时间）；请尽量在此时段内提问，其他时间可能延后回复。
 
   - chat_id: oc_9e0d0df14311b8f84d5d2128bd2372c8
-    name: SpaceSight 技术分享专项群
+    name: SpaceSight 国内业务交流
     style: |
       专业、严谨；根据不同对话者的画像和背景信息做对应的对话决策。
       主要用于面向非产研同学答疑、技术方案建设。

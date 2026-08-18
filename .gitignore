@@ -99,6 +99,7 @@ __pycache__/
 *.pyc
 *.pyo
 models_dev_cache.json
+models_dev_cache.etag
 ollama_cloud_models_cache.json
 provider_models_cache.json
 context_length_cache.yaml

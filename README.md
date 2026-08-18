@@ -1239,18 +1239,18 @@ skills:
     - ~/.hermes/my-skills
 ```
 
-当前共有 16 个 local skills；以 `hermes skills list` 和 `my-skills/*/*/SKILL.md` 为权威来源：
+当前共有 18 个 local skills；以 `hermes skills list` 和 `my-skills/*/*/SKILL.md` 为权威来源：
 
-| 分类                 | 当前 local skills                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| autonomous-ai-agents | `custom-skill-governance`, `hermes-agent-meta-ops`                                                                             |
-| creative             | `character-voices`, `vector-graphics`                                                                                          |
-| database             | `postgres-manager`                                                                                                             |
-| devops               | `network-diagnostics`, `system-hardware-diagnostics`                                                                           |
-| media                | `video-analysis`                                                                                                               |
-| productivity         | `educational-doc-writing`, `excel-processing`, `feishu-docs`, `feishu-groups`, `feishu-people-search`, `technical-translation` |
-| red-teaming          | `agent-reconnaissance`                                                                                                         |
-| research             | `wiki-content-extraction`                                                                                                      |
+| 分类                 | 当前 local skills                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| autonomous-ai-agents | `custom-skill-governance`, `hermes-agent-meta-ops`                                                                                                                        |
+| creative             | `character-voices`, `vector-graphics`                                                                                                                                     |
+| database             | `postgres-manager`                                                                                                                                                        |
+| devops               | `network-diagnostics`, `system-hardware-diagnostics`                                                                                                                      |
+| media                | `video-analysis`                                                                                                                                                          |
+| productivity         | `educational-doc-writing`, `excel-processing`, `feishu-docs`, `feishu-groups`, `feishu-people-search`, `hypertex-mcp`, `technical-investor-docs`, `technical-translation` |
+| red-teaming          | `agent-reconnaissance`                                                                                                                                                    |
+| research             | `wiki-content-extraction`                                                                                                                                                 |
 
 新增自定义 skill：在 `~/.hermes/my-skills/` 下创建目录，写 `SKILL.md`；随主仓库提交即可生效（无需重启）。
 
