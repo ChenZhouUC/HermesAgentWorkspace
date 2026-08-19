@@ -26,13 +26,6 @@ macOS memory management relies on aggressive caching and compression.
 - **Memory Pressure**: Never claim the system is out of memory simply because Free RAM is low. Evaluate **Swap Rate** and **Wired Memory**. As long as swapping/paging is low, the system is healthy.
 - **Top 15 Processes (Memory)**: `top -l 1 -s 0 -o mem -n 15 | awk '/^PID/{p=1} p'`
 
-### Application Conflicts (Logitech & Amphetamine)
-
-- **Logitech Options+**: Highly sensitive to display sleep. If it breaks after wake, restart it: `pkill -9 -f "logioptionsplus_agent --launchd"`
-- **Amphetamine**: Screen Lock overrides cause input daemon crashes. Restrict it strictly to keeping the Mac awake.
-
-See [`references/amphetamine-logi-options-crash.md`](references/amphetamine-logi-options-crash.md) for the conflict and recovery workflow.
-
 ### Programmatic Sleep Prevention
 
 - **Use native `caffeinate`**: `caffeinate -di -t 3600 &` (1 hour background). Do not attempt to script Amphetamine.

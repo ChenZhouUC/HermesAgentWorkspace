@@ -72,7 +72,7 @@ xcode-select --install 2>/dev/null || echo "✓ Xcode CLT 已安装"
 
 > Hermes 的 Python 版本以 `hermes-agent/pyproject.toml` 的 `requires-python` 为准；当前上游 v0.20.0 为 `>=3.11,<3.14`（自 v0.16.0 起加上 3.14 上界），本机 venv 使用 Python `3.12.13`。
 > `uv` 是 Astral 出品的高速 Python 包管理器，`hermes update` 会用到。
-> Xcode CLT 用于编译本仓库里的 Swift 辅助脚本（如 `scripts/logi_display_reactor.swift`）；不用这些脚本可以跳过。
+> Xcode CLT 提供 macOS 原生编译工具链；如果不进行本地原生编译，可按需安装。
 
 ### 1.3 确保 `~/.local/bin` 在 PATH
 
