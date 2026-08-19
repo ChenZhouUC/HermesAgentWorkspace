@@ -2647,11 +2647,16 @@ if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MC
     if grep -q 'TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
         grep -q 'server_supports_tasks(server.initialize_result)' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'mcp_prefixed_tool_name(server_name, "tasks_get")' "${MCP_TOOL_PY}" 2>/dev/null &&
+        grep -q 'add_task_routing_headers(request)' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'direct_task_response(messages)' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
         grep -q 'test_mcp_task_handle_ends_turn_without_second_model_call' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_advertises_extension_and_accepts_task_handle' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_completed_task_receipt_only_exposes_task_id_and_links' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_streamable_http_task_requests_get_standard_routing_headers' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_input_required_uses_normal_model_path_for_mrtr_handling' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_mixed_task_and_regular_tool_results_do_not_short_circuit_model' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_tasks_extension_registers_standard_task_utilities' "${MCP_UTILITY_GATE_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-MCP-TASKS-ASYNC-HANDOFF active: standard task handles return without a second LLM call"
+        ok "PATCH-MCP-TASKS-ASYNC-HANDOFF active: task handles return concise receipts without a second LLM call"
         _MCP_TASKS_ASYNC_HANDOFF_PATCH_OK=true
     else
         warn "PATCH-MCP-TASKS-ASYNC-HANDOFF inactive or partial"

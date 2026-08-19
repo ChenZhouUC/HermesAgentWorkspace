@@ -668,10 +668,10 @@ index a3762fccd4aa535fbd8ae6bb82bedc01c46745ec..37f52e424ddc9f00c56afb4a05ef6abd
  ]
 diff --git a/agent/mcp_task_protocol.py b/agent/mcp_task_protocol.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..a9b7e547bd4743c91b10df20ed0656267067ab95
+index 0000000000000000000000000000000000000000..11aab0b037d3072039cd58accc4f48e059fc62af
 --- /dev/null
 +++ b/agent/mcp_task_protocol.py
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,171 @@
 +"""MCP Tasks extension helpers shared by tool execution and the agent loop.
 +
 +The MCP Tasks extension returns a durable task handle instead of an ordinary
@@ -679,17 +679,23 @@ index 0000000000000000000000000000000000000000..a9b7e547bd4743c91b10df20ed065626
 +the model for a second wording pass adds latency and can wedge an otherwise
 +successful asynchronous submission.  These helpers recognize only standard
 +MCP task result shapes from MCP-prefixed tools and render bounded,
-+deterministic user receipts.
++deterministic, human-facing user receipts.
 +"""
 +
 +from __future__ import annotations
 +
 +import json
++import re
 +from typing import Any
++from urllib.parse import urlsplit
 +
 +
 +MCP_TOOL_PREFIX = "mcp__"
 +MCP_TASK_METADATA_KEY = "_mcp_task_result"
++_URL_RE = re.compile(r"https?://[^\s<>\"']+")
++_SUCCESS_STATUSES = frozenset({"completed", "complete", "succeeded", "success", "done"})
++_FAILURE_STATUSES = frozenset({"failed", "failure", "error"})
++_CANCELLED_STATUSES = frozenset({"cancelled", "canceled"})
 +
 +
 +def _payload(result: Any) -> dict[str, Any] | None:
@@ -735,29 +741,75 @@ index 0000000000000000000000000000000000000000..a9b7e547bd4743c91b10df20ed065626
 +        tool_message[MCP_TASK_METADATA_KEY] = metadata
 +
 +
++def _clean_text(value: Any, *, limit: int = 500) -> str:
++    text = " ".join(str(value or "").split()).strip()
++    return text[:limit]
++
++
++def _code_value(value: Any, *, limit: int = 200) -> str:
++    return _clean_text(value, limit=limit).replace("`", "'")
++
++
++def _result_links(payload: Any) -> list[str]:
++    found: dict[str, None] = {}
++
++    def visit(value: Any) -> None:
++        if isinstance(value, dict):
++            for child_value in value.values():
++                visit(child_value)
++            return
++        if isinstance(value, list):
++            for child in value:
++                visit(child)
++            return
++        if not isinstance(value, str):
++            return
++        for match in _URL_RE.findall(value):
++            url = match.rstrip(".,;:!?)]}")
++            parsed = urlsplit(url)
++            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
++                continue
++            found.setdefault(url, None)
++
++    visit(payload)
++    return list(found)[:8]
++
++
++def _error_text(task: dict[str, Any]) -> str:
++    candidates = [task.get("error"), task.get("statusMessage")]
++    for candidate in candidates:
++        if isinstance(candidate, dict):
++            candidate = candidate.get("message") or candidate.get("detail") or candidate.get("code")
++        text = _clean_text(candidate, limit=600)
++        if text:
++            return text
++    return "服务没有返回具体原因，请稍后重试。"
++
++
 +def _task_lines(metadata: dict[str, Any]) -> list[str]:
 +    task = metadata["task"]
 +    kind = metadata["kind"]
-+    lines = ["MCP 异步任务已受理。" if kind == "created" else "MCP 任务状态已更新。"]
-+    server = str(metadata.get("server") or "").strip()
-+    if server:
-+        lines.append(f"- server: `{server}`")
-+    lines.append(f"- task_id: `{task['taskId']}`")
-+    lines.append(f"- status: `{task['status']}`")
-+    status_message = str(task.get("statusMessage") or "").strip()
-+    if status_message:
-+        lines.append(f"- detail: {status_message[:500]}")
-+    poll_interval = task.get("pollIntervalMs")
-+    if isinstance(poll_interval, int) and poll_interval > 0:
-+        lines.append(f"- suggested_poll: {poll_interval / 1000:g}s")
++    task_id = _code_value(task["taskId"], limit=200)
 +    if kind == "created":
-+        lines.append("后续可在新消息中使用 task_id 查询状态。")
-+    elif task.get("result") is not None:
-+        rendered = json.dumps(task["result"], ensure_ascii=False, indent=2)
-+        lines.extend(("", "结果：", f"```json\n{rendered[:4000]}\n```"))
-+    elif task.get("error") is not None:
-+        rendered = json.dumps(task["error"], ensure_ascii=False, indent=2)
-+        lines.extend(("", "错误：", f"```json\n{rendered[:2000]}\n```"))
++        return [
++            f"任务已开始处理，任务 ID：`{task_id}`。",
++            "完成后可以把这个 ID 发给我查询进度和结果。",
++        ]
++
++    status = str(task.get("status") or "").strip().lower()
++    raw_result = task.get("result")
++    if status in _FAILURE_STATUSES or task.get("error") is not None:
++        return [f"任务 `{task_id}` 未完成：{_error_text(task)}"]
++    if status in _CANCELLED_STATUSES:
++        return [f"任务 `{task_id}` 已取消。"]
++    if status not in _SUCCESS_STATUSES:
++        return [f"任务 `{task_id}` 还在处理中，请稍后再查询。"]
++
++    lines = [f"任务 `{task_id}` 已完成。"]
++    links = _result_links(raw_result)
++    if links:
++        lines.extend(("", "结果链接："))
++        lines.extend(f"- {url}" for url in links)
 +    return lines
 +
 +
@@ -768,8 +820,19 @@ index 0000000000000000000000000000000000000000..a9b7e547bd4743c91b10df20ed065626
 +        if not isinstance(message, dict) or message.get("role") != "tool":
 +            break
 +        metadata = message.get(MCP_TASK_METADATA_KEY)
-+        if isinstance(metadata, dict):
-+            metadata_items.append(metadata)
++        if not isinstance(metadata, dict):
++            return None
++        task = metadata.get("task")
++        if (
++            metadata.get("kind") == "status"
++            and isinstance(task, dict)
++            and str(task.get("status") or "").strip().lower() == "input_required"
++        ):
++            # Input requests are standard MCP MRTR payloads that need the normal
++            # model/client handling path so the user can answer and tasks/update
++            # can carry the response. A deterministic receipt would strand the task.
++            return None
++        metadata_items.append(metadata)
 +    if not metadata_items:
 +        return None
 +    metadata_items.reverse()
@@ -15725,7 +15788,7 @@ index 4faeb2b5592136aec10c2b0ee96c069523b01313..ebea1e12aba98785c62c0956b716f594
  
      def test_skips_unconfigured_provider_to_next(self):
 diff --git a/tests/run_agent/test_tool_call_incremental_persistence.py b/tests/run_agent/test_tool_call_incremental_persistence.py
-index 20a2c2de9dc557a9c03f5056d8efa0e1eefd04fa..f1f63a3b29235371241c291303ed6253cd8d71bf 100644
+index 20a2c2de9dc557a9c03f5056d8efa0e1eefd04fa..3208de572aa55fd85e46ac755527594181075614 100644
 --- a/tests/run_agent/test_tool_call_incremental_persistence.py
 +++ b/tests/run_agent/test_tool_call_incremental_persistence.py
 @@ -23,6 +23,7 @@ makes the corresponding assertion fail.
@@ -15753,7 +15816,7 @@ index 20a2c2de9dc557a9c03f5056d8efa0e1eefd04fa..f1f63a3b29235371241c291303ed6253
          ),
          patch("run_agent.check_toolset_requirements", return_value={}),
          patch("run_agent.OpenAI"),
-@@ -171,6 +173,42 @@ def test_run_conversation_flushes_assistant_tool_call_before_execution():
+@@ -171,6 +173,43 @@ def test_run_conversation_flushes_assistant_tool_call_before_execution():
      assert result["final_response"] == "done"
  
  
@@ -15790,7 +15853,8 @@ index 20a2c2de9dc557a9c03f5056d8efa0e1eefd04fa..f1f63a3b29235371241c291303ed6253
 +    assert result["completed"] is True
 +    assert result["turn_exit_reason"] == "mcp_task_created"
 +    assert "task-42" in result["final_response"]
-+    assert "demo" in result["final_response"]
++    assert "server" not in result["final_response"]
++    assert "suggested_poll" not in result["final_response"]
 +
 +
  def test_interim_assistant_is_durable_before_ui_projection_on_abnormal_exit(tmp_path):
@@ -16057,16 +16121,18 @@ index ed7571da56238c27759cc897f108ebe37aec47b2..4db29a2af45f67e9252e7154bb68573f
              if tool_name == "feishu_doc_read":
 diff --git a/tests/tools/test_mcp_tasks_extension.py b/tests/tools/test_mcp_tasks_extension.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..77d2df89ee49eb61c65cfa419bb426ce121e3e0b
+index 0000000000000000000000000000000000000000..abfb3a59dfbc07d7a5fd0244639c1f04b5d98091
 --- /dev/null
 +++ b/tests/tools/test_mcp_tasks_extension.py
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,331 @@
 +from __future__ import annotations
 +
 +import asyncio
 +
++from agent.mcp_task_protocol import MCP_TASK_METADATA_KEY, direct_task_response
 +from tools.mcp_tasks_extension import (
 +    TASKS_EXTENSION_ID,
++    add_task_routing_headers,
 +    call_tool,
 +    server_supports_tasks,
 +    task_request,
@@ -16149,8 +16215,249 @@ index 0000000000000000000000000000000000000000..77d2df89ee49eb61c65cfa419bb426ce
 +
 +    assert server_supports_tasks(_Init()) is True
 +    assert server_supports_tasks(None) is False
++
++
++def test_streamable_http_task_requests_get_standard_routing_headers():
++    import httpx
++
++    for method in ("tasks/get", "tasks/update", "tasks/cancel"):
++        request = httpx.Request(
++            "POST",
++            "https://mcp.example.test",
++            json={"jsonrpc": "2.0", "id": 1, "method": method, "params": {"taskId": "task-42"}},
++        )
++        asyncio.run(add_task_routing_headers(request))
++        assert request.headers["mcp-name"] == "task-42"
++        assert request.headers["mcp-method"] == method
++
++
++def test_task_routing_headers_ignore_non_task_and_unsafe_requests():
++    import httpx
++
++    non_task = httpx.Request(
++        "POST",
++        "https://mcp.example.test",
++        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
++    )
++    unsafe = httpx.Request(
++        "POST",
++        "https://mcp.example.test",
++        json={
++            "jsonrpc": "2.0",
++            "id": 2,
++            "method": "tasks/get",
++            "params": {"taskId": "bad\r\nid"},
++        },
++    )
++    asyncio.run(add_task_routing_headers(non_task))
++    asyncio.run(add_task_routing_headers(unsafe))
++
++    assert "mcp-name" not in non_task.headers
++    assert "mcp-name" not in unsafe.headers
++
++
++def test_created_task_receipt_only_exposes_the_user_facing_task_id():
++    response = direct_task_response([
++        {
++            "role": "tool",
++            MCP_TASK_METADATA_KEY: {
++                "kind": "created",
++                "server": "demo",
++                "task": {
++                    "taskId": "7",
++                    "status": "working",
++                    "statusMessage": "Preparing assets",
++                    "pollIntervalMs": 5000,
++                },
++            },
++        }
++    ])
++
++    assert response == (
++        "任务已开始处理，任务 ID：`7`。\n完成后可以把这个 ID 发给我查询进度和结果。",
++        "mcp_task_created",
++    )
++
++
++def test_completed_task_receipt_only_exposes_task_id_and_links():
++    payload = {
++        "task_id": "task-7",
++        "status": "failed",
++        "error": "business-level error",
++        "title": "Quarterly product review",
++        "version": "3.2",
++        "files": [{"name": "review.pdf", "size_bytes": 22032117}],
++        "metadata": {
++            "run_id": 98,
++            "created_at": "2026-08-19T00:00:00Z",
++        },
++        "links": {
++            "preview_url": "https://example.test/preview",
++            "download_url": "https://example.test/download",
++        },
++    }
++    response = direct_task_response([
++        {
++            "role": "tool",
++            MCP_TASK_METADATA_KEY: {
++                "kind": "status",
++                "server": "demo",
++                "task": {
++                    "taskId": "7",
++                    "status": "completed",
++                    "result": {
++                        "content": [{"type": "text", "text": "ignored raw JSON"}],
++                        "structuredContent": payload,
++                        "isError": True,
++                    },
++                },
++            },
++        }
++    ])
++
++    assert response is not None
++    text, reason = response
++    assert reason == "mcp_task_status"
++    assert text == (
++        "任务 `7` 已完成。\n\n结果链接：\n"
++        "- https://example.test/preview\n"
++        "- https://example.test/download"
++    )
++    assert "structuredContent" not in text
++    assert "Quarterly product review" not in text
++    assert "review.pdf" not in text
++    assert "run_id" not in text
++    assert "created_at" not in text
++    assert "business-level error" not in text
++
++
++def test_incomplete_and_failed_task_receipts_stay_concise():
++    working = direct_task_response([
++        {
++            "role": "tool",
++            MCP_TASK_METADATA_KEY: {
++                "kind": "status",
++                "task": {"taskId": "8", "status": "working"},
++            },
++        }
++    ])
++    failed = direct_task_response([
++        {
++            "role": "tool",
++            MCP_TASK_METADATA_KEY: {
++                "kind": "status",
++                "task": {
++                    "taskId": "9",
++                    "status": "failed",
++                    "error": {"message": "Generation failed"},
++                },
++            },
++        }
++    ])
++
++    assert working == ("任务 `8` 还在处理中，请稍后再查询。", "mcp_task_status")
++    assert failed == ("任务 `9` 未完成：Generation failed", "mcp_task_status")
++
++
++def test_cancelled_task_receipt_uses_protocol_status_without_fake_error():
++    response = direct_task_response([
++        {
++            "role": "tool",
++            MCP_TASK_METADATA_KEY: {
++                "kind": "status",
++                "task": {"taskId": "cancel-1", "status": "cancelled"},
++            },
++        }
++    ])
++
++    assert response == ("任务 `cancel-1` 已取消。", "mcp_task_status")
++
++
++def test_input_required_uses_normal_model_path_for_mrtr_handling():
++    response = direct_task_response([
++        {
++            "role": "tool",
++            MCP_TASK_METADATA_KEY: {
++                "kind": "status",
++                "task": {
++                    "taskId": "input-1",
++                    "status": "input_required",
++                    "inputRequests": {"name": {"method": "elicitation/create"}},
++                },
++            },
++        }
++    ])
++
++    assert response is None
++
++
++def test_mixed_task_and_regular_tool_results_do_not_short_circuit_model():
++    task_message = {
++        "role": "tool",
++        MCP_TASK_METADATA_KEY: {
++            "kind": "created",
++            "task": {"taskId": "mixed-1", "status": "working"},
++        },
++    }
++    regular_message = {"role": "tool", "content": "ordinary result"}
++
++    assert direct_task_response([task_message, regular_message]) is None
++    assert direct_task_response([regular_message, task_message]) is None
++
++
++def test_completed_plain_text_result_hides_text_and_keeps_only_link():
++    response = direct_task_response([
++        {
++            "role": "tool",
++            MCP_TASK_METADATA_KEY: {
++                "kind": "status",
++                "task": {
++                    "taskId": "10",
++                    "status": "completed",
++                    "result": {
++                        "content": [
++                            {
++                                "type": "text",
++                                "text": "Report generated: https://example.test/report",
++                            }
++                        ],
++                        "isError": False,
++                    },
++                },
++            },
++        }
++    ])
++
++    assert response == (
++        "任务 `10` 已完成。\n\n结果链接：\n- https://example.test/report",
++        "mcp_task_status",
++    )
++
++
++def test_completed_result_without_links_exposes_no_business_payload():
++    response = direct_task_response([
++        {
++            "role": "tool",
++            MCP_TASK_METADATA_KEY: {
++                "kind": "status",
++                "task": {
++                    "taskId": "11",
++                    "status": "completed",
++                    "result": {
++                        "structuredContent": {
++                            "title": "private report",
++                            "internal_id": 99,
++                        },
++                        "isError": False,
++                    },
++                },
++            },
++        }
++    ])
++
++    assert response == ("任务 `11` 已完成。", "mcp_task_status")
 diff --git a/tests/tools/test_mcp_tool.py b/tests/tools/test_mcp_tool.py
-index 831154bdd75222f0cc39ea928eb5b63df9020107..7b1ce8baf601ae7789b58aa2d68d4a1875c1e203 100644
+index 831154bdd75222f0cc39ea928eb5b63df9020107..8a2e2f84d7ee8739bde6224fc276b6067306f2a0 100644
 --- a/tests/tools/test_mcp_tool.py
 +++ b/tests/tools/test_mcp_tool.py
 @@ -1468,16 +1468,19 @@ class TestConfigurableTimeouts:
@@ -16175,6 +16482,34 @@ index 831154bdd75222f0cc39ea928eb5b63df9020107..7b1ce8baf601ae7789b58aa2d68d4a18
  
      def test_read_resource_schema_requires_uri(self):
          from tools.mcp_tool import _build_utility_schemas
+@@ -2804,7 +2807,7 @@ class TestRedirectHeaderStripper:
+         )
+         return response, next_request
+ 
+-    def test_default_strips_only_authorization(self):
++    def test_default_strips_authorization_and_task_routing_headers(self):
+         import httpx
+ 
+         from tools.mcp_tool import _make_redirect_header_stripper
+@@ -2813,10 +2816,17 @@ class TestRedirectHeaderStripper:
+             httpx.URL("https://origin.example.test/mcp")
+         )
+         response, next_request = self._make_response(
+-            {"Authorization": "Bearer x", "X-Tenant": "t"}
++            {
++                "Authorization": "Bearer x",
++                "Mcp-Name": "task-42",
++                "Mcp-Method": "tasks/get",
++                "X-Tenant": "t",
++            }
+         )
+         asyncio.run(hook(response))
+         assert "authorization" not in next_request.headers
++        assert "mcp-name" not in next_request.headers
++        assert "mcp-method" not in next_request.headers
+         assert next_request.headers["x-tenant"] == "t"
+ 
+     def test_strict_strips_configured_headers_cross_origin(self):
 diff --git a/tests/tools/test_mcp_utility_capability_gating.py b/tests/tools/test_mcp_utility_capability_gating.py
 index af5d6a19bd7aeac23cf1d2137e87684abd8db440..8a4084915a0b8f3f0a8e10ef694a45d764d3e235 100644
 --- a/tests/tools/test_mcp_utility_capability_gating.py
@@ -16920,10 +17255,10 @@ index 88cf6e78b58d2e6b5f0c4a222ec7fd48f1dd41a6..adf6cfa4fb25febd3b1af86690e50c0e
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/mcp_tasks_extension.py b/tools/mcp_tasks_extension.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..beea431fd8cf0c654d8ccc292c4634cae9c01650
+index 0000000000000000000000000000000000000000..f427a84b41e5d188010fba332bf009673463781f
 --- /dev/null
 +++ b/tools/mcp_tasks_extension.py
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,99 @@
 +"""Wire helpers for the ``io.modelcontextprotocol/tasks`` MCP extension.
 +
 +The installed MCP SDK does not yet expose the 2026 Tasks extension client
@@ -16934,12 +17269,14 @@ index 0000000000000000000000000000000000000000..beea431fd8cf0c654d8ccc292c4634ca
 +
 +from __future__ import annotations
 +
++import json
 +from typing import Any
 +
 +from pydantic import RootModel
 +
 +
 +TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"
++TASK_ROUTING_METHODS = frozenset({"tasks/get", "tasks/update", "tasks/cancel"})
 +
 +
 +class _RawRequest(RootModel[dict[str, Any]]):
@@ -16962,6 +17299,33 @@ index 0000000000000000000000000000000000000000..beea431fd8cf0c654d8ccc292c4634ca
 +    capabilities = getattr(initialize_result, "capabilities", None)
 +    extensions = getattr(capabilities, "extensions", None)
 +    return isinstance(extensions, dict) and TASKS_EXTENSION_ID in extensions
++
++
++async def add_task_routing_headers(request: Any) -> None:
++    """Add MCP 2026 task-routing headers to one Streamable HTTP request.
++
++    The installed SDK does not yet derive ``Mcp-Name`` / ``Mcp-Method`` from
++    custom extension requests, so Hermes adds them in an httpx request hook.
++    Non-task requests and unsafe header values are left untouched.
++    """
++    if str(getattr(request, "method", "")).upper() != "POST":
++        return
++    try:
++        body = await request.aread()
++        payload = json.loads(body)
++    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
++        return
++    method = str(payload.get("method") or "") if isinstance(payload, dict) else ""
++    params = payload.get("params") if isinstance(payload, dict) else None
++    task_id = str((params or {}).get("taskId") or "").strip() if isinstance(params, dict) else ""
++    if method not in TASK_ROUTING_METHODS or not task_id or "\r" in task_id or "\n" in task_id:
++        return
++    try:
++        task_id.encode("ascii")
++    except UnicodeEncodeError:
++        return
++    request.headers["Mcp-Name"] = task_id
++    request.headers["Mcp-Method"] = method
 +
 +
 +async def call_tool(
@@ -16995,10 +17359,49 @@ index 0000000000000000000000000000000000000000..beea431fd8cf0c654d8ccc292c4634ca
 +    request = _RawRequest({"method": method, "params": params})
 +    return (await session.send_request(request, _RawResult)).root
 diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py
-index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116ea761ca8 100644
+index f380b8cea4ff38f6707fc683a7ab34be5df9d401..68c465258d7ec66ee765954d442b5a6a17a3890e 100644
 --- a/tools/mcp_tool.py
 +++ b/tools/mcp_tool.py
-@@ -5429,7 +5429,16 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -1431,6 +1431,10 @@ def _make_redirect_header_stripper(
+             ):
+                 response.next_request.headers.pop("authorization", None)
+                 response.next_request.headers.pop("Authorization", None)
++                response.next_request.headers.pop("mcp-name", None)
++                response.next_request.headers.pop("Mcp-Name", None)
++                response.next_request.headers.pop("mcp-method", None)
++                response.next_request.headers.pop("Mcp-Method", None)
+                 if strict:
+                     for _name in configured_header_names:
+                         while _name in response.next_request.headers:
+@@ -3186,11 +3190,26 @@ class MCPServerTask:
+                 configured_header_names=_configured_header_names,
+             )
+ 
++            async def _add_same_origin_task_routing_headers(request):
++                request_url = request.url
++                if (request_url.scheme, request_url.host, request_url.port) != (
++                    _original_url.scheme,
++                    _original_url.host,
++                    _original_url.port,
++                ):
++                    return
++                from tools.mcp_tasks_extension import add_task_routing_headers
++
++                await add_task_routing_headers(request)
++
+             client_kwargs: dict = {
+                 "follow_redirects": True,
+                 "timeout": httpx.Timeout(float(connect_timeout), read=300.0),
+                 "verify": ssl_verify,
+-                "event_hooks": {"response": [_strip_auth_on_cross_origin_redirect]},
++                "event_hooks": {
++                    "request": [_add_same_origin_task_routing_headers],
++                    "response": [_strip_auth_on_cross_origin_redirect],
++                },
+             }
+             if headers:
+                 client_kwargs["headers"] = headers
+@@ -5429,7 +5448,16 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                  # it and detect the gateway platform / session for routing.
                  server._pending_call_context = contextvars.copy_context()
                  try:
@@ -17016,7 +17419,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
                  finally:
                      server._pending_call_context = None
              # The RPC round-trip completed — the session is demonstrably
-@@ -5438,6 +5447,8 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -5438,6 +5466,8 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
              _mark_proven = getattr(server, "_mark_session_proven", None)
              if _mark_proven is not None:
                  _mark_proven()
@@ -17025,7 +17428,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
              # MCP CallToolResult has .content (list of content blocks) and .isError
              if result.isError:
                  error_text = ""
-@@ -5811,6 +5822,47 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
+@@ -5811,6 +5841,47 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
      return _handler
  
  
@@ -17073,7 +17476,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
  def _make_check_fn(server_name: str):
      """Return a check function that verifies the MCP connection is alive."""
  
-@@ -6038,7 +6090,7 @@ def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
+@@ -6038,7 +6109,7 @@ def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
  
  
  def _build_utility_schemas(server_name: str) -> List[dict]:
@@ -17082,7 +17485,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
  
      Returns a list of (schema, handler_factory_name) tuples encoded as dicts
      with keys: schema, handler_key.
-@@ -6106,6 +6158,48 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
+@@ -6106,6 +6177,48 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
              },
              "handler_key": "get_prompt",
          },
@@ -17131,7 +17534,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
      ]
  
  
-@@ -6224,6 +6318,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6224,6 +6337,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
      tools_filter = config.get("tools") or {}
      resources_enabled = _parse_boolish(tools_filter.get("resources"), default=True)
      prompts_enabled = _parse_boolish(tools_filter.get("prompts"), default=True)
@@ -17139,7 +17542,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
  
      # ``initialize_result.capabilities`` is the source of truth: its sub-objects
      # (``resources``, ``prompts``) are non-None iff the server advertises that
-@@ -6234,6 +6329,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6234,6 +6348,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
      init_result = getattr(server, "initialize_result", None)
      if init_result is not None:
          advertised_caps = getattr(init_result, "capabilities", None)
@@ -17149,7 +17552,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
  
      selected: List[dict] = []
      for entry in _build_utility_schemas(server_name):
-@@ -6244,6 +6342,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6244,6 +6361,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
          if handler_key in {"list_prompts", "get_prompt"} and not prompts_enabled:
              logger.debug("MCP server '%s': skipping utility '%s' (prompts disabled)", server_name, handler_key)
              continue
@@ -17166,7 +17569,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
  
          # Preferred gate: check the server's advertised capabilities. Skip
          # if the capability is explicitly not advertised.
-@@ -6382,6 +6490,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
+@@ -6382,6 +6509,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
          "read_resource": _make_read_resource_handler,
          "list_prompts": _make_list_prompts_handler,
          "get_prompt": _make_get_prompt_handler,
@@ -17182,7 +17585,7 @@ index f380b8cea4ff38f6707fc683a7ab34be5df9d401..935fce7de960de739bd19efc055b9116
      }
      for entry in _select_utility_schemas(name, server, config):
          schema = entry["schema"]
-@@ -6632,6 +6749,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
+@@ -6632,6 +6768,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
          "read_resource": _make_read_resource_handler,
          "list_prompts": _make_list_prompts_handler,
          "get_prompt": _make_get_prompt_handler,
@@ -18196,7 +18599,7 @@ index 6bf1376e655098f41c6f8a26966b7cb98f064c7a..7de45eca0ea9dc98b3ca5d25fcfddea8
  
  Enable isolated git worktrees for running multiple agents in parallel on the same repo:
 diff --git a/website/docs/user-guide/features/mcp.md b/website/docs/user-guide/features/mcp.md
-index ca85ba855b40f7b114c7c65662ed7ffbd26d0d64..c7c3c90b1b27898c5a6bf2da5451492971c5968b 100644
+index ca85ba855b40f7b114c7c65662ed7ffbd26d0d64..93e38633c565e34acdaab2e621697c1c6853e296 100644
 --- a/website/docs/user-guide/features/mcp.md
 +++ b/website/docs/user-guide/features/mcp.md
 @@ -19,7 +19,7 @@ The `mcpServers` block in your `~/.claude.json` maps to `mcp_servers` in Hermes'
@@ -18226,18 +18629,25 @@ index ca85ba855b40f7b114c7c65662ed7ffbd26d0d64..c7c3c90b1b27898c5a6bf2da54514929
  
  These are registered per server with the same prefix pattern, for example:
  
-@@ -475,8 +479,13 @@ These are registered per server with the same prefix pattern, for example:
+@@ -475,8 +479,19 @@ These are registered per server with the same prefix pattern, for example:
  These utility tools are now capability-aware:
  - Hermes only registers resource utilities if the MCP session actually supports resource operations
  - Hermes only registers prompt utilities if the MCP session actually supports prompt operations
-+- Hermes only registers task utilities if the server advertises the Tasks extension
- 
+-
 -So a server that exposes callable tools but no resources/prompts will not get those extra wrappers.
++- Hermes only registers task utilities if the server advertises the Tasks extension
++
 +When `tools/call` returns a standard `resultType: "task"` handle, Hermes records the tool result,
-+renders a deterministic task receipt, and ends the current agent turn without another model call.
-+The task continues on the MCP server; query it later through that server's generated `tasks_get`
-+utility. A server that exposes callable tools but no resources, prompts, or Tasks support will not
-+get those extra wrappers.
++returns a concise receipt with the task ID, and ends the current agent turn without another model
++call. A later `tasks_get` response exposes only the task ID, a minimal lifecycle sentence, and any
++deduplicated HTTP(S) result links. Server names, tool names, polling metadata, raw statuses,
++`structuredContent`, and tool-specific business fields remain hidden from the user-facing receipt.
++`input_required` is the protocol exception: Hermes leaves that response on the normal model/client
++path so its `inputRequests` can be presented and answered through `tasks_update`. Mixed batches that
++also contain ordinary tool results likewise do not short-circuit. For Streamable HTTP, Hermes adds
++the standard task-routing headers (`Mcp-Name` and `Mcp-Method`) to same-origin task lifecycle
++requests. The task continues on the MCP server until it reaches a terminal state. A server that
++exposes callable tools but no resources, prompts, or Tasks support will not get those extra wrappers.
  
  ## Per-server filtering
  

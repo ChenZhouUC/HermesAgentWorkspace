@@ -100,6 +100,7 @@ expected_group_toolsets = {
     "skills_readonly",
     "file_readonly",
     "sandbox_group",
+    "hypertex",
 }
 platform_toolsets = root.get("platform_toolsets") or {}
 assert set(platform_toolsets.get("feishu_group") or []) == expected_group_toolsets
@@ -129,6 +130,7 @@ assert int(hypertex_mcp.get("idle_timeout_seconds") or 0) == 60
 assert set(((hypertex_mcp.get("tools") or {}).get("include") or [])) == {
     "hypertex_list_cases",
     "hypertex_create_case",
+    "hypertex_iterate_case",
     "hypertex_get_case",
 }
 feishu = root.get("feishu") or {}
@@ -167,10 +169,20 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "search_files",
     "group_cache",
     "feishu_doc_manage",
+    "mcp__hypertex__hypertex_list_cases",
+    "mcp__hypertex__hypertex_create_case",
+    "mcp__hypertex__hypertex_iterate_case",
+    "mcp__hypertex__hypertex_get_case",
+    "mcp__hypertex__tasks_get",
+    "mcp__hypertex__tasks_cancel",
+    "mcp__hypertex__tasks_update",
 }
 mutation_users = set(plugin.get("trusted_feishu_user_ids_for_group_mutations") or [])
 assert mutation_users, "trusted group mutation user ids must be configured"
 assert mutation_users.issubset(set(feishu.get("assistant_user_ids") or []))
+hypertex_users = set(plugin.get("trusted_feishu_user_ids_for_group_hypertex") or [])
+assert hypertex_users, "trusted group HyperTeX user ids must be configured"
+assert hypertex_users.issubset(set(feishu.get("assistant_user_ids") or []))
 assert plugin.get("allowed_read_roots_for_outsider_groups") == ["~/.hermes/wiki"]
 assert plugin.get("group_workspace_root") == "~/.hermes/tmp/group-workspaces"
 assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []) == {
@@ -241,9 +253,11 @@ from hermes_cli.tools_config import _get_platform_tools
 from model_tools import get_tool_definitions, handle_function_call
 from toolsets import resolve_toolset
 from tools import tool_search
+from tools.mcp_tool import discover_mcp_tools
 
 discover_plugins(force=True)
 config = load_config()
+discover_mcp_tools()
 
 def resolve(platform):
     toolsets = _get_platform_tools(config, platform, include_default_mcp_servers=False)
@@ -274,7 +288,17 @@ assert {
 }.issubset(owner_tools)
 
 assert "sandbox_group" in group_toolsets
+assert "hypertex" in group_toolsets
 assert {"clarify", "web_search", "web_extract", "group_cache", "feishu_doc_manage", "read_file", "search_files"}.issubset(group_tools)
+assert {
+    "mcp__hypertex__hypertex_list_cases",
+    "mcp__hypertex__hypertex_create_case",
+    "mcp__hypertex__hypertex_iterate_case",
+    "mcp__hypertex__hypertex_get_case",
+    "mcp__hypertex__tasks_get",
+    "mcp__hypertex__tasks_cancel",
+    "mcp__hypertex__tasks_update",
+}.issubset(group_tools)
 assert not {
     "terminal",
     "process",
@@ -294,11 +318,17 @@ group_defs = get_tool_definitions(
     skip_tool_search_assembly=True,
 )
 search_payload = tool_search.dispatch_tool_search(
-    {"query": "group cache feishu doc"},
+    {"query": "group cache feishu doc hypertex presentation"},
     current_tool_defs=group_defs,
 )
 assert "group_cache" in search_payload
 assert "feishu_doc_manage" in search_payload
+assert "mcp__hypertex__hypertex_iterate_case" in search_payload
+hypertex_create_payload = tool_search.dispatch_tool_search(
+    {"query": "create case"},
+    current_tool_defs=group_defs,
+)
+assert "mcp__hypertex__hypertex_create_case" in hypertex_create_payload
 describe_group = tool_search.dispatch_tool_describe(
     {"name": "group_cache"},
     current_tool_defs=group_defs,
@@ -365,6 +395,20 @@ assert sandbox._on_pre_tool_call(tool_name="terminal", args={"command": "id"}) =
     "action": "block",
     "message": sandbox._BLOCK_MESSAGE,
 }
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._HYPERTEX_LIST_TOOL,
+    args={"username": "hermes"},
+) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_BLOCK_MESSAGE}
+
+sandbox._current_user_id.set(next(iter(sandbox._GROUP_HYPERTEX_USER_IDS)))
+sandbox._current_hypertex_call_count.set(0)
+group_hypertex_args = {"username": "someone-else"}
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._HYPERTEX_LIST_TOOL,
+    args=group_hypertex_args,
+) is None
+assert group_hypertex_args == {"username": "hermes"}
+sandbox._current_user_id.set("ou_untrusted_verify")
 
 # Exercise the real deferred bridge: tool_call unwraps to the scoped
 # underlying tool, then the sandbox hook sees the real name. Out-of-scope tools
@@ -489,7 +533,9 @@ PY
         echo "${current_reg}" | grep -q 'tool_search' &&
         echo "${current_reg}" | grep -q 'tool_describe' &&
         echo "${current_reg}" | grep -q 'group_cache' &&
-        echo "${current_reg}" | grep -q 'feishu_doc_manage'; then
+        echo "${current_reg}" | grep -q 'feishu_doc_manage' &&
+        echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_create_case' &&
+        echo "${current_reg}" | grep -q 'hypertex_users='; then
         # Strip the date+level prefix for readability.
         msg="${current_reg##*INFO }"
         echo "OK   runtime: launchd wrapper pid=${supervisor_pid}; ${msg}"

@@ -596,6 +596,7 @@ platform_toolsets:
     - skills_readonly
     - file_readonly
     - sandbox_group
+    - hypertex
 known_plugin_toolsets:
   cli:
     - sandbox_group
@@ -659,6 +660,7 @@ mcp_servers:
       include:
         - hypertex_list_cases
         - hypertex_create_case
+        - hypertex_iterate_case
         - hypertex_get_case
     enabled: true
 

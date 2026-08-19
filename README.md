@@ -732,14 +732,14 @@ hermes gateway restart             # 重启 gateway 加载插件
 
 **位置**：`plugins/sandbox/`（`plugin.yaml` + `__init__.py` + `config.yaml`）
 
-**作用**：bot 同一个 Feishu 应用账号同时服务多个会话时，按 `chat_id` + `chat_type` 区分工具权限——配置中列出的 owner DM 拥有完整工具集，其他 Feishu DM 只能调用基础安全白名单；Feishu 群聊/频道额外拥有只读知识工具、按群隔离的临时文件工具，以及受控的飞书文档脚本入口。owner DM 的 HyperTeX MCP 另有一条窄策略：创建任务固定使用 `hermes` Contributor、`codex` 和 `deck`，本轮飞书附件经私有目录暂存后自动注入，不把宿主缓存路径暴露给模型。非 Feishu 来源（CLI/TUI、cron 调度器、内部事件）一律放行不拦截。
+**作用**：bot 同一个 Feishu 应用账号同时服务多个会话时，按 `chat_id` + `chat_type` 区分工具权限——配置中列出的 owner DM 拥有完整工具集，其他 Feishu DM 只能调用基础安全白名单；Feishu 群聊/频道额外拥有只读知识工具、按群隔离的临时文件工具，以及受控的飞书文档脚本入口。HyperTeX MCP 使用一条窄策略：owner DM 与群聊中显式配置的受信任内测账号可以调用，创建/迭代任务固定使用 `hermes` Contributor、`codex` 和 `deck`，本轮飞书附件经私有目录暂存后自动注入，不把宿主缓存路径暴露给模型；其他群成员即使能看见工具说明也会在调用期被拒绝。非 Feishu 来源（CLI/TUI、cron 调度器、内部事件）一律放行不拦截。
 
 **为什么需要它**：hermes 原生 platform enum 只提供 `feishu`，同一个 Feishu bot 下所有 chat 原本共享一份工具列表。若把 bot 拉进群或被别人加为联系人，对方可以直接让 bot 调 `terminal` / `read_file` 等危险工具。`allowed_chats` 白名单虽然能限制响应范围，但代价是其他会话完全得不到响应；要在"允许其他人聊天/搜索/问图"和"禁止其他人碰系统"之间取折衷，原生配置做不到。本地 `PATCH-FEISHU-GROUP-SCOPE` 让真实 Gateway consumer 按 chat type 选择 `feishu` / `feishu_group` namespace，本插件再通过官方 `pre_gateway_dispatch` + `pre_tool_call` + `post_tool_call` 钩子做调用期纵深裁剪与本轮临时文件授权。
 
 **机制（要点）**：
 
 - `pre_gateway_dispatch` 把入站消息的 `(platform, chat_id, chat_type, user_id)`、当前附件缓存路径，以及**当前消息/明确引用消息**中的飞书资源 token 写入 `contextvars.ContextVar`，asyncio 会自动把该 context 传到所有后续 `await` / `create_task` 子任务里。历史回填 `channel_context` 不授予资源访问，避免后来的参与者复用旧群消息里的链接。
-- `pre_tool_call` 读取 ContextVar：若 `platform != "feishu"` 直接放行；若 `chat_id` 在 owner 白名单里，普通工具直接放行，HyperTeX 的 3 个原始工具与协商生成的标准 Tasks utilities 则先固定边界：创建调用固定 Contributor / `codex` / `deck` 并把本轮附件复制到稳定私有目录后注入 `asset_paths`，后续状态查询使用 `mcp__hypertex__tasks_get` 且不再注入旧 `username`。每个入站 turn 最多放行一次 HyperTeX 调用：创建后同轮轮询、查询失败后同轮重试、list/get_case fallback 都在调用 MCP 前被拦截，避免本地 transport 异常占住主会话。群聊优先应用群专用 allowlist，不继承 outsider-DM 的 `vision_analyze` / `image_generate` 放行；其他私聊才使用基础安全 allowlist。配置解析失败时对 Feishu fail closed。
+- `pre_tool_call` 读取 ContextVar：若 `platform != "feishu"` 直接放行；若 `chat_id` 在 owner 白名单里，普通工具直接放行，HyperTeX 的 4 个原始工具与协商生成的标准 Tasks utilities 则先固定边界：创建/迭代调用固定 Contributor / `codex` / `deck` 并把本轮附件复制到稳定私有目录后注入 `asset_paths`，后续状态查询使用 `mcp__hypertex__tasks_get`。每个入站 turn 最多放行一次 HyperTeX 调用：创建后同轮轮询、查询失败后同轮重试、list/get_case fallback 都在调用 MCP 前被拦截，避免本地 transport 异常占住主会话。群聊优先应用群专用 allowlist，不继承 outsider-DM 的 `vision_analyze` / `image_generate` 放行；HyperTeX 全工具面虽加入 `feishu_group`，但调用期还要求当前 `user_id` 位于 `trusted_feishu_user_ids_for_group_hypertex`。其他私聊才使用基础安全 allowlist。配置解析失败时对 Feishu fail closed。
 - `post_tool_call` 只观察群聊 `web_extract`：长网页被截断并写入 `cache/web` 时，仅把**本群本轮刚产生的精确缓存文件**临时加入可读集合；不开放整个 cache，新消息到来即撤销，其他群不能复用。
 - 群聊放行 `skills_list` / `skill_view` 只打开“读 skill”通路；实际可读 skill 仍由 `skills.platform_allowed.feishu_group` 限制。当前配置允许 `llm-wiki`、`feishu-docs` 与 `excel-processing`，不开放 `skill_manage`。放行的 skill 里若带 `scripts/`，群聊也只能「读」不能「跑」——群聊没有 `terminal` / `process`，`feishu_doc_manage` 只映射 `feishu_doc_scripts_root` 下的固定 action。
 - `read_file` / `search_files` 只允许 `~/.hermes/wiki` 和当前群自己的工作区；`search_files` 省略 path 时安全重写到 wiki 根。`~/.hermes/tmp/group-workspaces/<chat-id-hash>/` 按群隔离，其他群工作区、`tmp/nightly_report`、全局 `cache`、`skills`、`my-skills` 均不能通过文件工具访问；唯一例外是上条本轮 web_extract 精确文件授权。

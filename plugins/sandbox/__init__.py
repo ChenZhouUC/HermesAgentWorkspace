@@ -11,11 +11,11 @@ Groups never receive the generic terminal or write-file tools. Trusted script
 execution uses argv (never a shell) and, on macOS, ``sandbox-exec`` restricts
 the whole process tree to writes inside that group's workspace.
 
-The owner DM also has a narrow HyperTeX bridge: MCP calls are pinned to the
-``hermes`` Contributor, ``deck`` case type, and ``codex`` RuntimeAgent. Files
-attached to the current Feishu turn are copied into a private stable staging
-directory and injected into ``hypertex_create_case`` without exposing cache
-paths to the model.
+The owner DM and trusted group testers also have a narrow HyperTeX bridge: MCP
+calls are pinned to the ``hermes`` Contributor, ``deck`` case type, and
+``codex`` RuntimeAgent. Files attached to the current Feishu turn are copied
+into a private stable staging directory and injected into create/iterate calls
+without exposing cache paths to the model.
 """
 
 from __future__ import annotations
@@ -71,6 +71,7 @@ _OWNER_CHAT_IDS: FrozenSet[str] = frozenset()
 _ALLOWED_TOOLS: FrozenSet[str] = frozenset()
 _GROUP_ALLOWED_TOOLS: FrozenSet[str] = frozenset()
 _GROUP_MUTATION_USER_IDS: FrozenSet[str] = frozenset()
+_GROUP_HYPERTEX_USER_IDS: FrozenSet[str] = frozenset()
 _GROUP_ALLOWED_READ_ROOTS: Tuple[Path, ...] = tuple()
 _GROUP_WORKSPACE_ROOT: Optional[Path] = None
 _GROUP_ALLOWED_SCRIPT_ACTIONS: FrozenSet[str] = frozenset()
@@ -97,13 +98,27 @@ _WORKSPACE_TOOL = "group_cache"
 _SCRIPT_TOOL = "feishu_doc_manage"
 _HYPERTEX_LIST_TOOL = "mcp__hypertex__hypertex_list_cases"
 _HYPERTEX_CREATE_TOOL = "mcp__hypertex__hypertex_create_case"
+_HYPERTEX_ITERATE_TOOL = "mcp__hypertex__hypertex_iterate_case"
 _HYPERTEX_TASK_TOOL = "mcp__hypertex__tasks_get"
+_HYPERTEX_CANCEL_TOOL = "mcp__hypertex__tasks_cancel"
+_HYPERTEX_UPDATE_TOOL = "mcp__hypertex__tasks_update"
 _HYPERTEX_CASE_TOOL = "mcp__hypertex__hypertex_get_case"
-_HYPERTEX_TOOLS = frozenset({_HYPERTEX_LIST_TOOL, _HYPERTEX_CREATE_TOOL, _HYPERTEX_TASK_TOOL, _HYPERTEX_CASE_TOOL})
+_HYPERTEX_TOOLS = frozenset(
+    {
+        _HYPERTEX_LIST_TOOL,
+        _HYPERTEX_CREATE_TOOL,
+        _HYPERTEX_ITERATE_TOOL,
+        _HYPERTEX_TASK_TOOL,
+        _HYPERTEX_CANCEL_TOOL,
+        _HYPERTEX_UPDATE_TOOL,
+        _HYPERTEX_CASE_TOOL,
+    }
+)
 _HYPERTEX_USERNAME = "hermes"
 _HYPERTEX_AGENT = "codex"
 _HYPERTEX_CASE_TYPE = "deck"
 _HYPERTEX_ONE_CALL_MESSAGE = "本轮已经调用过 HyperTeX。请直接根据已有结果回复用户；状态查询或重试请等待用户下一条消息。"
+_HYPERTEX_GROUP_BLOCK_MESSAGE = "HyperTeX 群聊内测目前仅对受信任的维护者开放。"
 _MAX_FILE_CONTENT_BYTES = 1_000_000
 _MAX_TOOL_OUTPUT_CHARS = 100_000
 _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
@@ -329,7 +344,7 @@ def _stage_current_hypertex_assets() -> Tuple[str, ...]:
     return result
 
 
-def _prepare_owner_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str, Any]]:
+def _prepare_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str, Any]]:
     if tool_name not in _HYPERTEX_TOOLS:
         return None
     if not isinstance(args, dict):
@@ -338,7 +353,7 @@ def _prepare_owner_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str
         return {"action": "block", "message": _HYPERTEX_ONE_CALL_MESSAGE}
     _current_hypertex_call_count.set(1)
 
-    if tool_name == _HYPERTEX_CREATE_TOOL:
+    if tool_name in {_HYPERTEX_CREATE_TOOL, _HYPERTEX_ITERATE_TOOL}:
         try:
             staged_paths = _stage_current_hypertex_assets()
         except Exception as exc:
@@ -347,9 +362,12 @@ def _prepare_owner_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str
                 "action": "block",
                 "message": "附件未能安全暂存给 HyperTeX，请重新发送附件后再试。",
             }
-        args["owner_username"] = _HYPERTEX_USERNAME
+        if tool_name == _HYPERTEX_CREATE_TOOL:
+            args["owner_username"] = _HYPERTEX_USERNAME
+            args["type"] = _HYPERTEX_CASE_TYPE
+        else:
+            args["username"] = _HYPERTEX_USERNAME
         args["agent"] = _HYPERTEX_AGENT
-        args["type"] = _HYPERTEX_CASE_TYPE
         args["asset_paths"] = list(staged_paths)
     elif tool_name in {_HYPERTEX_LIST_TOOL, _HYPERTEX_CASE_TOOL}:
         args["username"] = _HYPERTEX_USERNAME
@@ -829,7 +847,7 @@ def _group_tools_available() -> bool:
 
 def _load_config() -> bool:
     global _CONFIG_LOADED, _OWNER_CHAT_IDS, _ALLOWED_TOOLS, _GROUP_ALLOWED_TOOLS
-    global _GROUP_MUTATION_USER_IDS
+    global _GROUP_MUTATION_USER_IDS, _GROUP_HYPERTEX_USER_IDS
     global _GROUP_ALLOWED_READ_ROOTS, _GROUP_WORKSPACE_ROOT, _GROUP_ALLOWED_SCRIPT_ACTIONS
     global _FEISHU_DOC_SCRIPTS_ROOT, _PYTHON_EXECUTABLE, _SCRIPT_TIMEOUT_SECONDS
     global _GROUP_MAX_DOWNLOAD_BYTES, _HYPERTEX_ASSET_STAGING_ROOT
@@ -881,6 +899,7 @@ def _load_config() -> bool:
     _ALLOWED_TOOLS = frozenset(str(item) for item in allowed)
     _GROUP_ALLOWED_TOOLS = frozenset(str(item) for item in group_allowed)
     _GROUP_MUTATION_USER_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_user_ids_for_group_mutations")))
+    _GROUP_HYPERTEX_USER_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_user_ids_for_group_hypertex")))
     _GROUP_ALLOWED_READ_ROOTS = _coerce_paths(data.get("allowed_read_roots_for_outsider_groups"))
     _GROUP_WORKSPACE_ROOT = _expand_path(workspace_value)
     _GROUP_ALLOWED_SCRIPT_ACTIONS = actions
@@ -985,7 +1004,7 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
 
     chat_id = str(_current_chat_id.get() or "")
     if chat_id in _OWNER_CHAT_IDS:
-        return _prepare_owner_hypertex_call(tool_name, args)
+        return _prepare_hypertex_call(tool_name, args)
 
     chat_type = _current_chat_type.get()
     if chat_type in _GROUP_CHAT_TYPES:
@@ -997,6 +1016,10 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
                 chat_type,
             )
             return {"action": "block", "message": _BLOCK_MESSAGE}
+        if tool_name in _HYPERTEX_TOOLS:
+            if str(_current_user_id.get() or "") not in _GROUP_HYPERTEX_USER_IDS:
+                return {"action": "block", "message": _HYPERTEX_GROUP_BLOCK_MESSAGE}
+            return _prepare_hypertex_call(tool_name, args)
         if tool_name in _READ_PATH_TOOLS:
             if (
                 tool_name == "search_files"
@@ -1049,7 +1072,7 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     logger.info(
         "sandbox: registered (pid=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
-        "workspace_root=%s, script_actions=%s, mutation_users=%s, process_sandbox=%s)",
+        "workspace_root=%s, script_actions=%s, mutation_users=%s, hypertex_users=%s, process_sandbox=%s)",
         os.getpid(),
         loaded,
         sorted(_OWNER_CHAT_IDS),
@@ -1058,5 +1081,6 @@ def register(ctx: Any) -> None:
         _GROUP_WORKSPACE_ROOT,
         sorted(_GROUP_ALLOWED_SCRIPT_ACTIONS),
         sorted(_GROUP_MUTATION_USER_IDS),
+        sorted(_GROUP_HYPERTEX_USER_IDS),
         _REQUIRE_PROCESS_SANDBOX,
     )

@@ -44,12 +44,24 @@ def group_config(tmp_path, monkeypatch):
                 "search_files",
                 "group_cache",
                 "feishu_doc_manage",
+                sandbox._HYPERTEX_LIST_TOOL,
+                sandbox._HYPERTEX_CREATE_TOOL,
+                sandbox._HYPERTEX_ITERATE_TOOL,
+                sandbox._HYPERTEX_CASE_TOOL,
+                sandbox._HYPERTEX_TASK_TOOL,
+                sandbox._HYPERTEX_CANCEL_TOOL,
+                sandbox._HYPERTEX_UPDATE_TOOL,
             }
         ),
     )
     monkeypatch.setattr(
         sandbox,
         "_GROUP_MUTATION_USER_IDS",
+        frozenset({"trusted-user"}),
+    )
+    monkeypatch.setattr(
+        sandbox,
+        "_GROUP_HYPERTEX_USER_IDS",
         frozenset({"trusted-user"}),
     )
     wiki_root = (tmp_path / "wiki").resolve()
@@ -453,6 +465,33 @@ def test_owner_dm_hypertex_reads_are_pinned_to_contributor(group_config):
     assert task_args == {"task_id": "2"}
 
 
+def test_owner_dm_hypertex_iterate_is_pinned_and_stages_current_attachments(group_config, tmp_path):
+    attachment = tmp_path / "doc_aaaaaaaaaaaa_Update.pptx"
+    attachment.write_bytes(b"pptx")
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="owner-dm",
+        chat_type="private",
+        user_id="owner-user",
+    )
+    sandbox._on_pre_gateway_dispatch(
+        SimpleNamespace(source=source, text="iterate", reply_to_text="", media_urls=[str(attachment)])
+    )
+    args = {
+        "case_name": "Demo",
+        "prompt": "更新内容",
+        "username": "chenzhou",
+        "agent": "qwen",
+        "asset_paths": ["/etc/passwd"],
+    }
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_ITERATE_TOOL, args=args) is None
+    assert args["username"] == "hermes"
+    assert args["agent"] == "codex"
+    assert len(args["asset_paths"]) == 1
+    assert Path(args["asset_paths"][0]).name == "Update.pptx"
+
+
 def test_owner_dm_allows_only_one_hypertex_call_per_inbound_turn(group_config):
     source = SimpleNamespace(
         platform=SimpleNamespace(value="feishu"),
@@ -495,6 +534,60 @@ def test_new_owner_dm_turn_drops_previous_hypertex_attachments(group_config, tmp
     second_args = {"prompt": "second"}
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=second_args) is None
     assert second_args["asset_paths"] == []
+
+
+def test_trusted_group_hypertex_create_is_pinned_and_stages_current_attachments(group_config, tmp_path):
+    attachment = tmp_path / "doc_aaaaaaaaaaaa_Group.pdf"
+    attachment.write_bytes(b"pdf")
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="group-one",
+        chat_type="group",
+        user_id="trusted-user",
+    )
+    sandbox._on_pre_gateway_dispatch(
+        SimpleNamespace(source=source, text="做一份演示文稿", reply_to_text="", media_urls=[str(attachment)])
+    )
+    args = {
+        "prompt": "做一份演示文稿",
+        "owner_username": "someone-else",
+        "agent": "qwen",
+        "type": "brochure",
+        "asset_paths": ["/etc/passwd"],
+    }
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
+    assert args["owner_username"] == "hermes"
+    assert args["agent"] == "codex"
+    assert args["type"] == "deck"
+    assert len(args["asset_paths"]) == 1
+    assert Path(args["asset_paths"][0]).name == "Group.pdf"
+
+
+def test_group_hypertex_is_limited_to_trusted_testers(group_config):
+    sandbox._current_user_id.set("untrusted-user")
+
+    assert sandbox._on_pre_tool_call(
+        tool_name=sandbox._HYPERTEX_LIST_TOOL,
+        args={"username": "hermes"},
+    ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_BLOCK_MESSAGE}
+
+
+def test_trusted_group_hypertex_allows_one_call_per_inbound_turn(group_config):
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="group-one",
+        chat_type="group",
+        user_id="trusted-user",
+    )
+    sandbox._on_pre_gateway_dispatch(SimpleNamespace(source=source, text="query", reply_to_text="", media_urls=[]))
+    list_args = {"username": "someone-else"}
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_LIST_TOOL, args=list_args) is None
+    assert list_args == {"username": "hermes"}
+    assert sandbox._on_pre_tool_call(
+        tool_name=sandbox._HYPERTEX_TASK_TOOL,
+        args={"task_id": "7"},
+    ) == {"action": "block", "message": sandbox._HYPERTEX_ONE_CALL_MESSAGE}
 
 
 def test_outsider_dm_keeps_safe_base_allowlist(group_config):
