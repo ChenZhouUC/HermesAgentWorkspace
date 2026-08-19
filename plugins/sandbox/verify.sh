@@ -178,8 +178,21 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "mcp__hypertex__tasks_update",
 }
 mutation_users = set(plugin.get("trusted_feishu_user_ids_for_group_mutations") or [])
-assert mutation_users, "trusted group mutation user ids must be configured"
-assert mutation_users.issubset(set(feishu.get("assistant_user_ids") or []))
+expected_trusted_users = {
+    "ou_33eeacfbd0c0559b7b734f83503719ab",
+    "5397e1a2",
+    "ou_1df8d8705eb546b9dc65048ecdbf4002",
+    "adde7c6e",
+    "ou_423ee1666dc00139cbfade9f7e0f037b",
+    "c9e4b764",
+    "ou_d97d97c79bd2c6bffaed857dd463b26b",
+    "7a978636",
+}
+assert mutation_users == expected_trusted_users
+assert set(feishu.get("assistant_user_ids") or []) == {
+    "ou_33eeacfbd0c0559b7b734f83503719ab",
+    "5397e1a2",
+}, "MCP/delete trust must not broaden assistant-user mention triggers"
 hypertex_chats = set(plugin.get("trusted_feishu_chat_ids_for_group_hypertex") or [])
 assert hypertex_chats == {
     "oc_7c6cad99e7f0090c15fc943a12edc6e4",
@@ -187,8 +200,7 @@ assert hypertex_chats == {
     "oc_0663408600b12ccec166f9889046a36a",
 }
 hypertex_users = set(plugin.get("trusted_feishu_user_ids_for_group_hypertex") or [])
-assert hypertex_users, "trusted group HyperTeX user ids must be configured"
-assert hypertex_users.issubset(set(feishu.get("assistant_user_ids") or []))
+assert hypertex_users == expected_trusted_users
 assert plugin.get("allowed_read_roots_for_outsider_groups") == ["~/.hermes/wiki"]
 assert plugin.get("group_workspace_root") == "~/.hermes/tmp/group-workspaces"
 assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []) == {
@@ -389,6 +401,17 @@ sandbox._current_platform.set("feishu")
 sandbox._current_chat_id.set(next(iter(sandbox._GROUP_HYPERTEX_CHAT_IDS)))
 sandbox._current_chat_type.set("group")
 sandbox._current_user_id.set("ou_untrusted_verify")
+sandbox._current_resource_refs.set(frozenset({"doxcnSandboxVerifyTarget"}))
+
+for document_args in (
+    {"action": "create"},
+    {"action": "append", "doc_token": "doxcnSandboxVerifyTarget"},
+    {"action": "rebuild", "doc_token": "doxcnSandboxVerifyTarget"},
+):
+    assert sandbox._on_pre_tool_call(
+        tool_name="feishu_doc_manage",
+        args=document_args,
+    ) is None
 sandbox._current_resource_refs.set(frozenset())
 assert sandbox._on_pre_tool_call(tool_name="clarify", args={"question": "pick one"}) is None
 assert sandbox._on_pre_tool_call(tool_name="tool_search", args={"query": "group cache"}) is None
@@ -444,12 +467,20 @@ doc_mutation_result = handle_function_call(
     "tool_call",
     {
         "name": "feishu_doc_manage",
-        "arguments": {"action": "create", "title": "audit", "content": "# audit"},
+        "arguments": {"action": "delete", "doc_token": "doxcnSandboxVerifyTarget"},
     },
     task_id="sandbox-verify",
     enabled_toolsets=group_toolsets,
 )
 assert "受信任的维护者" in doc_mutation_result
+
+sandbox._current_user_id.set(next(iter(sandbox._GROUP_MUTATION_USER_IDS)))
+sandbox._current_resource_refs.set(frozenset({"doxcnSandboxVerifyTarget"}))
+assert sandbox._on_pre_tool_call(
+    tool_name="feishu_doc_manage",
+    args={"action": "delete", "doc_token": "doxcnSandboxVerifyTarget"},
+) is None
+sandbox._current_user_id.set("ou_untrusted_verify")
 
 # Default search_files path is rewritten to the verified wiki root instead of
 # the process cwd, so the documented default invocation is both useful and safe.
@@ -528,6 +559,17 @@ PY
             done
         fi
     fi
+    runtime_trust_ok=true
+    for trusted_user_id in \
+        ou_33eeacfbd0c0559b7b734f83503719ab 5397e1a2 \
+        ou_1df8d8705eb546b9dc65048ecdbf4002 adde7c6e \
+        ou_423ee1666dc00139cbfade9f7e0f037b c9e4b764 \
+        ou_d97d97c79bd2c6bffaed857dd463b26b 7a978636; do
+        if ! echo "${current_reg}" | grep -q "${trusted_user_id}"; then
+            runtime_trust_ok=false
+            break
+        fi
+    done
     if [[ -z "${supervisor_pid}" ]] || ! echo "${gateway_status}" | grep -q 'Service definition matches the current Hermes install'; then
         echo "FAIL launchd supervisor/current service definition is unavailable"
         echo "     ${gateway_status}"
@@ -548,8 +590,10 @@ PY
         echo "${current_reg}" | grep -q 'group_cache' &&
         echo "${current_reg}" | grep -q 'feishu_doc_manage' &&
         echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_create_case' &&
+        echo "${current_reg}" | grep -q 'doc_delete_only=True' &&
         echo "${current_reg}" | grep -q 'hypertex_chats=' &&
-        echo "${current_reg}" | grep -q 'hypertex_users='; then
+        echo "${current_reg}" | grep -q 'hypertex_users=' &&
+        [[ "${runtime_trust_ok}" == true ]]; then
         # Strip the date+level prefix for readability.
         msg="${current_reg##*INFO }"
         echo "OK   runtime: launchd wrapper pid=${supervisor_pid}; ${msg}"

@@ -275,32 +275,41 @@ def test_group_feishu_reads_require_current_message_reference(group_config):
     }
 
 
-def test_group_mutations_require_trusted_user_and_explicit_target(group_config):
+def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_config):
     token = "doxcnAuditToken_123"
     url = f"https://whales.feishu.cn/docx/{token}"
     sandbox._current_resource_refs.set(sandbox._resource_ref_candidates(url))
 
     sandbox._current_user_id.set("member-user")
-    assert sandbox._on_pre_tool_call(
-        tool_name="feishu_doc_manage",
-        args={"action": "append", "doc_token": token},
-    ) == {"action": "block", "message": sandbox._MUTATION_BLOCK_MESSAGE}
+    for args in (
+        {"action": "create"},
+        {"action": "append", "doc_token": token},
+        {"action": "rebuild", "doc_token": token},
+    ):
+        assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args=args) is None
+    assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete", "doc_token": token}) == {
+        "action": "block",
+        "message": sandbox._MUTATION_BLOCK_MESSAGE,
+    }
 
     sandbox._current_user_id.set("trusted-user")
     assert (
-        sandbox._on_pre_tool_call(
-            tool_name="feishu_doc_manage",
-            args={"action": "append", "doc_token": token},
-        )
-        is None
+        sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete", "doc_token": token}) is None
     )
+    for action in ("append", "rebuild", "delete"):
+        assert sandbox._on_pre_tool_call(
+            tool_name="feishu_doc_manage",
+            args={"action": action, "doc_token": "doxcnOtherToken"},
+        ) == {"action": "block", "message": sandbox._MUTATION_BLOCK_MESSAGE}
+
+    sandbox._current_user_id.set("member-user")
     assert sandbox._on_pre_tool_call(
         tool_name="feishu_doc_manage",
         args={"action": "delete", "doc_token": "doxcnOtherToken"},
     ) == {"action": "block", "message": sandbox._MUTATION_BLOCK_MESSAGE}
 
     with pytest.raises(PermissionError, match="仅允许受信任"):
-        sandbox._handle_feishu_doc_manage({"action": "delete", "doc_token": "doxcnOtherToken"})
+        sandbox._handle_feishu_doc_manage({"action": "delete", "doc_token": token})
 
 
 def test_new_gateway_event_clears_stale_resource_references(group_config):

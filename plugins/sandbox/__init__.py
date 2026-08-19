@@ -91,7 +91,7 @@ _READ_ROOT_BLOCK_MESSAGE = "群聊只允许读取 wiki 和当前群自己的临�
 _CONFIG_BLOCK_MESSAGE = "群聊安全配置未成功加载，工具调用已按设计拒绝。"
 _GROUP_CONTEXT_MESSAGE = "This tool is available only inside a configured Feishu group chat."
 _RESOURCE_BLOCK_MESSAGE = "群聊只能访问当前消息明确引用的飞书资源。"
-_MUTATION_BLOCK_MESSAGE = "群聊中的飞书文档修改仅允许受信任的维护者执行。"
+_MUTATION_BLOCK_MESSAGE = "群聊中的飞书文档删除仅允许受信任的维护者执行；修改已有文档时必须在当前消息中明确引用目标。"
 
 _READ_PATH_TOOLS: FrozenSet[str] = frozenset({"read_file", "search_files"})
 _GROUP_CHAT_TYPES: FrozenSet[str] = frozenset({"group", "channel", "forum", "thread"})
@@ -126,7 +126,8 @@ _MAX_TOOL_OUTPUT_CHARS = 100_000
 _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
 _FEISHU_URL_RE = re.compile(r"https://[^\s<>\"']+")
 _EXPLICIT_TOKEN_RE = re.compile(r"(?i)\b(?:doc_token|file_token)\s*[:=]\s*([A-Za-z0-9_-]{5,200})")
-_MUTATING_SCRIPT_ACTIONS = frozenset({"create", "append", "rebuild", "delete"})
+_TRUST_REQUIRED_SCRIPT_ACTIONS = frozenset({"delete"})
+_EXPLICIT_TARGET_SCRIPT_ACTIONS = frozenset({"append", "rebuild", "delete"})
 _WEB_EXTRACT_PATH_RE = re.compile(r"(?m)^Full text saved to:\s*(.+?)\s*$")
 _EPHEMERAL_READ_PATHS_BY_CHAT: Dict[str, Set[Path]] = {}
 _EPHEMERAL_READ_PATHS_LOCK = threading.Lock()
@@ -680,12 +681,12 @@ def _group_doc_action_block(args: Any) -> Optional[str]:
     if not isinstance(args, dict):
         return _MUTATION_BLOCK_MESSAGE
     action = str(args.get("action") or "")
-    if action in _MUTATING_SCRIPT_ACTIONS:
+    if action in _TRUST_REQUIRED_SCRIPT_ACTIONS:
         if str(_current_user_id.get() or "") not in _GROUP_MUTATION_USER_IDS:
             return _MUTATION_BLOCK_MESSAGE
-        if action != "create" and not _resource_was_referenced(args.get("doc_token")):
-            return _MUTATION_BLOCK_MESSAGE
-    elif action in {"read_url", "download_file"}:
+    if action in _EXPLICIT_TARGET_SCRIPT_ACTIONS and not _resource_was_referenced(args.get("doc_token")):
+        return _MUTATION_BLOCK_MESSAGE
+    if action in {"read_url", "download_file"}:
         if not _resource_was_referenced(args.get("url")):
             return _RESOURCE_BLOCK_MESSAGE
     return None
@@ -1077,7 +1078,7 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     logger.info(
         "sandbox: registered (pid=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
-        "workspace_root=%s, script_actions=%s, mutation_users=%s, hypertex_chats=%s, "
+        "workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, hypertex_chats=%s, "
         "hypertex_users=%s, process_sandbox=%s)",
         os.getpid(),
         loaded,
@@ -1087,6 +1088,7 @@ def register(ctx: Any) -> None:
         _GROUP_WORKSPACE_ROOT,
         sorted(_GROUP_ALLOWED_SCRIPT_ACTIONS),
         sorted(_GROUP_MUTATION_USER_IDS),
+        _TRUST_REQUIRED_SCRIPT_ACTIONS == frozenset({"delete"}),
         sorted(_GROUP_HYPERTEX_CHAT_IDS),
         sorted(_GROUP_HYPERTEX_USER_IDS),
         _REQUIRE_PROCESS_SANDBOX,

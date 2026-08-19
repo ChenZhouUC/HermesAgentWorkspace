@@ -45,11 +45,23 @@ allowed_tools_for_outsider_groups:
   - mcp__hypertex__tasks_cancel
   - mcp__hypertex__tasks_update
 
-# Group members may read resources they explicitly reference in the current
-# message. Only these trusted user IDs may create or mutate Feishu documents.
+# Group members may create, append, or rebuild Feishu documents. Append and
+# rebuild still require an explicitly referenced target document. Only these
+# trusted user IDs may delete documents. The key keeps its historical
+# "mutations" name, but its runtime effect is delete-only.
 trusted_feishu_user_ids_for_group_mutations:
+  # 周琛
   - ou_33eeacfbd0c0559b7b734f83503719ab
   - 5397e1a2
+  # 孙可天
+  - ou_1df8d8705eb546b9dc65048ecdbf4002
+  - adde7c6e
+  # 张文华
+  - ou_423ee1666dc00139cbfade9f7e0f037b
+  - c9e4b764
+  # 李冰洁
+  - ou_d97d97c79bd2c6bffaed857dd463b26b
+  - 7a978636
 
 # HyperTeX is exposed in the shared feishu_group toolset, but calls are enabled
 # only when both the current chat and current user appear in these allowlists.
@@ -62,8 +74,18 @@ trusted_feishu_chat_ids_for_group_hypertex:
   - oc_0663408600b12ccec166f9889046a36a
 
 trusted_feishu_user_ids_for_group_hypertex:
+  # 周琛
   - ou_33eeacfbd0c0559b7b734f83503719ab
   - 5397e1a2
+  # 孙可天
+  - ou_1df8d8705eb546b9dc65048ecdbf4002
+  - adde7c6e
+  # 张文华
+  - ou_423ee1666dc00139cbfade9f7e0f037b
+  - c9e4b764
+  # 李冰洁
+  - ou_d97d97c79bd2c6bffaed857dd463b26b
+  - 7a978636
 
 # Direct file tools may read the wiki. Reads under group_workspace_root are
 # narrowed again at runtime to the current group's hashed subdirectory.
@@ -95,4 +117,4 @@ require_process_sandbox: true
 block_message: "本会话不支持该工具。群聊仅开放问答、联网搜索、只读 wiki/skill、工具发现/描述、当前群隔离的 tmp 工作区、受约束的飞书文档操作，以及面向受信任维护者的 HyperTeX 内测；图片、音频、视频和扫描 PDF 由消息入站多模态链路自动处理。"
 read_root_block_message: "群聊只允许读取 ~/.hermes/wiki 和当前群自己的 ~/.hermes/tmp/group-workspaces/<群哈希>/；skills/my-skills 只能通过只读 skill 工具访问。"
 resource_block_message: "群聊只能读取或下载当前消息、引用消息中明确出现的飞书文档/文件链接。请在本条消息中重新附上目标链接。"
-mutation_block_message: "群聊中的飞书文档创建、追加、重建和删除仅允许受信任的维护者执行；修改既有文档时还必须在当前消息或引用中明确附上目标文档链接。"
+mutation_block_message: "群聊可以创建、追加和重建飞书文档；删除仅允许受信任的维护者执行。追加、重建或删除时必须在当前消息或引用中明确附上目标文档链接。"
