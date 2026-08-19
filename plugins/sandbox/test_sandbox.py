@@ -421,7 +421,7 @@ def test_owner_dm_keeps_full_access(group_config):
     assert sandbox._on_pre_tool_call(tool_name="terminal", args={"command": "echo ok"}) is None
 
 
-def test_owner_dm_hypertex_create_is_pinned_and_stages_current_attachments(group_config, tmp_path):
+def test_owner_dm_hypertex_create_uses_owner_weights_and_stages_current_attachments(group_config, tmp_path):
     first_dir = tmp_path / "first"
     second_dir = tmp_path / "second"
     first_dir.mkdir()
@@ -453,7 +453,7 @@ def test_owner_dm_hypertex_create_is_pinned_and_stages_current_attachments(group
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
     assert args["owner_username"] == "hermes"
-    assert args["agent"] == "codex"
+    assert "agent" not in args
     assert args["type"] == "deck"
     staged = [Path(path) for path in args["asset_paths"]]
     assert [path.name for path in staged] == ["Report.pdf", "Report-2.pdf"]
@@ -479,7 +479,7 @@ def test_owner_dm_hypertex_reads_are_pinned_to_contributor(group_config):
     assert task_args == {"task_id": "2"}
 
 
-def test_owner_dm_hypertex_iterate_is_pinned_and_stages_current_attachments(group_config, tmp_path):
+def test_owner_dm_hypertex_iterate_keeps_case_agent_and_stages_current_attachments(group_config, tmp_path):
     attachment = tmp_path / "doc_aaaaaaaaaaaa_Update.pptx"
     attachment.write_bytes(b"pptx")
     source = SimpleNamespace(
@@ -501,7 +501,7 @@ def test_owner_dm_hypertex_iterate_is_pinned_and_stages_current_attachments(grou
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_ITERATE_TOOL, args=args) is None
     assert args["username"] == "hermes"
-    assert args["agent"] == "codex"
+    assert "agent" not in args
     assert len(args["asset_paths"]) == 1
     assert Path(args["asset_paths"][0]).name == "Update.pptx"
 
@@ -550,7 +550,7 @@ def test_new_owner_dm_turn_drops_previous_hypertex_attachments(group_config, tmp
     assert second_args["asset_paths"] == []
 
 
-def test_trusted_group_hypertex_create_is_pinned_and_stages_current_attachments(group_config, tmp_path):
+def test_trusted_group_hypertex_create_uses_owner_weights_and_stages_current_attachments(group_config, tmp_path):
     attachment = tmp_path / "doc_aaaaaaaaaaaa_Group.pdf"
     attachment.write_bytes(b"pdf")
     source = SimpleNamespace(
@@ -572,7 +572,7 @@ def test_trusted_group_hypertex_create_is_pinned_and_stages_current_attachments(
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
     assert args["owner_username"] == "hermes"
-    assert args["agent"] == "codex"
+    assert "agent" not in args
     assert args["type"] == "deck"
     assert len(args["asset_paths"]) == 1
     assert Path(args["asset_paths"][0]).name == "Group.pdf"

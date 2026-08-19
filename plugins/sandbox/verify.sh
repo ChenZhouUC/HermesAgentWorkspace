@@ -380,7 +380,6 @@ assert sandbox._on_pre_tool_call(
 assert owner_hypertex_args == {
     "prompt": "verify",
     "owner_username": "hermes",
-    "agent": "codex",
     "type": "deck",
     "asset_paths": [],
 }
@@ -396,6 +395,25 @@ assert sandbox._on_pre_tool_call(
     args=owner_task_args,
 ) is None
 assert owner_task_args == {"task_id": "2"}
+
+sandbox._current_hypertex_call_count.set(0)
+owner_iterate_args = {
+    "case_name": "Demo",
+    "prompt": "revise",
+    "username": "someone-else",
+    "agent": "qwen",
+    "asset_paths": ["/etc/passwd"],
+}
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._HYPERTEX_ITERATE_TOOL,
+    args=owner_iterate_args,
+) is None
+assert owner_iterate_args == {
+    "case_name": "Demo",
+    "prompt": "revise",
+    "username": "hermes",
+    "asset_paths": [],
+}
 
 sandbox._current_platform.set("feishu")
 sandbox._current_chat_id.set(next(iter(sandbox._GROUP_HYPERTEX_CHAT_IDS)))
@@ -591,6 +609,7 @@ PY
         echo "${current_reg}" | grep -q 'feishu_doc_manage' &&
         echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_create_case' &&
         echo "${current_reg}" | grep -q 'doc_delete_only=True' &&
+        echo "${current_reg}" | grep -q 'hypertex_agent_policy=weighted-create/sticky-iterate' &&
         echo "${current_reg}" | grep -q 'hypertex_chats=' &&
         echo "${current_reg}" | grep -q 'hypertex_users=' &&
         [[ "${runtime_trust_ok}" == true ]]; then

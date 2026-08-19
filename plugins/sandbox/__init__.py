@@ -116,7 +116,6 @@ _HYPERTEX_TOOLS = frozenset(
     }
 )
 _HYPERTEX_USERNAME = "hermes"
-_HYPERTEX_AGENT = "codex"
 _HYPERTEX_CASE_TYPE = "deck"
 _HYPERTEX_ONE_CALL_MESSAGE = "本轮已经调用过 HyperTeX。请直接根据已有结果回复用户；状态查询或重试请等待用户下一条消息。"
 _HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE = "HyperTeX 目前未在本群启用。"
@@ -365,12 +364,16 @@ def _prepare_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str, Any]
                 "action": "block",
                 "message": "附件未能安全暂存给 HyperTeX，请重新发送附件后再试。",
             }
+        # HyperTeX owns Agent selection. A new case with no Agent uses the
+        # owner's configured weights; an iteration with no Agent keeps the
+        # case's current Agent. Strip model-supplied overrides so both paths
+        # follow the account/case policy instead of one Hermes-selected key.
+        args.pop("agent", None)
         if tool_name == _HYPERTEX_CREATE_TOOL:
             args["owner_username"] = _HYPERTEX_USERNAME
             args["type"] = _HYPERTEX_CASE_TYPE
         else:
             args["username"] = _HYPERTEX_USERNAME
-        args["agent"] = _HYPERTEX_AGENT
         args["asset_paths"] = list(staged_paths)
     elif tool_name in {_HYPERTEX_LIST_TOOL, _HYPERTEX_CASE_TOOL}:
         args["username"] = _HYPERTEX_USERNAME
@@ -1079,7 +1082,7 @@ def register(ctx: Any) -> None:
     logger.info(
         "sandbox: registered (pid=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
         "workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, hypertex_chats=%s, "
-        "hypertex_users=%s, process_sandbox=%s)",
+        "hypertex_users=%s, hypertex_agent_policy=%s, process_sandbox=%s)",
         os.getpid(),
         loaded,
         sorted(_OWNER_CHAT_IDS),
@@ -1091,5 +1094,6 @@ def register(ctx: Any) -> None:
         _TRUST_REQUIRED_SCRIPT_ACTIONS == frozenset({"delete"}),
         sorted(_GROUP_HYPERTEX_CHAT_IDS),
         sorted(_GROUP_HYPERTEX_USER_IDS),
+        "weighted-create/sticky-iterate",
         _REQUIRE_PROCESS_SANDBOX,
     )

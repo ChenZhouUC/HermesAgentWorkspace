@@ -1,6 +1,6 @@
 ---
 name: hypertex-mcp
-description: Create, iterate, inspect, or check HyperTeX presentation tasks through MCP. Use for HyperTeX deck requests, existing-case revisions, task IDs, publication links, or case metadata in the owner Feishu DM.
+description: Create, iterate, inspect, or check HyperTeX presentation tasks through MCP. Use for HyperTeX deck requests, existing-case revisions, task IDs, publication links, or case metadata in authorized Feishu chats.
 ---
 
 # HyperTeX MCP
@@ -12,11 +12,11 @@ Use HyperTeX as an asynchronous presentation service. Keep the model workflow na
 The sandbox pins create/iterate calls to:
 
 - contributor: `hermes`
-- runtime agent: `codex`
+- runtime agent: omitted — create draws from the `hermes` account's Agentic weights; iterate keeps the case's current Agent
 - case type: `deck` for new cases
 - assets: attachments from the current Feishu turn, staged automatically
 
-Do not ask the user for pinned fields. Never invent, request, echo, or override local `asset_paths`.
+The sandbox removes any model-supplied `agent`; do not ask the user to choose one. Do not ask the user for other pinned fields. Never invent, request, echo, or override local `asset_paths`.
 
 ## Available tools
 
@@ -33,6 +33,7 @@ Tools may be deferred. Use `tool_describe` before `tool_call` only when the exac
 ## Create a new deck
 
 Call `hypertex_create_case` exactly once with a self-contained `prompt` covering audience, structure, style, source precedence, and output constraints.
+Do not include `agent`; HyperTeX selects it from the `hermes` account's configured weights.
 
 ```json
 {
@@ -48,6 +49,7 @@ After submission, stop. Hermes handles the standard task receipt directly; do no
 ## Iterate an existing case
 
 When the user supplies an existing case name and asks to revise, append, or regenerate it, call `hypertex_iterate_case` exactly once.
+Do not include `agent`; HyperTeX keeps the Agent recorded on the existing case.
 
 ```json
 {
