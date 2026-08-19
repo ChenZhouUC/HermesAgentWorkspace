@@ -18,7 +18,7 @@
 #      8a. Apply saved diff
 #      8b. Patch invariant gates     (structural sentinels + smoke checks)
 #      8c. Refresh saved diff + re-sync patched bundled skills + final plist gate
-#      8d. Gateway restart         (reload patched Python modules into running process)
+#      8d. Cleanup + Gateway restart (audit scripts/ignored paths, move blacklist to Trash, reload runtime)
 #   8e. User-plugin compatibility checks (plugins/*/verify.sh)
 #   9. Health verification         (hermes doctor + gateway status)
 #
@@ -59,6 +59,9 @@ HERMES_HOME="${HOME}/.hermes"
 HERMES_AGENT="${HERMES_HOME}/hermes-agent"
 PATCHES_DIR="${HERMES_HOME}/patches"
 PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
+CLEANUP_SCRIPT="${HERMES_HOME}/scripts/cleanup_transient_artifacts.py"
+CLEANUP_POLICY="${HERMES_HOME}/scripts/cleanup_policy.json"
+CLEANUP_MIN_AGE_MINUTES="${HERMES_CLEANUP_MIN_AGE_MINUTES:-10}"
 TRANSACTION_FILE="${HERMES_HOME}/.hermes-update-transaction"
 TRANSACTION_LOCK_DIR="${HERMES_HOME}/.hermes-update-transaction.lock"
 TRANSACTION_TARGET_REF="refs/hermes-update/target"
@@ -745,6 +748,48 @@ print(int(max(30.0, budget + 30.0)))
 ' 2>/dev/null || echo "${_fallback}"
 }
 
+cleanup_python() {
+    if [[ -x "${HERMES_AGENT}/venv/bin/python" ]]; then
+        printf '%s\n' "${HERMES_AGENT}/venv/bin/python"
+    elif command -v python3 >/dev/null 2>&1; then
+        command -v python3
+    else
+        return 1
+    fi
+}
+
+audit_cleanup_policy() {
+    local cleanup_py
+    cleanup_py=$(cleanup_python) || return 1
+    [[ -f "${CLEANUP_SCRIPT}" && -f "${CLEANUP_POLICY}" ]] || return 1
+    "${cleanup_py}" "${HERMES_HOME}/scripts/test_cleanup_transient_artifacts.py" >/dev/null || return 1
+    "${cleanup_py}" "${CLEANUP_SCRIPT}" \
+        --dry-run \
+        --json \
+        --fail-on-review \
+        --min-age-minutes "${CLEANUP_MIN_AGE_MINUTES}" \
+        --policy "${CLEANUP_POLICY}"
+}
+
+cleanup_before_gateway_restart() {
+    local cleanup_py
+    cleanup_py=$(cleanup_python) || {
+        fail "No Python interpreter available for pre-restart cleanup"
+        return 1
+    }
+    step "Cleaning transient artifacts before gateway restart"
+    "${cleanup_py}" "${CLEANUP_SCRIPT}" \
+        --apply \
+        --fail-on-review \
+        --min-age-minutes "${CLEANUP_MIN_AGE_MINUTES}" \
+        --policy "${CLEANUP_POLICY}"
+}
+
+gateway_restart_with_cleanup() {
+    cleanup_before_gateway_restart || return 1
+    hermes gateway restart
+}
+
 # This script is executable, not a shell function library. Give the playbook
 # and external supervisors side-effect-free inspection entry points; sourcing
 # the whole script would otherwise start a reconciliation workflow.
@@ -1028,6 +1073,13 @@ if [[ ! -d "${HERMES_AGENT}/.git" ]]; then
     exit 1
 fi
 ok "Repo: ${HERMES_AGENT}"
+
+if ! audit_cleanup_policy; then
+    fail "Transient cleanup policy audit failed"
+    printf '  Classify every operational script and ignored path in %s, then retry.\n' "${CLEANUP_POLICY}"
+    exit 1
+fi
+ok "Transient cleanup policy: scripts and ignored paths fully classified"
 
 # PATCH-UPDATE-GATE-EXIT-STATUS: replay assumes HEAD is the complete index
 # baseline. Never auto-unstage user work; fail closed and let the next AI
@@ -2887,7 +2939,7 @@ if $_PATCH_APPLY_OK && [[ "${_TX_RUNTIME_DIRTY}" == "1" ]]; then
             _GW_RESTART_WAIT=930 # keep in sync with gw_restart_wait_seconds fallback
         fi
         step "Restarting gateway after draining in-flight runs (up to ${_GW_RESTART_WAIT}s)"
-        hermes gateway restart
+        gateway_restart_with_cleanup
         _GW_RESTART_RC=$?
         _GW_NEW_PID=""
         _GW_WAITED=0
@@ -2908,7 +2960,7 @@ if $_PATCH_APPLY_OK && [[ "${_TX_RUNTIME_DIRTY}" == "1" ]]; then
             if [[ ${_GW_RESTART_RC} -ne 0 ]]; then
                 add_warn "gateway restart exited ${_GW_RESTART_RC}"
             fi
-            add_act "Inspect in-flight work and gateway logs, then rerun: hermes gateway restart (the replacement PID must differ from ${_GW_OLD_PID})"
+            add_act "Inspect in-flight work and gateway logs, run ${CLEANUP_SCRIPT} --apply --fail-on-review, then rerun: hermes gateway restart (the replacement PID must differ from ${_GW_OLD_PID})"
             FINAL_RC=1
         fi
     else
