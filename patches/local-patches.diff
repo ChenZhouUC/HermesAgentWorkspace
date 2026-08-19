@@ -7381,10 +7381,10 @@ index ae8a4bfc3718f6b04a54d882b6f5a49947d0ef77..24beb093166d163ce057199f5de2aaa6
  
  
 diff --git a/tests/gateway/test_background_command.py b/tests/gateway/test_background_command.py
-index ccf7833b1991393a14eb5f9bca0573cb51da9520..6b1689bc1aed188cb2d74ff8b894da93b3db5e85 100644
+index ccf7833b1991393a14eb5f9bca0573cb51da9520..b8e66ec9c6ad52aa187315ee5ed4590a63575073 100644
 --- a/tests/gateway/test_background_command.py
 +++ b/tests/gateway/test_background_command.py
-@@ -120,8 +120,8 @@ class TestRunBackgroundTask:
+@@ -120,8 +120,9 @@ class TestRunBackgroundTask:
          runner = _make_runner()
          mock_adapter = AsyncMock()
          mock_adapter.send = AsyncMock()
@@ -7392,10 +7392,11 @@ index ccf7833b1991393a14eb5f9bca0573cb51da9520..6b1689bc1aed188cb2d74ff8b894da93
 -        mock_adapter.extract_images = MagicMock(return_value=([], "Hello from background!"))
 +        mock_adapter.extract_media = MagicMock(side_effect=lambda text: ([], text))
 +        mock_adapter.extract_images = MagicMock(side_effect=lambda text: ([], text))
++        mock_adapter.toolsets_for_source = MagicMock(return_value=None)
          runner.adapters[Platform.TELEGRAM] = mock_adapter
  
          source = SessionSource(
-@@ -129,9 +129,13 @@ class TestRunBackgroundTask:
+@@ -129,9 +130,13 @@ class TestRunBackgroundTask:
              user_id="12345",
              chat_id="67890",
              user_name="testuser",
@@ -7410,7 +7411,7 @@ index ccf7833b1991393a14eb5f9bca0573cb51da9520..6b1689bc1aed188cb2d74ff8b894da93
  
          checkpoint_config = {
              "checkpoints": {
-@@ -141,9 +145,15 @@ class TestRunBackgroundTask:
+@@ -141,9 +146,15 @@ class TestRunBackgroundTask:
                  "max_file_size_mb": 3,
              }
          }
@@ -7429,7 +7430,7 @@ index ccf7833b1991393a14eb5f9bca0573cb51da9520..6b1689bc1aed188cb2d74ff8b894da93
              mock_agent_instance = MagicMock()
              mock_agent_instance.shutdown_memory_provider = MagicMock()
              mock_agent_instance.close = MagicMock()
-@@ -158,6 +168,10 @@ class TestRunBackgroundTask:
+@@ -158,6 +169,10 @@ class TestRunBackgroundTask:
          content = call_args[1].get("content", call_args[0][1] if len(call_args[0]) > 1 else "")
          assert "Background task complete" in content
          assert "Hello from background!" in content

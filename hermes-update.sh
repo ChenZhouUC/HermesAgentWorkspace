@@ -1887,6 +1887,7 @@ FEISHU_MESSAGING_DOC="${HERMES_AGENT}/website/docs/user-guide/messaging/feishu.m
 SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
 SESSION_ENV_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session_env.py"
 RUN_PROGRESS_TEST_PY="${HERMES_AGENT}/tests/gateway/test_run_progress_topics.py"
+BACKGROUND_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_background_command.py"
 VERBOSE_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_verbose_command.py"
 TOOLS_CONFIG_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
 LLM_WIKI_SKILL_MD="${HERMES_AGENT}/skills/research/llm-wiki/SKILL.md"
@@ -1964,7 +1965,7 @@ fi
 
 # PATCH-FEISHU-GROUP-SCOPE: the group capability namespace. Group sessions resolve tools and
 # skill policy through feishu_group while owner DMs remain on feishu.
-if [[ -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SLASH_COMMANDS_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${SESSION_ENV_TEST_PY}" && -f "${RUN_PROGRESS_TEST_PY}" && -f "${VERBOSE_COMMAND_TEST_PY}" && -f "${TOOLS_CONFIG_TEST_PY}" ]]; then
+if [[ -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SLASH_COMMANDS_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${SESSION_ENV_TEST_PY}" && -f "${RUN_PROGRESS_TEST_PY}" && -f "${BACKGROUND_COMMAND_TEST_PY}" && -f "${VERBOSE_COMMAND_TEST_PY}" && -f "${TOOLS_CONFIG_TEST_PY}" ]]; then
     if grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
         grep -q 'return "feishu_group"' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'platform_key = _platform_config_key_for_source(source)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
@@ -1976,6 +1977,7 @@ if [[ -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SLASH_COMMAN
         grep -q 'recover_platform_tools' "${TOOLS_CONFIG_PY}" 2>/dev/null &&
         grep -q 'test_set_session_env_sets_feishu_group_config_key' "${SESSION_ENV_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
+        grep -q 'mock_adapter.toolsets_for_source = MagicMock(return_value=None)' "${BACKGROUND_COMMAND_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_updates_group_scope_without_mutating_dm' "${VERBOSE_COMMAND_TEST_PY}" 2>/dev/null &&
         grep -q 'test_get_platform_tools_feishu_group_uses_independent_config' "${TOOLS_CONFIG_TEST_PY}" 2>/dev/null; then
         ok "PATCH-FEISHU-GROUP-SCOPE active: runtime display/tools use feishu_group, owner DM stays feishu"
@@ -2236,8 +2238,6 @@ fi
 # ~/.hermes/groups.yaml are in the config repo and intentionally NOT PATCHED_FILES.
 STREAM_CONSUMER_PY="${HERMES_AGENT}/gateway/stream_consumer.py"
 STREAM_CONSUMER_TEST_PY="${HERMES_AGENT}/tests/gateway/test_stream_consumer_silence.py"
-BACKGROUND_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_background_command.py"
-
 _secure_local_profile_files() {
     local profile_name profiles_file mode
     for profile_name in people.yaml groups.yaml; do

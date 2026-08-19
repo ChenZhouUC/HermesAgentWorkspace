@@ -23,6 +23,18 @@ Preferred shape:
    - what still needs more source material.
 3. Keep implementation evidence behind the narrative, not in front of it.
 
+Do not default to Q&A format. For investor decks, roadshows, and demos, write a polished narrative with short presentation bullets. Use Q&A only when the user explicitly asks for diligence or objection handling.
+
+Prioritize investor decision variables:
+
+- deployment and operating cost;
+- rollout speed and multi-site scalability;
+- gross-margin or labor-efficiency impact;
+- data/process moat and integration depth;
+- credible technical differentiation without inflated claims.
+
+Avoid “future expansion directions” in the main document. Replace them with current evidence, commercial impact, why-now logic, or explicit evidence gaps.
+
 ## Workflow
 
 ### 1. Gather sources before writing
@@ -100,9 +112,9 @@ For each technology pillar:
 
 <How to answer likely diligence questions.>
 
-### 后续可扩写方向
+### 证据边界
 
-<What to expand when the user picks this pillar.>
+<What is verified, what is positioning, and what evidence is still missing.>
 ```
 
 ## Feishu formatting guardrails

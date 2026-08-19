@@ -1,10 +1,10 @@
 User: 周琛 (琛哥). Address as 琛哥。Feishu open_id: ou_33eeacfbd0c0559b7b734f83503719ab.
 §
-Feishu/docs: concise structured docs/tables; natural integration > append/dumps; on bad flow, restore prior baseline and re-integrate rather than patching the patch. Fast/direct jargon-free replies. Version tables/@Gödel.
+Feishu/docs: revise same doc in-place; natural integration > append/dumps; rebuild baseline if flow bad. Fast/direct jargon-free. Version tables/@Gödel.
 §
 Tools: Safe direct execution. TUI>GUI; uses qwencode. Prefers first-party CLI/VSCode workflows and Homebrew package names on macOS. Local wiki before web. NEVER auto-invoke 'gh copilot'.
 §
-Mgmt/Writing: Plain English, business value; consulting-style PPTs; multiple translation tones; accurate domain terms (e.g. dewarp). Presentation creation defaults to hypertex-mcp HTML/PDF; use powerpoint only when explicitly asked for .pptx.
+Mgmt/Writing: Plain English + business value. Investor docs/decks: presentation bullets, not Q&A; remove future-expansion sections; reduce jargon; stress cost/scaling/value + credible tech terms. HyperTeX default for decks unless .pptx asked.
 §
 AI Tech: Agent orchestration/reverse-engineering/sandbox auditing/CLI investigation. Casual status checks: lightweight first; no heavy diagnostics unless asked.
 §
