@@ -16030,13 +16030,15 @@ index ed7571da56238c27759cc897f108ebe37aec47b2..4db29a2af45f67e9252e7154bb68573f
              if tool_name == "feishu_doc_read":
 diff --git a/tests/tools/test_mcp_tasks_extension.py b/tests/tools/test_mcp_tasks_extension.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..7974d7dc2a40d260ca542f0d3c17f536a7facb4a
+index 0000000000000000000000000000000000000000..085644932a7c3d48a15706963ae16802444261e0
 --- /dev/null
 +++ b/tests/tools/test_mcp_tasks_extension.py
-@@ -0,0 +1,384 @@
+@@ -0,0 +1,439 @@
 +from __future__ import annotations
 +
 +import asyncio
++
++import pytest
 +
 +from agent.mcp_task_protocol import MCP_TASK_METADATA_KEY, direct_task_response
 +from tools.mcp_tasks_extension import (
@@ -16075,6 +16077,29 @@ index 0000000000000000000000000000000000000000..7974d7dc2a40d260ca542f0d3c17f536
 +        self.validated.append((name, result))
 +
 +
++class _SDK2Dispatcher:
++    def __init__(self, response):
++        self.response = response
++        self.calls = []
++
++    async def send_raw_request(self, method, params, opts):
++        self.calls.append((method, params, opts))
++        return self.response.copy()
++
++
++def _legacy_sdk2_session(response):
++    from mcp import ClientSession, types
++
++    dispatcher = _SDK2Dispatcher(response)
++    session = ClientSession(dispatcher=dispatcher)
++    session.adopt(types.InitializeResult(
++        protocolVersion="2025-11-25",
++        capabilities=types.ServerCapabilities(extensions={TASKS_EXTENSION_ID: {}}),
++        serverInfo=types.Implementation(name="demo", version="1"),
++    ))
++    return session, dispatcher
++
++
 +def test_task_aware_call_advertises_extension_and_accepts_task_handle():
 +    session = _Session({
 +        "resultType": "task",
@@ -16110,6 +16135,36 @@ index 0000000000000000000000000000000000000000..7974d7dc2a40d260ca542f0d3c17f536
 +
 +    assert session.request_types == [types.CallToolRequest]
 +    assert session.request_name_params == [types.CallToolRequest.name_param]
++
++
++def test_task_aware_call_bypasses_sdk2_legacy_core_result_prevalidation():
++    session, dispatcher = _legacy_sdk2_session({
++        "resultType": "task",
++        "taskId": "42",
++        "status": "working",
++        "createdAt": "2026-08-19T00:00:00Z",
++        "lastUpdatedAt": "2026-08-19T00:00:00Z",
++        "message": "Preparing assets",
++    })
++
++    kind, result = asyncio.run(call_tool(session, "start", {"x": 1}))
++
++    assert kind == "task"
++    assert result["taskId"] == "42"
++    method, params, opts = dispatcher.calls[0]
++    assert method == "tools/call"
++    assert params["name"] == "start"
++    assert params["_meta"]["io.modelcontextprotocol/clientCapabilities"]["extensions"] == {
++        TASKS_EXTENSION_ID: {}
++    }
++    assert opts["headers"] == {"mcp-protocol-version": "2025-11-25"}
++
++
++def test_sdk2_legacy_bypass_still_rejects_invalid_standard_tool_results():
++    session, _dispatcher = _legacy_sdk2_session({"resultType": "complete"})
++
++    with pytest.raises(ValueError, match="content"):
++        asyncio.run(call_tool(session, "read", {}))
 +
 +
 +def test_task_aware_call_preserves_standard_call_tool_result_validation():
@@ -17217,10 +17272,10 @@ index 3887d3a2575c0fefb8226de89619cad0cf11a305..b52b2b7f6b1fc594c500d247a218b7fb
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/mcp_tasks_extension.py b/tools/mcp_tasks_extension.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..f3445392262888bd8b7ca6a31b2260776dbb1c42
+index 0000000000000000000000000000000000000000..ceb6575632360ae0ece62d8e5628645e482e2145
 --- /dev/null
 +++ b/tools/mcp_tasks_extension.py
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,175 @@
 +"""Wire helpers for the ``io.modelcontextprotocol/tasks`` MCP extension.
 +
 +The installed MCP SDK exposes the standard ``tools/call`` request model but not
@@ -17272,6 +17327,68 @@ index 0000000000000000000000000000000000000000..f3445392262888bd8b7ca6a31b226077
 +    return isinstance(extensions, dict) and TASKS_EXTENSION_ID in extensions
 +
 +
++def _needs_legacy_result_validation_bypass(session: Any) -> bool:
++    """Whether SDK 2.x would reject an extension result before parsing it.
++
++    MCP SDK 2.x validates every response against the negotiated core protocol
++    surface before applying the caller's ``result_type``.  Handshake-era
++    surfaces only admit ``CallToolResult`` for ``tools/call``, so a negotiated
++    extension result such as ``resultType=task`` is rejected even when the
++    caller deliberately requested a raw result model.  SDK 1.x does not expose
++    this dispatcher/stamp seam, and modern 2026 protocol surfaces already
++    tolerate non-core result tags for the SDK claim adapter.
++    """
++    try:
++        from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
++    except ImportError:
++        return False
++
++    version = getattr(session, "_negotiated_version", None)
++    dispatcher = getattr(session, "_dispatcher", None)
++    return (
++        version in HANDSHAKE_PROTOCOL_VERSIONS
++        and callable(getattr(session, "_stamp", None))
++        and callable(getattr(dispatcher, "send_raw_request", None))
++    )
++
++
++async def _send_legacy_extension_call(session: Any, request: Any) -> dict[str, Any]:
++    """Send one handshake-era extension call without SDK core-result validation.
++
++    This mirrors the transport preparation performed by MCP SDK 2.x
++    ``ClientSession.send_request`` (protocol stamp, request-class name metadata
++    handling and timeout),
++    but intentionally leaves result validation to :func:`call_tool`, whose
++    two accepted shapes are the ordinary SDK ``CallToolResult`` and the Tasks
++    extension handle.  The narrow bypass is used only after the server has
++    advertised the Tasks extension and only on legacy negotiated versions.
++    """
++    from mcp.shared.inbound import MCP_NAME_HEADER, encode_header_value
++
++    data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
++    method = data["method"]
++    opts: dict[str, Any] = {}
++    session._stamp(data, opts)
++
++    headers = opts.setdefault("headers", {})
++    if (key := type(request).name_param) is not None and MCP_NAME_HEADER not in headers:
++        params_data = data.get("params") or {}
++        name = params_data.get(key)
++        if not isinstance(name, str):
++            raise ValueError(f"{method} requires params[{key!r}] for Mcp-Name")
++        headers[MCP_NAME_HEADER] = encode_header_value(name)
++
++    timeout = getattr(session, "_session_read_timeout_seconds", None)
++    if timeout is not None:
++        opts["timeout"] = timeout
++
++    raw = await session._dispatcher.send_raw_request(method, data.get("params"), opts)
++    ttl = raw.get("ttlMs") if isinstance(raw, dict) else None
++    if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and ttl < 0:
++        raw["ttlMs"] = 0
++    return raw
++
++
 +async def add_task_routing_headers(request: Any) -> None:
 +    """Add MCP 2026 task-routing headers to one Streamable HTTP request.
 +
@@ -17314,7 +17431,10 @@ index 0000000000000000000000000000000000000000..f3445392262888bd8b7ca6a31b226077
 +            _meta=client_capability_meta(),
 +        )
 +    )
-+    raw = (await session.send_request(request, _RawResult)).root
++    if _needs_legacy_result_validation_bypass(session):
++        raw = await _send_legacy_extension_call(session, request)
++    else:
++        raw = (await session.send_request(request, _RawResult)).root
 +    if raw.get("resultType") == "task":
 +        return "task", raw
 +
@@ -18572,7 +18692,7 @@ index 0eccf2d5aa51903f39fdfbbe9375612a784eae8d..ea0e9e7e9d3de5764fcb2ea51765aa48
  
  Enable isolated git worktrees for running multiple agents in parallel on the same repo:
 diff --git a/website/docs/user-guide/features/mcp.md b/website/docs/user-guide/features/mcp.md
-index 755941407aa7aa8cd41e813e7ba1829a29d644ed..6b929ed70db66ca26e9880ad03b824fd08041121 100644
+index 755941407aa7aa8cd41e813e7ba1829a29d644ed..653f4dab65b67ee97228167c6a3569aa576ac7fc 100644
 --- a/website/docs/user-guide/features/mcp.md
 +++ b/website/docs/user-guide/features/mcp.md
 @@ -19,7 +19,7 @@ The `mcpServers` block in your `~/.claude.json` maps to `mcp_servers` in Hermes'
@@ -18602,7 +18722,7 @@ index 755941407aa7aa8cd41e813e7ba1829a29d644ed..6b929ed70db66ca26e9880ad03b824fd
  
  These are registered per server with the same prefix pattern, for example:
  
-@@ -484,8 +488,19 @@ These are registered per server with the same prefix pattern, for example:
+@@ -484,8 +488,22 @@ These are registered per server with the same prefix pattern, for example:
  These utility tools are now capability-aware:
  - Hermes only registers resource utilities if the MCP session actually supports resource operations
  - Hermes only registers prompt utilities if the MCP session actually supports prompt operations
@@ -18615,6 +18735,9 @@ index 755941407aa7aa8cd41e813e7ba1829a29d644ed..6b929ed70db66ca26e9880ad03b824fd
 +call. A later `tasks_get` response exposes only the task ID, a minimal lifecycle sentence, and any
 +deduplicated HTTP(S) result links. Server names, tool names, polling metadata, raw statuses,
 +`structuredContent`, and tool-specific business fields remain hidden from the user-facing receipt.
++Handshake-era MCP sessions are also supported: Hermes preserves the SDK's protocol stamp,
++request metadata semantics, timeout, and ordinary `CallToolResult` validation while accepting a
++negotiated Tasks extension handle that is not part of the legacy core result schema.
 +`input_required` is the protocol exception: Hermes leaves that response on the normal model/client
 +path so its `inputRequests` can be presented and answered through `tasks_update`. Mixed batches that
 +also contain ordinary tool results likewise do not short-circuit. For Streamable HTTP, Hermes adds
