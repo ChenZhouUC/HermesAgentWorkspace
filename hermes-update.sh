@@ -2702,6 +2702,9 @@ if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MC
         grep -q 'direct_task_response(messages)' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
         grep -q 'test_mcp_task_handle_ends_turn_without_second_model_call' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_advertises_extension_and_accepts_task_handle' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'types.CallToolRequest(' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
+        grep -q 'name_param: ClassVar\[str | None\] = None' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
+        grep -q 'test_task_aware_call_uses_sdk_request_model_with_name_metadata' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q '_mcp_field(result, "is_error", "isError", False)' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_skips_validation_for_error_across_sdk_field_rename' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_completed_task_receipt_only_exposes_task_id_and_links' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&

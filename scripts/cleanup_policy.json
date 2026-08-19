@@ -36,6 +36,7 @@
     ".mcp-discovery.lock": "MCP discovery coordination lock.",
     ".npm_lock_hash_*": "Installed dependency fingerprint.",
     ".restart_*.json": "Gateway restart coordination state.",
+    ".skills_prompt_snapshot.json": "Persistent skill prompt metadata snapshot used for validated cold-start cache reuse.",
     "auth.json": "Local authentication state.",
     "auth.lock": "Authentication state lock.",
     "bin/": "User-local Hermes helper binaries.",

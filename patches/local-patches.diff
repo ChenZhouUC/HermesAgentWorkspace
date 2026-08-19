@@ -16030,10 +16030,10 @@ index ed7571da56238c27759cc897f108ebe37aec47b2..4db29a2af45f67e9252e7154bb68573f
              if tool_name == "feishu_doc_read":
 diff --git a/tests/tools/test_mcp_tasks_extension.py b/tests/tools/test_mcp_tasks_extension.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..972e70e32b3e0f276047af3ab6ba85eade0c3410
+index 0000000000000000000000000000000000000000..7974d7dc2a40d260ca542f0d3c17f536a7facb4a
 --- /dev/null
 +++ b/tests/tools/test_mcp_tasks_extension.py
-@@ -0,0 +1,345 @@
+@@ -0,0 +1,384 @@
 +from __future__ import annotations
 +
 +import asyncio
@@ -16052,11 +16052,24 @@ index 0000000000000000000000000000000000000000..972e70e32b3e0f276047af3ab6ba85ea
 +    def __init__(self, response):
 +        self.response = response
 +        self.requests = []
++        self.request_types = []
++        self.request_name_params = []
 +        self.validated = []
 +
 +    async def send_request(self, request, result_type):
-+        self.requests.append(request.model_dump(mode="json"))
++        # Mirror the MCP SDK 2.x pre-dispatch contract. A generic Pydantic
++        # RootModel without name_param must fail here just as the real SDK does.
++        self.request_types.append(type(request))
++        self.request_name_params.append(type(request).name_param)
++        self.requests.append(request.model_dump(by_alias=True, mode="json", exclude_none=True))
 +        return result_type.model_validate(self.response)
++
++    async def validate_tool_result(self, name, result):
++        self.validated.append((name, result))
++
++
++class _LegacySession(_Session):
++    validate_tool_result = None
 +
 +    async def _validate_tool_result(self, name, result):
 +        self.validated.append((name, result))
@@ -16077,10 +16090,26 @@ index 0000000000000000000000000000000000000000..972e70e32b3e0f276047af3ab6ba85ea
 +    assert kind == "task"
 +    assert result["taskId"] == "42"
 +    meta = session.requests[0]["params"]["_meta"]
-+    assert meta["io.modelcontextprotocol/clientCapabilities"]["extensions"] == {
-+        TASKS_EXTENSION_ID: {}
-+    }
++    assert meta["io.modelcontextprotocol/clientCapabilities"]["extensions"] == {TASKS_EXTENSION_ID: {}}
 +    assert session.validated == []
++
++
++def test_task_aware_call_uses_sdk_request_model_with_name_metadata():
++    from mcp import types
++
++    session = _Session({
++        "resultType": "task",
++        "taskId": "42",
++        "status": "working",
++        "createdAt": "2026-08-18T00:00:00Z",
++        "lastUpdatedAt": "2026-08-18T00:00:00Z",
++        "ttlMs": None,
++    })
++
++    asyncio.run(call_tool(session, "start", {}))
++
++    assert session.request_types == [types.CallToolRequest]
++    assert session.request_name_params == [types.CallToolRequest.name_param]
 +
 +
 +def test_task_aware_call_preserves_standard_call_tool_result_validation():
@@ -16110,6 +16139,19 @@ index 0000000000000000000000000000000000000000..972e70e32b3e0f276047af3ab6ba85ea
 +    assert session.validated == []
 +
 +
++def test_task_aware_call_keeps_legacy_result_validation_fallback():
++    session = _LegacySession({
++        "content": [{"type": "text", "text": "done"}],
++        "isError": False,
++    })
++
++    kind, result = asyncio.run(call_tool(session, "read", {}))
++
++    assert kind == "complete"
++    assert result.content[0].text == "done"
++    assert session.validated[0][0] == "read"
++
++
 +def test_task_request_uses_standard_method_and_task_id():
 +    session = _Session({
 +        "resultType": "complete",
@@ -16127,6 +16169,7 @@ index 0000000000000000000000000000000000000000..972e70e32b3e0f276047af3ab6ba85ea
 +        "method": "tasks/get",
 +        "params": {"taskId": "42"},
 +    }
++    assert session.request_name_params == [None]
 +
 +
 +def test_server_support_is_driven_by_negotiated_extension():
@@ -16241,11 +16284,7 @@ index 0000000000000000000000000000000000000000..972e70e32b3e0f276047af3ab6ba85ea
 +    assert response is not None
 +    text, reason = response
 +    assert reason == "mcp_task_status"
-+    assert text == (
-+        "任务 `7` 已完成。\n\n结果链接：\n"
-+        "- https://example.test/preview\n"
-+        "- https://example.test/download"
-+    )
++    assert text == ("任务 `7` 已完成。\n\n结果链接：\n- https://example.test/preview\n- https://example.test/download")
 +    assert "structuredContent" not in text
 +    assert "Quarterly product review" not in text
 +    assert "review.pdf" not in text
@@ -17178,22 +17217,22 @@ index 3887d3a2575c0fefb8226de89619cad0cf11a305..b52b2b7f6b1fc594c500d247a218b7fb
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/mcp_tasks_extension.py b/tools/mcp_tasks_extension.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..7e078a3ea9eb665846da0e6b3b9ebd1a283e3f74
+index 0000000000000000000000000000000000000000..f3445392262888bd8b7ca6a31b2260776dbb1c42
 --- /dev/null
 +++ b/tools/mcp_tasks_extension.py
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,110 @@
 +"""Wire helpers for the ``io.modelcontextprotocol/tasks`` MCP extension.
 +
-+The installed MCP SDK does not yet expose the 2026 Tasks extension client
-+methods, but its ``BaseSession.send_request`` supports arbitrary typed JSON-RPC
-+requests.  Keep the small extension shim here so ``tools/mcp_tool.py`` remains
++The installed MCP SDK exposes the standard ``tools/call`` request model but not
++the 2026 Tasks extension methods.  Use the SDK model for tool calls and a small
++raw request shim only for custom task methods so ``tools/mcp_tool.py`` remains
 +focused on transport lifecycle and registry wiring.
 +"""
 +
 +from __future__ import annotations
 +
 +import json
-+from typing import Any
++from typing import Any, ClassVar
 +
 +from pydantic import RootModel
 +
@@ -17204,7 +17243,10 @@ index 0000000000000000000000000000000000000000..7e078a3ea9eb665846da0e6b3b9ebd1a
 +
 +
 +class _RawRequest(RootModel[dict[str, Any]]):
-+    pass
++    # MCP SDK 2.x inspects this class attribute before dispatch. Custom task
++    # methods carry their routing identity in taskId/Mcp-Name, not a generic
++    # params.name field, so they deliberately opt out of SDK name extraction.
++    name_param: ClassVar[str | None] = None
 +
 +
 +class _RawResult(RootModel[dict[str, Any]]):
@@ -17221,11 +17263,7 @@ index 0000000000000000000000000000000000000000..7e078a3ea9eb665846da0e6b3b9ebd1a
 +
 +
 +def client_capability_meta() -> dict[str, Any]:
-+    return {
-+        "io.modelcontextprotocol/clientCapabilities": {
-+            "extensions": {TASKS_EXTENSION_ID: {}}
-+        }
-+    }
++    return {"io.modelcontextprotocol/clientCapabilities": {"extensions": {TASKS_EXTENSION_ID: {}}}}
 +
 +
 +def server_supports_tasks(initialize_result: Any) -> bool:
@@ -17261,34 +17299,36 @@ index 0000000000000000000000000000000000000000..7e078a3ea9eb665846da0e6b3b9ebd1a
 +    request.headers["Mcp-Method"] = method
 +
 +
-+async def call_tool(
-+    session: Any, name: str, arguments: dict[str, Any] | None
-+) -> tuple[str, Any]:
-+    request = _RawRequest({
-+        "method": "tools/call",
-+        "params": {
-+            "name": name,
-+            "arguments": arguments or {},
-+            "_meta": client_capability_meta(),
-+        },
-+    })
++async def call_tool(session: Any, name: str, arguments: dict[str, Any] | None) -> tuple[str, Any]:
++    from mcp import types
++
++    # SDK 2.x send_request() reads request-class protocol metadata such as
++    # name_param before serialization. A generic RootModel lacks that contract
++    # and fails locally with AttributeError before the request reaches the MCP
++    # server. Keep the raw *result* so a standard resultType=task remains
++    # parseable, but always use the SDK's official tools/call request model.
++    request = types.CallToolRequest(
++        params=types.CallToolRequestParams(
++            name=name,
++            arguments=arguments or {},
++            _meta=client_capability_meta(),
++        )
++    )
 +    raw = (await session.send_request(request, _RawResult)).root
 +    if raw.get("resultType") == "task":
 +        return "task", raw
 +
-+    from mcp import types
-+
 +    result = types.CallToolResult.model_validate(raw)
 +    if not _mcp_field(result, "is_error", "isError", False):
-+        validate = getattr(session, "_validate_tool_result", None)
++        validate = getattr(session, "validate_tool_result", None)
++        if not callable(validate):
++            validate = getattr(session, "_validate_tool_result", None)
 +        if callable(validate):
 +            await validate(name, result)
 +    return "complete", result
 +
 +
-+async def task_request(
-+    session: Any, method: str, params: dict[str, Any]
-+) -> dict[str, Any]:
++async def task_request(session: Any, method: str, params: dict[str, Any]) -> dict[str, Any]:
 +    request = _RawRequest({"method": method, "params": params})
 +    return (await session.send_request(request, _RawResult)).root
 diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py

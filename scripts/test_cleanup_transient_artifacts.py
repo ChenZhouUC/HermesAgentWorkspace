@@ -200,6 +200,26 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
                 },
             )
 
+    def test_persistent_skill_prompt_snapshot_is_explicitly_keep_classified(self) -> None:
+        with tempfile.TemporaryDirectory() as root_raw:
+            root = Path(root_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / ".gitignore").write_text(".skills_prompt_snapshot.json\n")
+            (root / ".skills_prompt_snapshot.json").write_text('{"version": 2, "manifest": {}, "skills": []}')
+            policy_path = write_policy(
+                root,
+                ignored_keep={
+                    ".skills_prompt_snapshot.json": "persistent skill prompt snapshot",
+                },
+            )
+
+            audit, errors = cleanup.audit_ignored(root, cleanup.load_policy(policy_path))
+
+            self.assertEqual(errors, [])
+            self.assertEqual(len(audit), 1)
+            self.assertEqual(audit[0].path, ".skills_prompt_snapshot.json")
+            self.assertEqual(audit[0].classification, "keep")
+
     def test_runtime_bytecode_is_kept_while_test_bytecode_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)
