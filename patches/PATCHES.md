@@ -98,7 +98,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-VERTEX-DOCTOR: doctor 识别官方 Vertex profile
   │   ├─ PATCH-DOCTOR-TEST-NETWORK-ISOLATION: doctor 单测不访问真实网络/宿主命令
   │   ├─ PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY: Gemini fallback 接受其他模型产生的无签名工具历史
-  │   ├─ PATCH-LAUNCHD-WRAPPER-SUPERVISOR: launchd stderr wrapper 保留受监管身份
+  │   ├─ PATCH-LAUNCHD-WRAPPER-SUPERVISOR: launchd stderr wrapper 保留受监管身份（✅ 已上游合并 v0.20.4）
   │   ├─ PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION: 不继承 shell/~/.secrets 的 Hermes 凭据
   │   ├─ PATCH-MODEL-CONFIGURED-ONLY: /model 只访问主模型与 fallback 配置集合
   │   ├─ PATCH-IMAGE-NATIVE-ROUTING: 主力模型图片能力识别（Gemini 3.x + azure-foundry）
@@ -223,7 +223,6 @@ PATCHED_FILES=(
     "gateway/stream_consumer.py"
     "hermes_cli/doctor.py"
     "hermes_cli/env_loader.py"
-    "hermes_cli/gateway.py"
     "hermes_cli/model_switch.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
@@ -254,7 +253,6 @@ PATCHED_FILES=(
     "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_env_loader.py"
-    "tests/hermes_cli/test_gateway.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
     "website/docs/reference/environment-variables.md"
@@ -289,7 +287,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（84 文件，2026-08-18 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（82 文件，2026-08-19 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -310,27 +308,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.1 (upstream `main` `8ad055414bcae75486952c5080d366679e074c1b`，2026-08-18)
+## 当前版本：v0.20.4 (upstream `main` `13ce0c5c675e843af70d19c9e5144249cd51c8d1`，2026-08-19)
 
-**活跃补丁**：当前共 39 个语义补丁。31 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA`、`PATCH-GATEWAY-RESTART-CLEANUP` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
+**活跃补丁**：当前共 38 个语义补丁。30 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA`、`PATCH-GATEWAY-RESTART-CLEANUP` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
-**最近一次升级（v0.20.1 → v0.20.1，+60 commits，basis `45af7a71fcd420b4422d2c074b1ce58b9ce0d048` → `8ad055414bcae75486952c5080d366679e074c1b`，2026-08-16）要点**：
+**最近一次升级（v0.20.1 → v0.20.4，+836 commits，basis `8ad055414bcae75486952c5080d366679e074c1b` → `13ce0c5c675e843af70d19c9e5144249cd51c8d1`，2026-08-19）要点**：
 
-- 上游主线：版本号保持 **v0.20.1**，main 前进 60 commits。Compression 新增 `tail_mode`（legacy/lean）、digest/anchor index/region recovery 与 watermark/concurrent-tail 修复（`8fe9025ab` / `7a82457ed` / `c4bbb14e5` / `21d3e6370` / `652f5c2eb` / `406c5daf0`）；Gateway/session 新增 finalize hook 离主循环、durable row id、foreign Codex/Claude session import/resume 与 terminal breadcrumbs（`763b10c32` / `2e9dcb7c5` / `04c61f294` / `d6f02e349`）；hooks 增加 `pre_tool_call modify` 与共享 fail-closed approve（`d083b8559` / `20fcc11a0`）；computer-use/browser target/auth 边界、MCP OAuth DCR secret 和 Desktop Skills/session UI 继续演进（`48dd9c87c` / `20cf326bd` / `9975180a5` / `d5773bfc3`）；terminal 新增管道 build/test 失败掩盖提示（`8ad055414`）。
-- patch apply / registry：74-file bundle 在新基线上 **clean apply**；upstream 仅触及 5 个受管文件（`prompt_builder`、`gateway/run`、`gateway/slash_commands`、`env_loader`、configuration docs），逐项均与本地不变量正交，36 个既有 PATCH 判定 **0 新吸收 / 0 新归档 / 0 新收缩**。规范 runner 首轮暴露 `test_doctor.py` 真实网络导致 300s kill/121s retry，新建 `PATCH-DOCTOR-TEST-NETWORK-ISOLATION`，活跃变为 **37**、工程内 **30**；全文件降至 13.7s，最终 **34 files / 1219 passed / 0 failed / 3 skipped**，无 FLAKY。bundle/base/full-index、cached 正向、worktree 反向与 index-clean 全闭环。
-- 依赖：venv 未重建，Python 3.12.13 / SQLite 3.53.1 保持；20 个 active lazy backend 全部 current。官方 updater 更新 16 个 bundled skills，终态 mirror `+0/~1/-0`（llm-wiki 固定振荡，runtime metadata 保留）。root `npm audit` 仍为 **6 high**：Electron 40.10.2 两条 GHSA + extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 被上游 override/lock 阻挡；doctor 的 web 4 high / ui-tui 3 high 同属 Desktop/web build 链 P2，不影响飞书 gateway，禁止 `--force`。`package-lock.json` 仅 workspace hoist/位置归一化，继续排除出 replay bundle。
-- 已知摩擦：首次 HTTPS acquisition 3 次 transport retry 均超时，事务安全停在 `phase=acquiring / target_sha=pending` 并恢复补丁；GitHub SSH 443 认证正常，按脚本 recovery clause 用进程级 `insteadOf` 接管同一 acquisition，固定 `TARGET_SHA=8ad055414bca`，remote 未改且交互遗留 `.skip_upstream_prompt` 已删除。由此修订 playbook：只有从未取得 SHA 的 pending acquisition 可再用一次恢复性 `--update`，target 一旦存在后续全部 `--reconcile`。最终 reconcile exit 0、无 `✗`、事务状态清除。
-- 配置漂移：主配置仍为 v37，无 deprecated key；上游新增 `compression.tail_mode`，本机显式设为 `legacy` 保持既有 verbatim-tail 语义，不自动切换到 lean。Azure → Bedrock → Vertex fallback、Vertex compression、统一 700k threshold、`browser.backend: 'off'` 与 Feishu 能力边界保持；仅上述 P2 npm build-chain 和未配置的可选 provider/toolset 保留提示。
-
-**2026-08-15 模型凭据与选择边界收敛**：`PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION` 启用 profile 严格环境边界，Hermes 不再继承用户 shell / `~/.secrets` 的 DashScope、Gemini 等模型凭据；历史 ambient pool 条目已通过 auth remove + source suppression 清理，`GITHUB_TOKEN` 文件/环境本身保留给 Skills Hub，但不再作为 Copilot 模型入口。`PATCH-MODEL-CONFIGURED-ONLY` 让 `/model` 的展示和 typed switch 都只动态读取 `config.model + fallback_providers`，并统一展开 `${VAR}` / `${env:VAR}` route，禁止链外与 `--global`；具体 provider/model 不写死，未来手工改 config 即自动更新集合。主动把 primary 切到任一 fallback 时，运行时按 backend identity 跳过重复项并至少保留另一条 fallback；compression 的独立 configured provider/model 不随 primary 切换。受管文件 **68 → 73**、活跃 PATCH **34 → 36**；规范回归 **33 files / 1192 passed / 0 failed / 3 skipped**，reconcile exit 0 并完成 Gateway planned restart。
-
-**2026-08-16 多模态 native-first 与 Flash sidecar 收敛**：AWS 官方模型卡与实际 Bedrock wire 证明 Claude Opus 5 支持 Image、不支持 Audio/Video；OpenAI GPT-5.5 为 Text+Image；Google Gemini 3.5 Flash 支持 Text/Image/Audio/Video 及 PDF/text 文件。`PATCH-IMAGE-NATIVE-ROUTING` 新增 Bedrock Claude 3+ inference-profile 能力识别，当前三条 route 图片全部 native。原 `PATCH-VIDEO-SIDECAR` 按同一生命周期扩展并改名 `PATCH-MULTIMODAL-SIDECAR`：普通音频、语音 STT 全失败、非 native 视频、图片 text 档与本地空抽取 PDF 才旁路到链上 capable route，只发送当前媒体 + 4,000 字有界上下文，不切主模型、不重放 transcript、不重复分析；真实 Bedrock 图片（2.3s）、Vertex 音频（2.7s）、PDF（3.8s）与视频（3.3s）canary 全绿。受管文件 **73 → 74**，规范回归最终 **34 files / 1219 passed / 0 failed / 3 skipped**，reconcile exit 0 并完成 Gateway planned restart。
-
-**2026-08-16 群聊工具、文件与沙箱全面审计**：真实 dispatcher 证明 web、wiki read/search、3 个只读 skill 与 deferred `group_cache` 可执行；修复 `clarify` toolset/hook 漂移，并明确群聊不暴露 `vision_analyze` / `image_generate`，多模态由入站链处理。`PATCH-FEISHU-GROUP-SANDBOX` 新增群优先 allowlist、当前消息/显式引用资源 provenance、可信文档 mutation 用户、handler 双层校验、search 默认 wiki 路径及 `post_tool_call` 精确本轮 web cache artifact grant；历史回填不授权、其他群/全局 cache/任意 bot 可读文档继续 fail closed。Feishu adapter 矩阵新增群音频与群 Drive/PDF，Gateway group consumer 覆盖图片 native、音视频 sidecar 与 PDF/HTML/TXT/DOCX/XLSX/PPTX/ODT；插件 **32 passed**，规范回归最终 **34 files / 1219 passed / 0 failed / 3 skipped**。
-
-**2026-08-16 附件内容交付与 path-free 收敛**：真实 `Data Pipeline Workshop` PDF turn 证明文本已抽取却仍因绝对 cache path 诱发一次被群沙箱拒绝的 `read_file`。本轮在既有三个生命周期内收敛：`PATCH-FEISHU-RESOURCE-ACCESS` 将独立附件回填扩到 audio，窗口/消息/文件/超时改为配置化 300s/3/6/8s，引用文本不再预下载资源或写路径；`PATCH-DOCUMENT-EXTRACTION` 成功/失败提示 path-free，并用逐页 coverage 触发混合扫描 PDF 视觉补读；`PATCH-MULTIMODAL-SIDECAR` 的 native/sidecar 成功不再外显路径、provider/model/ARN，全部 reader 失败统一给明确 `FAILED` 状态。新增主私聊/群聊、audio 回填、重复下载反例、混合 PDF 与超限媒体回归；受管集合仍为 **74 files / 34 tests**，最终 **37 active PATCHES / 1219 passed / 0 failed / 3 skipped**，sandbox **32 passed**。
-
-**2026-08-18 MCP Tasks 异步回执收敛**：真实 HyperTeX MCP 创建在 0.54s 内已返回 task handle，但 Hermes 把普通工具结果再次送入 LLM，第二次推理 120s 无 SSE 后才重连回执。新增 `PATCH-MCP-TASKS-ASYNC-HANDOFF`：MCP client 按 `io.modelcontextprotocol/tasks` 协商能力、兼容普通 `CallToolResult` 与标准 `resultType=task`、按 server capability 动态生成 `tasks_get/update/cancel`；Agent 在 assistant→tool 结果已持久化后生成确定性 task receipt 并结束本轮，不自动轮询、不增加第二次模型调用。受管集合 **74 → 84 files / 34 → 38 tests**；replay 另收敛 upstream 不存在/被 ignore 的受管新文件，改用临时 index 生成完整 full-index bundle，修复 81/84 partial coverage。终态规范 runner **38 files / 1342 passed / 0 failed / 3 skipped**，sandbox **36 passed**，reconcile exit 0，bundle/base/full-index、cached 正向、worktree 反向与 index-clean 闭环全绿。
+- 上游主线：发布 **v0.20.2 → v0.20.3 → v0.20.4**（`df4b65147` / `7339f5f16` / `7e05e9080`），main 前进 836 commits。MCP 迁移到 2.x SDK 并接入 2026-07-28 stateless protocol、OAuth user-agent/CIMD（`11a9dcf56` / `382060f02` / `a6bada232` / `0b588cb3a`）；Skills 新增 project-local discovery、trust/quarantine、安装安全与文件 mode 保留（`f891d702d` / `6e22d2658` / `183f18d53` / `968853c5b`）；Gateway/session 加入 profile-aware key、恢复笔记、DB off-loop 与 launchd wrapper supervisor 正式修复（`21260c328` / `0cc26777b` / `8e81e2aaa` / `7008fb81b`）；模型/provider catalog、Desktop 多 source/Bot Mode/preview/browser/tour 与 Nix Home Manager 持续演进（`fa1bb88e3` / `d354af5e1` / `018176915` / `d5a9c2ba6`）。
+- patch apply / registry：84-file bundle 在 `prompt_builder.py`、`skill_utils.py`、`hermes_cli/gateway.py`、`tools/approval.py`、`tools/mcp_tool.py` 发生真实 3-way 冲突；project skill 与平台 allowlist、single-query approval 与 Feishu group hard floor、MCP 2.x 字段/API 与 Tasks extension 均按“并存”重解。`PATCH-LAUNCHD-WRAPPER-SUPERVISOR` 经裸 upstream 实现 + 14 条官方回归证明完全吸收并移入 Archive，本地 hunk/旧测试退出 bundle；其余活跃 PATCH 无新增吸收或收缩，既有部分吸收状态保持。终态 **38 active / 30 engineering patches / 82 files / 37 tests**，规范 runner **1340 passed / 0 failed / 3 skipped**；bundle/base/full-index、cached 正向、worktree 反向与 index-clean 闭环重建到 `13ce0c5c6`。
+- 依赖：venv 原地升级，Python 3.12.13 / SQLite 3.53.1 保持；Hermes 0.20.1 → 0.20.4，MCP 1.28.1 → 2.0.0，idna 3.15 → 3.18，pip 26.2 → 26.2.1，并新增 `httpx2` / `mcp-types` / `truststore` 等上游 pin；20 个 active lazy backend 全部 current。官方 updater 更新 4 个 bundled skills，终态 mirror `+0/~1/-0` 且 runtime metadata 保留。root `npm audit` 仍为 **6 high**：Electron 40.10.2 / extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 被 override/lock 阻挡；均属 Desktop/Web build-chain P2，不影响飞书 gateway，未使用 `--force`。`package-lock.json` 仅 workspace hoist / peer 标记归一化，继续排除出 replay bundle。
+- 已知摩擦：唯一 `--update` 固定 `TARGET_SHA=13ce0c5c675e` 后，所有复跑均为 no-network reconcile。cleanup 先暴露未完成事务文件未分类，后又在全量回归预编译后暴露新 `website/scripts/__pycache__`；现已把事务状态/锁成对列为 keep、website 文档脚本缓存精确列为 remove，并补 7 条清理器回归。MCP 2.0 将 `CallToolResult.isError` 属性改为 `is_error`，Tasks extension 已改为 snake/camel 双读并新增 success/error validation 反例。一次 Doctor Bedrock TLS 证书错配在无配置变更的立即复跑中恢复，归类为瞬时网络/DNS 噪音；最终 Azure/Bedrock 均通过。reconcile exit 0、无 `✗`，事务清除，Gateway planned restart 与 sandbox 41 passed 绑定最终真实子进程。
+- 配置漂移：主配置仍为 v37，无 migration 或 deprecated key；Azure → Bedrock → Vertex fallback、Vertex compression、统一 700k threshold、`browser.backend: 'off'` 与 Feishu owner/group sandbox 边界均保持。Doctor 仅保留上述 P2 npm build-chain 和未配置的可选 provider/toolset P3，不存在可修而未修的 P0/P1。
 
 ---
 
@@ -347,9 +335,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：MCP 长任务即使在 server 侧已异步入队并立即返回 durable handle，Hermes 仍把结果当普通工具文本追加到上下文，再发起一次 LLM 调用组织回复。真实飞书 turn 中 HyperTeX `tools/call` 仅 0.54s，第二次 Azure Responses 推理却 120s 无 SSE，导致用户 160.5s 后才收到 task ID；同类 provider 抖动会把“任务已受理”伪装成主会话卡死。依靠特定 server/tool 名称短路会把第三方产品耦合进 core，也无法覆盖其它符合 MCP Tasks 规范的 server。
 
-**修复**：新增窄协议模块 `tools/mcp_tasks_extension.py`，在 server 广告 `io.modelcontextprotocol/tasks` 时给 `tools/call` 注入 per-request client capability，并用 raw typed request 同时接受普通 result 与 `resultType="task"`；基于同一 capability 动态注册通用 `tasks_get` / `tasks_update` / `tasks_cancel` utilities。`agent/mcp_task_protocol.py` 只认 MCP 前缀工具的标准 task shape，不识别任何 server、tool 或业务字段：创建时只返回 task ID；查询时只以外层 `Task.status` 为权威，返回 task ID、最小生命周期句子和从任意 final result JSON/content 中递归提取并去重的 HTTP(S) 链接。业务 payload 内的 `status/error` 与 `CallToolResult.isError` 不得改写 Task 状态；`cancelled` 有独立回执；`input_required` 保留给正常 model/client 路径处理 `inputRequests → tasks/update`；同批混入普通工具结果时也不短路。Streamable HTTP 的 `tasks/get|update|cancel` 由 same-origin request hook 注入规范 `Mcp-Name=taskId` / `Mcp-Method=method` 路由头，跨源 redirect 同 authorization 一起剥离。server/tool 名称、poll interval、原始 status、`structuredContent`、内部 ID 与业务 payload 一律不进入普通前台回执。串行/并行 executor 都把 task metadata 绑定到已持久化 tool message，conversation loop 在 guardrail 与增量持久化成功后追加最终 assistant receipt 并退出本轮，保持角色配对与 prompt cache，不自动轮询、不再调用 LLM。普通 MCP 结果、未广告 extension 的 server 和非 MCP 工具行为不变。
+**修复**：新增窄协议模块 `tools/mcp_tasks_extension.py`，在 server 广告 `io.modelcontextprotocol/tasks` 时给 `tools/call` 注入 per-request client capability，并用 raw typed request 同时接受普通 result 与 `resultType="task"`；普通 `CallToolResult` 的错误位兼容 MCP SDK 1.x `isError` 与 2.x `is_error`，成功结果继续走 SDK `_validate_tool_result`、错误结果不误触发验证。基于同一 capability 动态注册通用 `tasks_get` / `tasks_update` / `tasks_cancel` utilities。`agent/mcp_task_protocol.py` 只认 MCP 前缀工具的标准 task shape，不识别任何 server、tool 或业务字段：创建时只返回 task ID；查询时只以外层 `Task.status` 为权威，返回 task ID、最小生命周期句子和从任意 final result JSON/content 中递归提取并去重的 HTTP(S) 链接。业务 payload 内的 `status/error` 与 `CallToolResult.is_error/isError` 不得改写 Task 状态；`cancelled` 有独立回执；`input_required` 保留给正常 model/client 路径处理 `inputRequests → tasks/update`；同批混入普通工具结果时也不短路。Streamable HTTP 的 `tasks/get|update|cancel` 由 same-origin request hook 注入规范 `Mcp-Name=taskId` / `Mcp-Method=method` 路由头，跨源 redirect 同 authorization 一起剥离。server/tool 名称、poll interval、原始 status、`structuredContent`、内部 ID 与业务 payload 一律不进入普通前台回执。串行/并行 executor 都把 task metadata 绑定到已持久化 tool message，conversation loop 在 guardrail 与增量持久化成功后追加最终 assistant receipt 并退出本轮，保持角色配对与 prompt cache，不自动轮询、不再调用 LLM。普通 MCP 结果、未广告 extension 的 server 和非 MCP 工具行为不变。
 
-**验证**：Step 8b 同时锚定 extension ID、task-aware dispatch、动态 `tasks_get` schema、HTTP routing hook、conversation-loop `direct_task_response` 和行为测试。`test_mcp_task_handle_ends_turn_without_second_model_call` 在修复前真实得到 4 次 API 调用（第二次断言失败后进入 3 次 retry），修复后严格为 1；`test_mcp_tasks_extension.py` 使用无产品语义的 `demo` server/payload，锁定创建回执只含 task ID、完成回执只含 task ID + 去重链接、无链接时完全隐藏业务 payload、completed + `isError=true` 不误判、cancelled 独立表达、`input_required`/混合工具批次不短路，以及三种 lifecycle request 的标准 HTTP 路由头与非法 header 值反例；`test_mcp_tool.py` 另锁定跨源 redirect 剥离 task routing headers；`test_mcp_utility_capability_gating.py` 覆盖仅广告 Tasks 时三工具注册及配置关闭。规范 runner、full-index bundle、cached 正向、worktree 反向、index-clean 与最终 Gateway PID 下的 MCP/sandbox verifier 共同构成终态门禁。
+**验证**：Step 8b 同时锚定 extension ID、task-aware dispatch、MCP 1.x/2.x 错误字段兼容、动态 `tasks_get` schema、HTTP routing hook、conversation-loop `direct_task_response` 和行为测试。`test_mcp_task_handle_ends_turn_without_second_model_call` 在修复前真实得到 4 次 API 调用（第二次断言失败后进入 3 次 retry），修复后严格为 1；`test_mcp_tasks_extension.py` 使用无产品语义的 `demo` server/payload，锁定普通成功结果仍执行 validation、MCP 2.x `is_error=true` 错误结果跳过 validation、创建回执只含 task ID、完成回执只含 task ID + 去重链接、无链接时完全隐藏业务 payload、completed + `isError=true` 不误判、cancelled 独立表达、`input_required`/混合工具批次不短路，以及三种 lifecycle request 的标准 HTTP 路由头与非法 header 值反例；`test_mcp_tool.py` 另锁定跨源 redirect 剥离 task routing headers；`test_mcp_utility_capability_gating.py` 覆盖仅广告 Tasks 时三工具注册及配置关闭。规范 runner、full-index bundle、cached 正向、worktree 反向、index-clean 与最终 Gateway PID 下的 MCP/sandbox verifier 共同构成终态门禁。
 
 **上游吸收判断**：当 upstream Hermes MCP client 原生支持当前 `io.modelcontextprotocol/tasks` extension 的 capability negotiation、`CreateTaskResult`/`tasks/get|update|cancel` 生命周期和 capability-gated model tools，并且 Agent 在标准 task handle 已持久化后能用确定性回执结束交互 turn、无需第二次 LLM 调用，同时有等价的串行/并行与角色配对回归时，可删除本补丁。仅 SDK 出现 Task 类型、仅 server 返回自定义 `task_id`、或仅 UI 提前显示工具结果都不算吸收。
 
@@ -436,9 +424,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：AI/浏览器/测试会话会在共享 `~/.hermes` 工作区留下 pager/slide 验证脚本、pytest/ruff 缓存、`__pycache__` 与 `.DS_Store`。只按文件名临时删除既可能漏掉被 `.gitignore` 隐藏的新产物，也可能误删并发 session 或正式运维脚本；仅依赖会话记忆判断“哪个脚本有用”又无法跨 AI 重建。Gateway restart 是运行态写屏障，如果重启前不先清理和审计，旧临时文件会跨 PID 延续并污染后续 diff、工具发现或下一轮自动化判断。
 
-**修复**：新增 policy 驱动的清理器。`cleanup_policy.json` 对 outer 运维脚本和 `plugins/*/verify.sh` 做显式白名单（keep）/临时脚本黑名单（remove），所有未分类 script-like 文件进入 review；同时读取 outer 与 inner Git 的 `status --ignored`，把每个 ignored 路径按运行态/密钥/依赖白名单、缓存黑名单或 review 三态分类。默认 dry-run，`--json` 输出完整 script/ignored audit、候选大小、跳过原因与 policy error；`--apply` 只把 remove 项移动到带时间戳的 macOS Trash 并保留相对路径，永不自动删除 review。近期临时脚本受 age gate 保护，Git-tracked 文件永不清理，pytest/CDP 等活跃进程会阻断 apply。`hermes-update.sh` preflight 每轮运行清理器自测与 `--dry-run --fail-on-review`；Step 8d 的唯一 restart 调用统一经过 `gateway_restart_with_cleanup()`，先 apply 再排空重启，清理失败、policy 漂移或未知 ignored/script 均使整轮非零。
+**修复**：新增 policy 驱动的清理器。`cleanup_policy.json` 对 outer 运维脚本和 `plugins/*/verify.sh` 做显式白名单（keep）/临时脚本黑名单（remove），所有未分类 script-like 文件进入 review；同时读取 outer 与 inner Git 的 `status --ignored`，把每个 ignored 路径按运行态/密钥/依赖白名单、缓存黑名单或 review 三态分类。持久化恢复状态 `.hermes-update-transaction` 与原子锁目录 `.hermes-update-transaction.lock/` 都必须显式 keep：前者在失败/中断后保存固定 `TARGET_SHA`，不能因恰好只在未完成事务中出现就落入 review 或被清理。规范 runner 预编译产生的 apps/evals/optional-skills/scripts/skills/tests/website 文档脚本 `__pycache__` 属确定可再生的 remove 类，运行时 agent/gateway/hermes_cli/tools/plugin 字节码则保持 keep。默认 dry-run，`--json` 输出完整 script/ignored audit、候选大小、跳过原因与 policy error；`--apply` 只把 remove 项移动到带时间戳的 macOS Trash 并保留相对路径，永不自动删除 review。近期临时脚本受 age gate 保护，Git-tracked 文件永不清理，pytest/CDP 等活跃进程会阻断 apply。`hermes-update.sh` preflight 每轮运行清理器自测与 `--dry-run --fail-on-review`；Step 8d 的唯一 restart 调用统一经过 `gateway_restart_with_cleanup()`，先 apply 再排空重启，清理失败、policy 漂移或未知 ignored/script 均使整轮非零。
 
-**验证**：`scripts/test_cleanup_transient_artifacts.py` 覆盖 keep/remove/review 脚本分类、仅黑名单移动、review 阻断 apply、required 脚本缺失/未跟踪、ignored keep/remove/review 分类，以及 Trash 相对路径保留。现场 `--dry-run --json --fail-on-review` 必须得到 `script_review=0`、`ignored_review=0`、`policy_errors=[]` 并列出全部被审计脚本/ignored 路径；`--apply --fail-on-review` 后重复 dry-run 的 remove 候选为 0。Step 8d 静态检查不得再直接调用 `hermes gateway restart`，只能调用 cleanup wrapper；真机 restart 必须先输出 cleanup audit/apply，再证明 old PID → different new PID 和最终 verifier 通过。
+**验证**：`scripts/test_cleanup_transient_artifacts.py` 覆盖 keep/remove/review 脚本分类、仅黑名单移动、review 阻断 apply、required 脚本缺失/未跟踪、ignored keep/remove/review 分类、事务状态文件与锁目录均显式 keep、runtime cache keep 与 tests/website build cache remove，以及 Trash 相对路径保留。现场存在未完成事务时，`--dry-run --json --fail-on-review` 仍必须得到 `script_review=0`、`ignored_review=0`、`policy_errors=[]` 并列出全部被审计脚本/ignored 路径；`--apply --fail-on-review` 后重复 dry-run 的 remove 候选为 0。Step 8d 静态检查不得再直接调用 `hermes gateway restart`，只能调用 cleanup wrapper；真机 restart 必须先输出 cleanup audit/apply，再证明 old PID → different new PID 和最终 verifier 通过。
 
 **上游吸收判断**：这是外层工作区治理策略。只有未来 Gateway/update wrapper 原生提供可配置的脚本/ignored 三态清单、并发安全的可恢复清理、每次 restart 前强制执行和可供无状态 AI 消费的审计输出时，才可归档；单纯增加一个 `rm -rf cache` 命令不构成吸收。
 
@@ -612,9 +600,11 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：新增 `skills.platform_allowed.<platform>`，并让 prompt、list/view 和 config-var discovery 共用同一解析；增加 `skills_readonly`（list/view）与 `file_readonly`（read/search）内部工具集。分类 skill 的规范名按短名匹配 allowlist，避免 `productivity:feishu-docs` 被错误拒绝。两个通配语义随实现存在并有测试覆盖：`platform_allowed: ["*"]` 为显式 allow-all 逃生口，`platform_disabled: ["*"]` 为全禁（`test_platform_disabled_wildcard`）；本机配置均未使用。
 
+2026-08-19 与上游 project-local skill discovery 融合时，保留其 `project_dirs` cache key、trust/quarantine 与项目 skill 扫描，同时让 snapshot、cold scan 和 project scan 三条可见路径统一先过平台 allowlist/disabled 判定；两类治理是正交叠加，不得用其中一个覆盖另一个。
+
 与上游 `skill_view` 的 repeat-view dedup 存根共存时必须保持**先 allowlist 过滤、后 dedup 存根**的执行顺序，防止被 allowlist 拒绝的 skill 因 dedup 缓存返回旧内容（2026-08 上游 `2a3a7e6f5` 融合时确立的顺序不变量，后续该函数任何 3-way 融合都必须复核）。
 
-**验证**：Step 8b 独立检查 `get_allowed_skill_names` 的三个调用面、qualified-name 回归，并用 venv python **精确断言**两个只读工具集的成员列表（`skills_readonly == [skills_list, skill_view]`、`file_readonly == [read_file, search_files]`；2026-08-07 审计修复：旧 gate 对四个工具名的裸 grep 全部能被上游既有 `skills`/`file` 工具集满足，永远不会失败）；测试覆盖空 allowlist、命名 allowlist、`feishu_group` 独立配置及只读工具集不被错误过滤。外层 `plugins/sandbox/verify.sh` 另做群工具面的成员/去写断言。
+**验证**：Step 8b 独立检查 `get_allowed_skill_names` 的三个调用面、qualified-name 回归，并用 venv python **精确断言**两个只读工具集的成员列表（`skills_readonly == [skills_list, skill_view]`、`file_readonly == [read_file, search_files]`；2026-08-07 审计修复：旧 gate 对四个工具名的裸 grep 全部能被上游既有 `skills`/`file` 工具集满足，永远不会失败）；测试覆盖空 allowlist、命名 allowlist、`feishu_group` 独立配置、project skill 可见路径及只读工具集不被错误过滤。外层 `plugins/sandbox/verify.sh` 另做群工具面的成员/去写断言。
 
 **上游吸收判断**：上游原生提供平台级 skill allowlist 和不含 manage/write 的只读 skill/file toolsets 后可归档。
 
@@ -961,23 +951,6 @@ cat ~/.hermes/patches/.local-patches.base
 
 **类别：历史保留、审批与本地运行兼容**
 
-### [PATCH-LAUNCHD-WRAPPER-SUPERVISOR] launchd stderr wrapper 保留受监管身份
-
-| 字段     | 内容                                                        |
-| -------- | ----------------------------------------------------------- |
-| **文件** | `hermes_cli/gateway.py`, `tests/hermes_cli/test_gateway.py` |
-| **状态** | 🟡 未上游合并                                               |
-
-**问题**：上游 `45af7a71f` 的 launchd plist 为给 raw stderr 加时间戳，把真实 Gateway 命令包在 `hermes_cli.stderr_timestamp` 子进程之后。launchd 的原生 `XPC_SERVICE_NAME` 标记没有可靠传到这个二级子进程；真实 Gateway 因此认为自己是 shell 启动的未监管副本，而 `get_gateway_runtime_snapshot()` 又能看到 launchd job 已注册，触发多写者保护并以 `A gateway is already running under launchd` 主动 exit 1。launchd 随即按 KeepAlive 反复重启并再次被拒，飞书主链路完全离线。上游已提供 `gateway run --external-supervisor` / `HERMES_GATEWAY_EXTERNAL_SUPERVISOR` 作为 wrapper 丢失原生标记时的正式通道，但 plist 命令构造没有使用它。
-
-**修复**：给 `_gateway_run_command()` / `_timestamped_stderr_gateway_command()` 增加显式 `external_supervisor` 参数；只有 `generate_launchd_plist()` 的 timestamp wrapper 路径传 `True`，在真实 Gateway argv 末尾追加 `--external-supervisor`。`_spawn_detached_gateway()` 继续使用默认 `False`，避免把 launchd 不可用时的独立 fallback 错标成受监管进程。该修复不改变 launchd reload、drain、KeepAlive 或 stderr timestamp 行为，只恢复 supervisor identity。
-
-**验证**：`test_launchd_stderr_wrapper_marks_gateway_as_externally_supervised` 成对断言 supervised wrapper 的最终 argv 含 `--external-supervisor`，detached wrapper 不含；`tests/hermes_cli/test_gateway.py` 全量 28 passed。Step 8b 同时检查参数定义、生产调用、真实测试名并纳入 8c 总闸门。真机复现中旧 plist 的 launchd job 连续 `last exit code = 1` 且无 Gateway 子进程；补丁后 `hermes gateway start` 重新生成定义，status 恢复为 `Service definition matches` + supervised wrapper PID，`gateway.status.get_running_pid()` 返回实际子进程，sandbox verifier 的注册 trace 绑定后者。
-
-**上游吸收判断**：当上游 launchd plist 的 wrapped child 原生保留 `XPC_SERVICE_NAME`，或官方命令构造显式传递 `--external-supervisor` 并同时有“launchd wrapper 有标记 / detached fallback 无标记”的回归后，可移除本补丁。
-
----
-
 ### [PATCH-HISTORY-RETENTION] 平台级回放历史保留窗
 
 | 字段     | 内容                                                                                                                                                                                                                    |
@@ -1055,6 +1028,25 @@ cat ~/.hermes/patches/.local-patches.base
 **验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset/可信 mutation 用户/HyperTeX 群与用户双 allowlist/固定脚本及原始工具集合均精确；真实解析 owner/group toolset，断言群聊不含 vision/image/terminal/write surface。除 search/describe 外，verifier 现穿过真实 `handle_function_call("tool_call" → "group_cache")`，证明 bridge scope、底层 hook 与 handler 可执行，同时 terminal scope 与非可信文档 mutation 被拦；owner HyperTeX 另覆盖创建参数/附件固定、同轮查询拦截、新 turn `tasks_get` 原样参数；群聊 HyperTeX 覆盖“开通群 + 可信用户”正例、“开通群 + 非可信用户”和“未开通群 + 可信用户”两个反例。`clarify`、web、默认 wiki search、当前消息资源 provenance 正反例均直接走 hook。插件回归覆盖跨群隔离、wiki/workspace symlink/path traversal、群优先 allowlist、outsider-DM 兼容、资源 provenance、历史链接不授权、可信 mutation 双层校验、web_extract 精确临时文件授权/新消息撤销、固定 argv、凭据脱敏、50 MB 下载上限和真实进程沙箱外写拒绝。工程内回归再用真实 Feishu group source 锁定图片 native、音频/视频 sidecar，以及 PDF/HTML/TXT/DOCX/XLSX/PPTX/ODT 内容进入 user turn；Feishu adapter 最高边界矩阵新增群音频与群 Drive/PDF。最后要求三个 hook/fire site、`ctx.register_tool()`、sandbox-exec 和当前 Gateway 真实子进程 PID 之后同时存在 `active=True` structured-tools trace（含 `hypertex_chats/users`）与 `mcp__hypertex__tasks_get/update/cancel` 注册 trace。任一失败设置升级 `FINAL_RC=1`。
 
 **上游吸收判断**：如果上游原生提供按会话隔离的可写工作区、无 shell 的固定动作工具、子进程写范围沙箱、owner-DM/group 独立工具面、当前消息资源 provenance 与安全的 deferred-tool bridge，可迁移到上游能力并归档本补丁；在此之前不得恢复群聊通用 terminal，也不得开放全局 cache/任意 bot 可读文档。
+
+---
+
+## Archive — PATCH-LAUNCHD-WRAPPER-SUPERVISOR（上游 v0.20.4）
+
+### [PATCH-LAUNCHD-WRAPPER-SUPERVISOR] launchd stderr wrapper 保留受监管身份
+
+| 字段     | 内容                                                                                           |
+| -------- | ---------------------------------------------------------------------------------------------- |
+| **文件** | 上游 `hermes_cli/gateway.py`, `tests/hermes_cli/test_gateway_external_supervisor.py`           |
+| **状态** | ✅ 已上游合并（v0.20.4，commit `7008fb81b3`）；本地源码 hunk 与旧 `test_gateway.py` 回归已移除 |
+
+**问题**：launchd plist 用 `hermes_cli.stderr_timestamp` 包裹真实 Gateway 后，原生 `XPC_SERVICE_NAME` 无法可靠传到二级子进程；wrapped child 会把自己误判为 shell 副本并因多写者保护退出，导致 launchd 反复拉起失败。
+
+**修复**：上游 `7008fb81b3` 已在生成的 launchd wrapped child argv 上显式追加 `--external-supervisor`，同时让 `stderr_timestamp` 升级旧 plist 的 Hermes Gateway argv；未受 launchd 监管的 detached fallback 仍保持无标记。本地 `_gateway_run_command()` 参数扩展和旧测试 hunk 因此删除，`hermes_cli/gateway.py` 与 `tests/hermes_cli/test_gateway.py` 退出 `PATCHED_FILES`。
+
+**验证**：上游 `tests/hermes_cli/test_gateway_external_supervisor.py` 覆盖 generated launchd inner argv 交还外部 supervisor、旧 plist wrapper 升级，以及无标记 detached watcher 反例；`hermes-update.sh` Step 8b 保留归档 sentinel，检查官方实现和这组正反例后才允许刷新 replay bundle。终态仍需真机证明 launchd definition current、supervisor PID 与真实 Gateway child PID 均健康。
+
+**上游吸收判断**：已由 commit `7008fb81b3` 完全吸收。若官方实现或正反例回归被移除，归档 sentinel 必须阻断升级并重新评估是否恢复本地补丁。
 
 ---
 

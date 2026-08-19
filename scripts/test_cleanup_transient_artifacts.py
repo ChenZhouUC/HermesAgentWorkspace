@@ -171,17 +171,20 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
                 {".pytest_cache/": "remove", "mystery/": "review", "runtime/": "keep"},
             )
 
-    def test_transaction_lock_is_explicitly_keep_classified(self) -> None:
+    def test_transaction_state_and_lock_are_explicitly_keep_classified(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
-            (root / ".gitignore").write_text("*.lock\n")
+            (root / ".gitignore").write_text(".hermes-update-transaction\n.hermes-update-transaction.lock/\n")
+            state_file = root / ".hermes-update-transaction"
+            state_file.write_text("version=1\nphase=upstream_applied\n")
             lock_dir = root / ".hermes-update-transaction.lock"
             lock_dir.mkdir()
             (lock_dir / "owner").write_text("test")
             policy_path = write_policy(
                 root,
                 ignored_keep={
+                    ".hermes-update-transaction": "transaction state",
                     ".hermes-update-transaction.lock/": "transaction lock",
                 },
             )
@@ -189,22 +192,42 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             audit, errors = cleanup.audit_ignored(root, cleanup.load_policy(policy_path))
 
             self.assertEqual(errors, [])
-            self.assertEqual(len(audit), 1)
-            self.assertEqual(audit[0].classification, "keep")
+            self.assertEqual(
+                {item.path: item.classification for item in audit},
+                {
+                    ".hermes-update-transaction": "keep",
+                    ".hermes-update-transaction.lock/": "keep",
+                },
+            )
 
     def test_runtime_bytecode_is_kept_while_test_bytecode_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
             (root / ".gitignore").write_text("**/__pycache__/\n")
-            for parent, dirname in (("agent", "agent/__pycache__"), ("tests", "tests/__pycache__")):
+            for parent, dirname in (
+                ("agent", "agent/__pycache__"),
+                ("tests", "tests/__pycache__"),
+                ("website/scripts", "website/scripts/__pycache__"),
+            ):
                 source = root / parent / "tracked.py"
                 source.parent.mkdir(parents=True, exist_ok=True)
                 source.write_text("tracked")
                 cache = root / dirname
                 cache.mkdir(parents=True)
                 (cache / "value.pyc").write_bytes(b"x")
-            subprocess.run(["git", "-C", str(root), "add", "agent/tracked.py", "tests/tracked.py"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "add",
+                    "agent/tracked.py",
+                    "tests/tracked.py",
+                    "website/scripts/tracked.py",
+                ],
+                check=True,
+            )
             policy_path = write_policy(
                 root,
                 ignored_keep={
@@ -214,6 +237,8 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
                 ignored_remove={
                     "tests/__pycache__/": "test cache",
                     "tests/**/__pycache__/": "nested test cache",
+                    "website/__pycache__/": "website cache",
+                    "website/**/__pycache__/": "nested website cache",
                 },
             )
 
@@ -222,7 +247,11 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             self.assertEqual(errors, [])
             self.assertEqual(
                 {item.path: item.classification for item in audit},
-                {"agent/__pycache__/": "keep", "tests/__pycache__/": "remove"},
+                {
+                    "agent/__pycache__/": "keep",
+                    "tests/__pycache__/": "remove",
+                    "website/scripts/__pycache__/": "remove",
+                },
             )
 
 

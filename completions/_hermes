@@ -66,6 +66,7 @@ _hermes() {
                 'monitoring:Inspect gateway monitoring (health & diagnostics export)'
                 'pairing:Manage DM pairing codes for user authorization'
                 'pause:Emergency stop: pause cron/kanban dispatch and new gateway t'
+                'peer:Bot-to-bot DMs across machines (peer Hermes gateways)'
                 'pets:Browse, install, and select petdex animated pets'
                 'plugins:Manage and validate plugins'
                 'portal:Set up Nous Portal (login, model pick, Tool Gateway); see al'
@@ -152,7 +153,6 @@ _hermes() {
                 computer-use)
                     local -a computer_use_cmds
                     computer_use_cmds=(
-                    'browser-approve:Mint a single-use token authorizing browser attachment for o'
                     'doctor:Run cua-driver `health_report` and surface the check matrix'
                     'install:Install or repair the cua-driver binary (macOS/Windows/Linux'
                     'permissions:Check or grant macOS Accessibility + Screen Recording (macOS'
@@ -198,14 +198,16 @@ _hermes() {
                     'adopt:Hand unmanaged skills to the curator (provenance is a user d'
                     'archive:Manually archive a skill (move to .archive/, excluded from p'
                     'backup:Take a manual tar.gz snapshot of ~/.hermes/skills/ (curator '
+                    'ledger:List the per-mutation skill audit ledger (all actors: curato'
                     'list-archived:List archived skills'
                     'list-unmanaged:List curation-eligible skills with no provenance marker'
                     'pause:Pause the curator until resumed'
                     'pin:Pin a skill so the curator never auto-transitions it'
                     'prune:Bulk-archive curator-managed skills idle for >= N days (defa'
+                    'purge:Delete archived skills older than curator.archive_ttl_days ('
                     'restore:Restore an archived skill'
                     'resume:Resume a paused curator'
-                    'rollback:Restore ~/.hermes/skills/ from a curator snapshot (defaults '
+                    'rollback:Restore ~/.hermes/skills/ from a curator snapshot, or a sing'
                     'run:Trigger a curator review now'
                     'status:Show curator status and skill stats'
                     'unpin:Unpin a skill'
@@ -412,6 +414,16 @@ _hermes() {
                     )
                     _describe 'pairing command' pairing_cmds
                     ;;
+                peer)
+                    local -a peer_cmds
+                    peer_cmds=(
+                    'add:Register (or update) a peer gateway'
+                    'dm:Message an agent on a peer gateway and print its reply'
+                    'list:List registered peers'
+                    'remove:Remove a peer'
+                    )
+                    _describe 'peer command' peer_cmds
+                    ;;
                 pets)
                     local -a pets_cmds
                     pets_cmds=(
@@ -470,7 +482,7 @@ _hermes() {
                         'info:Show a profiles distribution manifest (version, requirements'
                         'install:Install a profile distribution from a git URL or local direc'
                         'list:List all profiles'
-                        'rename:Rename a profile'
+                        'rename:Rename a profile (default: sets a display name; id unchanged'
                         'show:Show profile details'
                         'update:Re-pull a distribution and apply updates (user data preserve'
                         'use:Set sticky default profile'
@@ -532,6 +544,8 @@ _hermes() {
                     'list:List recent sessions'
                     'optimize:Reclaim disk space: merge FTS5 segments + VACUUM (no data ch'
                     'optimize-storage:Migrate the search index to the compact v23 layout (reclaims'
+                    'pin:Pin session(s) — durable keep flag, exempt from auto-archive'
+                    'pinned:List pinned sessions'
                     'prune:Delete old sessions (filterable by time window, source, titl'
                     'recover:Rebuild canonical session data into a separate clean databas'
                     'rename:Set or change a sessions title'
@@ -539,6 +553,7 @@ _hermes() {
                     'repair-routing:Re-stamp gateway sessions that lost their routing identity'
                     'retitle-skills:Re-title sessions whose auto-title came from a /skills own t'
                     'stats:Show session store statistics'
+                    'unpin:Remove the pin (durable keep flag) from session(s)'
                     )
                     _describe 'sessions command' sessions_cmds
                     ;;
@@ -562,7 +577,9 @@ _hermes() {
                     'search:Search skill registries'
                     'snapshot:Export/import skill configurations'
                     'tap:Manage skill sources'
+                    'trust:Trust a project so its repo-local skills (./.hermes/skills, '
                     'uninstall:Remove a hub-installed skill'
+                    'untrust:Revoke project-skill trust for a repo'
                     'update:Update installed hub skills'
                     )
                     _describe 'skills command' skills_cmds

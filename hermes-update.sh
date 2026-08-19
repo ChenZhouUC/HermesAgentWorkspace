@@ -69,7 +69,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.1 / main 8ad055414bcae75486952c5080d366679e074c1b, `hermes completion zsh` already emits the
+# As of v0.20.4 / main 13ce0c5c675e843af70d19c9e5144249cd51c8d1, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -99,7 +99,6 @@ PATCHED_FILES=(
     "gateway/stream_consumer.py"
     "hermes_cli/doctor.py"
     "hermes_cli/env_loader.py"
-    "hermes_cli/gateway.py"
     "hermes_cli/model_switch.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
@@ -130,7 +129,6 @@ PATCHED_FILES=(
     "tests/gateway/test_telegram_noise_filter.py"
     "tests/hermes_cli/test_doctor.py"
     "tests/hermes_cli/test_env_loader.py"
-    "tests/hermes_cli/test_gateway.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
     "website/docs/reference/environment-variables.md"
@@ -1655,7 +1653,7 @@ _ARCHIVED_DASHBOARD_BUILD_CACHE_OK=false
 _ARCHIVED_DELEGATE_ACP_ROUTING_OK=false
 _ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK=false
 _GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK=false
-_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK=false
+_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK=false
 _AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK=false
 _MODEL_CONFIGURED_ONLY_PATCH_OK=false
 _ARCHIVED_LAZY_ACTIVE_ANCHOR_OK=false
@@ -1812,25 +1810,26 @@ else
     warn "Could not locate venv, Gemini chat transport, or its regression test — skipping cross-provider history check"
 fi
 
-# PATCH-LAUNCHD-WRAPPER-SUPERVISOR: launchd starts a stderr timestamp wrapper,
-# so the real gateway is a grandchild and must receive the explicit supervisor
-# marker. The detached fallback path must remain unmarked.
+# Archived PATCH-LAUNCHD-WRAPPER-SUPERVISOR: upstream 7008fb81b3 now puts the
+# explicit supervisor marker on the wrapped launchd child while leaving the
+# detached fallback unmarked. Keep its upstream implementation/tests gated.
 GATEWAY_CLI_PY="${HERMES_AGENT}/hermes_cli/gateway.py"
-GATEWAY_CLI_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_gateway.py"
-if [[ -f "${GATEWAY_CLI_PY}" && -f "${GATEWAY_CLI_TEST_PY}" ]]; then
+GATEWAY_EXTERNAL_SUPERVISOR_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_gateway_external_supervisor.py"
+if [[ -f "${GATEWAY_CLI_PY}" && -f "${GATEWAY_EXTERNAL_SUPERVISOR_TEST_PY}" ]]; then
     if grep -q 'external_supervisor: bool = False' "${GATEWAY_CLI_PY}" &&
-        grep -q '_gateway_run_command(external_supervisor=external_supervisor)' "${GATEWAY_CLI_PY}" &&
+        grep -q 'inner = \[\*inner, "--external-supervisor"\]' "${GATEWAY_CLI_PY}" &&
         grep -q 'external_supervisor=True' "${GATEWAY_CLI_PY}" &&
-        grep -q 'test_launchd_stderr_wrapper_marks_gateway_as_externally_supervised' "${GATEWAY_CLI_TEST_PY}"; then
-        ok "PATCH-LAUNCHD-WRAPPER-SUPERVISOR active: wrapped launchd child keeps supervisor identity"
-        _LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK=true
+        grep -q 'test_update_hands_generated_launchd_inner_argv_back_without_watcher' "${GATEWAY_EXTERNAL_SUPERVISOR_TEST_PY}" &&
+        grep -q 'test_update_still_uses_detached_watcher_without_supervisor_flag' "${GATEWAY_EXTERNAL_SUPERVISOR_TEST_PY}"; then
+        ok "Archived launchd wrapper supervisor invariant: active upstream"
+        _ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK=true
     else
-        warn "PATCH-LAUNCHD-WRAPPER-SUPERVISOR inactive — launchd wrapper may reject its own gateway child"
-        add_act "Re-apply: see PATCHES.md § [PATCH-LAUNCHD-WRAPPER-SUPERVISOR]"
+        warn "Archived launchd wrapper supervisor invariant regressed"
+        add_act "Inspect upstream regression: see PATCHES.md § [PATCH-LAUNCHD-WRAPPER-SUPERVISOR]"
     fi
 else
     warn "Could not locate gateway CLI source/tests — skipping launchd wrapper supervisor check"
-    add_act "Check hermes-agent checkout for hermes_cli/gateway.py and tests/hermes_cli/test_gateway.py"
+    add_act "Check hermes-agent checkout for hermes_cli/gateway.py and tests/hermes_cli/test_gateway_external_supervisor.py"
 fi
 
 # PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION: an opted-in profile accepts provider
@@ -2703,6 +2702,8 @@ if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MC
         grep -q 'direct_task_response(messages)' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
         grep -q 'test_mcp_task_handle_ends_turn_without_second_model_call' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_advertises_extension_and_accepts_task_handle' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q '_mcp_field(result, "is_error", "isError", False)' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
+        grep -q 'test_task_aware_call_skips_validation_for_error_across_sdk_field_rename' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_completed_task_receipt_only_exposes_task_id_and_links' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_streamable_http_task_requests_get_standard_routing_headers' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_input_required_uses_normal_model_path_for_mrtr_handling' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
@@ -2779,7 +2780,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_LAUNCHD_WRAPPER_SUPERVISOR_PATCH_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

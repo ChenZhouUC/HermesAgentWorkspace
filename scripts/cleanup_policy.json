@@ -30,6 +30,7 @@
     ".claude/": "Local Claude/Codex workflow metadata.",
     ".env": "Local secrets and provider configuration.",
     ".env.*": "Local environment variants.",
+    ".hermes-update-transaction": "Persistent update transaction state required for pinned-SHA recovery after failure or interruption.",
     ".hermes-update-transaction.lock/": "Atomic update/reconcile transaction lock held during preflight.",
     ".hermes_history": "Local interactive command history.",
     ".mcp-discovery.lock": "MCP discovery coordination lock.",
@@ -128,7 +129,9 @@
     "hermes-agent/skills/__pycache__/": "Bundled skill script/test bytecode cache.",
     "hermes-agent/skills/**/__pycache__/": "Nested bundled skill script/test bytecode cache.",
     "hermes-agent/tests/__pycache__/": "Test-suite bytecode cache.",
-    "hermes-agent/tests/**/__pycache__/": "Nested test-suite bytecode cache."
+    "hermes-agent/tests/**/__pycache__/": "Nested test-suite bytecode cache.",
+    "hermes-agent/website/__pycache__/": "Website documentation/build script bytecode cache.",
+    "hermes-agent/website/**/__pycache__/": "Nested website documentation/build script bytecode cache."
   },
   "protected_prefixes": [
     ".git",
