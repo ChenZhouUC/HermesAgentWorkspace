@@ -61,6 +61,11 @@ def group_config(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         sandbox,
+        "_GROUP_HYPERTEX_CHAT_IDS",
+        frozenset({"group-one"}),
+    )
+    monkeypatch.setattr(
+        sandbox,
         "_GROUP_HYPERTEX_USER_IDS",
         frozenset({"trusted-user"}),
     )
@@ -571,6 +576,15 @@ def test_group_hypertex_is_limited_to_trusted_testers(group_config):
         tool_name=sandbox._HYPERTEX_LIST_TOOL,
         args={"username": "hermes"},
     ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_BLOCK_MESSAGE}
+
+
+def test_group_hypertex_is_limited_to_enabled_chats_even_for_trusted_testers(group_config):
+    sandbox._current_chat_id.set("group-two")
+
+    assert sandbox._on_pre_tool_call(
+        tool_name=sandbox._HYPERTEX_LIST_TOOL,
+        args={"username": "hermes"},
+    ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE}
 
 
 def test_trusted_group_hypertex_allows_one_call_per_inbound_turn(group_config):

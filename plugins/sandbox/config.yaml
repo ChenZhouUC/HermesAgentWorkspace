@@ -51,8 +51,16 @@ trusted_feishu_user_ids_for_group_mutations:
   - ou_33eeacfbd0c0559b7b734f83503719ab
   - 5397e1a2
 
-# HyperTeX shares cases under the pinned `hermes` contributor, so group access
-# is limited to explicit internal testers instead of every group member.
+# HyperTeX is exposed in the shared feishu_group toolset, but calls are enabled
+# only when both the current chat and current user appear in these allowlists.
+trusted_feishu_chat_ids_for_group_hypertex:
+  # 财务专享 AI 小助手
+  - oc_7c6cad99e7f0090c15fc943a12edc6e4
+  # Data Pipeline Workshop
+  - oc_e11903076f3393e0f237cb406b6c3a07
+  # AI 解放生产力
+  - oc_0663408600b12ccec166f9889046a36a
+
 trusted_feishu_user_ids_for_group_hypertex:
   - ou_33eeacfbd0c0559b7b734f83503719ab
   - 5397e1a2

@@ -180,6 +180,12 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
 mutation_users = set(plugin.get("trusted_feishu_user_ids_for_group_mutations") or [])
 assert mutation_users, "trusted group mutation user ids must be configured"
 assert mutation_users.issubset(set(feishu.get("assistant_user_ids") or []))
+hypertex_chats = set(plugin.get("trusted_feishu_chat_ids_for_group_hypertex") or [])
+assert hypertex_chats == {
+    "oc_7c6cad99e7f0090c15fc943a12edc6e4",
+    "oc_e11903076f3393e0f237cb406b6c3a07",
+    "oc_0663408600b12ccec166f9889046a36a",
+}
 hypertex_users = set(plugin.get("trusted_feishu_user_ids_for_group_hypertex") or [])
 assert hypertex_users, "trusted group HyperTeX user ids must be configured"
 assert hypertex_users.issubset(set(feishu.get("assistant_user_ids") or []))
@@ -380,7 +386,7 @@ assert sandbox._on_pre_tool_call(
 assert owner_task_args == {"task_id": "2"}
 
 sandbox._current_platform.set("feishu")
-sandbox._current_chat_id.set("oc_verify_group")
+sandbox._current_chat_id.set(next(iter(sandbox._GROUP_HYPERTEX_CHAT_IDS)))
 sandbox._current_chat_type.set("group")
 sandbox._current_user_id.set("ou_untrusted_verify")
 sandbox._current_resource_refs.set(frozenset())
@@ -408,6 +414,13 @@ assert sandbox._on_pre_tool_call(
     args=group_hypertex_args,
 ) is None
 assert group_hypertex_args == {"username": "hermes"}
+
+sandbox._current_chat_id.set("oc_verify_disabled_group")
+sandbox._current_hypertex_call_count.set(0)
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._HYPERTEX_LIST_TOOL,
+    args={"username": "hermes"},
+) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE}
 sandbox._current_user_id.set("ou_untrusted_verify")
 
 # Exercise the real deferred bridge: tool_call unwraps to the scoped
@@ -535,6 +548,7 @@ PY
         echo "${current_reg}" | grep -q 'group_cache' &&
         echo "${current_reg}" | grep -q 'feishu_doc_manage' &&
         echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_create_case' &&
+        echo "${current_reg}" | grep -q 'hypertex_chats=' &&
         echo "${current_reg}" | grep -q 'hypertex_users='; then
         # Strip the date+level prefix for readability.
         msg="${current_reg##*INFO }"

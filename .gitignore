@@ -48,6 +48,8 @@ state/
 .npm_lock_hash_*
 auth.lock
 feishu_seen_message_ids.json
+# Runtime-generated directory; friendly-name overrides live in the tracked
+# channel_aliases.json file.
 channel_directory.json
 people.yaml
 people.draft.yaml
@@ -80,7 +82,6 @@ gateway/restart_loop.json
 .install_method
 .managed
 active_profile
-channel_aliases.json
 feishu_comment_pairing.json
 pairing/
 profiles/

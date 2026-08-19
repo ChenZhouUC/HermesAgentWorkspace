@@ -71,6 +71,7 @@ _OWNER_CHAT_IDS: FrozenSet[str] = frozenset()
 _ALLOWED_TOOLS: FrozenSet[str] = frozenset()
 _GROUP_ALLOWED_TOOLS: FrozenSet[str] = frozenset()
 _GROUP_MUTATION_USER_IDS: FrozenSet[str] = frozenset()
+_GROUP_HYPERTEX_CHAT_IDS: FrozenSet[str] = frozenset()
 _GROUP_HYPERTEX_USER_IDS: FrozenSet[str] = frozenset()
 _GROUP_ALLOWED_READ_ROOTS: Tuple[Path, ...] = tuple()
 _GROUP_WORKSPACE_ROOT: Optional[Path] = None
@@ -118,6 +119,7 @@ _HYPERTEX_USERNAME = "hermes"
 _HYPERTEX_AGENT = "codex"
 _HYPERTEX_CASE_TYPE = "deck"
 _HYPERTEX_ONE_CALL_MESSAGE = "本轮已经调用过 HyperTeX。请直接根据已有结果回复用户；状态查询或重试请等待用户下一条消息。"
+_HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE = "HyperTeX 目前未在本群启用。"
 _HYPERTEX_GROUP_BLOCK_MESSAGE = "HyperTeX 群聊内测目前仅对受信任的维护者开放。"
 _MAX_FILE_CONTENT_BYTES = 1_000_000
 _MAX_TOOL_OUTPUT_CHARS = 100_000
@@ -847,7 +849,7 @@ def _group_tools_available() -> bool:
 
 def _load_config() -> bool:
     global _CONFIG_LOADED, _OWNER_CHAT_IDS, _ALLOWED_TOOLS, _GROUP_ALLOWED_TOOLS
-    global _GROUP_MUTATION_USER_IDS, _GROUP_HYPERTEX_USER_IDS
+    global _GROUP_MUTATION_USER_IDS, _GROUP_HYPERTEX_CHAT_IDS, _GROUP_HYPERTEX_USER_IDS
     global _GROUP_ALLOWED_READ_ROOTS, _GROUP_WORKSPACE_ROOT, _GROUP_ALLOWED_SCRIPT_ACTIONS
     global _FEISHU_DOC_SCRIPTS_ROOT, _PYTHON_EXECUTABLE, _SCRIPT_TIMEOUT_SECONDS
     global _GROUP_MAX_DOWNLOAD_BYTES, _HYPERTEX_ASSET_STAGING_ROOT
@@ -899,6 +901,7 @@ def _load_config() -> bool:
     _ALLOWED_TOOLS = frozenset(str(item) for item in allowed)
     _GROUP_ALLOWED_TOOLS = frozenset(str(item) for item in group_allowed)
     _GROUP_MUTATION_USER_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_user_ids_for_group_mutations")))
+    _GROUP_HYPERTEX_CHAT_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_chat_ids_for_group_hypertex")))
     _GROUP_HYPERTEX_USER_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_user_ids_for_group_hypertex")))
     _GROUP_ALLOWED_READ_ROOTS = _coerce_paths(data.get("allowed_read_roots_for_outsider_groups"))
     _GROUP_WORKSPACE_ROOT = _expand_path(workspace_value)
@@ -1017,6 +1020,8 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
             )
             return {"action": "block", "message": _BLOCK_MESSAGE}
         if tool_name in _HYPERTEX_TOOLS:
+            if chat_id not in _GROUP_HYPERTEX_CHAT_IDS:
+                return {"action": "block", "message": _HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE}
             if str(_current_user_id.get() or "") not in _GROUP_HYPERTEX_USER_IDS:
                 return {"action": "block", "message": _HYPERTEX_GROUP_BLOCK_MESSAGE}
             return _prepare_hypertex_call(tool_name, args)
@@ -1072,7 +1077,8 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     logger.info(
         "sandbox: registered (pid=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
-        "workspace_root=%s, script_actions=%s, mutation_users=%s, hypertex_users=%s, process_sandbox=%s)",
+        "workspace_root=%s, script_actions=%s, mutation_users=%s, hypertex_chats=%s, "
+        "hypertex_users=%s, process_sandbox=%s)",
         os.getpid(),
         loaded,
         sorted(_OWNER_CHAT_IDS),
@@ -1081,6 +1087,7 @@ def register(ctx: Any) -> None:
         _GROUP_WORKSPACE_ROOT,
         sorted(_GROUP_ALLOWED_SCRIPT_ACTIONS),
         sorted(_GROUP_MUTATION_USER_IDS),
+        sorted(_GROUP_HYPERTEX_CHAT_IDS),
         sorted(_GROUP_HYPERTEX_USER_IDS),
         _REQUIRE_PROCESS_SANDBOX,
     )
