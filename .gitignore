@@ -46,7 +46,7 @@ gateway_state.json
 gateway-starts.log
 state/
 .npm_lock_hash_*
-auth.lock
+*.lock
 feishu_seen_message_ids.json
 # Runtime-generated directory; friendly-name overrides live in the tracked
 # channel_aliases.json file.
@@ -59,8 +59,6 @@ processes.json
 cron/jobs.json
 .update_check
 .hermes-update-transaction
-.hermes-update-transaction.lock/
-.tick.lock
 .hermes_history
 .clean_shutdown
 web-ui-build-stamp.json
@@ -132,12 +130,12 @@ sessions/
 cron/output/
 cron/ticker_heartbeat
 cron/ticker_last_success
-cron/*.lock
 cron/executions.db*
 sandboxes/
 
 # ── Python / 测试 / 覆盖率缓存 ───────────────────────────────────
 .pytest_cache/
+.pytest-cache/
 .ruff_cache/
 .mypy_cache/
 .hypothesis/
@@ -194,7 +192,6 @@ hermes-backup-*.zip
 
 # ── macOS ──────────────────────────────────────────────────────
 .DS_Store
-*.lock
 
 # ── 项目缓存 ────────────────────────────────────────────────────
 /tmp
