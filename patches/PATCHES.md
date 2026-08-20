@@ -7,6 +7,7 @@
 > - **每次升级后**重写 `## 当前版本：vX.Y.Z (upstream `main` `<SHA>`，YYYY-MM-DD)` header 与下方"最近一次升级"摘要；摘要遵循 5 段结构（上游主线 / patch apply / 依赖 / 已知摩擦 / 配置漂移）。
 > - **新补丁**：使用稳定的语义 ID（`PATCH-<DOMAIN>-<INVARIANT>`），在 `## 当前版本` 节下新增一块 2-row 表（`文件 / 状态`）和 `问题 / 修复 / 验证 / 上游吸收判断` 四段。编号不表达顺序，禁止用 A/B 子编号承载不同吸收单元。
 > - **边界判定**：一个补丁只能有一个可独立说明的责任边界、一个对应生命周期 gate（Step 3/4/7/8b/8e）和一个上游吸收条件。能被不同上游 PR 分别吸收的能力必须拆开；只有必须一起回滚、一起验收、一起吸收的改动才能合并。
+> - **真实回归证据**：每个活跃/归档 PATCH 都必须在 `**验证**` 段落绑定真实测试、运行时边界或保留的上游回归；`python3 scripts/test_patch_evidence.py` 会逐块检查证据、生命周期和 bundle/replay，不接受只有 grep sentinel 或会话口头结论的 PATCH。
 > - **上游合并某补丁**：把该补丁块整体移动到对应 archive 节，记录吸收 commit 和保留的回归 sentinel；同步更新 `PATCHED_FILES`、验证 gate 和 replay bundle。
 > - **每个语义 ID 的定义块在整份 PATCHES.md 里仅出现一次**——要么活跃、要么归档；依赖、验证和历史摘要可以引用 ID，但不得复制定义块。
 > - **分类结构**：所有活跃定义必须连续放在首个 `## Archive` 之前，按职责类别分组；所有 Archive 统一后置。禁止在 Archive 之后用“活跃定义续接”标题重新打开活跃区，避免活跃状态与生命周期位置错位。
@@ -315,23 +316,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.4 (upstream `main` `13ce0c5c675e843af70d19c9e5144249cd51c8d1`，2026-08-20)
+## 当前版本：v0.20.4 (upstream `main` `c47f0b4590e6b5bb05fb73a42f447ca5444f5188`，2026-08-20)
 
 **活跃补丁**：当前共 42 个语义补丁。34 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA`、`PATCH-GATEWAY-RESTART-CLEANUP` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
-**2026-08-20 运行态审计：SpaceSight 国内业务群创建需求文档失败**：请求已进入 Agent，但 Azure 主模型两次 90s stale kill 后切 Bedrock；模型随后生成大段文档工具参数时触及默认 4096-token 输出预算，且 provider 把未闭合 JSON 标为 `tool_calls`，旧路径不提高预算重试而直接回 `Response truncated due to output length limit`。终态失败 flush 又把 `Primary model failed — switching to fallback...` 内部状态发进群；正常的 8,397 / 8,703 / 11,351 字符回复也因 Feishu adapter 固定 8,000 字符预算被主动拆段。新增三个独立工程补丁：隐藏聊天面的模型路由状态、为隐藏截断的工具参数执行 8k→16k→32k 有界重试、提供 `display.platforms.<feishu|feishu_group>.response_char_limit`（本机 3000）生成侧软预算并把单条 post 硬兜底提高到 16,000 字符。
+**最近一次升级（v0.20.4，`f43eabee5f36` → `c47f0b4590e`，+5 commits，2026-08-20）要点**：
 
-**2026-08-20 运行态审计：财务群引用 PDF 后长时间无响应**：飞书真实群历史证明 PDF 引用、附件回填和文本抽取均成功，12:19:49 也确实发送了 1,829 字最终回复并创建飞书文档 `QHCOdMaZNoVTU8xcCtlcAmxPnhg`；问题是整轮耗时 1,163.6 秒且群聊 long-running notification 被 final-only 策略完全关闭。模型在 12:03 已发现 HyperTeX create 工具，却生成 `tool_call({name:"tool_call", arguments:{name:"mcp__hypertex__hypertex_create_case",...}})` 双层 envelope，旧 bridge 在读内层 target 前按递归拒绝，导致异步 HyperTeX 未启动，Agent 跨 Azure→Bedrock→Vertex 手工生成本地 83KB HTML，最终只能发飞书大纲与不可直接访问的缓存文件说明。新增 `PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY` 安全剥离一层冗余 envelope；同时把 `feishu_group.long_running_notifications` 改为 `generic`、`gateway_notify_interval` 调为 180 秒，保留最终内容优先但不再让 19 分钟任务完全静默。`response_char_limit` 仅约束最终聊天气泡，明确不限制文档、HTML、附件、Markdown 源稿或工具 payload；12k 单条 post 回归同时证明标题、引用与 strong flanking 格式化仍生效。终态 **42 active / 34 engineering patches / 85 files / 39 tests**；受管测试 **1654 passed / 0 failed / 3 skipped**（另 8 subtests），sandbox **42 passed**，85-file bundle cached 正向 / worktree 反向 / conflict-marker / index-clean 全绿；Gateway planned restart 后运行于 PID 35792。
-
-**2026-08-20 运行态审计：Data Pipeline Workshop 可信维护者删除文档被误拒**：真实入站与 state.db 均证明当前发言人的 tenant `user_id=5397e1a2` 已命中 delete 白名单；失败发生在 provenance 层。Feishu/Gateway 把引用回复中的文档链接规范化成 Markdown `[URL](URL)`，旧 `_FEISHU_URL_RE` 把两段 URL 连同中间 `](` 粘成一个畸形 `URL](URL`，导致 doc token 未进入 `_current_resource_refs`，而身份拒绝与目标未引用又共用同一错误文案，模型遂误报“当前身份不是维护者”。现正则在 Markdown `]` 前终止、两段 URL 分别规范化；trust 与 target-reference 使用独立错误消息和结构化 reason 日志。新增回归从真实 `[URL](URL)` reply 形状穿过 `pre_gateway_dispatch`、deferred `tool_call`、pre-tool hook 与 handler（trusted script 用 fake runner，零真实删除），sandbox 终态 **42 passed**。同轮仓库审计还发现 quote-chain 与 compaction 两个 Step 8b flag 虽设为 true 却未进入 8c 总条件；现已补接并新增 `--self-test-patch-gates`，每轮 preflight 自动证明 34 个活跃工程 gate 与 6 个归档 gate 均“声明、可成功、被总闸门消费”。终态按 Step 5b 排空重载，launchd wrapper PID 50624、真实 Gateway 子进程 PID 50625；新 PID 下 verifier 42 passed，cleanup review=0 / candidate=0。
-
-**最近一次升级（v0.20.1 → v0.20.4，+836 commits，basis `8ad055414bcae75486952c5080d366679e074c1b` → `13ce0c5c675e843af70d19c9e5144249cd51c8d1`，2026-08-19）要点**：
-
-- 上游主线：发布 **v0.20.2 → v0.20.3 → v0.20.4**（`df4b65147` / `7339f5f16` / `7e05e9080`），main 前进 836 commits。MCP 迁移到 2.x SDK 并接入 2026-07-28 stateless protocol、OAuth user-agent/CIMD（`11a9dcf56` / `382060f02` / `a6bada232` / `0b588cb3a`）；Skills 新增 project-local discovery、trust/quarantine、安装安全与文件 mode 保留（`f891d702d` / `6e22d2658` / `183f18d53` / `968853c5b`）；Gateway/session 加入 profile-aware key、恢复笔记、DB off-loop 与 launchd wrapper supervisor 正式修复（`21260c328` / `0cc26777b` / `8e81e2aaa` / `7008fb81b`）；模型/provider catalog、Desktop 多 source/Bot Mode/preview/browser/tour 与 Nix Home Manager 持续演进（`fa1bb88e3` / `d354af5e1` / `018176915` / `d5a9c2ba6`）。
-- patch apply / registry：84-file bundle 在 `prompt_builder.py`、`skill_utils.py`、`hermes_cli/gateway.py`、`tools/approval.py`、`tools/mcp_tool.py` 发生真实 3-way 冲突；project skill 与平台 allowlist、single-query approval 与 Feishu group hard floor、MCP 2.x 字段/API 与 Tasks extension 均按“并存”重解。`PATCH-LAUNCHD-WRAPPER-SUPERVISOR` 经裸 upstream 实现 + 14 条官方回归证明完全吸收并移入 Archive，本地 hunk/旧测试退出 bundle；08-20 运行态与仓库审计后新增四个输出/工具稳健性补丁，修复群文档 Markdown provenance，并补齐 quote-chain/compaction 两个 8c gate 与机器自测。终态 **42 active / 34 engineering patches / 85 files / 39 tests**，受管 runner **1654 passed / 0 failed / 3 skipped**，sandbox **42 passed**，85-file replay 闭环全绿。
-- 依赖：venv 原地升级，Python 3.12.13 / SQLite 3.53.1 保持；Hermes 0.20.1 → 0.20.4，MCP 1.28.1 → 2.0.0，idna 3.15 → 3.18，pip 26.2 → 26.2.1，并新增 `httpx2` / `mcp-types` / `truststore` 等上游 pin；20 个 active lazy backend 全部 current。官方 updater 更新 4 个 bundled skills，终态 mirror `+0/~1/-0` 且 runtime metadata 保留。root `npm audit` 仍为 **6 high**：Electron 40.10.2 / extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 被 override/lock 阻挡；均属 Desktop/Web build-chain P2，不影响飞书 gateway，未使用 `--force`。`package-lock.json` 仅 workspace hoist / peer 标记归一化，继续排除出 replay bundle。
-- 已知摩擦：唯一 `--update` 固定 `TARGET_SHA=13ce0c5c675e` 后，所有复跑均为 no-network reconcile。cleanup 先暴露未完成事务文件未分类，后又在全量回归预编译后暴露新 `website/scripts/__pycache__`；现已把事务状态/锁成对列为 keep、website 文档脚本缓存精确列为 remove，并补 7 条清理器回归。MCP 2.0 将 `CallToolResult.isError` 属性改名为 `is_error`，Tasks extension 已改为 snake/camel 双读并新增 success/error validation 反例。可信删除误拒证明裸 URL fixture 不能替代 Gateway 规范化后的 Markdown reply；gate 漏接则证明“flag 存在”不能替代聚合条件集合相等。两类经验已分别落入 sandbox 真实边界回归与 `--self-test-patch-gates` preflight。一次 Doctor Bedrock TLS 证书错配在无配置变更的立即复跑中恢复，归类为瞬时网络/DNS 噪音；最终 Azure/Bedrock 均通过。reconcile exit 0、无 `✗`，事务清除，Gateway planned restart 与 sandbox 42 passed 绑定最终真实子进程。
-- 配置漂移：主配置仍为 v37，无 migration 或 deprecated key；Azure → Bedrock → Vertex fallback、Vertex compression、统一 700k threshold、`browser.backend: 'off'` 与 Feishu owner/group sandbox 边界均保持。Doctor 仅保留上述 P2 npm build-chain 和未配置的可选 provider/toolset P3，不存在可修而未修的 P0/P1。
+- 上游主线：本轮上游新增 5 个 Desktop sidebar/session-row 相关提交（`b6d21b37b6`、`60ff62cb13`、`91670103fd`、`aa08d0fdf4`、`c47f0b4590`），未触及 85 个受管 PATCH 文件；此前的 updater stale-module 修复继续由 `044acf2bf7` 提供。
+- patch apply / registry：85-file full-index bundle clean apply，19 个受管路径与上游同时变化但无 PATCH 生命周期变化；42 个活跃语义补丁仍为 34 个工程内、7 个运行时、1 个外层插件，全部未吸收、未收缩、未归档。Step 8b/8c 自测为 34 active + 6 archived gates，受管 runner **1668 passed / 0 failed / 3 skipped**，bundle 逐字节、cached 正向、worktree 反向和 index-clean 全绿。
+- 依赖：Python 3.12.13、SQLite 3.53.1、20 个 active lazy backend 保持可用；官方 Skills mirror `+0/~1/-0`。root `npm audit` 仍为 **6 high**：Electron/extract-zip 需越 stated range，postcss/nanoid 等待上游 lock/range bump；均属 Desktop/Web build-chain P2，不影响飞书 gateway，未使用 `--force`。`package-lock.json` 为内层非 replay 漂移。
+- 已知摩擦：本轮审计新增 `scripts/test_patch_evidence.py`，首次接入时发现 16 个 PATCH 验证段缺少明确回归 token，并发现 evidence self-test 会污染 `_REQUESTED_MODE`；已分别补齐注册表证据并把 self-test 隔离到 subshell。一次误传 `--reconcile` 因该污染错误进入 acquisition，固定目标 `c47f0b4590e` 后已完成收敛；该故障和恢复规则已落入 playbook。最终 Gateway planned restart 为 `3920 → 40625`（wrapper `40624`），sandbox 53 条 + identity-sync 6 条全绿。
+- 配置漂移：主配置保持 v38，无 deprecated key；Azure → Bedrock → Vertex fallback、Vertex compression、统一 700k threshold、`browser.backend: 'off'` 与 Feishu owner/group sandbox 边界保持。Azure/Bedrock Doctor 探针最终正常；未配置 provider/toolset 属 P3，不存在可修而未修的 P0/P1。
 
 ---
 
@@ -405,7 +400,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：Step 2 保存与 Step 8c 刷新统一使用 `git diff --full-index`，playbook 的 live-diff 核验也固定同一参数。bundle 的对象 ID 始终写完整 SHA，不再依赖仓库当前的自动缩写宽度。2026-08-06 收尾审计把原先仅由 playbook 人工执行的物理闭环下沉进两个 bundle 发布点：临时包必须通过 conflict-marker、index-clean（2026-08-07 起 Step 2 链内显式 `git diff --cached --quiet`，不再只依赖 preflight 继承）、cached 正向、worktree 反向检查，Step 8c 再与现场 full-index diff 逐字节比较；只有全绿才替换 canonical bundle/base。2026-08-18 起 Step 2/8c 不再依赖真实 index 的 ITA 可见性：`_managed_path_differs_from_head` 显式把「HEAD 不存在 + 工作树存在」判为 new-file diff，`_write_managed_bundle` 则从 HEAD 在临时 index 中精确 add/rm 本轮路径后生成 cached full-index diff，同时覆盖 tracked 修改、删除、untracked 新文件和 upstream-ignored 但已登记的 skill；真实 index 始终不变。裸窗口的逐路径 restore 只接受 `PATCHED_FILES`，因此可安全删除上游不存在的精确 replay-created 文件，不会扫描其它 untracked 路径。注意 8c 的 cmp 是"刷新输出 vs canonical 写入"的一致性闸，当 `_REFRESHED` 与 `PATCHED_FILES` 全等时两侧同源，不能替代 playbook Step 3 的独立现场复核。Step 2 另要求已有 bundle 时全部受管路径都有 live diff，禁止用中断产生的部分 overlay 覆盖完整旧包。
 
-**验证**：`bash hermes-update.sh --print-patched-files` 输出必须与 bundle path 集合、live modified 集合一一相等；脚本 Step 2/8c 日志必须明确报告完整文件数，Step 8c 报 `refreshed and replay-verified`。独立复核时用与脚本相同的临时-index full-index 生成器与 `patches/local-patches.diff` 比较，正向 cached、反向 worktree 与两次真实 index-clean check 必须同时通过。隔离构造 61/62 的部分 overlay 时 Step 2 必须在写 canonical bundle 前非零退出；Step 8c 的单个 zero-diff path 也必须阻断刷新并点名该路径。对上游不存在的受管新文件，修复前必须稳定复现 81/84 partial coverage，修复后 Step 2/8c 都必须报 84/84，bundle 包含每个 `new file mode`，并且真实 index 在 capture/apply/refresh 前后均保持 clean。
+**验证**：`bash hermes-update.sh --print-patched-files` 输出必须与 bundle path 集合、live modified 集合一一相等；脚本 Step 2/8c 日志必须明确报告完整文件数，Step 8c 报 `refreshed and replay-verified`。独立复核必须用临时 index 执行 `git diff --cached --full-index HEAD -- <PATCHED_FILES>` 与 `patches/local-patches.diff` 逐字节比较，并分别运行 `git apply --cached --check patches/local-patches.diff` 和 `git apply --check --reverse patches/local-patches.diff`；正向 cached、反向 worktree 与两次真实 index-clean check 必须同时通过。隔离构造 61/62 的部分 overlay 时 Step 2 必须在写 canonical bundle 前非零退出；Step 8c 的单个 zero-diff path 也必须阻断刷新并点名该路径。对上游不存在的受管新文件，修复前必须稳定复现 81/84 partial coverage，修复后 Step 2/8c 都必须报 84/84，bundle 包含每个 `new file mode`，并且真实 index 在 capture/apply/refresh 前后均保持 clean。
 
 **上游吸收判断**：这是外层 replay bundle 的本地持久化格式；只有未来迁移到不含动态缩写元数据的等价稳定格式，或不再维护本地 replay bundle 时，才可归档。
 
@@ -509,7 +504,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：在 `pyproject.toml` 的 `feishu` extra 和 `tools/lazy_deps.py` 的 `LAZY_DEPS["platform.feishu"]` 都加 `"python-socks==2.8.1"`。手动 `.[feishu]`、`.[all,feishu]`、和上游 lazy install 三条路径都能拿到 SOCKS。版本钉死风格与上游 2026-05-14 起 messaging extras `==X.Y.Z` 约定一致（避免 `>=2.0,<3` 被 `uv lock --check` 报漂移）。
 
-**验证**：Step 8b grep `python-socks` 在 `pyproject.toml` 和 `tools/lazy_deps.py` 都存在。
+**验证**：Step 8b grep `python-socks` 在 `pyproject.toml` 和 `tools/lazy_deps.py` 都存在；`scripts/test_patch_evidence.py::audit_socks_dependency` 在 Hermes venv 中真实导入 `socks` 并核对 `python-socks==2.8.1`，缺包或 pin 漂移均非零。
 
 **上游吸收判断**：当上游 `feishu` extra 与 `LAZY_DEPS["platform.feishu"]` 都显式声明兼容的 SOCKS 依赖，并通过代理连接回归后，才可移除本补丁；任一路径缺失都必须保留。
 
@@ -526,7 +521,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：迁移脚本仍归档完整 gateway 配置，但不再把 `gateway.auth.token` 写进 `.env`；英文迁移文档与 zh-Hans 翻译（2026-08-07 审计补齐——此前中文文档仍保留该映射行、且全树仅剩这一处引用）同步删除该字段映射行。
 
-**验证**：Step 8b grep 确认迁移脚本、英文文档与 zh-Hans 文档都不再出现 `HERMES_GATEWAY_TOKEN` / `gateway.auth.token` / `Gateway 认证 token`。
+**验证**：Step 8b grep 确认迁移脚本、英文文档与 zh-Hans 文档都不再出现 `HERMES_GATEWAY_TOKEN` / `gateway.auth.token` / `Gateway 认证 token`；`scripts/test_patch_evidence.py::audit_openclaw_token_migration` 用含 gateway auth token 的临时 OpenClaw fixture 执行 dry-run，断言迁移报告、环境目标和归档输出都不生成该废弃 token。
 
 **上游吸收判断**：当上游迁移脚本不再写入废弃的 `HERMES_GATEWAY_TOKEN`，且迁移文档同步移除该映射后，才可移除本补丁；当前上游两处仍未吸收。
 
@@ -1227,6 +1222,8 @@ cat ~/.hermes/patches/.local-patches.base
 
 **上游追踪**：上游 commit `6b21a935a`（`fix(doctor): ignore disabled toolsets in missing-API-key summary`）合入等价逻辑，本地 `hermes_cli/doctor.py` 已从 `PATCHED_FILES` 移除。`hermes-update.sh` Step 8b 仍保留 grep `_get_platform_tools` 的存在性检查，用于在上游回滚时及时告警。
 
+**验证**：上游 `hermes_cli/test_doctor.py` 的 enabled-toolset issue-count 回归继续由官方测试集覆盖；本地 Step 8b sentinel 在每轮升级前检查 `_get_platform_tools` 仍存在，若上游回滚则阻断收敛。
+
 ---
 
 ## Archive — PATCH-ZSH-COMPLETION-SYNTAX（上游 v0.13.0）
@@ -1258,6 +1255,8 @@ cat ~/.hermes/patches/.local-patches.base
 
 **本地处置**：`hermes-update.sh` Step 7 中针对旧坏格式的 `grep -q '){-h,--help}'`、`grep -q '){-V,--version}'`、`grep -q '){-p,--profile}'` 检测块作为回归 sentinel 保留。新格式不会触发匹配，脚本日志直接输出 `PATCH-ZSH-COMPLETION-SYNTAX: upstream completion output already uses correct syntax — no fix needed`。如未来上游回滚到坏格式，inline Python rewrite 会自动重新介入。
 
+**验证**：`hermes completion zsh` 真实生成结果必须命中上游 `(-)` brace-expansion 形态且不命中三个坏格式；Step 7 同时保留坏格式检测与自动修复反例，生成失败直接令升级非零。
+
 ---
 
 ## Archive — PATCH-DASHBOARD-BUILD-CACHE（上游 v0.11.x）
@@ -1275,6 +1274,8 @@ cat ~/.hermes/patches/.local-patches.base
 **修复**：上游在 commit `5b5a53a155857e63ec7f7eeb373049ad224fc92f`（`fix(cli): check hermes_cli/web_dist/ not web/dist/ for build staleness`）中新增 `_web_ui_build_needed()` helper：以 `hermes_cli/web_dist/.vite/manifest.json`（fallback `index.html`）作 sentinel，并在 `_build_web_ui()` 内部判断 sentinel 是否新过所有 `.ts/.tsx/.js/.jsx/.css/.html/.vue` 源码及 `package.json/package-lock.json/vite.config.*` 等元数据；不需要重建直接早返。该实现比本地原 patch 更完整（额外覆盖 staleness），本地 PATCH-DASHBOARD-BUILD-CACHE 已退役，不再通过 `PATCHED_FILES` / `local-patches.diff` 管理。
 
 **上游追踪**：`hermes-update.sh` Step 8b 仍保留 grep `_web_ui_build_needed` 的存在性检查，用于在上游回滚时及时告警。
+
+**验证**：上游 `hermes_cli/main.py` 的 `_web_ui_build_needed` 回归由官方 CLI 测试集覆盖；Step 8b 真实检查 helper 存在，未来上游回滚时阻断 bundle 刷新。
 
 ---
 
@@ -1311,5 +1312,7 @@ cat ~/.hermes/patches/.local-patches.base
 **修复**：在 `_build_child_agent()` 解析 `effective_acp_command` 之后，检测 `override_acp_command` 是否被显式设置：若是，强制 `effective_provider = "copilot-acp"`、`effective_base_url = "acp://copilot"`，确保 `AIAgent.__init__` 走 `CopilotACPClient` 子进程通道。
 
 **上游追踪**：v0.10.0 合入等价修复（具体吸收 commit 未在本地记录），本地 PATCH-DELEGATE-ACP-ROUTING 已退役，不再通过 `PATCHED_FILES` / `local-patches.diff` 管理。`hermes-update.sh` Step 8b 保留 grep `override_acp_command` + `copilot-acp` 的存在性检查，用于在上游回滚时及时告警。
+
+**验证**：上游 delegate/ACP 测试集覆盖 `override_acp_command → copilot-acp` 路由；Step 8b 同时检查两个实现锚点，任一缺失即阻断升级收敛。
 
 ---

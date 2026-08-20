@@ -1,8 +1,8 @@
 diff --git a/agent/conversation_loop.py b/agent/conversation_loop.py
-index ab8e60b6d07eaa8d8156832b739b5a3ffc764ef0..ed086fee6278f95dd110364b076937d03d4aa334 100644
+index 951b874701024810476ac6b7e171f8694d9f2af0..a4ca161ce8730014bb9c1fbd0c470a1300d3b10b 100644
 --- a/agent/conversation_loop.py
 +++ b/agent/conversation_loop.py
-@@ -1087,6 +1087,25 @@ def _get_continuation_prompt(is_partial_stub: bool, dropped_tools: Optional[List
+@@ -1145,6 +1145,25 @@ def _get_continuation_prompt(is_partial_stub: bool, dropped_tools: Optional[List
          return _LENGTH_CONTINUATION_OUTPUT_LIMIT
  
  
@@ -28,7 +28,7 @@ index ab8e60b6d07eaa8d8156832b739b5a3ffc764ef0..ed086fee6278f95dd110364b076937d0
  # Continuation nudge for Codex/Responses turns that came back with only
  # internal reasoning (no visible content, no tool calls).  When the interim
  # assistant message also carries no encrypted reasoning items and no
-@@ -3879,13 +3898,9 @@ def run_conversation(
+@@ -3973,13 +3992,9 @@ def run_conversation(
                                  # network stall doesn't need a bigger budget, but
                                  # a genuine output-cap truncation does, and the
                                  # boost is harmless for the stall case.
@@ -45,7 +45,7 @@ index ab8e60b6d07eaa8d8156832b739b5a3ffc764ef0..ed086fee6278f95dd110364b076937d0
                                  # Don't append the broken response to messages;
                                  # just re-run the same API call from the current
                                  # message state, giving the model another chance.
-@@ -6972,8 +6987,28 @@ def run_conversation(
+@@ -7086,8 +7101,28 @@ def run_conversation(
                              force=True,
                          )
                          agent._invalid_json_retries = 0
@@ -75,7 +75,7 @@ index ab8e60b6d07eaa8d8156832b739b5a3ffc764ef0..ed086fee6278f95dd110364b076937d0
                          # Same tool-tail close as interrupt / invalid-tool
                          # exhaustion — this path never reaches finalize_turn.
                          close_interrupted_tool_sequence(messages, _final_response)
-@@ -7268,6 +7303,14 @@ def run_conversation(
+@@ -7382,6 +7417,14 @@ def run_conversation(
                                  pass
                      break
  
@@ -936,7 +936,7 @@ index fca9201eb69db9f4a617726ee2d3cc1748e2811b..45b3bedbdc1143a2ad41e2d38d31be1b
  
  # Reverse mapping: models.dev id → Hermes ids (built lazily; many-to-one,
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index 998e5606a093ad9d90a96ecc5a5f74f5ebec52b7..87eb98074bbd69d36381a57c4ee553c262621528 100644
+index 4f26ffcf2a9354888dd8ae3f2fa598f6ca755f81..7713b5f7dafa6fda3adcf5e86135d025bfb254d7 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
 @@ -32,7 +32,10 @@ from agent.skill_utils import (
@@ -950,7 +950,7 @@ index 998e5606a093ad9d90a96ecc5a5f74f5ebec52b7..87eb98074bbd69d36381a57c4ee553c2
      iter_skill_index_files,
      org_id_of_path,
      parse_frontmatter,
-@@ -1746,7 +1749,11 @@ def _skill_should_show(
+@@ -1811,7 +1814,11 @@ def _skill_should_show(
  
  def _current_session_platform_hint() -> str:
      """Return the active platform without importing the gateway package on CLI startup."""
@@ -963,7 +963,7 @@ index 998e5606a093ad9d90a96ecc5a5f74f5ebec52b7..87eb98074bbd69d36381a57c4ee553c2
      if platform:
          return platform
  
-@@ -1755,7 +1762,11 @@ def _current_session_platform_hint() -> str:
+@@ -1820,7 +1827,11 @@ def _current_session_platform_hint() -> str:
      if get_session_env is None:
          return ""
      try:
@@ -976,7 +976,7 @@ index 998e5606a093ad9d90a96ecc5a5f74f5ebec52b7..87eb98074bbd69d36381a57c4ee553c2
      except Exception:
          return ""
  
-@@ -1837,6 +1848,7 @@ def _build_skills_system_prompt_inner(
+@@ -1902,6 +1913,7 @@ def _build_skills_system_prompt_inner(
      _platform_hint = _current_session_platform_hint()
      disabled = get_disabled_skill_names(_platform_hint or None)
      project_dirs = project_dirs or []
@@ -984,7 +984,7 @@ index 998e5606a093ad9d90a96ecc5a5f74f5ebec52b7..87eb98074bbd69d36381a57c4ee553c2
      cache_key = (
          str(skills_dir),
          tuple(str(d) for d in external_dirs),
-@@ -1845,6 +1857,7 @@ def _build_skills_system_prompt_inner(
+@@ -1910,6 +1922,7 @@ def _build_skills_system_prompt_inner(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
@@ -992,7 +992,7 @@ index 998e5606a093ad9d90a96ecc5a5f74f5ebec52b7..87eb98074bbd69d36381a57c4ee553c2
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1873,7 +1886,9 @@ def _build_skills_system_prompt_inner(
+@@ -1938,7 +1951,9 @@ def _build_skills_system_prompt_inner(
              platforms = entry.get("platforms") or []
              if not skill_matches_platform_list(platforms):
                  continue
@@ -1003,7 +1003,7 @@ index 998e5606a093ad9d90a96ecc5a5f74f5ebec52b7..87eb98074bbd69d36381a57c4ee553c2
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1895,7 +1910,9 @@ def _build_skills_system_prompt_inner(
+@@ -1960,7 +1975,9 @@ def _build_skills_system_prompt_inner(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
@@ -1014,7 +1014,7 @@ index 998e5606a093ad9d90a96ecc5a5f74f5ebec52b7..87eb98074bbd69d36381a57c4ee553c2
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -2025,7 +2042,9 @@ def _build_skills_system_prompt_inner(
+@@ -2090,7 +2107,9 @@ def _build_skills_system_prompt_inner(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
@@ -1249,10 +1249,10 @@ index 01ad461879a3b54def15ccce3aff46b466d2d8c5..3ec7804585e5c8a96f48ec2b6b924c8e
                  continue
              if not skill_matches_platform(frontmatter):
 diff --git a/agent/tool_executor.py b/agent/tool_executor.py
-index 90226b02e1bd0e344cc3f18af339beb1fd8a1e6b..f368ed6b6f787c907e27621b82e74393121bf3ca 100644
+index e7bb9126db5dffd003153431b6c186738a03c991..c956bb8e9cac64747ee3c4e56cdef80492e6d70a 100644
 --- a/agent/tool_executor.py
 +++ b/agent/tool_executor.py
-@@ -1789,6 +1789,9 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
+@@ -1813,6 +1813,9 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
              tc.id,
              effect_disposition=effect_disposition,
          )
@@ -1262,7 +1262,7 @@ index 90226b02e1bd0e344cc3f18af339beb1fd8a1e6b..f368ed6b6f787c907e27621b82e74393
          messages.append(tool_message)
          risk_metadata = tool_message.get("_tool_output_risk")
          if not _flush_session_db_after_tool_progress(
-@@ -2625,6 +2628,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
+@@ -2702,6 +2705,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
              tool_call.id,
              effect_disposition="unknown" if _execution_timed_out else None,
          )
@@ -1273,10 +1273,10 @@ index 90226b02e1bd0e344cc3f18af339beb1fd8a1e6b..f368ed6b6f787c907e27621b82e74393
          risk_metadata = tool_message.get("_tool_output_risk")
          if not _flush_session_db_after_tool_progress(
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index 939ef6f446075f3af05cfd49daa39d8962caaa9c..3d234cc1748109f0c91bfd9a31cbbaeb5582ac6f 100644
+index bec0f9a82b0a821e7f4444f87ed21db5213330be..57050c1f58902c30d72e7c056e410dbcedc49dac 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
-@@ -231,6 +231,42 @@ def _model_consumes_thought_signature(model: Any) -> bool:
+@@ -250,6 +250,42 @@ def _model_consumes_thought_signature(model: Any) -> bool:
      return "gemini" in m or "gemma" in m
  
  
@@ -1319,7 +1319,7 @@ index 939ef6f446075f3af05cfd49daa39d8962caaa9c..3d234cc1748109f0c91bfd9a31cbbaeb
  class ChatCompletionsTransport(ProviderTransport):
      """Transport for api_mode='chat_completions'.
  
-@@ -259,6 +295,10 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -278,6 +314,10 @@ class ChatCompletionsTransport(ProviderTransport):
            It must be kept for Gemini targets (replay required) and dropped for
            everyone else, including non-Gemini models that inherited stale
            Gemini ``extra_content`` earlier in a mixed-provider session.
@@ -1330,7 +1330,7 @@ index 939ef6f446075f3af05cfd49daa39d8962caaa9c..3d234cc1748109f0c91bfd9a31cbbaeb
          - ``tool_name`` on tool-result messages — written by
            ``make_tool_result_message()`` for the SQLite FTS index, but not
            part of the Chat Completions schema. Strict providers (Fireworks,
-@@ -277,9 +317,10 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -296,9 +336,10 @@ class ChatCompletionsTransport(ProviderTransport):
            ``Extra inputs are not permitted, field: 'messages[N]._empty_recovery_synthetic'``,
            which then poisons every subsequent request in the session.
          """
@@ -1342,7 +1342,7 @@ index 939ef6f446075f3af05cfd49daa39d8962caaa9c..3d234cc1748109f0c91bfd9a31cbbaeb
          needs_sanitize = False
          for msg in messages:
              if not isinstance(msg, dict):
-@@ -323,6 +364,10 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -342,6 +383,10 @@ class ChatCompletionsTransport(ProviderTransport):
                          "call_id" in tc
                          or "response_item_id" in tc
                          or (strip_extra_content and "extra_content" in tc)
@@ -1353,7 +1353,7 @@ index 939ef6f446075f3af05cfd49daa39d8962caaa9c..3d234cc1748109f0c91bfd9a31cbbaeb
                      ):
                          needs_sanitize = True
                          break
-@@ -403,6 +448,10 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -422,6 +467,10 @@ class ChatCompletionsTransport(ProviderTransport):
                              "call_id" in tc
                              or "response_item_id" in tc
                              or (strip_extra_content and "extra_content" in tc)
@@ -1364,7 +1364,7 @@ index 939ef6f446075f3af05cfd49daa39d8962caaa9c..3d234cc1748109f0c91bfd9a31cbbaeb
                          )
                          if should_copy_tc:
                              if copied_tool_calls is None:
-@@ -412,6 +461,21 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -431,6 +480,21 @@ class ChatCompletionsTransport(ProviderTransport):
                              copied_tc.pop("response_item_id", None)
                              if strip_extra_content:
                                  copied_tc.pop("extra_content", None)
@@ -1489,7 +1489,7 @@ index e58e6e82b22d41b99a4a1ab3c40025d20acd7af3..c7ef986240ab804143c90dab6d55c63d
 +            return 0
      return value
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index 070db6e4e2e82a1339ebfd96ae51ed55783cac5e..dac2220699293b487e5cbcbdec2347289e702cb8 100644
+index 6bae26aa052bf8def41c03c67c9f1435732f98d7..ee79d96c48c28bd5c5ba2c2dc8ae6370916a5206 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
 @@ -1782,6 +1782,8 @@ def _log_safe_path(path: str) -> str:
@@ -1511,7 +1511,7 @@ index 070db6e4e2e82a1339ebfd96ae51ed55783cac5e..dac2220699293b487e5cbcbdec234728
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3f09a6d88 100644
+index 2fff508784e6b954ce9597228166087e15109549..22d32a25892040d2e40a54b09fc41966af2eaa27 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -49,6 +49,7 @@ from typing import Awaitable, Callable, Dict, Optional, Any, List, Tuple, Union,
@@ -1600,7 +1600,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              PRE_API_COMPRESSION_STATUS_TEMPLATE,
              PREFLIGHT_COMPRESSION_STATUS_TEMPLATE,
              IDLE_COMPACTION_STATUS_TEMPLATE,
-@@ -1656,6 +1707,7 @@ from agent.replay_cleanup import (  # noqa: E402
+@@ -1677,6 +1728,7 @@ from agent.replay_cleanup import (  # noqa: E402
      strip_interrupted_tool_tails,
      strip_dangling_tool_call_tail,
      strip_stale_dangerous_confirmations,
@@ -1608,7 +1608,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  )
  
  
-@@ -2524,6 +2576,7 @@ from gateway.session import (
+@@ -2566,6 +2618,7 @@ from gateway.session import (
      build_session_key,
      is_shared_multi_user_session,
      neutralize_untrusted_inline_text,
@@ -1616,7 +1616,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  )
  from gateway.delivery import (
      DeliveryRouter,
-@@ -3016,45 +3069,118 @@ def _build_media_placeholder(event) -> str:
+@@ -3058,45 +3111,118 @@ def _build_media_placeholder(event) -> str:
      """
      parts = []
      media_urls = getattr(event, "media_urls", None) or []
@@ -1757,7 +1757,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  def _format_duration(seconds: float) -> str:
      total = int(round(seconds))
      if total < 0:
-@@ -3498,6 +3624,52 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -3540,6 +3666,52 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -1810,7 +1810,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -5284,6 +5456,13 @@ class TurnRunner:
+@@ -5340,6 +5512,13 @@ class TurnRunner:
          # reads it via ``streaming_tts_consumer_holder[0]`` for delta
          # callback wiring.
          _stts_consumer_ref = ctx.streaming_tts_consumer_holder[0]
@@ -1824,7 +1824,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
          _scfg = getattr(getattr(self._runner, 'config', None), 'streaming', None)
          if _scfg is None:
              from gateway.config import StreamingConfig
-@@ -5328,6 +5507,12 @@ class TurnRunner:
+@@ -5384,6 +5563,12 @@ class TurnRunner:
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=ctx.event_message_id,
                          run_still_current=ctx._run_still_current,
@@ -1837,7 +1837,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                      )
                      if _want_stream_deltas:
                          def _stream_delta_cb(text: str) -> None:
-@@ -5335,7 +5520,7 @@ class TurnRunner:
+@@ -5391,7 +5576,7 @@ class TurnRunner:
                                  _stream_consumer.on_delta(text)
                                  # Tee to the streaming-TTS consumer (#60671).
                                  if _stts_consumer_ref is not None:
@@ -1846,7 +1846,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                      ctx.stream_consumer_holder[0] = _stream_consumer
              except Exception as _sc_err:
                  logger.debug("Could not set up stream consumer: %s", _sc_err)
-@@ -5346,12 +5531,16 @@ class TurnRunner:
+@@ -5402,12 +5587,16 @@ class TurnRunner:
          if _stream_delta_cb is None and _stts_consumer_ref is not None:
              def _stream_delta_cb(text: str) -> None:
                  if ctx._run_still_current():
@@ -1865,7 +1865,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              if _stream_consumer is not None:
                  if already_streamed:
                      _stream_consumer.on_segment_break()
-@@ -5960,7 +6149,22 @@ class TurnRunner:
+@@ -6016,7 +6205,22 @@ class TurnRunner:
                  agent_history = strip_stale_dangerous_confirmations(
                      _selected, now=time.time()
                  )
@@ -1889,7 +1889,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
          # Collect MEDIA paths already in history so we can exclude them
          # from the current turn's extraction. This is compression-safe:
          # even if the message list shrinks, we know which paths are old.
-@@ -6219,26 +6423,53 @@ class TurnRunner:
+@@ -6275,26 +6479,53 @@ class TurnRunner:
              # content list. Consume-and-clear so subsequent turns on the same
              # runner instance don't re-attach stale images.
              _native_imgs = self._runner._consume_pending_native_image_paths(ctx.session_key)
@@ -1948,7 +1948,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                          _img_exc,
                      )
                      _run_message = ctx.message
-@@ -6415,6 +6646,10 @@ class TurnRunner:
+@@ -6505,6 +6736,10 @@ class TurnRunner:
              final_response = _sanitize_gateway_final_response(ctx.source.platform, final_response)
              if not final_response:
                  final_response = f"⚠️ {result['error']}" if result.get("error") else ""
@@ -1959,7 +1959,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              return {
                  "final_response": final_response,
                  "messages": result.get("messages", []),
-@@ -10248,7 +10483,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10338,7 +10573,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return True  # interrupt sent (if not queue), ack already delivered recently
  
          from gateway.display_config import resolve_display_setting
@@ -1968,7 +1968,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  
          # In steer mode the user's text has already been injected into the
          # active run. Some mobile chat setups want that steering to be silent,
-@@ -10280,7 +10515,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10370,7 +10605,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -1977,7 +1977,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                  "busy_ack_detail",
                  True,
              )
-@@ -17903,6 +18138,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18005,6 +18240,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # Reset only this session's per-call buffer; other sessions may be
          # concurrently preparing multimodal turns on the same runner.
          self._consume_pending_native_image_paths(session_key)
@@ -1987,7 +1987,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  
          _is_shared_multi_user = is_shared_multi_user_session(
              source,
-@@ -17986,39 +18224,83 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18088,39 +18326,83 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      )
                  else:
                      logger.info(
@@ -2094,7 +2094,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                  # Echo each successful transcript back to the user immediately
                  # when configured. Lets users verify STT quality in real-time,
                  # while allowing quiet STT for users who only want the agent to
-@@ -18049,52 +18331,129 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18151,52 +18433,129 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # language. The hardcoded send has therefore been removed.
  
          if audio_file_paths:
@@ -2254,7 +2254,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                  # document mixed into a PHOTO/VOICE message (whole-message type
                  # != DOCUMENT) still reach the agent as a readable cached file,
                  # instead of being silently dropped because the message-level
-@@ -18116,22 +18475,105 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18218,22 +18577,105 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                              mtype = guessed
                          else:
                              mtype = "application/octet-stream"
@@ -2375,7 +2375,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  
          # Discord: surface the triggering message id per-turn on the user
          # message rather than in the cached system prompt. message_id changes
-@@ -18159,7 +18601,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18261,7 +18703,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # is referencing. History can contain the same or similar text
              # multiple times, and without an explicit pointer the agent has to
              # guess (or answer for both subjects). Token overhead is minimal.
@@ -2391,7 +2391,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              if getattr(event, "reply_to_is_own_message", False):
                  message_text = (
                      f'[Replying to your previous message: "{reply_snippet}"]\n\n'
-@@ -18320,6 +18769,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18422,6 +18871,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          state.persistent.native_image_paths = []
          return paths
  
@@ -2404,7 +2404,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -18781,6 +19236,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18883,6 +19338,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          try:
              _pcfg = _load_gateway_config()
              _redact_pii = bool((_pcfg.get("privacy") or {}).get("redact_pii", False))
@@ -2422,7 +2422,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
          except Exception:
              pass
  
-@@ -20067,6 +20533,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20169,6 +20635,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -2434,7 +2434,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -20108,7 +20579,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20210,7 +20681,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -2443,7 +2443,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -20138,7 +20609,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20240,7 +20711,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          from gateway.display_config import resolve_display_setting
                          _reasoning_style = resolve_display_setting(
                              _load_gateway_config(),
@@ -2452,7 +2452,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                              "reasoning_style",
                              "code",
                          )
-@@ -20169,7 +20640,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20271,7 +20742,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -2461,7 +2461,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -22210,7 +22681,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22352,7 +22823,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -2470,7 +2470,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  
              enabled_toolsets = self._resolve_enabled_toolsets_for_source(
                  user_config, source, platform_key
-@@ -22292,6 +22763,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22434,6 +22905,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not response and result and result.get("error"):
                  response = f"Error: {result['error']}"
  
@@ -2482,7 +2482,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              # Extract media files from the response
              if response:
                  media_files, response = adapter.extract_media(response)
-@@ -22299,8 +22775,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22441,8 +22917,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  media_files = BasePlatformAdapter.filter_media_delivery_paths(media_files)
                  images, text_content = adapter.extract_images(response)
  
@@ -2494,7 +2494,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  
                  if text_content:
                      await adapter.send(
-@@ -22318,6 +22795,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22460,6 +22937,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # Send extracted images
                  for image_url, alt_text in (images or []):
                      try:
@@ -2503,7 +2503,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                          await adapter.send_image(
                              chat_id=source.chat_id,
                              image_url=image_url,
-@@ -22365,19 +22844,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -22507,19 +22986,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      except Exception:
                          pass
              else:
@@ -2528,7 +2528,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                      metadata=_thread_metadata,
                  )
              except Exception:
-@@ -24158,6 +24639,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24317,6 +24798,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -2539,7 +2539,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              chat_id=context.source.chat_id,
              chat_type=(
                  str(context.source.chat_type) if context.source.chat_type else ""
-@@ -24237,11 +24722,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24396,11 +24881,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -2555,7 +2555,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -24251,7 +24738,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24410,7 +24897,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          only the persisted default model.
          """
          try:
@@ -2564,7 +2564,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              from agent.auxiliary_client import _read_main_model, _read_main_provider
              from hermes_cli.config import load_config
  
-@@ -24292,6 +24779,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24451,6 +24938,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not resolved_model:
                  resolved_model = _read_main_model()
  
@@ -2580,7 +2580,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              return decide_image_input_mode(
                  resolved_provider,
                  resolved_model,
-@@ -24311,10 +24807,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24470,10 +24966,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          Auto-analyze user-attached images with the vision tool and prepend
          the descriptions to the message text.
  
@@ -2593,7 +2593,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
  
          Args:
              user_text:   The user's original caption / message text.
-@@ -24347,22 +24841,25 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24506,22 +25000,25 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      description = result.get("analysis", "")
                      description = sanitize_context(description)
                      enriched_parts.append(
@@ -2628,7 +2628,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                  )
  
          # Combine: vision descriptions first, then the user's original text
-@@ -24373,6 +24870,156 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24532,6 +25029,156 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return prefix
          return user_text
  
@@ -2785,7 +2785,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
      async def _enrich_message_with_transcription(
          self,
          user_text: str,
-@@ -24400,14 +25047,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24559,14 +25206,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          if not getattr(self.config, "stt_enabled", True):
              notes = []
              for path in audio_paths:
@@ -2807,7 +2807,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              if not notes:
                  return user_text, []
              prefix = "\n\n".join(notes)
-@@ -24486,21 +25136,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24645,21 +25295,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      # logged for operator diagnosis but kept out of the
                      # LLM-visible prompt.
                      logger.info("Voice transcription failed for %s: %s", path, error)
@@ -2839,7 +2839,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                  )
  
          if enriched_parts:
-@@ -26649,6 +27299,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -26808,6 +27458,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              str(src.user_id or ""),
              str(getattr(src, "profile", None) or ""),
              bool(context.shared_multi_user_session),
@@ -2847,7 +2847,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
              discord_ids,
              discord_tools,
              slack_tools,
-@@ -27412,7 +28063,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -27571,7 +28222,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -2856,7 +2856,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -27445,6 +28096,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -27604,6 +28255,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -2869,7 +2869,7 @@ index 6952198e200e22e79b167aacd8abce2960cf62d3..daad040894207e242c2d66c7a5fff6f3
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -27821,7 +28478,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -27980,7 +28637,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -3544,7 +3544,7 @@ index 7a2c53ab3a95b3735b554bb3e3708f4d92ef16e5..bb9f4c6059e0d54b770ffaaa5c6463ba
          _SESSION_CHAT_ID,
          _SESSION_CHAT_TYPE,
 diff --git a/gateway/slash_commands.py b/gateway/slash_commands.py
-index 1986bbd374a27e70207887b1d8c050f87a6a634b..3c4cfa816bbd8e397e6f4c4a398125163a513acc 100644
+index cd54164bd0d9b8dbb0ba03bb8c032cf72afb5920..23378733f166a86f07be8f7a2769307809cf14b6 100644
 --- a/gateway/slash_commands.py
 +++ b/gateway/slash_commands.py
 @@ -1764,8 +1764,11 @@ class GatewaySlashCommandsMixin:
@@ -3777,10 +3777,10 @@ index 1986bbd374a27e70207887b1d8c050f87a6a634b..3c4cfa816bbd8e397e6f4c4a39812516
              model, runtime_kwargs = self._resolve_session_agent_runtime(
                  source=source,
 diff --git a/gateway/stream_consumer.py b/gateway/stream_consumer.py
-index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739dcea1afc 100644
+index 0715a0e8081b357a2fdbabb799333cf01c7681a8..e8b54551a4196380e9776baedc8d4f32707458d6 100644
 --- a/gateway/stream_consumer.py
 +++ b/gateway/stream_consumer.py
-@@ -199,6 +199,7 @@ class GatewayStreamConsumer:
+@@ -220,6 +220,7 @@ class GatewayStreamConsumer:
          on_before_finalize: Optional[Callable[[], Any]] = None,
          initial_reply_to_id: Optional[str] = None,
          run_still_current: Optional[Callable[[], bool]] = None,
@@ -3788,7 +3788,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
      ):
          self.adapter = adapter
          self.chat_id = chat_id
-@@ -301,6 +302,7 @@ class GatewayStreamConsumer:
+@@ -322,6 +323,7 @@ class GatewayStreamConsumer:
          # /stop), the run() loop will abandon the stream early instead of
          # continuing to edit and deliver stale deltas.
          self._run_still_current = run_still_current or (lambda: True)
@@ -3796,7 +3796,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
  
          # Think-block filter state (mirrors CLI's _stream_delta tag suppression)
          self._in_think_block = False
-@@ -778,6 +780,12 @@ class GatewayStreamConsumer:
+@@ -839,6 +841,12 @@ class GatewayStreamConsumer:
              self._append_accumulated(self._strip_orphan_close_tags(self._think_buffer))
              self._think_buffer = ""
  
@@ -3809,7 +3809,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
      async def run(self) -> None:
          """Async task that drains the queue and edits the platform message."""
          # Platform message length limit — leave room for cursor + formatting.
-@@ -1273,7 +1281,7 @@ class GatewayStreamConsumer:
+@@ -1430,7 +1438,7 @@ class GatewayStreamConsumer:
  
          Returns the message_id so callers can thread subsequent chunks.
          """
@@ -3818,7 +3818,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
          if not text.strip():
              return reply_to_id
          try:
-@@ -1386,7 +1394,7 @@ class GatewayStreamConsumer:
+@@ -1543,7 +1551,7 @@ class GatewayStreamConsumer:
  
          Retries each chunk once on flood-control failures with a short delay.
          """
@@ -3827,7 +3827,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
          # Ensure balanced code fences before computing continuation,
          # so the closing fence reaches the user even when the fallback
          # only delivers the tail after mid-stream edits failed.
-@@ -1795,7 +1803,7 @@ class GatewayStreamConsumer:
+@@ -2001,7 +2009,7 @@ class GatewayStreamConsumer:
          tail = self._accumulated
          if visible and tail.startswith(visible):
              tail = tail[len(visible):].lstrip()
@@ -3836,7 +3836,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
          if not tail.strip():
              return
          try:
-@@ -1832,7 +1840,7 @@ class GatewayStreamConsumer:
+@@ -2043,7 +2051,7 @@ class GatewayStreamConsumer:
  
      async def _send_commentary(self, text: str) -> bool:
          """Send a completed interim assistant commentary message."""
@@ -3845,7 +3845,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
          if not text.strip():
              return False
          try:
-@@ -1993,7 +2001,7 @@ class GatewayStreamConsumer:
+@@ -2212,7 +2220,7 @@ class GatewayStreamConsumer:
          try:
              result = await self.adapter.send(
                  chat_id=self.chat_id,
@@ -3854,7 +3854,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
                  metadata=self._metadata_for_send(final=True),
              )
          except Exception as e:
-@@ -2232,7 +2240,7 @@ class GatewayStreamConsumer:
+@@ -2481,7 +2489,7 @@ class GatewayStreamConsumer:
                      # Edit existing message
                      result = await self._edit_message(
                          message_id=self._message_id,
@@ -3863,7 +3863,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
                          finalize=finalize,
                      )
                      if result.success:
-@@ -2394,7 +2402,7 @@ class GatewayStreamConsumer:
+@@ -2643,7 +2651,7 @@ class GatewayStreamConsumer:
                  # so it lands in the correct topic/thread.
                  result = await self.adapter.send(
                      chat_id=self.chat_id,
@@ -3873,7 +3873,7 @@ index 836ba980a77975744b5ce8eececdae2cd9532982..58f59d11bfe9962ce5c835411a9af739
                      metadata=self._metadata_for_send(
                          final=finalize,
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index 253fb1c7bcdf749355a89639fda4af39ed163f4c..7f0c865a7722ce71f8e637dd10676f4c68543f05 100644
+index 524ab04f119bf9b6578009833d7231a8ccd7db3d..cad4d9f21ff8f10e569058e2e6d123fed1d0c047 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
 @@ -67,6 +67,17 @@ _PROVIDER_ENV_HINTS = (
@@ -3894,7 +3894,7 @@ index 253fb1c7bcdf749355a89639fda4af39ed163f4c..7f0c865a7722ce71f8e637dd10676f4c
  )
  
  
-@@ -891,6 +902,10 @@ def _build_apikey_providers_list() -> list:
+@@ -993,6 +1004,10 @@ def _build_apikey_providers_list() -> list:
                  (v for v in _pp.env_vars if v.endswith("_BASE_URL") or v.endswith("_URL")),
                  None,
              )
@@ -3905,7 +3905,7 @@ index 253fb1c7bcdf749355a89639fda4af39ed163f4c..7f0c865a7722ce71f8e637dd10676f4c
              if not _key_vars:
                  continue
              _models_url = (
-@@ -1216,6 +1231,10 @@ def run_doctor(args):
+@@ -1318,6 +1333,10 @@ def run_doctor(args):
                  _custom_provider_aliases = None
                  _normalize_catalog_provider = None
                  _resolve_provider_full = None
@@ -3916,7 +3916,7 @@ index 253fb1c7bcdf749355a89639fda4af39ed163f4c..7f0c865a7722ce71f8e637dd10676f4c
  
              custom_providers = []
              if _compatible_custom_providers is not None:
-@@ -1242,8 +1261,20 @@ def run_doctor(args):
+@@ -1344,8 +1363,20 @@ def run_doctor(args):
                          _custom_provider_aliases(name, provider_key)
                      )
  
@@ -3937,7 +3937,7 @@ index 253fb1c7bcdf749355a89639fda4af39ed163f4c..7f0c865a7722ce71f8e637dd10676f4c
              if _normalize_catalog_provider is not None:
                  for known_provider in known_providers:
                      try:
-@@ -1263,16 +1294,18 @@ def run_doctor(args):
+@@ -1365,16 +1396,18 @@ def run_doctor(args):
                  except Exception:
                      runtime_provider = provider
  
@@ -3959,7 +3959,7 @@ index 253fb1c7bcdf749355a89639fda4af39ed163f4c..7f0c865a7722ce71f8e637dd10676f4c
  
              if provider and provider != "auto":
                  if catalog_provider is None or (
-@@ -1295,8 +1328,11 @@ def run_doctor(args):
+@@ -1397,8 +1430,11 @@ def run_doctor(args):
              # Vendor/model slugs are valid on aggregator-style providers and on any custom
              # provider — bare "custom" or a named "custom:<name>" that fronts an OpenAI-compatible
              # aggregator (e.g. custom:hpc-ai serving deepseek/deepseek-v4-flash) requires the prefix.
@@ -3973,7 +3973,7 @@ index 253fb1c7bcdf749355a89639fda4af39ed163f4c..7f0c865a7722ce71f8e637dd10676f4c
              providers_accepting_vendor_slugs = {
                  "openrouter",
                  "auto",
-@@ -1315,16 +1351,18 @@ def run_doctor(args):
+@@ -1417,16 +1453,18 @@ def run_doctor(args):
                  # is exclusively ``vendor/model`` slugs (Qwen/Qwen3.5-…,
                  # meta-llama/Llama-3-…, anthropic/claude-opus-4-7, …).
                  "deepinfra",
@@ -4257,7 +4257,7 @@ index aae5f4cadeea8e5df92e1178187f7a5950200adf..e40a6d3374e3b19329349a8adb88f37b
      new_model = raw_input.strip()
      target_provider = current_provider
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
-index 599ec3abf1ed565d87a0f1f9f6d7e1d3c23ef515..62ba6bc6389eeb017fc735602cf403c721bf674a 100644
+index a28fc09f3d829713c55908885a5a715ec1c7cda0..2ce54e5fa31ae7d3811acf89e6c719fdbca190b8 100644
 --- a/hermes_cli/tools_config.py
 +++ b/hermes_cli/tools_config.py
 @@ -2561,38 +2561,49 @@ def _get_platform_tools(
@@ -7403,7 +7403,7 @@ index afed30a40731e3593dd1f10db1255a7d93256d92..438f159478848fe023283c7c7f0ac5fe
 +    history = [{"role": "assistant", "content": "orphan"}]
 +    assert apply_history_retention(history, now=1e9, max_messages=1) == history
 diff --git a/tests/agent/transports/test_chat_completions.py b/tests/agent/transports/test_chat_completions.py
-index afa756bf50e93bbcee8017fe526e02d4c63fdadd..8a0fd123ffeb54ec00be23d82c352cb91bcfe8b2 100644
+index 059322ff411e51498d68cf534614caa6f7de4f4a..3f195f888f71b9a0c325279df807ab15acfcd979 100644
 --- a/tests/agent/transports/test_chat_completions.py
 +++ b/tests/agent/transports/test_chat_completions.py
 @@ -117,6 +117,86 @@ class TestChatCompletionsBasic:
@@ -15271,7 +15271,7 @@ index 5528c5d89ac82607b1d23285d992aeb235a30664..116b7022cab737184139043868a6b65a
 +        assert "feishu_group" in result
  
 diff --git a/tests/hermes_cli/test_doctor.py b/tests/hermes_cli/test_doctor.py
-index 3abf99697d654d698e61022a9d50bd36ee63ff8a..e89f7acf276a7e1a8f268e2a4f1a7ba6aa79d503 100644
+index 66a60b77d02d4c5162cba4414027158aaba7f962..b8627fba42bbe9b163076a8e5cabc64d339d8a27 100644
 --- a/tests/hermes_cli/test_doctor.py
 +++ b/tests/hermes_cli/test_doctor.py
 @@ -7,6 +7,7 @@ import io
@@ -15363,7 +15363,7 @@ index 3abf99697d654d698e61022a9d50bd36ee63ff8a..e89f7acf276a7e1a8f268e2a4f1a7ba6
  class TestDoctorToolAvailabilitySummary:
      def test_missing_api_key_summary_ignores_disabled_toolsets(self, monkeypatch):
          unavailable = [
-@@ -609,6 +677,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
+@@ -655,6 +723,62 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch,
      assert "Either set model.provider to 'openrouter', or drop the vendor prefix." not in out
  
  
@@ -15426,7 +15426,7 @@ index 3abf99697d654d698e61022a9d50bd36ee63ff8a..e89f7acf276a7e1a8f268e2a4f1a7ba6
  
  
  def test_run_doctor_accepts_kimi_coding_cn_provider(monkeypatch, tmp_path):
-@@ -1355,6 +1479,19 @@ class TestDoctorStaleMaxIterationsDrift:
+@@ -1401,6 +1525,19 @@ class TestDoctorStaleMaxIterationsDrift:
          else:
              monkeypatch.delenv("HERMES_MAX_ITERATIONS", raising=False)
  
@@ -15446,7 +15446,7 @@ index 3abf99697d654d698e61022a9d50bd36ee63ff8a..e89f7acf276a7e1a8f268e2a4f1a7ba6
          # Short-circuit at the Tool Availability stage — the drift check runs
          # well before it in the Configuration Files section.
          fake_model_tools = types.SimpleNamespace(
-@@ -1395,6 +1532,24 @@ class TestDoctorStaleMaxIterationsDrift:
+@@ -1441,6 +1578,24 @@ class TestDoctorStaleMaxIterationsDrift:
          )
          assert "shadows" not in out
  
@@ -15714,7 +15714,7 @@ index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd76
          """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
          config = tmp_path / "config.yaml"
 diff --git a/tests/hermes_cli/test_tools_config.py b/tests/hermes_cli/test_tools_config.py
-index f978a490c075674d0c7906c3a87cc9006e944861..a4ad867c53ed79c3133d671394688b0126789958 100644
+index 3212eb614631900e096c7ffd027fe9e7859b370a..6bafa3627a8fafad4cd4d244c37e9a57d6b6429b 100644
 --- a/tests/hermes_cli/test_tools_config.py
 +++ b/tests/hermes_cli/test_tools_config.py
 @@ -783,6 +783,46 @@ class TestImagegenModelPicker:
@@ -16033,10 +16033,10 @@ index 4faeb2b5592136aec10c2b0ee96c069523b01313..ebea1e12aba98785c62c0956b716f594
  
      def test_skips_unconfigured_provider_to_next(self):
 diff --git a/tests/run_agent/test_run_agent.py b/tests/run_agent/test_run_agent.py
-index 135e37e83f25792df9723322e7b6c97e3843ead2..186836d928e442c57812b9010346f9e86b88dee1 100644
+index 4688e125b6f1d7a8f5b6b04ee35509acf20f935a..71137ca9a651288411ca55eb647cb83fdb97994f 100644
 --- a/tests/run_agent/test_run_agent.py
 +++ b/tests/run_agent/test_run_agent.py
-@@ -4252,8 +4252,8 @@ class TestRunConversation:
+@@ -4364,8 +4364,8 @@ class TestRunConversation:
          assert result["final_response"] == "Done!"
  
  
@@ -16047,7 +16047,7 @@ index 135e37e83f25792df9723322e7b6c97e3843ead2..186836d928e442c57812b9010346f9e8
          self._setup_agent(agent)
          agent.valid_tool_names.add("write_file")
          good_tc = _mock_tool_call(
-@@ -4272,7 +4272,14 @@ class TestRunConversation:
+@@ -4384,7 +4384,14 @@ class TestRunConversation:
          bad_resp = _mock_response(
              content="", finish_reason="tool_calls", tool_calls=[bad_tc],
          )
@@ -16063,7 +16063,7 @@ index 135e37e83f25792df9723322e7b6c97e3843ead2..186836d928e442c57812b9010346f9e8
  
          with (
              patch("run_agent.handle_function_call", return_value='{"success":true}'),
-@@ -4283,9 +4290,10 @@ class TestRunConversation:
+@@ -4395,9 +4402,10 @@ class TestRunConversation:
              result = agent.run_conversation("write then truncate")
  
          assert result.get("partial") is True
@@ -17536,7 +17536,7 @@ index 0035111630229dbe22ceb0aec7dbc698a5d74f42..475371b9b84cc7e2421bfa773f283078
          """Non-local terminal backends must not read local host video paths.
  
 diff --git a/tools/approval.py b/tools/approval.py
-index e55e96ea350407be616e9a17a2d5acc21f88d308..87191c04f8cc6c7e73ef34e7b59ac9211e0705c2 100644
+index f3f78f38b8575f49e1aa30a284af4cedb3350894..fe1b659d6c76cb5643c7cf8443ac220d017ae043 100644
 --- a/tools/approval.py
 +++ b/tools/approval.py
 @@ -290,6 +290,59 @@ def _is_single_query_approval_context() -> bool:
@@ -17691,7 +17691,7 @@ index e55e96ea350407be616e9a17a2d5acc21f88d308..87191c04f8cc6c7e73ef34e7b59ac921
          notify_cb = None
          with _lock:
              notify_cb = _gateway_notify_cbs.get(session_key)
-@@ -5080,6 +5173,13 @@ def check_execute_code_guard(code: str, env_type: str,
+@@ -5087,6 +5180,13 @@ def check_execute_code_guard(code: str, env_type: str,
          return {"approved": True, "message": None}
  
      session_key = get_current_session_key()
@@ -18008,10 +18008,10 @@ index 0000000000000000000000000000000000000000..fd9fc64b595469e21d0f9d5697e47e9a
 +        )
 +        return await _task_request_once(session, method, corrected)
 diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py
-index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3997ccf42 100644
+index 08b15dcd427ea1c7399e19f55bb40fdf22d31daf..31c95f65bbe2eb3b5b9acc65f6f3d3cc58882f16 100644
 --- a/tools/mcp_tool.py
 +++ b/tools/mcp_tool.py
-@@ -1619,6 +1619,10 @@ def _make_redirect_header_stripper(
+@@ -1654,6 +1654,10 @@ def _make_redirect_header_stripper(
              ):
                  response.next_request.headers.pop("authorization", None)
                  response.next_request.headers.pop("Authorization", None)
@@ -18022,7 +18022,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
                  if strict:
                      for _name in configured_header_names:
                          while _name in response.next_request.headers:
-@@ -3525,11 +3529,26 @@ class MCPServerTask:
+@@ -3560,11 +3564,26 @@ class MCPServerTask:
                  configured_header_names=_configured_header_names,
              )
  
@@ -18050,7 +18050,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
              }
              if headers:
                  client_kwargs["headers"] = headers
-@@ -5792,7 +5811,16 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -5827,7 +5846,16 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                  # it and detect the gateway platform / session for routing.
                  server._pending_call_context = contextvars.copy_context()
                  try:
@@ -18068,7 +18068,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
                  finally:
                      server._pending_call_context = None
              # The RPC round-trip completed — the session is demonstrably
-@@ -5801,6 +5829,8 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -5836,6 +5864,8 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
              _mark_proven = getattr(server, "_mark_session_proven", None)
              if _mark_proven is not None:
                  _mark_proven()
@@ -18077,7 +18077,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
              # MCP CallToolResult has .content (list of content blocks) and
              # .is_error (.isError before mcp 2.0)
              if mcp_field(result, "is_error", "isError", False):
-@@ -6203,6 +6233,47 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
+@@ -6256,6 +6286,47 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
      return _handler
  
  
@@ -18125,7 +18125,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
  def _make_check_fn(server_name: str):
      """Return a check function that verifies the MCP connection is alive."""
  
-@@ -6434,7 +6505,7 @@ def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
+@@ -6487,7 +6558,7 @@ def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
  
  
  def _build_utility_schemas(server_name: str) -> List[dict]:
@@ -18134,7 +18134,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
  
      Returns a list of (schema, handler_factory_name) tuples encoded as dicts
      with keys: schema, handler_key.
-@@ -6502,6 +6573,73 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
+@@ -6555,6 +6626,73 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
              },
              "handler_key": "get_prompt",
          },
@@ -18208,7 +18208,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
      ]
  
  
-@@ -6620,6 +6758,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6673,6 +6811,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
      tools_filter = config.get("tools") or {}
      resources_enabled = _parse_boolish(tools_filter.get("resources"), default=True)
      prompts_enabled = _parse_boolish(tools_filter.get("prompts"), default=True)
@@ -18216,7 +18216,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
  
      # ``initialize_result.capabilities`` is the source of truth: its sub-objects
      # (``resources``, ``prompts``) are non-None iff the server advertises that
-@@ -6630,6 +6769,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6683,6 +6822,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
      init_result = getattr(server, "initialize_result", None)
      if init_result is not None:
          advertised_caps = getattr(init_result, "capabilities", None)
@@ -18226,7 +18226,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
  
      selected: List[dict] = []
      for entry in _build_utility_schemas(server_name):
-@@ -6640,6 +6782,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6693,6 +6835,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
          if handler_key in {"list_prompts", "get_prompt"} and not prompts_enabled:
              logger.debug("MCP server '%s': skipping utility '%s' (prompts disabled)", server_name, handler_key)
              continue
@@ -18243,7 +18243,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
  
          # Preferred gate: check the server's advertised capabilities. Skip
          # if the capability is explicitly not advertised.
-@@ -6778,6 +6930,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
+@@ -6831,6 +6983,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
          "read_resource": _make_read_resource_handler,
          "list_prompts": _make_list_prompts_handler,
          "get_prompt": _make_get_prompt_handler,
@@ -18259,7 +18259,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3
      }
      for entry in _select_utility_schemas(name, server, config):
          schema = entry["schema"]
-@@ -7062,6 +7223,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
+@@ -7115,6 +7276,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
          "read_resource": _make_read_resource_handler,
          "list_prompts": _make_list_prompts_handler,
          "get_prompt": _make_get_prompt_handler,
@@ -19131,7 +19131,7 @@ index e008983f7f20a78026473cde09220714e8734a3e..eb887da5d098e92ea3b248185ff7c5f3
  
          if not analysis:
 diff --git a/toolsets.py b/toolsets.py
-index 18a6bf4227d799266bb6bb28189ba4bf37257437..de17339463a0fe24b4deaf99abfc5491215b560f 100644
+index 23eacf088afcf72ca0bcd12e28ffdc8313c33d25..722cf7ae84cc5d81739c048d70f0fafdb150e659 100644
 --- a/toolsets.py
 +++ b/toolsets.py
 @@ -201,6 +201,12 @@ TOOLSETS = {
@@ -19216,7 +19216,7 @@ index 9680717dc3bdea33f8fe26f7ebdfc9ee653a02e0..8f56d61fcf45f751e7df908ac7862f38
  
  ### Archived (no direct Hermes equivalent)
 diff --git a/website/docs/reference/environment-variables.md b/website/docs/reference/environment-variables.md
-index 9e36f980124773a82aa4fcfe5a3c15d7c855c2c8..631fbd72bff3aa18efc3a5b4d713d6219cb885df 100644
+index e35fbcaf0a2f8b69f9812cc3e4f2d5fde7c5563c..539637d099bafa3b98c49ee9b43a6a15bf51dffd 100644
 --- a/website/docs/reference/environment-variables.md
 +++ b/website/docs/reference/environment-variables.md
 @@ -428,8 +428,13 @@ These are set automatically by the Docker terminal backend when `proxy.enabled:
@@ -19234,10 +19234,10 @@ index 9e36f980124773a82aa4fcfe5a3c15d7c855c2c8..631fbd72bff3aa18efc3a5b4d713d621
  | `FEISHU_HOME_CHANNEL_NAME` | Display name for the Feishu home channel. |
  | `FEISHU_ALLOW_ALL_USERS` | Allow any Feishu user to trigger the bot (dev only). |
 diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
-index 0eccf2d5aa51903f39fdfbbe9375612a784eae8d..9823f8c5be8ecfc2c0935fba3bd525cf2ac56819 100644
+index 13430b9ad4bb97dc02bbf773e21216dfa94319e3..24798abbaa633e515ed33186098c09c11b6ec3d1 100644
 --- a/website/docs/user-guide/configuration.md
 +++ b/website/docs/user-guide/configuration.md
-@@ -766,6 +766,76 @@ the `hermes tools` UI.
+@@ -781,6 +781,76 @@ the `hermes tools` UI.
  
  Leaving the list empty, or omitting the key, is a no-op.
  
@@ -19314,7 +19314,7 @@ index 0eccf2d5aa51903f39fdfbbe9375612a784eae8d..9823f8c5be8ecfc2c0935fba3bd525cf
  ## Git Worktree Isolation
  
  Enable isolated git worktrees for running multiple agents in parallel on the same repo:
-@@ -1748,6 +1818,9 @@ display:
+@@ -1823,6 +1893,9 @@ display:
    timestamps: false       # When true, prefixes user and assistant labels with timestamps in the CLI / TUI transcript
    timestamp_format: "%H:%M"  # strftime format for those timestamps (e.g. "%b-%d %H:%M" for month-day)
    tool_preview_length: 0  # Max chars for tool call previews (0 = no limit, show full paths/commands)
@@ -19324,7 +19324,7 @@ index 0eccf2d5aa51903f39fdfbbe9375612a784eae8d..9823f8c5be8ecfc2c0935fba3bd525cf
    turn_summary: true      # CLI only: print a one-line post-turn accounting footer after each interactive turn
    spinner_token_flow: true # CLI only: append live cumulative turn tokens to the spinner timer
    runtime_footer:         # Gateway: append a runtime-context footer to final replies
-@@ -1759,6 +1832,14 @@ display:
+@@ -1834,6 +1907,14 @@ display:
    language: en            # UI language for static messages (approval prompts, some gateway replies). en | zh | zh-hant | ja | de | es | fr | tr | uk | af | ko | it | ga | pt | ru | hu
  ```
  

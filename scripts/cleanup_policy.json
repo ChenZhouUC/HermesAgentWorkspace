@@ -8,6 +8,7 @@
     "plugins/sandbox/verify.sh": "Step 8e security verifier for the Feishu sandbox plugin.",
     "scripts/clean_browser_updater_cache": "Operator utility for recoverable Browser updater cache cleanup.",
     "scripts/cleanup_transient_artifacts.py": "Policy-driven cleanup and AI audit entrypoint.",
+    "scripts/test_patch_evidence.py": "Durable regression-evidence audit for every active/archive PATCH.",
     "scripts/inject_launchd_proxy_env": "Operator utility for launchd proxy environment injection.",
     "scripts/nightly_greeting.py": "Nightly report and Feishu greeting workflow.",
     "scripts/pull_feishu_people.py": "Feishu organization sync and people profile generator.",

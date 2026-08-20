@@ -90,10 +90,10 @@ _hermes() {
                 'uninstall:Uninstall Hermes Agent'
                 'update:Update Hermes Agent to the latest version'
                 'verify:Detect a projects run recipe and smoke-test it'
-                'version:Show version information'
                 'webhook:Manage dynamic webhook subscriptions'
                 'whatsapp:Set up WhatsApp integration'
                 'whatsapp-cloud:Set up WhatsApp Business Cloud API integration'
+                'worktree:Audit and reclaim accumulated git worktrees and merged branc'
             )
             _describe 'hermes command' subcmds
             ;;
@@ -633,6 +633,14 @@ _hermes() {
                     'test:Send a test POST to a webhook route'
                     )
                     _describe 'webhook command' webhook_cmds
+                    ;;
+                worktree)
+                    local -a worktree_cmds
+                    worktree_cmds=(
+                    'list:Classify every tree: age, size, verdict, reason (default act'
+                    'prune:Remove safe trees and delete fully-merged local branches'
+                    )
+                    _describe 'worktree command' worktree_cmds
                     ;;
             esac
             ;;

@@ -70,7 +70,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.4 / main 13ce0c5c675e843af70d19c9e5144249cd51c8d1, `hermes completion zsh` already emits the
+# As of v0.20.4 / main c47f0b4590e6b5bb05fb73a42f447ca5444f5188, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -669,6 +669,126 @@ _self_test_transaction() {
     printf 'transaction-state self-test OK\n'
 }
 
+_self_test_fetch_retry() {
+    local _root _fake_git _state _log _sha
+    _root=$(mktemp -d -t hermes-fetch-retry-test.XXXXXX)
+    _fake_git="${_root}/git"
+    _state="${_root}/count"
+    _log="${_root}/fetch.log"
+    _sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    cat >"${_fake_git}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+state="${HERMES_FAKE_GIT_STATE}"
+count=0
+[[ -f "${state}" ]] && count=$(<"${state}")
+if [[ "${3:-}" == fetch ]]; then
+    count=$((count + 1))
+    printf '%s\n' "${count}" >"${state}"
+    case "${HERMES_FAKE_GIT_MODE:-retry}" in
+        retry)
+            if [[ ${count} -eq 1 ]]; then
+                printf "fatal: Failed to connect to github.com\n" >&2
+                exit 1
+            fi
+            ;;
+        always)
+            printf "fatal: Failed to connect to github.com: Connection timed out\n" >&2
+            exit 1
+            ;;
+        auth)
+            printf "fatal: Authentication failed for 'https://github.com/NousResearch/hermes-agent.git'\n" >&2
+            exit 1
+            ;;
+    esac
+    exit 0
+fi
+if [[ "${3:-}" == rev-parse ]]; then
+    if [[ "${HERMES_FAKE_GIT_MODE:-retry}" == retry && ${count} -ge 2 ]]; then
+        printf '%s\n' "${HERMES_FAKE_GIT_SHA}"
+    fi
+    exit 0
+fi
+printf 'unexpected fake git invocation: %s\n' "$*" >&2
+exit 97
+EOF
+    chmod 700 "${_fake_git}"
+
+    if ! (
+        set -euo pipefail
+        export PATH="${_root}:${PATH}"
+        export HERMES_FAKE_GIT_STATE="${_state}"
+        export HERMES_FAKE_GIT_SHA="${_sha}"
+        export HERMES_FAKE_GIT_MODE=retry
+        HERMES_AGENT="${_root}/work"
+        TRANSACTION_TARGET_REF="refs/hermes-update/test-target"
+        _TX_TARGET_SHA=""
+        _TX_PHASE="acquiring"
+        _write_transaction() { :; }
+        _acquire_upstream_target_with_retry "${_log}"
+        [[ "${_TX_TARGET_SHA}" == "${_sha}" ]]
+        [[ "$(<"${_state}")" == 2 ]]
+    ); then
+        rm -rf -- "${_root}"
+        printf 'fetch-retry self-test: transport-fail → success did not retry exactly once\n' >&2
+        return 1
+    fi
+
+    if ! (
+        set -euo pipefail
+        export PATH="${_root}:${PATH}"
+        export HERMES_FAKE_GIT_STATE="${_state}"
+        export HERMES_FAKE_GIT_SHA="${_sha}"
+        export HERMES_FAKE_GIT_MODE=always
+        : >"${_state}"
+        HERMES_AGENT="${_root}/work"
+        TRANSACTION_TARGET_REF="refs/hermes-update/test-target"
+        _TX_TARGET_SHA=""
+        _TX_PHASE="acquiring"
+        _write_transaction() { :; }
+        if _acquire_upstream_target_with_retry "${_log}"; then
+            exit 1
+        fi
+        [[ "$(<"${_state}")" == 3 ]]
+    ); then
+        rm -rf -- "${_root}"
+        printf 'fetch-retry self-test: three transport failures were not bounded at three attempts\n' >&2
+        return 1
+    fi
+
+    if ! (
+        set -euo pipefail
+        export PATH="${_root}:${PATH}"
+        export HERMES_FAKE_GIT_STATE="${_state}"
+        export HERMES_FAKE_GIT_SHA="${_sha}"
+        export HERMES_FAKE_GIT_MODE=auth
+        : >"${_state}"
+        HERMES_AGENT="${_root}/work"
+        TRANSACTION_TARGET_REF="refs/hermes-update/test-target"
+        _TX_TARGET_SHA=""
+        _TX_PHASE="acquiring"
+        _write_transaction() { :; }
+        if _acquire_upstream_target_with_retry "${_log}"; then
+            exit 1
+        fi
+        [[ "$(<"${_state}")" == 1 ]]
+    ); then
+        rm -rf -- "${_root}"
+        printf 'fetch-retry self-test: authentication failure was retried or accepted\n' >&2
+        return 1
+    fi
+    rm -rf -- "${_root}"
+    printf 'fetch-retry self-test OK\n'
+}
+
+_self_test_patch_evidence() {
+    (_self_test_transaction) || return 1
+    (_self_test_fetch_retry) || return 1
+    local _audit_py
+    _audit_py=$(cleanup_python) || return 1
+    "${_audit_py}" "${HERMES_HOME}/scripts/test_patch_evidence.py" --quick
+}
+
 _acquire_transaction_lock() {
     local _holder=""
     if mkdir "${TRANSACTION_LOCK_DIR}" 2>/dev/null; then
@@ -919,8 +1039,12 @@ case "${1:-}" in
     _self_test_patch_gate_coverage
     exit $?
     ;;
+--self-test-patch-evidence)
+    _self_test_patch_evidence
+    exit $?
+    ;;
 *)
-    printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction|--self-test-patch-gates]\n' "$0" >&2
+    printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction|--self-test-patch-gates|--self-test-patch-evidence]\n' "$0" >&2
     exit 2
     ;;
 esac
@@ -1180,6 +1304,13 @@ if ! _self_test_patch_gate_coverage; then
     exit 1
 fi
 ok "Patch gate coverage: every Step 8b gate is assigned and consumed by Step 8c"
+
+if ! _self_test_patch_evidence; then
+    fail "PATCH evidence audit failed"
+    printf '  Every active/archive PATCH must have durable regression evidence before mutation.\n'
+    exit 1
+fi
+ok "PATCH evidence audit: every active/archive PATCH has a durable regression boundary"
 
 if ! audit_cleanup_policy; then
     fail "Transient cleanup policy audit failed"
