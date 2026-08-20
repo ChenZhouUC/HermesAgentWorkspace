@@ -33,6 +33,8 @@ AGENT_LOG="${HERMES_HOME}/logs/agent.log"
 ROOT_CONFIG="${HERMES_HOME}/config.yaml"
 PLUGIN_CONFIG="${HERMES_HOME}/plugins/sandbox/config.yaml"
 PLUGIN_TEST="${HERMES_HOME}/plugins/sandbox/test_sandbox.py"
+PEOPLE_FILE="${HERMES_HOME}/people.yaml"
+PEOPLE_TEST="${HERMES_HOME}/scripts/test_pull_feishu_people.py"
 VENV_PYTHON="${HERMES_AGENT}/venv/bin/python"
 
 fail=0
@@ -80,7 +82,8 @@ fi
 
 # 4. Root/plugin configuration contract (HARD)
 if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${ROOT_CONFIG}" ]] && [[ -r "${PLUGIN_CONFIG}" ]] &&
-    "${VENV_PYTHON}" - "${ROOT_CONFIG}" "${PLUGIN_CONFIG}" <<'PY'; then
+    [[ -r "${PEOPLE_FILE}" ]] &&
+    "${VENV_PYTHON}" - "${ROOT_CONFIG}" "${PLUGIN_CONFIG}" "${PEOPLE_FILE}" <<'PY'; then
 import re
 import sys
 import plistlib
@@ -90,8 +93,20 @@ import yaml
 
 root_path = Path(sys.argv[1])
 plugin_path = Path(sys.argv[2])
+people_path = Path(sys.argv[3])
 root = yaml.safe_load(root_path.read_text(encoding="utf-8")) or {}
 plugin = yaml.safe_load(plugin_path.read_text(encoding="utf-8")) or {}
+people = (yaml.safe_load(people_path.read_text(encoding="utf-8")) or {}).get("people") or []
+
+assert people, "people.yaml must contain the active Feishu roster"
+open_ids = [str(person.get("open_id") or "") for person in people if isinstance(person, dict)]
+user_ids = [str(person.get("user_id") or "") for person in people if isinstance(person, dict)]
+assert len(open_ids) == len(people) == len(user_ids)
+assert all(open_ids), "every person must have open_id"
+assert all(user_ids), "every person must have tenant user_id"
+assert len(set(open_ids)) == len(open_ids), "open_id values must be unique"
+assert len(set(user_ids)) == len(user_ids), "tenant user_id values must be unique"
+assert (people_path.stat().st_mode & 0o777) == 0o600, "people.yaml must remain owner-only"
 
 expected_group_toolsets = {
     "web",
@@ -264,9 +279,9 @@ assert renderer.count("    import requests\n") == 2, (
     "must import requests lazily"
 )
 PY
-    echo "OK   owner-DM/group YAML contract and fixed Feishu script map are valid"
+    echo "OK   owner-DM/group YAML contract, complete identity roster, and fixed Feishu script map are valid"
 else
-    echo "FAIL owner-DM/group YAML contract or fixed Feishu script map is invalid"
+    echo "FAIL owner-DM/group YAML contract, identity roster, or fixed Feishu script map is invalid"
     fail=1
 fi
 
@@ -439,6 +454,7 @@ sandbox._current_platform.set("feishu")
 sandbox._current_chat_id.set(next(iter(sandbox._GROUP_HYPERTEX_CHAT_IDS)))
 sandbox._current_chat_type.set("group")
 sandbox._current_user_id.set("ou_untrusted_verify")
+sandbox._current_user_ids.set(frozenset({"ou_untrusted_verify"}))
 sandbox._current_resource_refs.set(frozenset({"doxcnSandboxVerifyTarget"}))
 
 for document_args in (
@@ -467,8 +483,35 @@ assert sandbox._on_pre_tool_call(
     args={"username": "hermes"},
 ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_BLOCK_MESSAGE}
 
-sandbox._current_user_id.set(next(iter(sandbox._GROUP_HYPERTEX_USER_IDS)))
-sandbox._current_hypertex_call_count.set(0)
+trusted_open_id = next(iter(sandbox._GROUP_HYPERTEX_USER_IDS))
+sandbox._on_pre_gateway_dispatch(SimpleNamespace(
+    source=SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id=next(iter(sandbox._GROUP_HYPERTEX_CHAT_IDS)),
+        chat_type="group",
+        user_id="tenant_verify_user",
+        user_id_alt="union_verify_user",
+    ),
+    raw_message=SimpleNamespace(
+        event=SimpleNamespace(
+            sender=SimpleNamespace(
+                sender_id=SimpleNamespace(
+                    open_id=trusted_open_id,
+                    user_id="tenant_verify_user",
+                    union_id="union_verify_user",
+                )
+            )
+        )
+    ),
+    text="verify identity variants",
+    reply_to_text="",
+    media_urls=[],
+))
+assert sandbox._current_actor_ids() == frozenset({
+    trusted_open_id,
+    "tenant_verify_user",
+    "union_verify_user",
+})
 group_hypertex_args = {"username": "someone-else"}
 assert sandbox._on_pre_tool_call(
     tool_name=sandbox._HYPERTEX_LIST_TOOL,
@@ -483,6 +526,7 @@ assert sandbox._on_pre_tool_call(
     args={"username": "hermes"},
 ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE}
 sandbox._current_user_id.set("ou_untrusted_verify")
+sandbox._current_user_ids.set(frozenset({"ou_untrusted_verify"}))
 
 # Exercise the real deferred bridge: tool_call unwraps to the scoped
 # underlying tool, then the sandbox hook sees the real name. Out-of-scope tools
@@ -551,6 +595,7 @@ try:
 finally:
     sandbox._run_trusted_script = original_run_trusted_script
 sandbox._current_user_id.set("ou_untrusted_verify")
+sandbox._current_user_ids.set(frozenset({"ou_untrusted_verify"}))
 
 # Default search_files path is rewritten to the verified wiki root instead of
 # the process cwd, so the documented default invocation is both useful and safe.
@@ -589,11 +634,11 @@ fi
 
 # 6. Behavioral regression suite (HARD). Pin cwd to HERMES_HOME so the user
 # plugin namespace resolves even when hermes-update.sh was launched elsewhere.
-if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] &&
-    (cd "${HERMES_HOME}" && "${VENV_PYTHON}" -m pytest -q "${PLUGIN_TEST}"); then
-    echo "OK   sandbox plugin regression tests passed"
+if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TEST}" ]] &&
+    (cd "${HERMES_HOME}" && "${VENV_PYTHON}" -m pytest -q "${PLUGIN_TEST}" "${PEOPLE_TEST}"); then
+    echo "OK   sandbox and Feishu identity-sync regression tests passed"
 else
-    echo "FAIL sandbox plugin regression tests failed"
+    echo "FAIL sandbox or Feishu identity-sync regression tests failed"
     fail=1
 fi
 

@@ -36,6 +36,7 @@ class PeopleMergeTests(unittest.TestCase):
         self.people.write_text(
             """people:
   - open_id: ou_active
+    user_id: old_user_id
     name: Old Name
     aliases: [自定义别名]
     role: 旧岗位
@@ -54,12 +55,14 @@ class PeopleMergeTests(unittest.TestCase):
             """generated: 2026-08-15 22:00:00
 people:
   - open_id: ou_active
+    user_id: new_user_id
     name: New Name
     department: 新部门
     employee_no: WH0001
     direct_reports: 0
     total_reports: 0
   - open_id: ou_new
+    user_id: new_employee_user_id
     name: New Employee
     role: 新岗位
     department: 新部门
@@ -75,6 +78,7 @@ people:
         by_id = {item["open_id"]: item for item in doc["people"]}
         self.assertEqual(set(by_id), {"ou_active", "ou_new"})
         active = by_id["ou_active"]
+        self.assertEqual(active["user_id"], "new_user_id")
         self.assertEqual(active["name"], "New Name")
         self.assertEqual(active["department"], "新部门")
         self.assertNotIn("role", active)
@@ -84,6 +88,27 @@ people:
         self.assertEqual(active["background"], "本地背景")
         self.assertEqual(active["favorite_topic"], "几何")
         self.assertEqual(stat.S_IMODE(self.people.stat().st_mode), 0o600)
+
+    def test_objective_entry_includes_tenant_user_id(self) -> None:
+        entry = sync.objective_entry(
+            "ou_active",
+            {
+                "user_id": "tenant_user_id",
+                "name": "Active Person",
+                "job_title": None,
+                "employee_no": None,
+                "join_time": None,
+                "leader": None,
+                "dept_ids": set(),
+                "manager_name": None,
+                "direct_reports": 0,
+                "total_reports": 0,
+            },
+            {},
+        )
+
+        self.assertEqual(entry["open_id"], "ou_active")
+        self.assertEqual(entry["user_id"], "tenant_user_id")
 
     def test_large_automatic_removal_fails_closed(self) -> None:
         current = "people:\n" + "".join(f"  - open_id: ou_{idx}\n    name: Person {idx}\n" for idx in range(5))
@@ -148,6 +173,25 @@ people:
         )
         self.assertTrue(sync.is_active_employee(active))
         self.assertFalse(sync.is_active_employee(resigned))
+
+    def test_identity_validation_rejects_missing_or_duplicate_user_ids(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "without tenant user_id"):
+            sync.validate_identity_fields({"ou_missing": {"user_id": None}})
+
+        with self.assertRaisesRegex(RuntimeError, "duplicate tenant user_id"):
+            sync.validate_identity_fields(
+                {
+                    "ou_first": {"user_id": "same_user"},
+                    "ou_second": {"user_id": "same_user"},
+                }
+            )
+
+        sync.validate_identity_fields(
+            {
+                "ou_first": {"user_id": "first_user"},
+                "ou_second": {"user_id": "second_user"},
+            }
+        )
 
 
 if __name__ == "__main__":

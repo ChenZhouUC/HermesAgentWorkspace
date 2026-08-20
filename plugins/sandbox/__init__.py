@@ -57,6 +57,9 @@ _current_chat_type: contextvars.ContextVar[Optional[str]] = contextvars.ContextV
 _current_user_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "sandbox_current_user_id", default=None
 )
+_current_user_ids: contextvars.ContextVar[FrozenSet[str]] = contextvars.ContextVar(
+    "sandbox_current_user_ids", default=frozenset()
+)
 _current_resource_refs: contextvars.ContextVar[FrozenSet[str]] = contextvars.ContextVar(
     "sandbox_current_resource_refs", default=frozenset()
 )
@@ -229,6 +232,54 @@ def _coerce_chat_ids(raw: Any) -> Set[str]:
     if isinstance(raw, (list, tuple, set)):
         return {str(item).strip() for item in raw if isinstance(item, str) and item.strip()}
     return set()
+
+
+def _field(value: Any, name: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(name)
+    return getattr(value, name, None)
+
+
+def _event_user_ids(event: Any) -> FrozenSet[str]:
+    """Collect exact Feishu identity variants without relying on display names.
+
+    Feishu may populate both app-scoped ``open_id`` and tenant-scoped
+    ``user_id``.  The adapter intentionally prefers ``user_id`` for
+    ``SessionSource.user_id``, while operator-managed allowlists use the
+    reproducible ``open_id`` values from people.yaml.  Keep both identities
+    available to authorization hooks so adding contact scope cannot silently
+    revoke an existing grant.
+    """
+    identities: Set[str] = set()
+
+    source = _field(event, "source")
+    for name in ("user_id", "user_id_alt"):
+        value = _field(source, name)
+        if value is not None and str(value).strip():
+            identities.add(str(value).strip())
+
+    raw = _field(event, "raw_message")
+    raw_event = _field(raw, "event")
+    sender = _field(raw_event, "sender")
+    sender_id = _field(sender, "sender_id")
+    for name in ("open_id", "user_id", "union_id"):
+        value = _field(sender_id, name)
+        if value is not None and str(value).strip():
+            identities.add(str(value).strip())
+
+    return frozenset(identities)
+
+
+def _current_actor_ids() -> FrozenSet[str]:
+    identities = set(_current_user_ids.get())
+    primary = str(_current_user_id.get() or "").strip()
+    if primary:
+        identities.add(primary)
+    return frozenset(identities)
+
+
+def _current_actor_is_trusted(allowed_ids: FrozenSet[str]) -> bool:
+    return bool(_current_actor_ids().intersection(allowed_ids))
 
 
 def _coerce_paths(raw: Any) -> Tuple[Path, ...]:
@@ -708,12 +759,13 @@ def _group_doc_action_block(args: Any) -> Optional[str]:
     action = str(args.get("action") or "")
     if action in _TRUST_REQUIRED_SCRIPT_ACTIONS:
         actor = str(_current_user_id.get() or "")
-        if actor not in _GROUP_MUTATION_USER_IDS:
+        if not _current_actor_is_trusted(_GROUP_MUTATION_USER_IDS):
             logger.info(
-                "sandbox: blocked group document action=%s reason=untrusted_actor chat=%s actor=%s",
+                "sandbox: blocked group document action=%s reason=untrusted_actor chat=%s actor=%s actor_ids=%s",
                 action,
                 str(_current_chat_id.get() or ""),
                 actor or "unknown",
+                sorted(_current_actor_ids()),
             )
             return _MUTATION_TRUST_BLOCK_MESSAGE
     if action in _EXPLICIT_TARGET_SCRIPT_ACTIONS and not _resource_was_referenced(args.get("doc_token")):
@@ -1014,6 +1066,7 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
         _current_chat_id.set(None)
         _current_chat_type.set(None)
         _current_user_id.set(None)
+        _current_user_ids.set(frozenset())
         _current_resource_refs.set(frozenset())
         _current_media_paths.set(tuple())
         _current_hypertex_staged_paths.set(tuple())
@@ -1026,6 +1079,7 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
     _current_chat_id.set(getattr(source, "chat_id", None))
     _current_chat_type.set(str(getattr(source, "chat_type", "") or "").lower() or None)
     _current_user_id.set(getattr(source, "user_id", None))
+    _current_user_ids.set(_event_user_ids(event))
     _current_resource_refs.set(_event_resource_refs(event))
     _current_media_paths.set(
         tuple(str(path) for path in (getattr(event, "media_urls", None) or []) if str(path).strip())
@@ -1070,7 +1124,13 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
         if tool_name in _HYPERTEX_TOOLS:
             if chat_id not in _GROUP_HYPERTEX_CHAT_IDS:
                 return {"action": "block", "message": _HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE}
-            if str(_current_user_id.get() or "") not in _GROUP_HYPERTEX_USER_IDS:
+            if not _current_actor_is_trusted(_GROUP_HYPERTEX_USER_IDS):
+                logger.info(
+                    "sandbox: blocked group HyperTeX reason=untrusted_actor chat=%s actor=%s actor_ids=%s",
+                    chat_id,
+                    str(_current_user_id.get() or "unknown"),
+                    sorted(_current_actor_ids()),
+                )
                 return {"action": "block", "message": _HYPERTEX_GROUP_BLOCK_MESSAGE}
             return _prepare_hypertex_call(tool_name, args)
         if tool_name in _READ_PATH_TOOLS:

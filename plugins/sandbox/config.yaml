@@ -50,15 +50,11 @@ allowed_tools_for_outsider_groups:
 # trusted user IDs may delete documents. The key keeps its historical
 # "mutations" name, but its runtime effect is delete-only.
 #
-# Roster convention: register ONLY the app-scoped open_id (`ou_…`), which is the
-# one form recoverable from ~/.hermes/people.yaml. Tenant-scoped short IDs are
-# deliberately absent — this app's event payloads never carry them (all 500+
-# real `sender=user:` inbounds are `ou_` form), and the identity checks accept
-# any single matching form, so one ID per person is sufficient. Adding a member
-# is therefore: copy their `open_id` out of people.yaml. If this app ever gains
-# contact scope and Feishu starts delivering tenant user_ids, every entry here
-# needs the second form added at once — the check is fail-closed, so a missing
-# form denies access rather than over-granting it.
+# Roster convention: register ONLY the app-scoped open_id (`ou_…`) from
+# ~/.hermes/people.yaml. The inbound hook collects open_id, tenant user_id, and
+# union_id from the same signed Feishu sender object and authorizes when any
+# exact variant matches, so config stays single-source without becoming
+# sensitive to which ID the adapter chooses as SessionSource.user_id.
 trusted_feishu_user_ids_for_group_mutations:
   # 周琛 — sole holder. Document deletion is irreversible from the group's
   # side, so this grant stays at one person even when HyperTeX trust widens.

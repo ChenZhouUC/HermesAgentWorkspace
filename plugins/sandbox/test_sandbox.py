@@ -91,6 +91,7 @@ def group_config(tmp_path, monkeypatch):
     sandbox._current_chat_id.set("group-one")
     sandbox._current_chat_type.set("group")
     sandbox._current_user_id.set("trusted-user")
+    sandbox._current_user_ids.set(frozenset({"trusted-user"}))
     sandbox._current_resource_refs.set(frozenset())
     sandbox._current_media_paths.set(tuple())
     sandbox._current_hypertex_staged_paths.set(tuple())
@@ -281,6 +282,7 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
     sandbox._current_resource_refs.set(sandbox._resource_ref_candidates(url))
 
     sandbox._current_user_id.set("member-user")
+    sandbox._current_user_ids.set(frozenset({"member-user"}))
     for args in (
         {"action": "create"},
         {"action": "append", "doc_token": token},
@@ -293,6 +295,7 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
     }
 
     sandbox._current_user_id.set("trusted-user")
+    sandbox._current_user_ids.set(frozenset({"trusted-user"}))
     assert (
         sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete", "doc_token": token}) is None
     )
@@ -303,6 +306,7 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
         ) == {"action": "block", "message": sandbox._MUTATION_REFERENCE_BLOCK_MESSAGE}
 
     sandbox._current_user_id.set("member-user")
+    sandbox._current_user_ids.set(frozenset({"member-user"}))
     assert sandbox._on_pre_tool_call(
         tool_name="feishu_doc_manage",
         args={"action": "delete", "doc_token": "doxcnOtherToken"},
@@ -655,11 +659,66 @@ def test_hypertex_staging_preserves_cjk_attachment_name(group_config, tmp_path):
 
 def test_group_hypertex_is_limited_to_trusted_testers(group_config):
     sandbox._current_user_id.set("untrusted-user")
+    sandbox._current_user_ids.set(frozenset({"untrusted-user"}))
 
     assert sandbox._on_pre_tool_call(
         tool_name=sandbox._HYPERTEX_LIST_TOOL,
         args={"username": "hermes"},
     ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_BLOCK_MESSAGE}
+
+
+def test_group_authorization_matches_open_id_from_real_feishu_sender_shape(group_config, monkeypatch):
+    open_id = "ou_trusted_open_id"
+    tenant_user_id = "5397e1a2"
+    union_id = "on_trusted_union_id"
+    monkeypatch.setattr(sandbox, "_GROUP_HYPERTEX_USER_IDS", frozenset({open_id}))
+    monkeypatch.setattr(sandbox, "_GROUP_MUTATION_USER_IDS", frozenset({open_id}))
+    event = SimpleNamespace(
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="feishu"),
+            chat_id="group-one",
+            chat_type="group",
+            # The adapter prefers tenant user_id when contact scope is present.
+            user_id=tenant_user_id,
+            user_id_alt=union_id,
+        ),
+        raw_message=SimpleNamespace(
+            event=SimpleNamespace(
+                sender=SimpleNamespace(
+                    sender_id=SimpleNamespace(
+                        open_id=open_id,
+                        user_id=tenant_user_id,
+                        union_id=union_id,
+                    )
+                )
+            )
+        ),
+        text="删除后再生成演示文稿",
+        reply_to_text="",
+        media_urls=[],
+    )
+
+    sandbox._on_pre_gateway_dispatch(event)
+
+    assert sandbox._current_user_id.get() == tenant_user_id
+    assert sandbox._current_actor_ids() == frozenset({open_id, tenant_user_id, union_id})
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name=sandbox._HYPERTEX_LIST_TOOL,
+            args={"username": "someone-else"},
+        )
+        is None
+    )
+
+    token = "doxcnIdentityVariantTarget"
+    sandbox._current_resource_refs.set(sandbox._resource_ref_candidates(token))
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name="feishu_doc_manage",
+            args={"action": "delete", "doc_token": token},
+        )
+        is None
+    )
 
 
 def test_group_hypertex_is_limited_to_enabled_chats_even_for_trusted_testers(group_config):

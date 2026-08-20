@@ -23,7 +23,7 @@ Field policy on merge:
   Feishu-backed — authoritative. Values are refreshed from the latest complete
   snapshot; a field omitted by Feishu is removed rather than retaining stale
   local org data:
-      name, role, department, employee_no, join_date, tenure,
+      user_id, name, role, department, employee_no, join_date, tenure,
       manager, direct_reports, total_reports
   Subjective — created blank for new people, NEVER overwritten if already set:
       address, background, behavior, stance, risks
@@ -84,6 +84,7 @@ PIN_FIRST = "ou_33eeacfbd0c0559b7b734f83503719ab"
 # Canonical field order inside each person entry (drives insert positions).
 FIELD_ORDER = [
     "open_id",
+    "user_id",
     "name",
     "aliases",
     "role",
@@ -103,6 +104,7 @@ FIELD_ORDER = [
 ]
 # Feishu-backed fields the merge refreshes whenever the draft provides a value.
 ALWAYS_REFRESH = [
+    "user_id",
     "name",
     "role",
     "department",
@@ -167,6 +169,20 @@ def is_active_employee(user) -> bool:
     return activated is not False
 
 
+def validate_identity_fields(people: dict) -> None:
+    """Require a complete, one-to-one open_id ↔ tenant user_id snapshot."""
+    missing_user_ids = [oid for oid, entry in people.items() if not entry.get("user_id")]
+    if missing_user_ids:
+        raise RuntimeError(
+            "Feishu organization snapshot has "
+            f"{len(missing_user_ids)} employees without tenant user_id; "
+            "refusing to write a partial identity roster"
+        )
+    user_ids = [str(entry["user_id"]) for entry in people.values()]
+    if len(set(user_ids)) != len(user_ids):
+        raise RuntimeError("Feishu organization snapshot contains duplicate tenant user_id values")
+
+
 def collect(client) -> tuple[dict, dict]:
     """Return (people_by_open_id, dept_name_by_id) of raw objective data."""
     from lark_oapi.api.contact.v3 import (
@@ -215,6 +231,7 @@ def collect(client) -> tuple[dict, dict]:
         e = people.setdefault(
             oid,
             {
+                "user_id": None,
                 "name": None,
                 "job_title": None,
                 "employee_no": None,
@@ -223,6 +240,7 @@ def collect(client) -> tuple[dict, dict]:
                 "dept_ids": set(),
             },
         )
+        e["user_id"] = e["user_id"] or getattr(u, "user_id", None)
         e["name"] = e["name"] or getattr(u, "name", None)
         e["job_title"] = e["job_title"] or getattr(u, "job_title", None)
         e["employee_no"] = e["employee_no"] or getattr(u, "employee_no", None)
@@ -289,6 +307,7 @@ def collect(client) -> tuple[dict, dict]:
     missing_names = [oid for oid, entry in people.items() if not entry.get("name")]
     if missing_names:
         raise RuntimeError(f"Feishu organization snapshot has {len(missing_names)} employees without names")
+    validate_identity_fields(people)
 
     # Resolve manager names for leaders outside the pulled set (best effort).
     def resolve_name(oid: str):
@@ -357,7 +376,7 @@ def fmt_tenure(ts):
 def objective_entry(oid: str, e: dict, dept_name: dict) -> dict:
     """Flatten one raw person record into the objective YAML field set."""
     depts = " / ".join(dict.fromkeys(dept_name.get(d, d) for d in sorted(e["dept_ids"])))
-    out = {"open_id": oid, "name": e["name"]}
+    out = {"open_id": oid, "user_id": e["user_id"], "name": e["name"]}
     if e["job_title"]:
         out["role"] = e["job_title"]
     if depts:
@@ -617,8 +636,12 @@ def cmd_pull(args):
     )
     have_mgr = sum(1 for e in people.values() if e.get("manager_name"))
     have_no = sum(1 for e in people.values() if e["employee_no"])
+    have_user_id = sum(1 for e in people.values() if e["user_id"])
     leads = sum(1 for e in people.values() if e["direct_reports"] > 0)
-    print(f"  manager: {have_mgr} | employee_no: {have_no} | people with reports: {leads}", file=sys.stderr)
+    print(
+        f"  user_id: {have_user_id} | manager: {have_mgr} | employee_no: {have_no} | people with reports: {leads}",
+        file=sys.stderr,
+    )
     print(f"Wrote objective snapshot → {DRAFT_FILE}", file=sys.stderr)
     print("Next: python scripts/pull_feishu_people.py merge", file=sys.stderr)
 
