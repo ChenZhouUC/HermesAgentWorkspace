@@ -220,6 +220,40 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             self.assertEqual(audit[0].path, ".skills_prompt_snapshot.json")
             self.assertEqual(audit[0].classification, "keep")
 
+    def test_runtime_session_pointers_are_explicitly_keep_classified(self) -> None:
+        """Update-check throttle and per-TTY session pointers must never be swept.
+
+        Removing .update_check lets the next banner fire a network update check
+        that preflight forbids; terminal-sessions/ is owned by whichever live
+        terminals exist, so sweeping it is the concurrent-session mistake the
+        restart gate is meant to catch.
+        """
+        with tempfile.TemporaryDirectory() as root_raw:
+            root = Path(root_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / ".gitignore").write_text(".update_check\nterminal-sessions/\n")
+            (root / ".update_check").write_text('{"ts": 1787210948.5, "behind": 274, "ver": "0.20.4"}')
+            (root / "terminal-sessions").mkdir()
+            (root / "terminal-sessions" / "tty-dev-ttys003").write_text(
+                '{"session_id": "20260820_152908_3b11c3", "cwd": "/x", "ts": 1787210948.7}'
+            )
+            policy_path = write_policy(
+                root,
+                ignored_keep={
+                    ".update_check": "update-check throttle cache",
+                    "terminal-sessions/": "per-TTY session pointers",
+                },
+            )
+
+            audit, errors = cleanup.audit_ignored(root, cleanup.load_policy(policy_path))
+
+            self.assertEqual(errors, [])
+            self.assertEqual({entry.classification for entry in audit}, {"keep"})
+            self.assertEqual(
+                {entry.path for entry in audit},
+                {".update_check", "terminal-sessions/"},
+            )
+
     def test_runtime_bytecode_is_kept_while_test_bytecode_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)

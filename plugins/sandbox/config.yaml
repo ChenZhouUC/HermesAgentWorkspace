@@ -60,14 +60,9 @@ allowed_tools_for_outsider_groups:
 # needs the second form added at once — the check is fail-closed, so a missing
 # form denies access rather than over-granting it.
 trusted_feishu_user_ids_for_group_mutations:
-  # 周琛
+  # 周琛 — sole holder. Document deletion is irreversible from the group's
+  # side, so this grant stays at one person even when HyperTeX trust widens.
   - ou_33eeacfbd0c0559b7b734f83503719ab
-  # 孙可天
-  - ou_1df8d8705eb546b9dc65048ecdbf4002
-  # 张文华
-  - ou_423ee1666dc00139cbfade9f7e0f037b
-  # 李冰洁
-  - ou_d97d97c79bd2c6bffaed857dd463b26b
 
 # HyperTeX is exposed in the shared feishu_group toolset, but calls are enabled
 # only when both the current chat and current user appear in these allowlists.

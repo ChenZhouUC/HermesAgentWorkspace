@@ -177,17 +177,18 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "mcp__hypertex__tasks_cancel",
     "mcp__hypertex__tasks_update",
 }
-mutation_users = set(plugin.get("trusted_feishu_user_ids_for_group_mutations") or [])
 # ROSTER: open_id only. Tenant-scoped short IDs must not reappear in any
 # allowlist — they are unrecoverable from people.yaml and never delivered by
 # this app, so they were dead weight that made adding a member guesswork.
-expected_trusted_users = {
+# The two grants are sized independently and must never be aliased: document
+# deletion is irreversible, so it stays with the owner alone, while HyperTeX
+# trust may widen. Asserting them as separate literals is what stops a future
+# MCP grant from silently conferring delete.
+mutation_users = set(plugin.get("trusted_feishu_user_ids_for_group_mutations") or [])
+expected_mutation_users = {
     "ou_33eeacfbd0c0559b7b734f83503719ab",
-    "ou_1df8d8705eb546b9dc65048ecdbf4002",
-    "ou_423ee1666dc00139cbfade9f7e0f037b",
-    "ou_d97d97c79bd2c6bffaed857dd463b26b",
 }
-assert mutation_users == expected_trusted_users
+assert mutation_users == expected_mutation_users
 assert set(feishu.get("assistant_user_ids") or []) == {
     "ou_33eeacfbd0c0559b7b734f83503719ab",
 }, "MCP/delete trust must not broaden assistant-user mention triggers"
@@ -198,14 +199,25 @@ assert hypertex_chats == {
     "oc_0663408600b12ccec166f9889046a36a",
     "oc_1d81b1992a1cf99620bf815945782f27",
 }
-# HyperTeX trust is a superset of, not an alias for, the delete-only trust:
-# 沈舒仪 holds MCP access without document-delete. Asserting the two sets
-# separately is what keeps a future MCP grant from silently conferring delete.
 hypertex_users = set(plugin.get("trusted_feishu_user_ids_for_group_hypertex") or [])
-expected_hypertex_users = expected_trusted_users | {"ou_2f4ae9dcc13555fc703e9813d39ecd81"}
+expected_hypertex_users = {
+    # 周琛
+    "ou_33eeacfbd0c0559b7b734f83503719ab",
+    # 孙可天
+    "ou_1df8d8705eb546b9dc65048ecdbf4002",
+    # 张文华
+    "ou_423ee1666dc00139cbfade9f7e0f037b",
+    # 李冰洁
+    "ou_d97d97c79bd2c6bffaed857dd463b26b",
+    # 沈舒仪
+    "ou_2f4ae9dcc13555fc703e9813d39ecd81",
+}
 assert hypertex_users == expected_hypertex_users
-assert "ou_2f4ae9dcc13555fc703e9813d39ecd81" not in mutation_users, \
-    "HyperTeX-only trust must not confer Feishu document deletion"
+assert mutation_users < hypertex_users, \
+    "delete trust must stay a strict subset of HyperTeX trust"
+assert (hypertex_users - mutation_users) == expected_hypertex_users - {
+    "ou_33eeacfbd0c0559b7b734f83503719ab"
+}, "only the owner may hold Feishu document deletion"
 assert plugin.get("allowed_read_roots_for_outsider_groups") == ["~/.hermes/wiki"]
 assert plugin.get("group_workspace_root") == "~/.hermes/tmp/group-workspaces"
 assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []) == {

@@ -37,6 +37,8 @@
     ".npm_lock_hash_*": "Installed dependency fingerprint.",
     ".restart_*.json": "Gateway restart coordination state.",
     ".skills_prompt_snapshot.json": "Persistent skill prompt metadata snapshot used for validated cold-start cache reuse.",
+    ".update_check": "Update-check throttle cache written by hermes_cli/banner.py; removing it lets the next banner render fire a network update check, which update preflight forbids.",
+    "terminal-sessions/": "Per-TTY session pointers (session_id/cwd/ts); other live terminals own their own entries, so this is concurrent-session state and must never be swept.",
     "auth.json": "Local authentication state.",
     "auth.lock": "Authentication state lock.",
     "bin/": "User-local Hermes helper binaries.",
