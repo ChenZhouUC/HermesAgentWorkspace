@@ -2707,6 +2707,9 @@ if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MC
         grep -q 'test_task_aware_call_uses_sdk_request_model_with_name_metadata' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_bypasses_sdk2_legacy_core_result_prevalidation' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q '_send_legacy_extension_call(session, request)' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
+        grep -q 'test_tasks_get_retries_one_explicit_server_suggested_task_id' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_task_mutations_never_follow_a_suggested_task_id' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'assert "copy it verbatim"' "${MCP_UTILITY_GATE_TEST_PY}" 2>/dev/null &&
         grep -q '_mcp_field(result, "is_error", "isError", False)' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_skips_validation_for_error_across_sdk_field_rename' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_completed_task_receipt_only_exposes_task_id_and_links' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&

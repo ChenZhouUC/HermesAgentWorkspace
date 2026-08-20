@@ -16030,10 +16030,10 @@ index ed7571da56238c27759cc897f108ebe37aec47b2..4db29a2af45f67e9252e7154bb68573f
              if tool_name == "feishu_doc_read":
 diff --git a/tests/tools/test_mcp_tasks_extension.py b/tests/tools/test_mcp_tasks_extension.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..085644932a7c3d48a15706963ae16802444261e0
+index 0000000000000000000000000000000000000000..1f1f6957be7a24a33804b5da0a0aaa3862f34b5c
 --- /dev/null
 +++ b/tests/tools/test_mcp_tasks_extension.py
-@@ -0,0 +1,439 @@
+@@ -0,0 +1,482 @@
 +from __future__ import annotations
 +
 +import asyncio
@@ -16225,6 +16225,49 @@ index 0000000000000000000000000000000000000000..085644932a7c3d48a15706963ae16802
 +        "params": {"taskId": "42"},
 +    }
 +    assert session.request_name_params == [None]
++
++
++def test_tasks_get_retries_one_explicit_server_suggested_task_id():
++    from mcp.shared.exceptions import MCPError
++
++    class RepairSession(_Session):
++        async def send_request(self, request, result_type):
++            dumped = request.model_dump(by_alias=True, mode="json", exclude_none=True)
++            self.requests.append(dumped)
++            if len(self.requests) == 1:
++                raise MCPError(
++                    -32602,
++                    'taskId "99" was not found; use taskId "8"',
++                    data={"receivedKind": "job", "suggestedTaskId": "8"},
++                )
++            return result_type.model_validate(self.response)
++
++    session = RepairSession({
++        "resultType": "complete",
++        "taskId": "8",
++        "status": "completed",
++    })
++
++    result = asyncio.run(task_request(session, "tasks/get", {"taskId": "99"}))
++
++    assert result["taskId"] == "8"
++    assert [request["params"]["taskId"] for request in session.requests] == ["99", "8"]
++
++
++def test_task_mutations_never_follow_a_suggested_task_id():
++    from mcp.shared.exceptions import MCPError
++
++    class MutationSession(_Session):
++        async def send_request(self, request, result_type):
++            self.requests.append(request.model_dump(by_alias=True, mode="json", exclude_none=True))
++            raise MCPError(-32602, "wrong id", data={"suggestedTaskId": "8"})
++
++    session = MutationSession({})
++
++    with pytest.raises(MCPError):
++        asyncio.run(task_request(session, "tasks/cancel", {"taskId": "99"}))
++
++    assert len(session.requests) == 1
 +
 +
 +def test_server_support_is_driven_by_negotiated_extension():
@@ -16528,7 +16571,7 @@ index bca9dfb4a346d5f12a2ab866f6fdc58b88b4710c..45cfc35ded3ebeedbb3795e56dcc79f0
  
      def test_strict_strips_configured_headers_cross_origin(self):
 diff --git a/tests/tools/test_mcp_utility_capability_gating.py b/tests/tools/test_mcp_utility_capability_gating.py
-index af5d6a19bd7aeac23cf1d2137e87684abd8db440..8a4084915a0b8f3f0a8e10ef694a45d764d3e235 100644
+index af5d6a19bd7aeac23cf1d2137e87684abd8db440..3cb2a6353a310da4215110e8cfa68c900e19c2a4 100644
 --- a/tests/tools/test_mcp_utility_capability_gating.py
 +++ b/tests/tools/test_mcp_utility_capability_gating.py
 @@ -30,7 +30,7 @@ from types import SimpleNamespace
@@ -16550,7 +16593,7 @@ index af5d6a19bd7aeac23cf1d2137e87684abd8db440..8a4084915a0b8f3f0a8e10ef694a45d7
      return SimpleNamespace(capabilities=SimpleNamespace(**caps_attrs))
  
  
-@@ -105,6 +108,19 @@ class TestCapabilityGatedRegistration:
+@@ -105,6 +108,22 @@ class TestCapabilityGatedRegistration:
              "list_resources", "read_resource", "list_prompts", "get_prompt",
          }
  
@@ -16566,11 +16609,14 @@ index af5d6a19bd7aeac23cf1d2137e87684abd8db440..8a4084915a0b8f3f0a8e10ef694a45d7
 +        assert _handler_keys(selected) == {
 +            "tasks_get", "tasks_update", "tasks_cancel"
 +        }
++        get_schema = next(entry["schema"] for entry in selected if entry["handler_key"] == "tasks_get")
++        assert "exact taskId" in get_schema["description"]
++        assert "copy it verbatim" in get_schema["parameters"]["properties"]["task_id"]["description"]
 +
  
  class TestConfigFilterStillApplies:
      """Per-server config flags ``tools.resources: false`` / ``tools.prompts: false``
-@@ -136,6 +152,19 @@ class TestConfigFilterStillApplies:
+@@ -136,6 +155,19 @@ class TestConfigFilterStillApplies:
          )
          assert _handler_keys(selected) == {"list_resources", "read_resource"}
  
@@ -17272,10 +17318,10 @@ index 3887d3a2575c0fefb8226de89619cad0cf11a305..b52b2b7f6b1fc594c500d247a218b7fb
      # defusedxml only; aiohttp/httpx are core dependencies of every messaging
 diff --git a/tools/mcp_tasks_extension.py b/tools/mcp_tasks_extension.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..ceb6575632360ae0ece62d8e5628645e482e2145
+index 0000000000000000000000000000000000000000..fd9fc64b595469e21d0f9d5697e47e9a860a4997
 --- /dev/null
 +++ b/tools/mcp_tasks_extension.py
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,211 @@
 +"""Wire helpers for the ``io.modelcontextprotocol/tasks`` MCP extension.
 +
 +The installed MCP SDK exposes the standard ``tools/call`` request model but not
@@ -17287,6 +17333,7 @@ index 0000000000000000000000000000000000000000..ceb6575632360ae0ece62d8e5628645e
 +from __future__ import annotations
 +
 +import json
++import logging
 +from typing import Any, ClassVar
 +
 +from pydantic import RootModel
@@ -17295,6 +17342,7 @@ index 0000000000000000000000000000000000000000..ceb6575632360ae0ece62d8e5628645e
 +TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"
 +TASK_ROUTING_METHODS = frozenset({"tasks/get", "tasks/update", "tasks/cancel"})
 +_MISSING = object()
++logger = logging.getLogger(__name__)
 +
 +
 +class _RawRequest(RootModel[dict[str, Any]]):
@@ -17448,11 +17496,45 @@ index 0000000000000000000000000000000000000000..ceb6575632360ae0ece62d8e5628645e
 +    return "complete", result
 +
 +
-+async def task_request(session: Any, method: str, params: dict[str, Any]) -> dict[str, Any]:
++async def _task_request_once(session: Any, method: str, params: dict[str, Any]) -> dict[str, Any]:
 +    request = _RawRequest({"method": method, "params": params})
 +    return (await session.send_request(request, _RawResult)).root
++
++
++def _suggested_task_id(exc: Exception, current_task_id: Any) -> str:
++    data = getattr(exc, "data", None)
++    if not isinstance(data, dict):
++        error = getattr(exc, "error", None)
++        data = getattr(error, "data", None)
++    if not isinstance(data, dict):
++        return ""
++    suggested = str(data.get("suggestedTaskId") or "").strip()
++    current = str(current_task_id or "").strip()
++    return suggested if suggested and suggested != current else ""
++
++
++async def task_request(session: Any, method: str, params: dict[str, Any]) -> dict[str, Any]:
++    try:
++        return await _task_request_once(session, method, params)
++    except Exception as exc:
++        # A server may identify that the caller supplied a job/case/run ID
++        # instead of the durable MCP taskId. Correct one read-only lookup when
++        # the server supplies an explicit, unambiguous task handle; never
++        # redirect cancellation or input mutation.
++        suggestion = _suggested_task_id(exc, params.get("taskId")) if method == "tasks/get" else ""
++        if not suggestion:
++            raise
++        corrected = dict(params)
++        corrected["taskId"] = suggestion
++        logger.warning(
++            "MCP %s corrected non-task ID %r to suggested taskId %r",
++            method,
++            params.get("taskId"),
++            suggestion,
++        )
++        return await _task_request_once(session, method, corrected)
 diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py
-index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b49354db7ef2 100644
+index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..b91b100d4ae8dbbc78b355666f6f7ea3997ccf42 100644
 --- a/tools/mcp_tool.py
 +++ b/tools/mcp_tool.py
 @@ -1619,6 +1619,10 @@ def _make_redirect_header_stripper(
@@ -17578,17 +17660,29 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b493
  
      Returns a list of (schema, handler_factory_name) tuples encoded as dicts
      with keys: schema, handler_key.
-@@ -6502,6 +6573,48 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
+@@ -6502,6 +6573,73 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
              },
              "handler_key": "get_prompt",
          },
 +        {
 +            "schema": {
 +                "name": mcp_prefixed_tool_name(server_name, "tasks_get"),
-+                "description": f"Get a standard asynchronous task from MCP server '{server_name}'",
++                "description": (
++                    f"Get a standard asynchronous task from MCP server '{server_name}' by the exact taskId "
++                    "returned in its task handle. Copy a task ID named by the user verbatim; never substitute "
++                    "a case ID, job ID, run ID, or other business-object ID."
++                ),
 +                "parameters": {
 +                    "type": "object",
-+                    "properties": {"task_id": {"type": "string"}},
++                    "properties": {
++                        "task_id": {
++                            "type": "string",
++                            "description": (
++                                "Exact taskId from the MCP task handle. If the user names a task ID, copy it "
++                                "verbatim; do not infer it from case/job metadata."
++                            ),
++                        }
++                    },
 +                    "required": ["task_id"],
 +                },
 +            },
@@ -17597,10 +17691,18 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b493
 +        {
 +            "schema": {
 +                "name": mcp_prefixed_tool_name(server_name, "tasks_cancel"),
-+                "description": f"Request cancellation of an asynchronous task on MCP server '{server_name}'",
++                "description": (
++                    f"Request cancellation of an asynchronous task on MCP server '{server_name}' using the exact "
++                    "taskId returned in its task handle; never use a case/job/run ID."
++                ),
 +                "parameters": {
 +                    "type": "object",
-+                    "properties": {"task_id": {"type": "string"}},
++                    "properties": {
++                        "task_id": {
++                            "type": "string",
++                            "description": "Exact taskId from the MCP task handle; mutations are never auto-corrected.",
++                        }
++                    },
 +                    "required": ["task_id"],
 +                },
 +            },
@@ -17613,7 +17715,12 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b493
 +                "parameters": {
 +                    "type": "object",
 +                    "properties": {
-+                        "task_id": {"type": "string"},
++                        "task_id": {
++                            "type": "string",
++                            "description": (
++                                "Exact taskId from the MCP task handle; mutations are never auto-corrected."
++                            ),
++                        },
 +                        "input_responses": {
 +                            "type": "object",
 +                            "additionalProperties": True,
@@ -17627,7 +17734,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b493
      ]
  
  
-@@ -6620,6 +6733,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6620,6 +6758,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
      tools_filter = config.get("tools") or {}
      resources_enabled = _parse_boolish(tools_filter.get("resources"), default=True)
      prompts_enabled = _parse_boolish(tools_filter.get("prompts"), default=True)
@@ -17635,7 +17742,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b493
  
      # ``initialize_result.capabilities`` is the source of truth: its sub-objects
      # (``resources``, ``prompts``) are non-None iff the server advertises that
-@@ -6630,6 +6744,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6630,6 +6769,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
      init_result = getattr(server, "initialize_result", None)
      if init_result is not None:
          advertised_caps = getattr(init_result, "capabilities", None)
@@ -17645,7 +17752,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b493
  
      selected: List[dict] = []
      for entry in _build_utility_schemas(server_name):
-@@ -6640,6 +6757,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -6640,6 +6782,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
          if handler_key in {"list_prompts", "get_prompt"} and not prompts_enabled:
              logger.debug("MCP server '%s': skipping utility '%s' (prompts disabled)", server_name, handler_key)
              continue
@@ -17662,7 +17769,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b493
  
          # Preferred gate: check the server's advertised capabilities. Skip
          # if the capability is explicitly not advertised.
-@@ -6778,6 +6905,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
+@@ -6778,6 +6930,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
          "read_resource": _make_read_resource_handler,
          "list_prompts": _make_list_prompts_handler,
          "get_prompt": _make_get_prompt_handler,
@@ -17678,7 +17785,7 @@ index 93b4f2585cff8107ce9f03c865e9f74aa1815b57..553ef81df7d73c08f0216136f509b493
      }
      for entry in _select_utility_schemas(name, server, config):
          schema = entry["schema"]
-@@ -7062,6 +7198,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
+@@ -7062,6 +7223,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
          "read_resource": _make_read_resource_handler,
          "list_prompts": _make_list_prompts_handler,
          "get_prompt": _make_get_prompt_handler,
@@ -18692,7 +18799,7 @@ index 0eccf2d5aa51903f39fdfbbe9375612a784eae8d..ea0e9e7e9d3de5764fcb2ea51765aa48
  
  Enable isolated git worktrees for running multiple agents in parallel on the same repo:
 diff --git a/website/docs/user-guide/features/mcp.md b/website/docs/user-guide/features/mcp.md
-index 755941407aa7aa8cd41e813e7ba1829a29d644ed..653f4dab65b67ee97228167c6a3569aa576ac7fc 100644
+index 755941407aa7aa8cd41e813e7ba1829a29d644ed..2ecad6c1fea33c3a303471db1d4d9ebef8ede90a 100644
 --- a/website/docs/user-guide/features/mcp.md
 +++ b/website/docs/user-guide/features/mcp.md
 @@ -19,7 +19,7 @@ The `mcpServers` block in your `~/.claude.json` maps to `mcp_servers` in Hermes'
@@ -18722,7 +18829,7 @@ index 755941407aa7aa8cd41e813e7ba1829a29d644ed..653f4dab65b67ee97228167c6a3569aa
  
  These are registered per server with the same prefix pattern, for example:
  
-@@ -484,8 +488,22 @@ These are registered per server with the same prefix pattern, for example:
+@@ -484,8 +488,26 @@ These are registered per server with the same prefix pattern, for example:
  These utility tools are now capability-aware:
  - Hermes only registers resource utilities if the MCP session actually supports resource operations
  - Hermes only registers prompt utilities if the MCP session actually supports prompt operations
@@ -18735,6 +18842,10 @@ index 755941407aa7aa8cd41e813e7ba1829a29d644ed..653f4dab65b67ee97228167c6a3569aa
 +call. A later `tasks_get` response exposes only the task ID, a minimal lifecycle sentence, and any
 +deduplicated HTTP(S) result links. Server names, tool names, polling metadata, raw statuses,
 +`structuredContent`, and tool-specific business fields remain hidden from the user-facing receipt.
++The lifecycle tools require the exact `taskId` from that receipt; case, job, run, and other business
++IDs are not interchangeable. If a server rejects a read-only `tasks_get` request with one explicit
++`suggestedTaskId`, Hermes retries that lookup once with the correction. It never redirects
++`tasks_cancel` or `tasks_update`, because silently correcting a mutation would be unsafe.
 +Handshake-era MCP sessions are also supported: Hermes preserves the SDK's protocol stamp,
 +request metadata semantics, timeout, and ordinary `CallToolResult` validation while accepting a
 +negotiated Tasks extension handle that is not part of the legacy core result schema.
