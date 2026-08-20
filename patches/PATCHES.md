@@ -86,9 +86,12 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-FEISHU-MISSED-EVENT-BACKFILL: 断线/重连漏消息补偿（群+主会话 DM）与 quote 覆盖去重
   │   ├─ PATCH-FEISHU-GROUP-SCOPE: feishu_group capability namespace 与 DM 隔离
   │   ├─ PATCH-PLATFORM-CAPABILITY-SCOPE: 平台 skill allowlist + 只读 skill/file toolset
+  │   ├─ PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY: 冗余 tool_call 包装安全解一层
   │   ├─ PATCH-FEISHU-GROUP-APPROVAL: 群聊危险命令审批硬拦
   │   ├─ PATCH-FEISHU-NORMAL-REPLY: 普通引用回复，不进入 thread/topic lane
-  │   ├─ PATCH-FEISHU-FINAL-ONLY: Feishu 默认只显示最终回复
+  │   ├─ PATCH-FEISHU-FINAL-ONLY: Feishu 最终内容优先，长任务通用心跳
+  │   ├─ PATCH-GATEWAY-FAILOVER-STATUS-SILENCE: 主模型/fallback 路由状态只进日志
+  │   ├─ PATCH-FEISHU-RESPONSE-BUDGET: 可配置聊天软字数预算 + 单条 post 硬兜底
   │   ├─ PATCH-LOCAL-PROFILES: 人物/群画像、来源保密与可见输出过滤
   │   ├─ PATCH-FEISHU-RESOURCE-ACCESS: 附件回看、合并转发完整引用、Drive/doc access
   │   ├─ PATCH-DOCUMENT-EXTRACTION: PDF/HTML/Office/OpenDocument 可信抽取（XLSX/DOCX/IPYNB 已上游）
@@ -101,6 +104,7 @@ Step 8: Re-apply & Verify（核心）
   │   ├─ PATCH-LAUNCHD-WRAPPER-SUPERVISOR: launchd stderr wrapper 保留受监管身份（✅ 已上游合并 v0.20.4）
   │   ├─ PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION: 不继承 shell/~/.secrets 的 Hermes 凭据
   │   ├─ PATCH-MODEL-CONFIGURED-ONLY: /model 只访问主模型与 fallback 配置集合
+  │   ├─ PATCH-TRUNCATED-TOOL-CALL-RECOVERY: 隐藏截断的工具参数提高预算后重试
   │   ├─ PATCH-IMAGE-NATIVE-ROUTING: 主力模型图片能力识别（Gemini 3.x + azure-foundry）
   │   ├─ PATCH-VERTEX-VIDEO-ROUTING: Gemini 视频 native routing
   │   ├─ PATCH-MULTIMODAL-SIDECAR: 主力读不了媒体时旁路到链上能读的档（全局，不切主 provider）
@@ -279,15 +283,18 @@ PATCHED_FILES=(
     "tools/mcp_tool.py"
     "tools/mcp_tasks_extension.py"
     "tests/run_agent/test_tool_call_incremental_persistence.py"
+    "tests/run_agent/test_run_agent.py"
     "tests/tools/test_mcp_tasks_extension.py"
     "tests/tools/test_mcp_utility_capability_gating.py"
     "tests/tools/test_mcp_tool.py"
+    "tools/tool_search.py"
+    "tests/tools/test_tool_search.py"
     "website/docs/user-guide/features/mcp.md"
     "native/fts5_cjk/build.sh"
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（82 文件，2026-08-19 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（85 文件，2026-08-20 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -308,14 +315,18 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.4 (upstream `main` `13ce0c5c675e843af70d19c9e5144249cd51c8d1`，2026-08-19)
+## 当前版本：v0.20.4 (upstream `main` `13ce0c5c675e843af70d19c9e5144249cd51c8d1`，2026-08-20)
 
-**活跃补丁**：当前共 38 个语义补丁。30 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA`、`PATCH-GATEWAY-RESTART-CLEANUP` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
+**活跃补丁**：当前共 42 个语义补丁。34 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA`、`PATCH-GATEWAY-RESTART-CLEANUP` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
+
+**2026-08-20 运行态审计：SpaceSight 国内业务群创建需求文档失败**：请求已进入 Agent，但 Azure 主模型两次 90s stale kill 后切 Bedrock；模型随后生成大段文档工具参数时触及默认 4096-token 输出预算，且 provider 把未闭合 JSON 标为 `tool_calls`，旧路径不提高预算重试而直接回 `Response truncated due to output length limit`。终态失败 flush 又把 `Primary model failed — switching to fallback...` 内部状态发进群；正常的 8,397 / 8,703 / 11,351 字符回复也因 Feishu adapter 固定 8,000 字符预算被主动拆段。新增三个独立工程补丁：隐藏聊天面的模型路由状态、为隐藏截断的工具参数执行 8k→16k→32k 有界重试、提供 `display.platforms.<feishu|feishu_group>.response_char_limit`（本机 3000）生成侧软预算并把单条 post 硬兜底提高到 16,000 字符。
+
+**2026-08-20 运行态审计：财务群引用 PDF 后长时间无响应**：飞书真实群历史证明 PDF 引用、附件回填和文本抽取均成功，12:19:49 也确实发送了 1,829 字最终回复并创建飞书文档 `QHCOdMaZNoVTU8xcCtlcAmxPnhg`；问题是整轮耗时 1,163.6 秒且群聊 long-running notification 被 final-only 策略完全关闭。模型在 12:03 已发现 HyperTeX create 工具，却生成 `tool_call({name:"tool_call", arguments:{name:"mcp__hypertex__hypertex_create_case",...}})` 双层 envelope，旧 bridge 在读内层 target 前按递归拒绝，导致异步 HyperTeX 未启动，Agent 跨 Azure→Bedrock→Vertex 手工生成本地 83KB HTML，最终只能发飞书大纲与不可直接访问的缓存文件说明。新增 `PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY` 安全剥离一层冗余 envelope；同时把 `feishu_group.long_running_notifications` 改为 `generic`、`gateway_notify_interval` 调为 180 秒，保留最终内容优先但不再让 19 分钟任务完全静默。`response_char_limit` 仅约束最终聊天气泡，明确不限制文档、HTML、附件、Markdown 源稿或工具 payload；12k 单条 post 回归同时证明标题、引用与 strong flanking 格式化仍生效。终态 **42 active / 34 engineering patches / 85 files / 39 tests**；受管测试 **1654 passed / 0 failed / 3 skipped**（另 8 subtests），sandbox **41 passed**，85-file bundle cached 正向 / worktree 反向 / conflict-marker / index-clean 全绿；Gateway planned restart 后运行于 PID 35792。
 
 **最近一次升级（v0.20.1 → v0.20.4，+836 commits，basis `8ad055414bcae75486952c5080d366679e074c1b` → `13ce0c5c675e843af70d19c9e5144249cd51c8d1`，2026-08-19）要点**：
 
 - 上游主线：发布 **v0.20.2 → v0.20.3 → v0.20.4**（`df4b65147` / `7339f5f16` / `7e05e9080`），main 前进 836 commits。MCP 迁移到 2.x SDK 并接入 2026-07-28 stateless protocol、OAuth user-agent/CIMD（`11a9dcf56` / `382060f02` / `a6bada232` / `0b588cb3a`）；Skills 新增 project-local discovery、trust/quarantine、安装安全与文件 mode 保留（`f891d702d` / `6e22d2658` / `183f18d53` / `968853c5b`）；Gateway/session 加入 profile-aware key、恢复笔记、DB off-loop 与 launchd wrapper supervisor 正式修复（`21260c328` / `0cc26777b` / `8e81e2aaa` / `7008fb81b`）；模型/provider catalog、Desktop 多 source/Bot Mode/preview/browser/tour 与 Nix Home Manager 持续演进（`fa1bb88e3` / `d354af5e1` / `018176915` / `d5a9c2ba6`）。
-- patch apply / registry：84-file bundle 在 `prompt_builder.py`、`skill_utils.py`、`hermes_cli/gateway.py`、`tools/approval.py`、`tools/mcp_tool.py` 发生真实 3-way 冲突；project skill 与平台 allowlist、single-query approval 与 Feishu group hard floor、MCP 2.x 字段/API 与 Tasks extension 均按“并存”重解。`PATCH-LAUNCHD-WRAPPER-SUPERVISOR` 经裸 upstream 实现 + 14 条官方回归证明完全吸收并移入 Archive，本地 hunk/旧测试退出 bundle；其余活跃 PATCH 无新增吸收或收缩，既有部分吸收状态保持。终态 **38 active / 30 engineering patches / 82 files / 37 tests**，规范 runner **1346 passed / 0 failed / 3 skipped**；bundle/base/full-index、cached 正向、worktree 反向与 index-clean 闭环重建到 `13ce0c5c6`。
+- patch apply / registry：84-file bundle 在 `prompt_builder.py`、`skill_utils.py`、`hermes_cli/gateway.py`、`tools/approval.py`、`tools/mcp_tool.py` 发生真实 3-way 冲突；project skill 与平台 allowlist、single-query approval 与 Feishu group hard floor、MCP 2.x 字段/API 与 Tasks extension 均按“并存”重解。`PATCH-LAUNCHD-WRAPPER-SUPERVISOR` 经裸 upstream 实现 + 14 条官方回归证明完全吸收并移入 Archive，本地 hunk/旧测试退出 bundle；08-20 两轮运行态审计后新增四个输出/工具稳健性补丁，终态 **42 active / 34 engineering patches / 85 files / 39 tests**，受管 runner **1654 passed / 0 failed / 3 skipped**，sandbox **41 passed**，85-file replay 闭环全绿。
 - 依赖：venv 原地升级，Python 3.12.13 / SQLite 3.53.1 保持；Hermes 0.20.1 → 0.20.4，MCP 1.28.1 → 2.0.0，idna 3.15 → 3.18，pip 26.2 → 26.2.1，并新增 `httpx2` / `mcp-types` / `truststore` 等上游 pin；20 个 active lazy backend 全部 current。官方 updater 更新 4 个 bundled skills，终态 mirror `+0/~1/-0` 且 runtime metadata 保留。root `npm audit` 仍为 **6 high**：Electron 40.10.2 / extract-zip 需越 stated range 到 40.10.6，postcss 8.5.23 → nanoid 3.3.17 被 override/lock 阻挡；均属 Desktop/Web build-chain P2，不影响飞书 gateway，未使用 `--force`。`package-lock.json` 仅 workspace hoist / peer 标记归一化，继续排除出 replay bundle。
 - 已知摩擦：唯一 `--update` 固定 `TARGET_SHA=13ce0c5c675e` 后，所有复跑均为 no-network reconcile。cleanup 先暴露未完成事务文件未分类，后又在全量回归预编译后暴露新 `website/scripts/__pycache__`；现已把事务状态/锁成对列为 keep、website 文档脚本缓存精确列为 remove，并补 7 条清理器回归。MCP 2.0 将 `CallToolResult.isError` 属性改为 `is_error`，Tasks extension 已改为 snake/camel 双读并新增 success/error validation 反例。一次 Doctor Bedrock TLS 证书错配在无配置变更的立即复跑中恢复，归类为瞬时网络/DNS 噪音；最终 Azure/Bedrock 均通过。reconcile exit 0、无 `✗`，事务清除，Gateway planned restart 与 sandbox 41 passed 绑定最终真实子进程。
 - 配置漂移：主配置仍为 v37，无 migration 或 deprecated key；Azure → Bedrock → Vertex fallback、Vertex compression、统一 700k threshold、`browser.backend: 'off'` 与 Feishu owner/group sandbox 边界均保持。Doctor 仅保留上述 P2 npm build-chain 和未配置的可选 provider/toolset P3，不存在可修而未修的 P0/P1。
@@ -610,6 +621,23 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+### [PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY] 冗余 Tool Search 调用包装安全修复
+
+| 字段     | 内容                                                      |
+| -------- | --------------------------------------------------------- |
+| **文件** | `tools/tool_search.py`, `tests/tools/test_tool_search.py` |
+| **状态** | 🟡 未上游合并；上游仍把自包裹形状视为递归 bridge 调用     |
+
+**问题**：Tool Search 要求 deferred tool 通过 `tool_call({name: target, arguments: {...}})` 调用。部分模型会把完整函数调用 envelope 再包一层，输出 `tool_call({name: "tool_call", arguments: {name: target, arguments: {...}}})`。旧 `resolve_underlying_call()` 在读取内层 target 前先执行 bridge recursion 拒绝，因此合法且已授权的 deferred tool 永远不会触发。2026-08-20 财务群 PDF→动态 HTML 任务已经成功发现 `mcp__hypertex__hypertex_create_case`，却因这一冗余包装被当作 `tool_call` 本身交给群沙箱并拒绝；Agent 随后跨三家 provider 手工生成 83KB HTML，但无法把本地文件真正交付给群成员。
+
+**修复**：`resolve_underlying_call()` 在递归检查前只识别一种精确形状：外层 `name == tool_call`，`arguments` 是对象，且内层 `name` 是非 bridge 工具。仅剥离这一层后继续原有 deferrable 分类、session scoped catalog、required-schema probe、middleware 与 sandbox pre/post hooks；修复本身不扩大任何工具 universe。内层仍是 `tool_call` / `tool_search` / `tool_describe` 时保持原递归拒绝，双层以上不递归展开。
+
+**验证**：回归测试使用本次真实 HyperTeX 工具名和参数形状，断言解析为 underlying target 与原始参数；负例把内层继续设为 `tool_call`，必须返回 bridge recursion 错误。Step 8b 单独运行两条测试，确保既能恢复一层模型格式偏差，又不会打开桥接递归或绕过 session/sandbox gate。
+
+**上游吸收判断**：上游为 `tool_call` 提供等价的一层 envelope normalization，并保留 bridge recursion、scoped catalog 和底层 hook 权限语义后可归档。若仅在 prompt 中提醒模型不要双包，不构成确定性吸收。
+
+---
+
 ### [PATCH-FEISHU-GROUP-APPROVAL] 群聊危险命令审批不可升级权限
 
 | 字段     | 内容                                                   |
@@ -678,20 +706,37 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-### [PATCH-FEISHU-FINAL-ONLY] Feishu 默认只展示最终回复
+### [PATCH-GATEWAY-FAILOVER-STATUS-SILENCE] 模型路由状态不进入聊天
+
+| 字段     | 内容                                                            |
+| -------- | --------------------------------------------------------------- |
+| **文件** | `gateway/run.py`, `tests/gateway/test_telegram_noise_filter.py` |
+| **状态** | 🟡 未上游合并；上游 fallback-observability 有意向用户 surface   |
+
+**问题**：`_try_activate_fallback()` 同时维护两条内部状态：失败路径缓冲 `Primary model failed — switching to fallback...`，成功路径挂起 `Switched to fallback model: ... → ...`。成功时后者由 `_emit_pending_fallback_notice` 单独发出；终态失败时前者随 `_flush_status_buffer` 重放。Gateway 的聊天噪声过滤虽声称抑制 provider retry chatter，却没有匹配这两种文案。2026-08-20 SpaceSight 国内业务群的创建文档 turn 最终因工具参数截断失败，缓冲区 flush 后把完整 Bedrock inference-profile ARN 原样发进群，暴露了纯运维路由细节。
+
+**修复**：只在共享的聊天 status 投递边界 `_prepare_gateway_status_message` 扩展 `_TELEGRAM_NOISY_STATUS_RE`，覆盖 `primary model failed...switching to fallback`、`switched to fallback model` 与通用 `switching to fallback model/provider`。Feishu、Telegram、Slack、Discord 等 human-facing chat 返回 `None`；local/TUI、API、webhook 继续保留原始状态，日志与模型使用统计也完全不变。最终失败正文仍照常投递，本补丁不吞错误本身，只吞独立的模型路由旁白。
+
+**验证**：`test_telegram_noise_filter.py` 把本次真实失败文案和成功 one-shot 文案加入 `NOISY_STATUS_MESSAGES`，三个代表性聊天面均断言静默；`test_programmatic_surfaces_keep_raw_fallback_status` 反向证明 local/API/webhook 原样保留。Step 8b 直接调用真实 `_prepare_gateway_status_message` 覆盖五种聊天面与 local 负向边界。
+
+**上游吸收判断**：上游若将 fallback observability 改为仅日志/结构化 telemetry，或在所有聊天 status 边界等价区分“用户可行动故障”与“内部模型路由”并默认隐藏后可归档。仅改变 fallback 文案不构成吸收，需同步更新源常量/测试或继续由正则覆盖。
+
+---
+
+### [PATCH-FEISHU-FINAL-ONLY] Feishu 默认最终内容优先，长任务保留通用心跳
 
 | 字段     | 内容                                                                                                                                                                                                                                                                                                                                         |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **文件** | `gateway/display_config.py`, `tests/gateway/test_display_config.py`, `tests/gateway/test_run_progress_topics.py`, `tests/gateway/test_verbose_command.py`（本机 `config.yaml` 按 DM/group 显式覆盖）。运行 consumer 的 source-aware 解析 hunk（`gateway/run.py` / `gateway/slash_commands.py`）归属 `PATCH-FEISHU-GROUP-SCOPE`，此处仅为依赖 |
 | **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                                                |
 
-**问题**：Feishu 默认 tool progress、streaming 和 interim bubbles 会把草稿、工具进度或思考式中间态暴露到群聊；这与消息是否进入 thread 无关，应独立控制。只验证 `display.platforms.feishu_group` 的静态值并不足够：运行 consumer 若错误使用 `feishu` key，群聊仍会继承 owner DM 的 `tool_progress: new`。
+**问题**：Feishu 默认 tool progress、streaming 和 interim bubbles 会把草稿、工具进度或思考式中间态暴露到群聊；这与消息是否进入 thread 无关，应独立控制。只验证 `display.platforms.feishu_group` 的静态值并不足够：运行 consumer 若错误使用 `feishu` key，群聊仍会继承 owner DM 的 `tool_progress: new`。初版为追求 final-only 同时关闭 long-running notification，真实 PDF 任务耗时 19 分 24 秒时群里全程无任何存活信号，用户合理判断为“引用 PDF 后没有响应”。
 
-**修复**：Feishu 内置 display tier 默认关闭 tool progress、streaming、interim assistant messages、long-running notification 和 busy detail。当前本机有意让主会话 DM 使用 `tool_progress: new`（独立工具进度卡），群聊保持 `tool_progress: false`；两者都关闭 streaming/interim/thinking progress，最终 assistant 回复只走最终内容。所有运行时 display consumer 通过 `PATCH-FEISHU-GROUP-SCOPE` 的 source-aware key 解析，避免静态策略与实际发送分叉。若 provider 把 thought 错塞进 `message.content`，由 `PATCH-VERTEX-HIDDEN-THOUGHTS` 在请求侧抑制，不能误认为 display 层会自动识别并清洗正文。
+**修复**：Feishu 内置 display tier 继续默认关闭 tool progress、streaming、interim assistant messages、long-running notification 和 busy detail。当前本机让主会话 DM 使用 `tool_progress: new` 且不发心跳；群聊保持 `tool_progress: false`、关闭 streaming/interim/thinking/busy detail，但显式配置 `long_running_notifications: generic` 与 `agent.gateway_notify_interval: 180`。因此普通任务仍只显示最终内容；超过 3 分钟的任务只出现一条无工具名、模型名、迭代数的通用心跳，后续周期尽量 edit 同一条消息，不泄露内部执行链。所有运行时 display consumer 通过 `PATCH-FEISHU-GROUP-SCOPE` 的 source-aware key 解析。若 provider 把 thought 错塞进正文，由 `PATCH-VERTEX-HIDDEN-THOUGHTS` 请求侧抑制。
 
-**验证**：Step 8b 单独检查 Feishu display defaults 与 `test_feishu_defaults_to_final_only`；同文件另有两条本补丁携带的守护测试 `test_medium_tier_platforms` / `test_slack_defaults_tool_progress_off`（锁定其他平台的上游默认不被本地 tier 改动波及，2026-08-07 归属登记）；本机配置检查主会话 `tool_progress: new`、群聊 `tool_progress: false`，且两者的 `thinking_progress` / `interim_assistant_messages` 均为 false。真实 `_run_agent` 边界测试另证明 DM 会发工具进度，而两个 Feishu group 会话即使同用一个 bot 也不会产生任何 progress send/edit；`/verbose` 测试证明群聊命令只读写 `feishu_group`。
+**验证**：Step 8b 检查 Feishu display defaults 与 `test_feishu_defaults_to_final_only`；本机策略校验 DM `tool_progress: new` + long-running false，群聊 `tool_progress: false` + long-running `generic` + 180 秒间隔，且两者的 streaming/thinking/interim/busy detail 均关闭。真实 `_run_agent` 边界测试继续证明群聊没有 tool progress/interim send；通用心跳使用既有 `allow_generic=True` 路径，不包含 activity detail。`/verbose` 测试证明群命令只读写 `feishu_group`。
 
-**上游吸收判断**：上游 Feishu 默认 final-only，或提供等价且默认安全的 display profile 后可归档。
+**上游吸收判断**：上游 Feishu 提供等价的 final-answer-first profile：隐藏工具/思考/路由内部状态，同时允许可配置、无内部细节的长任务存活心跳后可归档。
 
 ---
 
@@ -775,6 +820,23 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
+### [PATCH-FEISHU-RESPONSE-BUDGET] 生成侧软字数预算与发送侧单条 post 兜底
+
+| 字段     | 内容                                                                                                                                                                                                           |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/{display_config.py,session.py,run.py}`, `plugins/platforms/feishu/adapter.py`, `tests/gateway/{test_display_config.py,test_session.py,test_feishu.py}`, Feishu/configuration 文档；外层 `config.yaml` |
+| **状态** | 🟡 未上游合并；本机 `feishu` / `feishu_group` 均配置 `response_char_limit: 3000`                                                                                                                               |
+
+**问题**：旧系统只有发送端硬切分：Feishu adapter 固定 `MAX_MESSAGE_LENGTH=8000`，任何更长回复都会在发送前拆成多条带序号消息。最近真实回复 8,397、8,703、11,351 字符均因此分段；模型在生成时不知道聊天面的阅读预算，也不会主动把长报告放进飞书文档。单纯提高硬上限只能减少分段，不能阻止冗长回答；单纯 prompt 限制又不可靠，模型偶尔超限时仍需可送达兜底。
+
+**修复**：新增通用 `display.platforms.<platform>.response_char_limit`（整数，0=关闭，范围收敛到 0–100,000）。Gateway 按 source-aware key 区分 `feishu` DM 与 `feishu_group`，把解析值写入 `SessionContext` 并纳入 ephemeral prompt cache key；system prompt 要求最终聊天回复尽量控制在该 Unicode 字符预算内、结论优先、去重复。该预算**只约束最终飞书聊天气泡**，明确禁止据此缩短或截断飞书文档正文、HTML、附件、Markdown 源稿或工具调用 payload；这些交付物保持任务所需的完整长度。用户明确要求长报告/需求文档且有文档/文件工具时，全文写入交付物，群里只回摘要与链接/附件；不得主动把一个答案规划成多条聊天消息。发送侧独立保留硬兜底：Feishu 单条 post 保守预算从 8,000 提到 16,000，使近期 8–12k 回复即使模型没有收敛也能保持一个 post；超过 16k 仍走既有 fence-aware 切分，绝不静默丢内容。
+
+**验证**：display 测试覆盖 DM/group 独立解析、字符串整数、负值关闭与其他平台不受影响；session 测试断言 3,000 字提示、长文档转交付物规则，并证明预算变化会改变 `_ephemeral_change_key`、不会被旧 pin 吃掉；Feishu adapter 测试构造 >8k 且 <16k 的 Markdown，只允许一次 `msg_type=post` 请求。Step 8b 同时 import resolver/prompt/adapter 三层并检查外层配置与三条回归锚点。发送端不做 live 真群探测，避免验证制造外部消息。
+
+**上游吸收判断**：上游提供可配置、按聊天 source scope 生效的生成侧 response budget，并使 Feishu 8–12k Markdown 能单条稳定投递、超大回复仍安全切分后可归档。仅提高 adapter 常量或只加 prompt 文案都不构成完整吸收。
+
+---
+
 ### [PATCH-FEISHU-SSRF-TEST-SYSPROXY] SSRF rebind 测试对宿主系统代理 hermetic
 
 | 字段     | 内容                           |
@@ -793,6 +855,23 @@ cat ~/.hermes/patches/.local-patches.base
 ---
 
 **类别：Provider、模型与多模态路由**
+
+### [PATCH-TRUNCATED-TOOL-CALL-RECOVERY] 隐藏截断的工具参数提高预算后重试
+
+| 字段     | 内容                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/conversation_loop.py`, `tests/run_agent/{test_tool_call_incremental_persistence.py,test_run_agent.py}` |
+| **状态** | 🟡 未上游合并；上游 `finish_reason=tool_calls` + 未闭合 JSON 分支仍立即终止                                   |
+
+**问题**：大段文档/文件写入会把正文放进工具参数 JSON。Bedrock Converse 默认 `max_tokens=4096`，参数超过预算时有的 provider 返回 `finish_reason=length`，有的 router 却改写成 `tool_calls` 并留下未闭合 JSON。前者已有 4 次有界重试并把输出预算指数提高到 8k/16k/32k；后者在 JSON 校验处直接返回 `Response truncated due to output length limit`，既不重试，也把不可靠的 finish reason 当成确定诊断。2026-08-20 创建飞书需求文档正是此路径：前序工具结果存在，下一次大参数调用被截断，创建脚本从未执行。
+
+**修复**：抽出 `_raise_truncated_tool_call_output_cap()` 作为两类截断的单一预算函数。显式 `length` 与 `tool_calls`+未闭合 JSON 都复用同一 8k→16k→32k 上限与 4 次计数；每次从最后完整 transcript 重跑，不追加、不持久化、更不执行半截参数。若仍耗尽，关闭悬空 tool tail，并返回“工具参数无法完整生成、动作未执行”的准确错误，不再把未知 router 行为一律说成 output length。成功执行任一完整工具批次后，既有逻辑仍重置计数，单次截断不会污染后续 turn。
+
+**验证**：新增端到端回归构造 `finish_reason=tool_calls` + 大段未闭合 JSON，断言第一次不 dispatch、第二次请求 cap 至少 8192、完整重试只执行一次工具并正常返回；既有“先成功工具、后连续隐藏截断”测试改为提供 4 次失败，断言总共 6 次 API 调用后 tool tail 闭合且明确声明动作未执行。Step 8b 单独运行这两条测试，防止 helper 存在但分支未接线。
+
+**上游吸收判断**：上游让所有未闭合工具参数（不依赖 finish_reason 字面值）走统一的有界重试/预算提升并保持半截调用零副作用后可归档；若 provider 层能保证真实 `length`，仍需保留 router 改写的回归测试再判断是否收缩。
+
+---
 
 ### [PATCH-MODEL-CONFIGURED-ONLY] `/model` 只访问配置内主模型与 fallback
 

@@ -155,9 +155,12 @@ PATCHED_FILES=(
     "tools/mcp_tool.py"
     "tools/mcp_tasks_extension.py"
     "tests/run_agent/test_tool_call_incremental_persistence.py"
+    "tests/run_agent/test_run_agent.py"
     "tests/tools/test_mcp_tasks_extension.py"
     "tests/tools/test_mcp_utility_capability_gating.py"
     "tests/tools/test_mcp_tool.py"
+    "tools/tool_search.py"
+    "tests/tools/test_tool_search.py"
     "website/docs/user-guide/features/mcp.md"
     "native/fts5_cjk/build.sh"
 )
@@ -827,8 +830,9 @@ case "${1:-}" in
 esac
 
 # Personal display contract: the owner DM may show each newly-started tool as
-# a separate progress card, while Feishu groups expose no tool/interim/thinking
-# UI. Both scopes keep final assistant delivery non-streaming and draft-free.
+# a separate progress card. Feishu groups keep tool/interim/thinking UI off but
+# emit a generic long-run heartbeat every configured interval. Both scopes keep
+# final assistant delivery non-streaming and draft-free.
 _verify_feishu_display_policy() {
     "${HERMES_AGENT}/venv/bin/python" -c '
 import sys, yaml
@@ -837,11 +841,13 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 platforms = ((config.get("display") or {}).get("platforms") or {})
 dm = platforms.get("feishu") or {}
 group = platforms.get("feishu_group") or {}
-disabled = ("streaming", "interim_assistant_messages", "long_running_notifications", "busy_ack_detail", "thinking_progress")
+always_disabled = ("streaming", "interim_assistant_messages", "busy_ack_detail", "thinking_progress")
 assert dm.get("tool_progress") == "new"
-assert all(dm.get(key) is False for key in disabled)
+assert all(dm.get(key) is False for key in (*always_disabled, "long_running_notifications"))
 assert group.get("tool_progress") is False
-assert all(group.get(key) is False for key in disabled)
+assert all(group.get(key) is False for key in always_disabled)
+assert group.get("long_running_notifications") == "generic"
+assert int(((config.get("agent") or {}).get("gateway_notify_interval") or 0)) == 180
 ' "${HERMES_HOME}/config.yaml" >/dev/null 2>&1
 }
 
@@ -1684,6 +1690,10 @@ _APPROVAL_TEMP_CLEANUP_PATCH_OK=false
 _FTS5_CJK_BUILD_PATCH_OK=false
 _COMPACTION_LIFECYCLE_SILENCE_PATCH_OK=false
 _FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK=false
+_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK=false
+_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK=false
+_FEISHU_RESPONSE_BUDGET_PATCH_OK=false
+_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK=false
 
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
@@ -2114,17 +2124,18 @@ else
     warn "Could not locate PATCH-FEISHU-NORMAL-REPLY files"
 fi
 
-# PATCH-FEISHU-FINAL-ONLY: upstream defaults stay final-only. This personal
-# config deliberately enables separate `new` tool cards only in the owner DM;
-# groups keep every progress/interim/thinking surface off. Provider-side thought
-# suppression remains the separate PATCH-VERTEX-HIDDEN-THOUGHTS contract.
+# PATCH-FEISHU-FINAL-ONLY: upstream defaults stay final-answer-first. This
+# personal config enables separate `new` tool cards only in the owner DM;
+# groups keep tool/interim/thinking surfaces off while retaining a generic
+# 3-minute long-run heartbeat. Provider-side thought suppression remains the
+# separate PATCH-VERTEX-HIDDEN-THOUGHTS contract.
 if [[ -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" && -f "${RUN_PROGRESS_TEST_PY}" && -f "${VERBOSE_COMMAND_TEST_PY}" ]]; then
     if grep -q '"feishu":          {' "${DISPLAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'test_feishu_defaults_to_final_only' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_updates_group_scope_without_mutating_dm' "${VERBOSE_COMMAND_TEST_PY}" 2>/dev/null &&
         _verify_feishu_display_policy; then
-        ok "PATCH-FEISHU-FINAL-ONLY active: DM new-tool cards; groups final-only; thinking hidden"
+        ok "PATCH-FEISHU-FINAL-ONLY active: DM new-tool cards; groups final-answer-first + generic heartbeat"
         _FEISHU_FINAL_ONLY_PATCH_OK=true
     else
         warn "PATCH-FEISHU-FINAL-ONLY inactive or local DM/group display policy drifted"
@@ -2279,6 +2290,42 @@ PYEOF
     fi
 else
     warn "Could not locate PATCH-COMPACTION-LIFECYCLE-SILENCE files"
+fi
+
+# PATCH-GATEWAY-FAILOVER-STATUS-SILENCE: model/provider routing is operator
+# diagnostics. It must remain visible on local/programmatic surfaces but never
+# arrive as a standalone message in Feishu/Telegram/Slack/Discord chats.
+if [[ -f "${VENV_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${NOISE_FILTER_TEST_PY}" ]]; then
+    _FAILOVER_STATUS_CHECK=$(
+        cd "${HERMES_AGENT}" &&
+            "${VENV_PY}" - <<'PYEOF' 2>/dev/null
+from gateway.run import _prepare_gateway_status_message
+
+statuses = (
+    "🔄 Primary model failed — switching to fallback: model-b via provider-b",
+    "🔄 Switched to fallback model: model-a via provider-a → model-b via provider-b",
+)
+for status in statuses:
+    for platform in ("feishu", "feishu_group", "telegram", "slack", "discord"):
+        if _prepare_gateway_status_message(platform, "lifecycle", status) is not None:
+            print("leak")
+            raise SystemExit(0)
+    if _prepare_gateway_status_message("local", "lifecycle", status) != status:
+        print("overreach")
+        raise SystemExit(0)
+print("ok")
+PYEOF
+    )
+    if [[ "${_FAILOVER_STATUS_CHECK}" == "ok" ]] &&
+        grep -q 'test_programmatic_surfaces_keep_raw_fallback_status' "${NOISE_FILTER_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-GATEWAY-FAILOVER-STATUS-SILENCE active: model routing stays out of chats"
+        _GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK=true
+    else
+        warn "PATCH-GATEWAY-FAILOVER-STATUS-SILENCE inactive or over-broad"
+        add_act "Re-apply: see PATCHES.md § [PATCH-GATEWAY-FAILOVER-STATUS-SILENCE]"
+    fi
+else
+    warn "Could not locate PATCH-GATEWAY-FAILOVER-STATUS-SILENCE files"
 fi
 
 # PATCH-LOCAL-PROFILES: per-person + per-group profile injection (people.yaml / groups.yaml
@@ -2475,6 +2522,57 @@ PYEOF
     fi
 else
     warn "Could not locate PATCH-FEISHU-MARKDOWN files"
+fi
+
+# PATCH-FEISHU-RESPONSE-BUDGET: prompt-side soft response budget plus a larger
+# single-post delivery envelope. The model should stay within the configured
+# 3000-char chat budget and route long deliverables to docs/files; if it does
+# not, the adapter still keeps ordinary 8-12k Markdown answers in one post and
+# retains bounded chunking above 16k.
+DISPLAY_CONFIG_PY="${HERMES_AGENT}/gateway/display_config.py"
+DISPLAY_CONFIG_TEST_PY="${HERMES_AGENT}/tests/gateway/test_display_config.py"
+if [[ -f "${VENV_PY}" && -f "${DISPLAY_CONFIG_PY}" && -f "${SESSION_PY}" &&
+    -f "${GATEWAY_RUN_PY}" && -f "${FEISHU_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" &&
+    -f "${SESSION_TEST_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
+    _FEISHU_RESPONSE_BUDGET_CHECK=$(
+        cd "${HERMES_AGENT}" &&
+            "${VENV_PY}" - <<'PYEOF' 2>/dev/null
+from gateway.config import Platform
+from gateway.display_config import resolve_display_setting
+from gateway.session import SessionContext, SessionSource, build_session_context_prompt
+from plugins.platforms.feishu.adapter import FeishuAdapter
+
+cfg = {"display": {"platforms": {"feishu_group": {"response_char_limit": 3000}}}}
+limit = resolve_display_setting(cfg, "feishu_group", "response_char_limit")
+ctx = SessionContext(
+    source=SessionSource(platform=Platform.FEISHU, chat_id="oc_group", chat_type="group"),
+    connected_platforms=[Platform.FEISHU],
+    home_channels={},
+    response_char_limit=limit,
+)
+prompt = build_session_context_prompt(ctx)
+ok = (
+    limit == 3000
+    and "within about 3,000 Unicode characters" in prompt
+    and "Do not intentionally split one answer" in prompt
+    and FeishuAdapter.MAX_MESSAGE_LENGTH == 16000
+)
+print("ok" if ok else "broken")
+PYEOF
+    )
+    if [[ "${_FEISHU_RESPONSE_BUDGET_CHECK}" == "ok" ]] &&
+        grep -q 'response_char_limit: 3000' "${HERMES_HOME}/config.yaml" 2>/dev/null &&
+        grep -q 'test_response_char_limit_is_platform_scoped_and_normalised' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_response_char_limit_is_injected_and_cache_keyed' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_send_keeps_recent_twelve_k_markdown_reply_in_one_post' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "PATCH-FEISHU-RESPONSE-BUDGET active: 3000-char prompt budget + 16k post fallback"
+        _FEISHU_RESPONSE_BUDGET_PATCH_OK=true
+    else
+        warn "PATCH-FEISHU-RESPONSE-BUDGET inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-RESPONSE-BUDGET]"
+    fi
+else
+    warn "Could not locate PATCH-FEISHU-RESPONSE-BUDGET files"
 fi
 
 # PATCH-FEISHU-SSRF-TEST-SYSPROXY: upstream's connect-time rebind SSRF test only
@@ -2727,6 +2825,54 @@ else
     warn "Could not locate PATCH-MCP-TASKS-ASYNC-HANDOFF files"
 fi
 
+# PATCH-TRUNCATED-TOOL-CALL-RECOVERY: providers may rewrite a genuine
+# output-cap finish_reason from length to tool_calls. Incomplete JSON must not
+# execute or terminate immediately; retry with a bounded 8k→16k→32k cap first.
+TRUNCATED_TOOL_RECOVERY_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_run_agent.py"
+if [[ -f "${VENV_PY}" && -f "${CONVERSATION_LOOP_PY}" &&
+    -f "${MCP_TASK_PERSIST_TEST_PY}" && -f "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" ]]; then
+    if grep -q 'def _raise_truncated_tool_call_output_cap' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
+        grep -q 'test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
+        cd "${HERMES_AGENT}" &&
+        "${VENV_PY}" -m pytest -q \
+            tests/run_agent/test_tool_call_incremental_persistence.py::test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover \
+            tests/run_agent/test_run_agent.py::TestRunConversation::test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail \
+            >/dev/null 2>&1; then
+        ok "PATCH-TRUNCATED-TOOL-CALL-RECOVERY active: incomplete tool JSON retries with larger cap"
+        _TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK=true
+    else
+        warn "PATCH-TRUNCATED-TOOL-CALL-RECOVERY inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-TRUNCATED-TOOL-CALL-RECOVERY]"
+    fi
+else
+    warn "Could not locate PATCH-TRUNCATED-TOOL-CALL-RECOVERY files"
+fi
+
+# PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY: some models repeat the outer
+# {name,arguments} envelope inside tool_call. Repair exactly one redundant
+# self-wrapper, then keep normal scoped-catalog/schema/sandbox checks.
+TOOL_SEARCH_PY="${HERMES_AGENT}/tools/tool_search.py"
+TOOL_SEARCH_TEST_PY="${HERMES_AGENT}/tests/tools/test_tool_search.py"
+if [[ -f "${VENV_PY}" && -f "${TOOL_SEARCH_PY}" && -f "${TOOL_SEARCH_TEST_PY}" ]]; then
+    if grep -q 'Repair exactly one redundant layer' "${TOOL_SEARCH_PY}" 2>/dev/null &&
+        grep -q 'test_resolve_underlying_call_repairs_one_redundant_bridge_envelope' "${TOOL_SEARCH_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_resolve_underlying_call_does_not_repair_nested_bridge_recursion' "${TOOL_SEARCH_TEST_PY}" 2>/dev/null &&
+        cd "${HERMES_AGENT}" &&
+        "${VENV_PY}" -m pytest -q \
+            tests/tools/test_tool_search.py::TestBridgeDispatch::test_resolve_underlying_call_repairs_one_redundant_bridge_envelope \
+            tests/tools/test_tool_search.py::TestBridgeDispatch::test_resolve_underlying_call_does_not_repair_nested_bridge_recursion \
+            >/dev/null 2>&1; then
+        ok "PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY active: redundant bridge envelope repaired safely"
+        _TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK=true
+    else
+        warn "PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY]"
+    fi
+else
+    warn "Could not locate PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY files"
+fi
+
 # PATCH-APPROVAL-DARWIN-TMP: approval temp-cleanup exemption on Darwin. Upstream 0c8bcd339's
 # _is_verification_artifact_cleanup realpath()s the temp dir but not the
 # operand, so on Darwin (/tmp -> /private/tmp, /var/folders ->
@@ -2788,7 +2934,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
