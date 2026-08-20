@@ -737,7 +737,7 @@ hermes gateway restart             # 重启 gateway 加载插件
 
 **位置**：`plugins/sandbox/`（`plugin.yaml` + `__init__.py` + `config.yaml`）
 
-**作用**：bot 同一个 Feishu 应用账号同时服务多个会话时，按 `chat_id` + `chat_type` 区分工具权限——配置中列出的 owner DM 拥有完整工具集，其他 Feishu DM 只能调用基础安全白名单；Feishu 群聊/频道额外拥有只读知识工具、按群隔离的临时文件工具，以及受控的飞书文档脚本入口。HyperTeX MCP 使用一条窄策略：owner DM 直接可用；群聊同时命中 `trusted_feishu_chat_ids_for_group_hypertex` 与 `trusted_feishu_user_ids_for_group_hypertex` 才能调用。创建/迭代任务固定使用 `hermes` Contributor、`codex` 和 `deck`，本轮飞书附件经私有目录暂存后自动注入，不把宿主缓存路径暴露给模型；未开通群或非可信成员即使能看见工具说明也会在调用期被拒绝。非 Feishu 来源（CLI/TUI、cron 调度器、内部事件）一律放行不拦截。
+**作用**：bot 同一个 Feishu 应用账号同时服务多个会话时，按 `chat_id` + `chat_type` 区分工具权限——配置中列出的 owner DM 拥有完整工具集，其他 Feishu DM 只能调用基础安全白名单；Feishu 群聊/频道额外拥有只读知识工具、按群隔离的临时文件工具，以及受控的飞书文档脚本入口。HyperTeX MCP 使用一条窄策略：owner DM 直接可用；群聊同时命中 `trusted_feishu_chat_ids_for_group_hypertex` 与 `trusted_feishu_user_ids_for_group_hypertex` 才能调用。创建/迭代任务固定使用 `hermes` Contributor，新建 case 固定 `deck` 类型；RuntimeAgent 刻意不固定——模型传入的 `agent` 会被删除，交由 HyperTeX 按 owner 账号的 Agentic 权重抽取（create）或沿用 case 原 Agent（iterate），本轮飞书附件经私有目录暂存后自动注入，不把宿主缓存路径暴露给模型；未开通群或非可信成员即使能看见工具说明也会在调用期被拒绝。非 Feishu 来源（CLI/TUI、cron 调度器、内部事件）一律放行不拦截。
 
 **为什么需要它**：hermes 原生 platform enum 只提供 `feishu`，同一个 Feishu bot 下所有 chat 原本共享一份工具列表。若把 bot 拉进群或被别人加为联系人，对方可以直接让 bot 调 `terminal` / `read_file` 等危险工具。`allowed_chats` 白名单虽然能限制响应范围，但代价是其他会话完全得不到响应；要在"允许其他人聊天/搜索/问图"和"禁止其他人碰系统"之间取折衷，原生配置做不到。本地 `PATCH-FEISHU-GROUP-SCOPE` 让真实 Gateway consumer 按 chat type 选择 `feishu` / `feishu_group` namespace，本插件再通过官方 `pre_gateway_dispatch` + `pre_tool_call` + `post_tool_call` 钩子做调用期纵深裁剪与本轮临时文件授权。
 

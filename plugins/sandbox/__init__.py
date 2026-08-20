@@ -12,8 +12,12 @@ execution uses argv (never a shell) and, on macOS, ``sandbox-exec`` restricts
 the whole process tree to writes inside that group's workspace.
 
 The owner DM and trusted group testers also have a narrow HyperTeX bridge: MCP
-calls are pinned to the ``hermes`` Contributor, ``deck`` case type, and
-``codex`` RuntimeAgent. Files attached to the current Feishu turn are copied
+calls are pinned to the ``hermes`` Contributor and, for a new case, the ``deck``
+case type. The RuntimeAgent is deliberately *not* pinned — a model-supplied
+``agent`` is stripped so HyperTeX applies its own policy: a create draws from the
+owner account's Agentic weights and an iterate keeps the Agent the case was
+produced with. Pinning one here would bypass the weights and silently switch an
+iterating case's Agent. Files attached to the current Feishu turn are copied
 into a private stable staging directory and injected into create/iterate calls
 without exposing cache paths to the model.
 """
