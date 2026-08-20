@@ -16,6 +16,7 @@ When working in this repo and the task involves creating, modifying, or removing
   git stash pop
   ```
 - Run the **behavioral verification** that `hermes-update.sh` defines for the affected patch. Each patch has a corresponding verification block in the script — find it by searching for the `_*_PATCH_OK` flag variables. Confirm the check passes.
+- Run `bash ~/.hermes/hermes-update.sh --self-test-patch-gates`. It must prove every active `_*_PATCH_OK` and archived `_ARCHIVED_*_OK` declaration has a success assignment and is consumed by the Step 8c aggregate gate. A sentinel block that exists but is omitted from the aggregate condition is a release-blocking defect.
 - If adding a **new** patch: assign a stable semantic ID in the form `PATCH-<DOMAIN>-<INVARIANT>` (IDs are not sequential), add the target file(s) to the `PATCHED_FILES` array in `hermes-update.sh`, add a corresponding behavioral verification block with a new `_*_PATCH_OK` flag, and gate that flag into the diff-refresh condition alongside the existing flags.
 
 ## 2. Documentation updates
@@ -35,6 +36,7 @@ When **retiring** a patch: move its single definition block under the appropriat
 After all edits are done, verify the full patch re-application flow in `hermes-update.sh` will work:
 
 - `bash -n ~/.hermes/hermes-update.sh` — syntax check, zero errors.
+- `bash ~/.hermes/hermes-update.sh --self-test-patch-gates` — active/archive gate declarations exactly match the Step 8c aggregate condition.
 - `patches/local-patches.diff` contains **no** conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`).
 - Patched files currently in `hermes-agent/` contain **no** conflict markers.
 - `patches/.local-patches.base` is consistent with the current upstream HEAD (or will be written on next successful refresh).

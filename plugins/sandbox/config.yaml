@@ -117,4 +117,5 @@ require_process_sandbox: true
 block_message: "本会话不支持该工具。群聊仅开放问答、联网搜索、只读 wiki/skill、工具发现/描述、当前群隔离的 tmp 工作区、受约束的飞书文档操作，以及面向受信任维护者的 HyperTeX 内测；图片、音频、视频和扫描 PDF 由消息入站多模态链路自动处理。"
 read_root_block_message: "群聊只允许读取 ~/.hermes/wiki 和当前群自己的 ~/.hermes/tmp/group-workspaces/<群哈希>/；skills/my-skills 只能通过只读 skill 工具访问。"
 resource_block_message: "群聊只能读取或下载当前消息、引用消息中明确出现的飞书文档/文件链接。请在本条消息中重新附上目标链接。"
-mutation_block_message: "群聊可以创建、追加和重建飞书文档；删除仅允许受信任的维护者执行。追加、重建或删除时必须在当前消息或引用中明确附上目标文档链接。"
+mutation_trust_block_message: "群聊中的飞书文档删除仅允许受信任的维护者执行。"
+mutation_reference_block_message: "追加、重建或删除飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"

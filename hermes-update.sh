@@ -44,6 +44,7 @@
 #   bash ~/.hermes/hermes-update.sh --print-patched-files
 #   bash ~/.hermes/hermes-update.sh --print-patched-tests
 #   bash ~/.hermes/hermes-update.sh --self-test-transaction
+#   bash ~/.hermes/hermes-update.sh --self-test-patch-gates
 
 # This file is an executable workflow, not a function library. Reject both
 # bash and zsh source attempts before enabling strict mode or mutating state.
@@ -759,6 +760,97 @@ cleanup_python() {
     fi
 }
 
+_self_test_patch_gate_coverage() {
+    local audit_py
+    audit_py=$(cleanup_python) || {
+        printf 'patch-gate self-test: no Python interpreter available\n' >&2
+        return 1
+    }
+    "${audit_py}" - "${BASH_SOURCE[0]}" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+script_path = Path(sys.argv[1])
+script = script_path.read_text(encoding="utf-8")
+class GateAuditError(RuntimeError):
+    pass
+
+
+def require(condition, message):
+    if not condition:
+        raise GateAuditError(message)
+
+
+def audit_gate_coverage(text):
+    start_match = re.search(r"^# -- 8b\. Patch invariant gates.*$", text, re.M)
+    require(start_match is not None, "Step 8b section marker is missing")
+    end_match = re.search(
+        r"^# -- 8c\. Refresh saved diff.*$",
+        text[start_match.end():],
+        re.M,
+    )
+    require(end_match is not None, "Step 8c section marker is missing")
+    start = start_match.start()
+    end = start_match.end() + end_match.start()
+    gate_region = text[start:end]
+
+    active = set(re.findall(r"^\s*(_[A-Z0-9_]+_PATCH_OK)=false\s*$", gate_region, re.M))
+    archived = set(re.findall(r"^\s*(_ARCHIVED_[A-Z0-9_]+_OK)=false\s*$", gate_region, re.M))
+    declared = active | archived
+    require(declared, "no Step 8b patch gates were discovered")
+
+    never_true = {
+        name for name in declared
+        if re.search(rf"^\s*{re.escape(name)}=true\s*$", gate_region, re.M) is None
+    }
+    require(not never_true, f"patch gates never set true: {sorted(never_true)}")
+
+    condition = re.search(
+        r"^if \$_PATCH_APPLY_OK && .+?; then$",
+        text[end:],
+        re.M,
+    )
+    require(condition is not None, "Step 8c aggregate gate condition is missing")
+    consumed = {
+        token[1:]
+        for token in re.findall(r"\$_[A-Z0-9_]+_OK", condition.group(0))
+        if token != "$_PATCH_APPLY_OK"
+    }
+
+    missing = declared - consumed
+    unknown = consumed - declared
+    require(not missing, f"Step 8c does not consume patch gates: {sorted(missing)}")
+    require(not unknown, f"Step 8c consumes undeclared patch gates: {sorted(unknown)}")
+    return active, archived, end, condition
+
+
+active, archived, condition_offset, condition = audit_gate_coverage(script)
+
+# Parser self-check: deleting one real gate from an in-memory copy must be
+# detected. This never writes the workflow file and proves the audit is not a
+# ceremonial always-green check.
+probe_name = sorted(active | archived)[0]
+condition_text = condition.group(0)
+probe_condition = condition_text.replace(f"${probe_name}", "", 1)
+require(probe_condition != condition_text, f"fault injection could not locate {probe_name}")
+absolute_start = condition_offset + condition.start()
+absolute_end = condition_offset + condition.end()
+probe_script = script[:absolute_start] + probe_condition + script[absolute_end:]
+try:
+    audit_gate_coverage(probe_script)
+except GateAuditError:
+    pass
+else:
+    raise GateAuditError("fault injection was not detected by the patch-gate audit")
+
+print(
+    f"patch-gate self-test OK: {len(active)} active engineering gates; "
+    f"{len(archived)} archived regression gates"
+)
+PY
+}
+
 audit_cleanup_policy() {
     local cleanup_py
     cleanup_py=$(cleanup_python) || return 1
@@ -823,8 +915,12 @@ case "${1:-}" in
     _self_test_transaction
     exit 0
     ;;
+--self-test-patch-gates)
+    _self_test_patch_gate_coverage
+    exit $?
+    ;;
 *)
-    printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction]\n' "$0" >&2
+    printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction|--self-test-patch-gates]\n' "$0" >&2
     exit 2
     ;;
 esac
@@ -1077,6 +1173,13 @@ if [[ ! -d "${HERMES_AGENT}/.git" ]]; then
     exit 1
 fi
 ok "Repo: ${HERMES_AGENT}"
+
+if ! _self_test_patch_gate_coverage; then
+    fail "Patch gate coverage self-test failed"
+    printf '  Every Step 8b active/archive gate must be assigned and consumed by the Step 8c aggregate condition.\n'
+    exit 1
+fi
+ok "Patch gate coverage: every Step 8b gate is assigned and consumed by Step 8c"
 
 if ! audit_cleanup_policy; then
     fail "Transient cleanup policy audit failed"
@@ -2934,7 +3037,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_COMPACTION_LIFECYCLE_SILENCE_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

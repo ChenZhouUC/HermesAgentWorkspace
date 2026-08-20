@@ -289,7 +289,7 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
         assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args=args) is None
     assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete", "doc_token": token}) == {
         "action": "block",
-        "message": sandbox._MUTATION_BLOCK_MESSAGE,
+        "message": sandbox._MUTATION_TRUST_BLOCK_MESSAGE,
     }
 
     sandbox._current_user_id.set("trusted-user")
@@ -300,16 +300,50 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
         assert sandbox._on_pre_tool_call(
             tool_name="feishu_doc_manage",
             args={"action": action, "doc_token": "doxcnOtherToken"},
-        ) == {"action": "block", "message": sandbox._MUTATION_BLOCK_MESSAGE}
+        ) == {"action": "block", "message": sandbox._MUTATION_REFERENCE_BLOCK_MESSAGE}
 
     sandbox._current_user_id.set("member-user")
     assert sandbox._on_pre_tool_call(
         tool_name="feishu_doc_manage",
         args={"action": "delete", "doc_token": "doxcnOtherToken"},
-    ) == {"action": "block", "message": sandbox._MUTATION_BLOCK_MESSAGE}
+    ) == {"action": "block", "message": sandbox._MUTATION_TRUST_BLOCK_MESSAGE}
 
     with pytest.raises(PermissionError, match="仅允许受信任"):
         sandbox._handle_feishu_doc_manage({"action": "delete", "doc_token": token})
+
+
+def test_markdown_reply_link_authorizes_trusted_group_delete(group_config, monkeypatch):
+    token = "doxcnMarkdownReplyToken_123"
+    url = f"https://whales.feishu.cn/docx/{token}"
+    event = SimpleNamespace(
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="feishu"),
+            chat_id="group-one",
+            chat_type="group",
+            user_id="trusted-user",
+        ),
+        text="帮我删除这个文档",
+        reply_to_text=f"文档已创建： [{url}]({url})",
+        channel_context="",
+        media_urls=[],
+    )
+    sandbox._on_pre_gateway_dispatch(event)
+
+    assert token in sandbox._current_resource_refs.get()
+    assert url in sandbox._current_resource_refs.get()
+    args = {"action": "delete", "doc_token": token}
+    assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args=args) is None
+
+    monkeypatch.setattr(
+        sandbox,
+        "_run_trusted_script",
+        lambda _script, _argv, _workspace: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="deleted", stderr=""
+        ),
+    )
+    result = _result(sandbox._handle_feishu_doc_manage(args))
+    assert result["success"] is True
+    assert result["action"] == "delete"
 
 
 def test_new_gateway_event_clears_stale_resource_references(group_config):

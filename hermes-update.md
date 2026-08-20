@@ -83,7 +83,7 @@ bash ~/.hermes/hermes-update.sh --update
 
 `--update` 是唯一允许接触官方仓库的入口。正常情况在同一次用户升级任务中只显式调用一次：若没有未完成事务，就执行 scoped fetch、立即固定 commit，再运行被 SHA 约束且禁止网络 fetch 的官方 updater。若首次 acquisition 在拿到任何 SHA 前失败，`--transaction-status` 会显示 `target_sha=pending`，脚本会明确要求**一次**恢复性 `--update`；它只补完同一 acquisition。已有 target 后即使再次传 `--update` 也只能复用固定目标，不会二次 fetch/pull。除此之外默认无参数与 `--reconcile` 等价，只围绕事务 `TARGET_SHA`（无事务时为当前 HEAD）重跑本地 patch、依赖修复、gate、镜像、verifier 和健康闭环。
 
-建议 background + tee 日志；外层任务超时不要用固定数字：Step 8d 的等待预算用 `bash ~/.hermes/hermes-update.sh --print-restart-wait-seconds` 只读获取（底层为脚本 `gw_restart_wait_seconds()`；新运行时 = drain + `restart_after_turn_timeout` + 余量）。上游 `0c6761c51` 已把 after-turn 默认值从 6h 收窄到 30min，本轮新运行时当前输出为 2745s ≈ 45.8min；用户配置仍可覆盖，因此外层超时必须大于该入口的**现场输出**，不能抄默认数字。同一只读入口还提供 `--print-patched-files` / `--print-patched-tests`，供 Step 2c/3 读取脚本现场数组；**不要 `source hermes-update.sh` 取函数或数组**——该文件是可执行升级入口，不是函数库，source 会被拒绝。忙时段升级前先确认在途任务量或接受长排空，不得因等待排空而误判脚本卡死、更不得强杀。脚本自带：cleanup policy 自测与 outer/inner ignored/script 三态审计 / 事务 SHA 固定 / 内层 patch 存档到外层 `patches/local-patches.diff` / 首轮 `hermes update` 或后续无网络 reconcile / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 结构化 sentinel 验证 / replay bundle 逐字节与正反向完整性 gate / restart 前可恢复清理 + 排空感知 planned restart / 用户 plugin verify / 健康检查。Step 8b sentinel 只证明关键实现锚点存在，不能替代 Step 2c 的行为回归。需要重载时必须观察到 cleanup 成功且 PID 从旧值替换为新值；无变化 reconcile 明确跳过重启，不能为“证明执行过”制造 PID。
+建议 background + tee 日志；外层任务超时不要用固定数字：Step 8d 的等待预算用 `bash ~/.hermes/hermes-update.sh --print-restart-wait-seconds` 只读获取（底层为脚本 `gw_restart_wait_seconds()`；新运行时 = drain + `restart_after_turn_timeout` + 余量）。上游 `0c6761c51` 已把 after-turn 默认值从 6h 收窄到 30min，本轮新运行时当前输出为 2745s ≈ 45.8min；用户配置仍可覆盖，因此外层超时必须大于该入口的**现场输出**，不能抄默认数字。同一只读入口还提供 `--print-patched-files` / `--print-patched-tests`，供 Step 2c/3 读取脚本现场数组；`--self-test-patch-gates` 则在零副作用模式下证明 Step 8b 所有活跃/归档 gate 都存在成功路径并被 Step 8c 聚合条件实际消费。**不要 `source hermes-update.sh` 取函数或数组**——该文件是可执行升级入口，不是函数库，source 会被拒绝。忙时段升级前先确认在途任务量或接受长排空，不得因等待排空而误判脚本卡死、更不得强杀。脚本自带：cleanup policy 自测与 outer/inner ignored/script 三态审计 / patch gate 集合自测 / 事务 SHA 固定 / 内层 patch 存档到外层 `patches/local-patches.diff` / 首轮 `hermes update` 或后续无网络 reconcile / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 结构化 sentinel 验证 / replay bundle 逐字节与正反向完整性 gate / restart 前可恢复清理 + 排空感知 planned restart / 用户 plugin verify / 健康检查。Step 8b sentinel 只证明关键实现锚点存在，不能替代 Step 2c 的行为回归。需要重载时必须观察到 cleanup 成功且 PID 从旧值替换为新值；无变化 reconcile 明确跳过重启，不能为“证明执行过”制造 PID。
 
 **收敛循环**：apply 失败、gate 失败或任何修复之后，都必须运行 `bash ~/.hermes/hermes-update.sh --reconcile`，直到一次完整本地收敛运行 exit 0 且无 `✗`；**禁止为收尾证据再次运行新的 `--update`**。逐项人工验证（定向测试、手动重启、单独跑 verifier）可以用于定位问题，但不能替代 reconcile 闸门作为收尾证据——8b 哨兵与实现的漂移只有跑脚本才会暴露（2026-08-03 实例：`_with_current_author_prefix` 哨兵在一轮"定向测试 + 手动重启"收尾后失效 14 小时无人发现）。脚本失败/中断时保留事务文件；reconcile 成功退出后才自动删除。此后本任务若又发现本地问题，继续用 `--reconcile`（它会重新以当前 HEAD 建立无网络本地事务），仍不得更新 upstream。
 
@@ -135,6 +135,8 @@ cd "$HOME/.hermes/hermes-agent"
 **模型切换后的多模态验收（长期硬门槛）**：`config.model`、`fallback_providers` 或其具体型号/ARN 发生变化时，不得仅凭旧 catalog、provider 名或历史结论推断能力。对每条配置 route 至少用合成、无敏感内容的最小 canary 穿过真实 provider wire，分别验证官方声明支持的 image/audio/video/PDF 输入；官方明确不支持的模态必须保持 fail-closed，不得用强制 native 掩盖。运行时遵循 native-first：主模型真实支持就直接接收原始媒体；不支持或本地可信抽取/STT 全失败时，才把**单个当前媒体 + 有界 caption/引用上下文**交给 fallback 链中首个具备该模态的 route，禁止切换整轮 provider、禁止重放 transcript、禁止同一媒体先预分析后再重复调用工具。成功的 native、可信抽取和 sidecar 结果不得向模型暴露宿主 cache 绝对路径，也不得诱导再次 `read_file`/媒体工具；全部 reader 失败必须给当前 turn 一个明确、可测试的 `FAILED` 状态，说明不能声称读过并要求用户重发，禁止静默丢附件或退化为群聊不可达的 path note。PDF 还必须成对覆盖“纯文本只抽取”和“抽取有扫描/图片页缺口时补充 sidecar”两条路径。每轮升级和每次模型链调整都要证明 native route、sidecar route、可信抽取、视觉缺口补读、path-free 成功提示与显式失败反例；结论写入对应 PATCH 与测试，不能只留在会话记忆。
 
 **附件取得与 @mention 验收（长期硬门槛）**：Feishu 群的独立附件消息无法携带 @Bot，因此资源 PATCH 必须同时证明三条入口：同一 post 内附件+mention、显式回复附件+mention、同一发送者在配置化有界窗口内先发附件后 mention。窗口扫描必须覆盖 image/file/media/audio，限制消息数、文件数与超时；显式回复不受窗口去重抑制。引用/history 文本只保留 path-free 附件占位符，资源字节由当前/引用附件链恰好下载一次；下载、回填或解码失败必须进入上述显式 `FAILED` 状态。测试至少穿过 Feishu 真实 payload → adapter event → Gateway provider/user turn，成对覆盖主私聊与群聊，并断言模型可见文本不含 `~/.hermes/cache`、`/Users/.../.hermes/cache` 或容器映射路径。
+
+**资源 provenance 的规范化形态同样属于真实边界**：Feishu/Gateway 会把出站回复中的裸链接回填为 Markdown `[URL](URL)`；任何群文档 read/append/rebuild/delete 的当前消息/显式引用授权测试，都必须至少有一条使用该规范化 `reply_to_text` 形态穿过 `pre_gateway_dispatch → deferred tool_call → pre_tool hook → handler`。只把裸 URL/token 直接塞进 ContextVar 的 fixture 不足以证明生产链路。身份授权与目标引用失败必须返回不同 reason/message，避免把 parser/provenance 故障误诊为用户不可信。
 
 工具注意：pytest 若因 venv 重建暂缺，可先 `pip install --target /tmp/... --no-deps pytest==<pin> pytest-asyncio==<pin>` + `PYTHONPATH` 叠加做初步定性（不污染 venv），但最终文件清单和数字必须用 `./scripts/run_tests.sh` 复跑得出；**禁止用 `uv run` 跑回归**——它会挂到 `.venv`（uv 默认项目环境）而不是 hermes 的 `venv`，产生成批假失败。
 
@@ -305,6 +307,29 @@ readme_n = int(re.search(r"(\d+) 个按职责命名的活跃语义补丁", readm
 assert len(active_blocks) == stated == readme_n, \
     f"active blocks={len(active_blocks)}, PATCHES.md says {stated}, README says {readme_n}"
 
+# 3b) Step 8b 声明的所有活跃/归档 gate 必须有成功赋值，并被 8c 聚合条件逐项消费。
+gate_start = re.search(r"^# -- 8b\. Patch invariant gates.*$", script, re.M)
+gate_end = re.search(r"^# -- 8c\. Refresh saved diff.*$", script, re.M)
+assert gate_start and gate_end and gate_start.start() < gate_end.start(), "missing/misordered Step 8b/8c markers"
+gate_region = script[gate_start.start():gate_end.start()]
+active_gates = set(re.findall(r"^(_[A-Z0-9_]+_PATCH_OK)=false$", gate_region, re.M))
+archived_gates = set(re.findall(r"^(_ARCHIVED_[A-Z0-9_]+_OK)=false$", gate_region, re.M))
+declared_gates = active_gates | archived_gates
+never_true = {
+    name for name in declared_gates
+    if re.search(rf"^\s*{re.escape(name)}=true$", gate_region, re.M) is None
+}
+assert not never_true, f"patch gates never set true: {sorted(never_true)}"
+aggregate = re.search(r"^if \$_PATCH_APPLY_OK && .+?; then$", script[gate_end.start():], re.M)
+assert aggregate, "missing Step 8c aggregate gate"
+consumed_gates = {
+    token[1:] for token in re.findall(r"\$_[A-Z0-9_]+_OK", aggregate.group(0))
+    if token != "$_PATCH_APPLY_OK"
+}
+assert declared_gates == consumed_gates, \
+    f"Step 8c gate drift: missing={sorted(declared_gates-consumed_gates)}, " \
+    f"unknown={sorted(consumed_gates-declared_gates)}"
+
 archive_defs = list(re.finditer(r"^### \[(PATCH-[A-Z0-9-]+)\].*$", archive_text, re.M))
 for i, match in enumerate(archive_defs):
     block = archive_text[match.start():archive_defs[i + 1].start() if i + 1 < len(archive_defs) else len(archive_text)]
@@ -324,7 +349,9 @@ for label, pat, text in [
     assert base_sha.startswith(sha), f"{label} SHA {sha} != base {base_sha[:12]}"
 
 print(f"derived-consistency OK: {len(weeks)} weekly rows unique; "
-      f"{len(arr)} managed files; {stated} active patches; base {base_sha[:9]}")
+      f"{len(arr)} managed files; {stated} active patches; "
+      f"{len(active_gates)} active + {len(archived_gates)} archived gates; "
+      f"base {base_sha[:9]}")
 PY
 ```
 
@@ -374,7 +401,7 @@ dangling = refs - known
 assert not dangling, f"playbook references unknown PATCH ids: {sorted(dangling)}"
 
 # 2) playbook 引用的脚本只读入口/函数必须仍存在于 hermes-update.sh
-entries = set(re.findall(r"--(?:print-[a-z-]+|transaction-status)\b", pb))
+entries = set(re.findall(r"--(?:print-[a-z-]+|transaction-status|self-test-patch-gates)\b", pb))
 entries |= {"gw_restart_wait_seconds", "_get_restart_exit_wait_budget"}
 missing = {e for e in entries if e not in script}
 assert not missing, f"playbook references missing script entries: {sorted(missing)}"

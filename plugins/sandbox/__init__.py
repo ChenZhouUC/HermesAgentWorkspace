@@ -91,7 +91,8 @@ _READ_ROOT_BLOCK_MESSAGE = "群聊只允许读取 wiki 和当前群自己的临�
 _CONFIG_BLOCK_MESSAGE = "群聊安全配置未成功加载，工具调用已按设计拒绝。"
 _GROUP_CONTEXT_MESSAGE = "This tool is available only inside a configured Feishu group chat."
 _RESOURCE_BLOCK_MESSAGE = "群聊只能访问当前消息明确引用的飞书资源。"
-_MUTATION_BLOCK_MESSAGE = "群聊中的飞书文档删除仅允许受信任的维护者执行；修改已有文档时必须在当前消息中明确引用目标。"
+_MUTATION_TRUST_BLOCK_MESSAGE = "群聊中的飞书文档删除仅允许受信任的维护者执行。"
+_MUTATION_REFERENCE_BLOCK_MESSAGE = "追加、重建或删除飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
 
 _READ_PATH_TOOLS: FrozenSet[str] = frozenset({"read_file", "search_files"})
 _GROUP_CHAT_TYPES: FrozenSet[str] = frozenset({"group", "channel", "forum", "thread"})
@@ -123,7 +124,11 @@ _HYPERTEX_GROUP_BLOCK_MESSAGE = "HyperTeX 群聊内测目前仅对受信任的�
 _MAX_FILE_CONTENT_BYTES = 1_000_000
 _MAX_TOOL_OUTPUT_CHARS = 100_000
 _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
-_FEISHU_URL_RE = re.compile(r"https://[^\s<>\"']+")
+# Stop before Markdown's closing ``]`` so Gateway-normalized links such as
+# ``[https://.../docx/TOKEN](https://.../docx/TOKEN)`` yield two valid URLs
+# instead of one malformed ``URL](URL`` value. Trailing ``)`` is normalized by
+# _resource_ref_candidates(), preserving ordinary bare-link handling.
+_FEISHU_URL_RE = re.compile(r"https://[^\s<>\"'\]]+")
 _EXPLICIT_TOKEN_RE = re.compile(r"(?i)\b(?:doc_token|file_token)\s*[:=]\s*([A-Za-z0-9_-]{5,200})")
 _TRUST_REQUIRED_SCRIPT_ACTIONS = frozenset({"delete"})
 _EXPLICIT_TARGET_SCRIPT_ACTIONS = frozenset({"append", "rebuild", "delete"})
@@ -682,13 +687,26 @@ def _resource_was_referenced(value: Any) -> bool:
 def _group_doc_action_block(args: Any) -> Optional[str]:
     """Return a block message for an unauthorized structured doc action."""
     if not isinstance(args, dict):
-        return _MUTATION_BLOCK_MESSAGE
+        return _MUTATION_REFERENCE_BLOCK_MESSAGE
     action = str(args.get("action") or "")
     if action in _TRUST_REQUIRED_SCRIPT_ACTIONS:
-        if str(_current_user_id.get() or "") not in _GROUP_MUTATION_USER_IDS:
-            return _MUTATION_BLOCK_MESSAGE
+        actor = str(_current_user_id.get() or "")
+        if actor not in _GROUP_MUTATION_USER_IDS:
+            logger.info(
+                "sandbox: blocked group document action=%s reason=untrusted_actor chat=%s actor=%s",
+                action,
+                str(_current_chat_id.get() or ""),
+                actor or "unknown",
+            )
+            return _MUTATION_TRUST_BLOCK_MESSAGE
     if action in _EXPLICIT_TARGET_SCRIPT_ACTIONS and not _resource_was_referenced(args.get("doc_token")):
-        return _MUTATION_BLOCK_MESSAGE
+        logger.info(
+            "sandbox: blocked group document action=%s reason=target_not_referenced chat=%s actor=%s",
+            action,
+            str(_current_chat_id.get() or ""),
+            str(_current_user_id.get() or "unknown"),
+        )
+        return _MUTATION_REFERENCE_BLOCK_MESSAGE
     if action in {"read_url", "download_file"}:
         if not _resource_was_referenced(args.get("url")):
             return _RESOURCE_BLOCK_MESSAGE
@@ -860,7 +878,8 @@ def _load_config() -> bool:
     global _HYPERTEX_MAX_ASSET_BYTES, _HYPERTEX_MAX_ASSETS_PER_TURN
     global _HYPERTEX_ASSET_STAGING_TTL_SECONDS
     global _REQUIRE_PROCESS_SANDBOX, _BLOCK_MESSAGE, _READ_ROOT_BLOCK_MESSAGE
-    global _RESOURCE_BLOCK_MESSAGE, _MUTATION_BLOCK_MESSAGE
+    global _RESOURCE_BLOCK_MESSAGE, _MUTATION_TRUST_BLOCK_MESSAGE
+    global _MUTATION_REFERENCE_BLOCK_MESSAGE
 
     _CONFIG_LOADED = False
     cfg_path = Path(__file__).parent / "config.yaml"
@@ -950,15 +969,23 @@ def _load_config() -> bool:
     message = data.get("block_message")
     read_message = data.get("read_root_block_message")
     resource_message = data.get("resource_block_message")
-    mutation_message = data.get("mutation_block_message")
+    mutation_trust_message = data.get("mutation_trust_block_message")
+    mutation_reference_message = data.get("mutation_reference_block_message")
+    legacy_mutation_message = data.get("mutation_block_message")
     if isinstance(message, str) and message.strip():
         _BLOCK_MESSAGE = message
     if isinstance(read_message, str) and read_message.strip():
         _READ_ROOT_BLOCK_MESSAGE = read_message
     if isinstance(resource_message, str) and resource_message.strip():
         _RESOURCE_BLOCK_MESSAGE = resource_message
-    if isinstance(mutation_message, str) and mutation_message.strip():
-        _MUTATION_BLOCK_MESSAGE = mutation_message
+    if isinstance(mutation_trust_message, str) and mutation_trust_message.strip():
+        _MUTATION_TRUST_BLOCK_MESSAGE = mutation_trust_message
+    elif isinstance(legacy_mutation_message, str) and legacy_mutation_message.strip():
+        _MUTATION_TRUST_BLOCK_MESSAGE = legacy_mutation_message
+    if isinstance(mutation_reference_message, str) and mutation_reference_message.strip():
+        _MUTATION_REFERENCE_BLOCK_MESSAGE = mutation_reference_message
+    elif isinstance(legacy_mutation_message, str) and legacy_mutation_message.strip():
+        _MUTATION_REFERENCE_BLOCK_MESSAGE = legacy_mutation_message
 
     _CONFIG_LOADED = True
     return True

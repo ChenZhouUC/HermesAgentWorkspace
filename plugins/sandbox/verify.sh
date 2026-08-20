@@ -212,6 +212,8 @@ assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []
     "download_file",
 }
 assert plugin.get("require_process_sandbox") is True
+assert plugin.get("mutation_trust_block_message") == "群聊中的飞书文档删除仅允许受信任的维护者执行。"
+assert plugin.get("mutation_reference_block_message") == "追加、重建或删除飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
 
 scripts_root = Path(plugin["feishu_doc_scripts_root"]).expanduser().resolve()
 python_executable = Path(plugin["python_executable"]).expanduser().resolve()
@@ -264,6 +266,7 @@ if [[ -x "${VENV_PYTHON}" ]] &&
         cd "${HERMES_AGENT}" &&
             "${VENV_PYTHON}" - <<'PY'
 import importlib
+from types import SimpleNamespace
 
 from hermes_cli.config import load_config
 from hermes_cli.plugins import discover_plugins
@@ -492,12 +495,44 @@ doc_mutation_result = handle_function_call(
 )
 assert "受信任的维护者" in doc_mutation_result
 
-sandbox._current_user_id.set(next(iter(sandbox._GROUP_MUTATION_USER_IDS)))
-sandbox._current_resource_refs.set(frozenset({"doxcnSandboxVerifyTarget"}))
-assert sandbox._on_pre_tool_call(
-    tool_name="feishu_doc_manage",
-    args={"action": "delete", "doc_token": "doxcnSandboxVerifyTarget"},
-) is None
+trusted_mutation_user = next(iter(sandbox._GROUP_MUTATION_USER_IDS))
+markdown_token = "doxcnSandboxVerifyMarkdownTarget"
+markdown_url = f"https://whales.feishu.cn/docx/{markdown_token}"
+sandbox._on_pre_gateway_dispatch(SimpleNamespace(
+    source=SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="oc_verify_group",
+        chat_type="group",
+        user_id=trusted_mutation_user,
+    ),
+    text="delete the referenced document",
+    reply_to_text=f"created: [{markdown_url}]({markdown_url})",
+    channel_context="",
+    media_urls=[],
+))
+assert markdown_token in sandbox._current_resource_refs.get()
+assert markdown_url in sandbox._current_resource_refs.get()
+
+original_run_trusted_script = sandbox._run_trusted_script
+try:
+    import subprocess
+
+    sandbox._run_trusted_script = lambda _script, _argv, _workspace: subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="deleted", stderr=""
+    )
+    trusted_delete_result = handle_function_call(
+        "tool_call",
+        {
+            "name": "feishu_doc_manage",
+            "arguments": {"action": "delete", "doc_token": markdown_token},
+        },
+        task_id="sandbox-verify",
+        enabled_toolsets=group_toolsets,
+    )
+    assert '"success": true' in trusted_delete_result
+    assert '"action": "delete"' in trusted_delete_result
+finally:
+    sandbox._run_trusted_script = original_run_trusted_script
 sandbox._current_user_id.set("ou_untrusted_verify")
 
 # Default search_files path is rewritten to the verified wiki root instead of
@@ -508,7 +543,6 @@ assert search_args["path"] == str(sandbox._GROUP_ALLOWED_READ_ROOTS[0])
 
 # Feishu resource reads are bound to URLs/tokens explicitly present in the
 # current group message; arbitrary bot-readable documents are not ambient.
-from types import SimpleNamespace
 token = "doxcnSandboxVerifyToken"
 url = f"https://whales.feishu.cn/docx/{token}"
 sandbox._on_pre_gateway_dispatch(SimpleNamespace(
