@@ -612,6 +612,47 @@ def test_trusted_group_hypertex_create_uses_owner_weights_and_stages_current_att
     assert Path(args["asset_paths"][0]).name == "Group.pdf"
 
 
+@pytest.mark.parametrize(
+    ("cache_name", "expected"),
+    [
+        ("doc_aaaaaaaaaaaa_Update.pptx", "Update.pptx"),
+        # An all-CJK stem must not consume the suffix: HyperTeX types assets by
+        # extension, so a suffixless copy is staged but never preprocessed.
+        ("销售培训.pdf", "销售培训.pdf"),
+        ("财务.xlsx", "财务.xlsx"),
+        ("doc_bbbbbbbbbbbb_销售财务思维培训20260821.pdf", "销售财务思维培训20260821.pdf"),
+        ("2026年报.pdf", "2026年报.pdf"),
+        ("archive.tar.gz", "archive.tar.gz"),
+        # Path traversal and bidi spoofing stay neutralized.
+        ("a/../../etc/passwd", "passwd"),
+        ("‮cod.exe", "cod.exe"),
+        ("...", "attachment"),
+    ],
+)
+def test_hypertex_asset_name_keeps_extension_and_readable_stem(cache_name, expected):
+    assert sandbox._hypertex_asset_name(Path(cache_name)) == expected
+
+
+def test_hypertex_staging_preserves_cjk_attachment_name(group_config, tmp_path):
+    attachment = tmp_path / "doc_aaaaaaaaaaaa_销售培训.pdf"
+    attachment.write_bytes(b"pdf")
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="group-one",
+        chat_type="group",
+        user_id="trusted-user",
+    )
+    sandbox._on_pre_gateway_dispatch(
+        SimpleNamespace(source=source, text="做一份演示文稿", reply_to_text="", media_urls=[str(attachment)])
+    )
+    args = {"prompt": "做一份演示文稿"}
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
+    staged = Path(args["asset_paths"][0])
+    assert staged.name == "销售培训.pdf"
+    assert staged.read_bytes() == b"pdf"
+
+
 def test_group_hypertex_is_limited_to_trusted_testers(group_config):
     sandbox._current_user_id.set("untrusted-user")
 

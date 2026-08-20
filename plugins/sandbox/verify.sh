@@ -178,29 +178,34 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "mcp__hypertex__tasks_update",
 }
 mutation_users = set(plugin.get("trusted_feishu_user_ids_for_group_mutations") or [])
+# ROSTER: open_id only. Tenant-scoped short IDs must not reappear in any
+# allowlist — they are unrecoverable from people.yaml and never delivered by
+# this app, so they were dead weight that made adding a member guesswork.
 expected_trusted_users = {
     "ou_33eeacfbd0c0559b7b734f83503719ab",
-    "5397e1a2",
     "ou_1df8d8705eb546b9dc65048ecdbf4002",
-    "adde7c6e",
     "ou_423ee1666dc00139cbfade9f7e0f037b",
-    "c9e4b764",
     "ou_d97d97c79bd2c6bffaed857dd463b26b",
-    "7a978636",
 }
 assert mutation_users == expected_trusted_users
 assert set(feishu.get("assistant_user_ids") or []) == {
     "ou_33eeacfbd0c0559b7b734f83503719ab",
-    "5397e1a2",
 }, "MCP/delete trust must not broaden assistant-user mention triggers"
 hypertex_chats = set(plugin.get("trusted_feishu_chat_ids_for_group_hypertex") or [])
 assert hypertex_chats == {
     "oc_7c6cad99e7f0090c15fc943a12edc6e4",
     "oc_e11903076f3393e0f237cb406b6c3a07",
     "oc_0663408600b12ccec166f9889046a36a",
+    "oc_1d81b1992a1cf99620bf815945782f27",
 }
+# HyperTeX trust is a superset of, not an alias for, the delete-only trust:
+# 沈舒仪 holds MCP access without document-delete. Asserting the two sets
+# separately is what keeps a future MCP grant from silently conferring delete.
 hypertex_users = set(plugin.get("trusted_feishu_user_ids_for_group_hypertex") or [])
-assert hypertex_users == expected_trusted_users
+expected_hypertex_users = expected_trusted_users | {"ou_2f4ae9dcc13555fc703e9813d39ecd81"}
+assert hypertex_users == expected_hypertex_users
+assert "ou_2f4ae9dcc13555fc703e9813d39ecd81" not in mutation_users, \
+    "HyperTeX-only trust must not confer Feishu document deletion"
 assert plugin.get("allowed_read_roots_for_outsider_groups") == ["~/.hermes/wiki"]
 assert plugin.get("group_workspace_root") == "~/.hermes/tmp/group-workspaces"
 assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []) == {
@@ -613,10 +618,11 @@ PY
     fi
     runtime_trust_ok=true
     for trusted_user_id in \
-        ou_33eeacfbd0c0559b7b734f83503719ab 5397e1a2 \
-        ou_1df8d8705eb546b9dc65048ecdbf4002 adde7c6e \
-        ou_423ee1666dc00139cbfade9f7e0f037b c9e4b764 \
-        ou_d97d97c79bd2c6bffaed857dd463b26b 7a978636; do
+        ou_33eeacfbd0c0559b7b734f83503719ab \
+        ou_1df8d8705eb546b9dc65048ecdbf4002 \
+        ou_423ee1666dc00139cbfade9f7e0f037b \
+        ou_d97d97c79bd2c6bffaed857dd463b26b \
+        ou_2f4ae9dcc13555fc703e9813d39ecd81; do
         if ! echo "${current_reg}" | grep -q "${trusted_user_id}"; then
             runtime_trust_ok=false
             break

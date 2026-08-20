@@ -277,6 +277,7 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 import re
+import subprocess
 
 # 1) README 版本记录每个 ISO week 至多一条
 readme = Path("README.md").read_text()
@@ -348,10 +349,25 @@ for label, pat, text in [
     sha = re.search(pat, text).group(1)
     assert base_sha.startswith(sha), f"{label} SHA {sha} != base {base_sha[:12]}"
 
+# 5) 外层插件 verifier 回归条数：PATCHES.md 验证字段 == README Step 8e == 真实 pytest 收集数。
+#    verify.sh / hermes-update.sh 都只看 pytest 退出码、不看条数，所以这两处"活契约"数字
+#    可以无限期静默失真（2026-08-20 实抓：修 HyperTeX 附件名后回归 42 → 52，两处仍写 42，
+#    任何机械 gate 都没报）。这里把文档数字绑回真实收集数，纳入 Step 5 数字漂移防线。
+plugin_pat_n = int(re.search(r"插件 \*\*(\d+) 条\*\*回归", patches).group(1))
+plugin_readme_n = int(re.search(r"运行 (\d+) 条行为测试", readme).group(1))
+collected = subprocess.run(
+    ["hermes-agent/venv/bin/python", "-m", "pytest", "--collect-only", "-q",
+     "plugins/sandbox/test_sandbox.py"],
+    capture_output=True, text=True, timeout=180).stdout
+plugin_real_n = int(re.search(r"(\d+) tests? collected", collected).group(1))
+assert plugin_pat_n == plugin_readme_n == plugin_real_n, \
+    f"plugin regression count drift: PATCHES.md={plugin_pat_n}, " \
+    f"README={plugin_readme_n}, collected={plugin_real_n}"
+
 print(f"derived-consistency OK: {len(weeks)} weekly rows unique; "
       f"{len(arr)} managed files; {stated} active patches; "
       f"{len(active_gates)} active + {len(archived_gates)} archived gates; "
-      f"base {base_sha[:9]}")
+      f"{plugin_real_n} plugin behavior tests; base {base_sha[:9]}")
 PY
 ```
 

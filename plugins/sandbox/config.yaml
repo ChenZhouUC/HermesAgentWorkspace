@@ -49,19 +49,25 @@ allowed_tools_for_outsider_groups:
 # rebuild still require an explicitly referenced target document. Only these
 # trusted user IDs may delete documents. The key keeps its historical
 # "mutations" name, but its runtime effect is delete-only.
+#
+# Roster convention: register ONLY the app-scoped open_id (`ou_…`), which is the
+# one form recoverable from ~/.hermes/people.yaml. Tenant-scoped short IDs are
+# deliberately absent — this app's event payloads never carry them (all 500+
+# real `sender=user:` inbounds are `ou_` form), and the identity checks accept
+# any single matching form, so one ID per person is sufficient. Adding a member
+# is therefore: copy their `open_id` out of people.yaml. If this app ever gains
+# contact scope and Feishu starts delivering tenant user_ids, every entry here
+# needs the second form added at once — the check is fail-closed, so a missing
+# form denies access rather than over-granting it.
 trusted_feishu_user_ids_for_group_mutations:
   # 周琛
   - ou_33eeacfbd0c0559b7b734f83503719ab
-  - 5397e1a2
   # 孙可天
   - ou_1df8d8705eb546b9dc65048ecdbf4002
-  - adde7c6e
   # 张文华
   - ou_423ee1666dc00139cbfade9f7e0f037b
-  - c9e4b764
   # 李冰洁
   - ou_d97d97c79bd2c6bffaed857dd463b26b
-  - 7a978636
 
 # HyperTeX is exposed in the shared feishu_group toolset, but calls are enabled
 # only when both the current chat and current user appear in these allowlists.
@@ -72,20 +78,23 @@ trusted_feishu_chat_ids_for_group_hypertex:
   - oc_e11903076f3393e0f237cb406b6c3a07
   # AI 解放生产力
   - oc_0663408600b12ccec166f9889046a36a
+  # SpaceSight Tech Sharing Group
+  - oc_1d81b1992a1cf99620bf815945782f27
 
+# This list is deliberately NOT the same as the delete-only mutations list
+# above: HyperTeX trust and Feishu document deletion are separate grants, so a
+# member may hold one without the other.
 trusted_feishu_user_ids_for_group_hypertex:
   # 周琛
   - ou_33eeacfbd0c0559b7b734f83503719ab
-  - 5397e1a2
   # 孙可天
   - ou_1df8d8705eb546b9dc65048ecdbf4002
-  - adde7c6e
   # 张文华
   - ou_423ee1666dc00139cbfade9f7e0f037b
-  - c9e4b764
   # 李冰洁
   - ou_d97d97c79bd2c6bffaed857dd463b26b
-  - 7a978636
+  # 沈舒仪 — HyperTeX only, deliberately absent from the delete list above
+  - ou_2f4ae9dcc13555fc703e9813d39ecd81
 
 # Direct file tools may read the wiki. Reads under group_workspace_root are
 # narrowed again at runtime to the current group's hashed subdirectory.

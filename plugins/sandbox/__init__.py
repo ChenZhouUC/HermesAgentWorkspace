@@ -35,6 +35,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional, Set, Tuple
 from urllib.parse import urlparse
@@ -270,13 +271,25 @@ def _path_within(path: Path, root: Path) -> bool:
 
 
 def _hypertex_asset_name(source: Path) -> str:
-    """Recover a safe user-facing filename from Hermes cache naming."""
-    name = source.name
+    """Recover a safe user-facing filename from Hermes cache naming.
+
+    The stem and the extension are sanitized apart. Folding the whole name in
+    one ASCII pass used to eat the suffix of an all-CJK name (``销售培训.pdf``
+    became ``pdf``), and HyperTeX types assets by suffix, so such a file was
+    staged into the case but never preprocessed. Letters outside ASCII are kept
+    so a CJK name stays recognizable in the case's ``assets/`` listing;
+    HyperTeX folds its own derived ``_processed``/``_pdf`` paths separately.
+    """
+    name = Path(source.name).name
     parts = name.split("_", 2)
     if name.startswith("doc_") and len(parts) == 3:
         name = parts[2]
-    name = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(name).name).strip(" ._")
-    return name[:180] or "attachment"
+    name = unicodedata.normalize("NFC", name)
+    suffix = Path(name).suffix
+    stem = name[: len(name) - len(suffix)] if suffix else name
+    stem = re.sub(r"[^\w. -]", "_", stem)[:160].strip(" ._") or "attachment"
+    suffix = re.sub(r"[^A-Za-z0-9.]", "", suffix)[:32]
+    return f"{stem}{suffix}" if suffix.strip(".") else stem
 
 
 def _unique_hypertex_asset_name(name: str, used: Set[str]) -> str:

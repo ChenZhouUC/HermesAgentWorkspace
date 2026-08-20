@@ -615,9 +615,11 @@ feishu:
   mention_triggers:
     - bot
     - assistant_users
+  # open_id only — the one form recoverable from people.yaml. Both the sender
+  # check and the mention check accept any single matching form, and this app's
+  # payloads only ever carry open_id.
   assistant_user_ids:
     - ou_33eeacfbd0c0559b7b734f83503719ab
-    - 5397e1a2
   assistant_identity_label: 琛哥的赛博助手「Gödel」
   assistant_identity_throttle_messages: 20
   assistant_identity_throttle_seconds: 600
