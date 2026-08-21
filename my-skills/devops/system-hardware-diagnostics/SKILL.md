@@ -1,11 +1,16 @@
 ---
 name: system-hardware-diagnostics
-description: "Use when diagnosing macOS hardware/OS issues or embedded Edge AI boards such as Rockchip/Sophgo, including APFS, memory pressure, CMA, and OverlayFS bypass."
+description: Diagnose macOS and embedded Edge AI hardware issues.
 ---
 
 # System & Hardware Diagnostics
 
 Use this skill when diagnosing system performance, memory consumption, or storage space via the terminal on either macOS or embedded Edge AI Linux boards.
+
+## When to Use
+
+Use for macOS APFS/memory/sleep diagnosis or embedded Rockchip/Sophgo
+memory, storage, and hardware-capability inspection.
 
 ## 1. macOS Diagnostics
 

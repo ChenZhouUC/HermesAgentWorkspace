@@ -7,7 +7,7 @@ description: "Use when translating Chinese technical work messages."
 
 Translate Chinese technical or business messages into natural English for Slack, Teams, Feishu, email, tickets, and technical handoff notes.
 
-## Trigger
+## When to Use
 
 Use this skill when the user asks“翻译”, “帮我翻译”, “英文怎么说”, or provides Chinese text intended for an English-speaking colleague/customer.
 

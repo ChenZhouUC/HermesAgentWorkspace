@@ -1,111 +1,187 @@
+#!/usr/bin/env python3
+"""Atomically extract a Feishu folder into the Wiki's _living source layer."""
+
+from __future__ import annotations
+
+import argparse
 import os
-import sys
+import re
 import subprocess
+import sys
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
-sys.path.insert(0, "/Users/chenzhou/.hermes/my-skills/productivity/feishu-docs/scripts")
-from feishu_common import get_tenant_token, do_req  # noqa: E402  (sys.path injection)
+from feishu_common import do_req, get_tenant_token
 
 
-def clean_feishu_markdown(content):
-    import re
+SCRIPT_DIR = Path(__file__).resolve().parent
+EXTRACT_SCRIPT = SCRIPT_DIR / "extract_docx_to_markdown.py"
 
-    # Remove version table if exists
+
+def wiki_root() -> Path:
+    configured = os.getenv("WIKI_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    home = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes")).expanduser()
+    return (home / "wiki").resolve()
+
+
+def clean_feishu_markdown(content: str) -> str:
+    """Remove Feishu presentation artifacts without adding Wiki semantics."""
     table_pattern = re.compile(r"^\| Col 0.*?\n(?:\|.*?\n)+", re.MULTILINE)
     content = table_pattern.sub("", content, count=1)
-
-    # Remove mentions
     mention_pattern = re.compile(r"\[@ou_[a-zA-Z0-9]+\]|@ou_[a-zA-Z0-9]+")
     content = mention_pattern.sub("", content)
-
-    # Clean multiple blank lines
-    content = re.sub(r"\n{3,}", "\n\n", content)
-    return content.strip()
+    return re.sub(r"\n{3,}", "\n\n", content).strip()
 
 
-def ingest_folder(folder_token, category_path, default_tags):
+def safe_filename(title: str) -> str:
+    stem = re.sub(r"[\\/:*?\"<>|]+", "-", title.strip())
+    stem = re.sub(r"[\s、，]+", "-", stem).strip("-. ")
+    stem = stem or "untitled-source"
+    return stem if stem.lower().endswith(".md") else stem + ".md"
+
+
+def render_living_source(title: str, content: str) -> str:
+    """Render a living source with no Layer 2 semantic frontmatter."""
+    if re.match(r"^#\s+", content):
+        return content.rstrip() + "\n"
+    return f"# {title}\n\n{content.rstrip()}\n"
+
+
+def _assert_living_destination(category_path: Path, root: Path) -> Path:
+    living = (root / "_living").resolve()
+    destination = category_path.expanduser().resolve()
+    try:
+        destination.relative_to(living)
+    except ValueError as exc:
+        raise ValueError(f"Destination must stay under {living}: {destination}") from exc
+    if destination == living:
+        raise ValueError("Choose a SCHEMA-compliant _living topic directory, not _living itself")
+    return destination
+
+
+def _daily_log_text(
+    existing: str,
+    saved: list[Path],
+    root: Path,
+    *,
+    today: str | None = None,
+) -> str:
+    today = today or datetime.now().strftime("%Y-%m-%d")
+    heading_pattern = re.compile(rf"^## \[{re.escape(today)}\] daily \|.*$", re.MULTILINE)
+    rel_paths = [path.relative_to(root).as_posix() for path in saved]
+    block = [
+        "### ingest | Feishu folder source extraction",
+        "",
+        f"- Actions: extracted {len(rel_paths)} document(s) into the `_living` source layer",
+        "- Files:",
+        *[f"  - `{path}`" for path in rel_paths],
+        "- Boundary: layout conversion only; Layer 2 synthesis and semantic review remain separate",
+        "- Verification: run `python3 scripts/wiki_lint.py` after semantic review",
+        "",
+    ]
+    addition = "\n".join(block)
+
+    match = heading_pattern.search(existing)
+    if not match:
+        prefix = existing.rstrip()
+        if prefix:
+            prefix += "\n\n"
+        return prefix + f"## [{today}] daily | Wiki maintenance\n\n" + addition
+
+    next_heading = re.search(r"^## \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] ", existing[match.end() :], re.MULTILINE)
+    insert_at = match.end() + (next_heading.start() if next_heading else len(existing[match.end() :]))
+    before = existing[:insert_at].rstrip()
+    after = existing[insert_at:].lstrip("\n")
+    combined = before + "\n\n" + addition
+    if after:
+        combined += "\n" + after
+    return combined
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+    os.replace(tmp_path, path)
+
+
+def ingest_folder(
+    folder_token: str,
+    category_path: Path,
+    *,
+    dry_run: bool = False,
+    today: str | None = None,
+) -> list[Path]:
+    root = wiki_root()
+    destination = _assert_living_destination(category_path, root)
     token = get_tenant_token()
-    print("Fetching folder contents...")
-    res = do_req(token, f"https://open.feishu.cn/open-apis/drive/v1/files?folder_token={folder_token}")
-    files = res["data"]["files"]
+    response = do_req(
+        token,
+        f"https://open.feishu.cn/open-apis/drive/v1/files?folder_token={folder_token}",
+    )
+    files = response.get("data", {}).get("files", [])
+    staged: list[tuple[Path, str]] = []
 
-    os.makedirs(category_path, exist_ok=True)
-    saved_files = []
-    log_additions = []
-    today_str = datetime.now().strftime("%Y-%m-%d")
-
-    for f in files:
-        name = f["name"]
-        f_type = f["type"]
-        f_token = f["token"]
-
-        # Shortcut logic: attempts direct extraction using token, expect 404/1770032 if missing permissions
-        if f_type == "shortcut":
-            print(f"File {name} is a shortcut, attempting direct extraction...")
-
-        print(f"Extracting {name}...")
+    for item in files:
+        title = str(item.get("name") or "untitled-source")
+        file_token = str(item.get("token") or "")
+        if not file_token:
+            raise RuntimeError(f"Feishu folder entry has no token: {title}")
+        command = [sys.executable, str(EXTRACT_SCRIPT), file_token]
         try:
-            extract_cmd = [
-                "uv",
-                "run",
-                "--with",
-                "requests",
-                "python",
-                "/Users/chenzhou/.hermes/my-skills/productivity/feishu-docs/scripts/extract_docx_to_markdown.py",
-                f_token,
-            ]
-            res_ext = subprocess.check_output(extract_cmd, stderr=subprocess.STDOUT)
-            raw_md = res_ext.decode("utf-8")
+            extracted = subprocess.check_output(command, stderr=subprocess.STDOUT, text=True)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(f"Failed to extract {title}: {exc.output}") from exc
+        target = destination / safe_filename(title)
+        if target.exists():
+            raise FileExistsError(f"Refusing to overwrite existing living source: {target}")
+        staged.append((target, render_living_source(title, clean_feishu_markdown(extracted))))
 
-            cleaned_md = clean_feishu_markdown(raw_md)
+    if not staged:
+        print("No extractable documents found in the Feishu folder")
+        return []
 
-            title = name
-            filename = title.replace(" ", "-").replace("、", "-").replace("，", "-").lower()
-            if not filename.endswith(".md"):
-                filename += ".md"
+    if dry_run:
+        for target, _ in staged:
+            print(f"would write: {target}")
+        return [target for target, _ in staged]
 
-            yaml_fm = f"---\ntitle: {title}\ncreated: {today_str}\nupdated: {today_str}\ntype: summary\ntags: [{', '.join(default_tags)}]\nsources: [{f_token}]\n---\n"
-            final_md = yaml_fm + "\n# " + title + "\n\n" + cleaned_md
+    destination.mkdir(parents=True, exist_ok=True)
+    log_path = root / "log.md"
+    if not log_path.exists():
+        raise FileNotFoundError(f"Wiki log is missing: {log_path}")
 
-            file_path = os.path.join(category_path, filename)
-            with open(file_path, "w") as out_f:
-                out_f.write(final_md)
+    written: list[Path] = []
+    try:
+        for target, content in staged:
+            _atomic_write(target, content)
+            written.append(target)
+        new_log = _daily_log_text(log_path.read_text(encoding="utf-8"), written, root, today=today)
+        _atomic_write(log_path, new_log)
+    except Exception:
+        for path in written:
+            path.unlink(missing_ok=True)
+        raise
 
-            print(f"Saved: {file_path}")
-            saved_files.append(file_path)
-            log_additions.append(f"## [{today_str}] ingest | Feishu Doc: {title}")
+    for path in written:
+        print(f"saved: {path}")
+    print("Next: review reusable content, derive Layer 2 with wiki-content-extraction, then run wiki_lint.py")
+    return written
 
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to extract {name}. Output:\n{e.output.decode('utf-8')}")
 
-    # Append to log.md
-    log_path = "/Users/chenzhou/.hermes/wiki/log.md"
-    if os.path.exists(log_path) and log_additions:
-        with open(log_path, "a") as f:
-            f.write("\n" + "\n".join(log_additions) + "\n")
-
-    # IMPORTANT: This script intentionally does NOT register the ingested _living/
-    # files into wiki/index.md.  Per SCHEMA.md, index.md is the registry of Active
-    # Layer 2 nodes (entities/concepts/comparisons/queries) ONLY — registering
-    # _living/ paths there breaks `python3 scripts/wiki_lint.py`
-    # (stale_index_entries).  Lesson from the May 2026 ReID ingest.
-    print(f"\nBatch ingest complete. {len(saved_files)} files saved under {category_path}.")
-    print("\nNEXT STEPS (manual, do NOT auto-run):")
-    print("  1. The dumped files are raw Feishu markdown — likely full of project-internal")
-    print("     table/column/config names and concrete parameter values. Per the user's")
-    print("     Layer 1 policy ('只撰写可复现的知识和技术，不体现具体实现的细节'), rewrite each")
-    print("     file to strip impl details and keep only reproducible architecture & methodology.")
-    print("  2. Consider consolidating multiple thin Feishu docs into 1–2 thicker _living docs")
-    print("     directly under the category folder (avoid sub-sub-directories).")
-    print("  3. Extract reusable knowledge into Layer 2 (wiki/concepts/ or wiki/entities/) and")
-    print("     register the NEW Layer 2 slugs in wiki/index.md — NEVER register _living/ paths.")
-    print("  4. Run `python3 ~/.hermes/scripts/wiki_lint.py` and ensure it prints `wiki_lint: OK`.")
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("folder_token")
+    parser.add_argument("category_path", type=Path)
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    ingest_folder(args.folder_token, args.category_path, dry_run=args.dry_run)
+    return 0
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 4:
-        print("Usage: python batch_ingest_folder.py <folder_token> <category_path_under_wiki_living> <tag1,tag2,tag3>")
-        sys.exit(1)
-    ingest_folder(sys.argv[1], sys.argv[2], sys.argv[3].split(","))
+    raise SystemExit(main())

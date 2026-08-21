@@ -1,9 +1,14 @@
 ---
 name: vector-graphics
-description: Use when converting an icon or logo from a Feishu image attachment, local PNG/SVG path, image URL, or HTML page with og:image into a normalized square SVG written to ~/.hermes/tmp/.
+description: Convert icons and logos into normalized square SVG files.
 ---
 
 # Vector Graphics — Square Canvas Normalization
+
+## When to Use
+
+Use when the user needs a logo or icon converted from PNG, SVG, a direct URL,
+an HTML page, or a Feishu image attachment into a normalized square SVG.
 
 ## Primary tool
 
@@ -98,8 +103,8 @@ to_square_svg.py "https://raw.githubusercontent.com/lobehub/lobe-icons/master/pa
 # JetBrains plugin page — hits the HTML→og:image extractor
 to_square_svg.py "https://plugins.jetbrains.com/plugin/28946-serena" --name serena
 
-# SVG that's secretly a PNG with white border — hits the wrapped-PNG fast-path
-to_square_svg.py "https://tomatocloud.me/assets/img/stisla-fill.svg"
+# SVG that wraps one base64 PNG — hits the wrapped-PNG fast-path
+to_square_svg.py "https://example.com/wrapped-raster.svg"
 
 # PNG with off-white anti-aliased border that the default fuzz misses
 to_square_svg.py ~/Downloads/icon.png --fuzz 10

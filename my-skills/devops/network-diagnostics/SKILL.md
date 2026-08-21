@@ -1,11 +1,16 @@
 ---
 name: network-diagnostics
-description: Use when probing network, DNS resolver, or OpenWRT/ImmortalWRT proxy performance issues, including CHAOS, ECS, NXDOMAIN, DoT/DoH, and ASN diagnostics.
+description: Diagnose DNS, routing, and OpenWRT proxy performance.
 ---
 
 # Network Diagnostics & Advanced DNS Probing
 
 When standard `ping` is insufficient (ICMP often deprioritized by firewalls and unrelated to DNS resolution performance), use this skill to extract deep routing and security metrics from a DNS resolver IP.
+
+## When to Use
+
+Use for DNS behavior, resolver identity, routing latency, OpenWRT transparent
+proxy bottlenecks, or NAT/congestion-control diagnosis.
 
 **Full architecture, latency budgets, and engineering best-practices for building a sub-second probing daemon are in [`references/advanced_dns_probing.md`](references/advanced_dns_probing.md).**
 **For diagnosing transparent proxy slowdowns on OpenWRT/ARM routers (AES-NI, TPROXY, BBR, Full Cone NAT), see [`references/openwrt_proxy_bottlenecks.md`](references/openwrt_proxy_bottlenecks.md) and the "OpenWRT/ImmortalWRT Routing" section below.** Read that file before designing a probing tool. The summary below is a quick-reference cheatsheet.
@@ -14,11 +19,19 @@ When standard `ping` is insufficient (ICMP often deprioritized by firewalls and 
 
 When diagnosing OpenWRT-based routers:
 
-1. **CPU vs Hardware Offloading**: Transparent proxies (TPROXY/REDIRECT) bypass hardware Flow Offloading, forcing pure CPU processing. Check `htop` for 100% CPU usage.
-2. **Encryption Algorithms**: For ARM/MIPS routers lacking the `AES-NI` instruction set, use `ChaCha20-Poly1305` instead of AES-GCM to drastically reduce CPU load.
-3. **TCP BBR**: Enable TCP BBR congestion control (`Turbo ACC` in ImmortalWRT).
-4. **DNS Fake-IP**: Use Fake-IP mode to eliminate DNS resolution latency during connection handshakes.
-5. **Full Cone NAT**: Essential for P2P/gaming (NAT Type 1/2). Available in ImmortalWRT by default.
+1. **Measure the bottleneck first**: Check per-core CPU saturation, softirq load,
+   packet loss, retransmits, DNS latency, and proxy-process utilization before
+   changing acceleration or routing settings.
+2. **Hardware offload compatibility**: Verify whether the active
+   TPROXY/REDIRECT path bypasses flow offloading on the installed firmware;
+   implementations differ.
+3. **Cipher choice**: Benchmark supported ciphers on the actual CPU. ChaCha20 may
+   outperform AES without hardware acceleration, but it is not a universal fix.
+4. **Congestion control and Fake-IP**: Treat BBR and Fake-IP as controlled
+   experiments. Compare before/after latency and compatibility rather than
+   enabling them by default.
+5. **NAT behavior**: Change Full Cone NAT only when the application requires it
+   and the exposure trade-off is understood.
 
 - **Diagnostic Commands**: `cat /proc/cpuinfo | grep -i aes`, `htop`.
 

@@ -1,11 +1,16 @@
 ---
 name: educational-doc-writing
-description: "Write or rebuild rigorous teaching notes, reading guides, and Feishu docs for abstract math, logic, AI, ontology, or systems confusion; separate layers, assumptions, proof scope, circularity, and analogy limits."
+description: Write rigorous teaching notes for abstract technical topics.
 ---
 
 # Educational Document Writing
 
 Turn the user's live confusion into the organizing problem of a teaching document. Rebuild the concept from its foundations instead of producing a generic source summary.
+
+## When to Use
+
+Use for rigorous teaching notes or reading guides where the user needs layers,
+assumptions, proof scope, circularity, or analogy limits made explicit.
 
 ## Core Rules
 

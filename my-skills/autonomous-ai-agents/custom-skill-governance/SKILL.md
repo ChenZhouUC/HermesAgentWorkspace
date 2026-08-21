@@ -1,13 +1,20 @@
 ---
 name: custom-skill-governance
-description: "Use when auditing, refining, maintaining, consolidating, pruning, merging, renaming, or standardizing the user's custom skills under ~/.hermes/my-skills. Use for Hermes/GPT-5.5-oriented skill cleanup, removing redundant skills, merging overlapping skills, deriving shared SKILL.md/scripts/reference style, protecting Feishu group-chat skills, or planning broad my-skills cleanup. Includes self-evolution: after each use, update this skill itself only when the run reveals reusable governance lessons."
+description: Audit, consolidate, and safely evolve custom Hermes skills.
 ---
 
 # Custom Skill Governance
 
 Use this skill to maintain and consolidate the user's custom skills under `~/.hermes/my-skills/`.
 
-**Scope boundary**: Only operate on `~/.hermes/my-skills/`. Never edit official preset skills under `~/.hermes/skills/`, which is an upstream rsync mirror. During broad `my-skills` consolidation, exclude this skill itself unless the user explicitly asks to modify it or the Self-Evolution Closeout below calls for a narrow update.
+## When to Use
+
+Use it to audit, standardize, consolidate, prune, or safely evolve the
+`my-skills` tree. For a single narrow skill edit, apply only the relevant
+authoring and validation rules; for broad changes, follow the approval gate
+below before modifying other skills.
+
+**Scope boundary**: Only operate on `~/.hermes/my-skills/`. Never edit official preset skills under `~/.hermes/skills/`, which is upstream-managed runtime state. During broad `my-skills` consolidation, exclude this skill itself unless the user explicitly asks to modify it or the Self-Evolution Closeout below calls for a narrow update.
 
 ## Required Approval Gate
 
@@ -34,7 +41,7 @@ Ask whether the user approves the plan or wants changes to the keep/merge/remove
 4. **Derive style from the corpus**: Standardize `SKILL.md`, `scripts/`, and `references/` by observing the current highest-quality patterns. Do not invent and append a new style system.
 5. **Migrate before deleting**: Preserve unique rules, scripts, pitfalls, and references in the target skill before deleting the source.
 6. **Keep diffs reviewable**: Prefer small grouped changes, then show `git status` and a concise diff summary.
-7. **Optimize for the current Hermes/GPT-5.5 setup**: Keep trigger descriptions specific and front-loaded, assume the main model already knows generic engineering practice, and store only reusable procedure, local paths, private policy, scripts, or hard-won pitfalls.
+7. **Optimize for the current Hermes model**: Keep trigger descriptions specific and front-loaded, assume the main model already knows generic engineering practice, and store only reusable procedure, local paths, private policy, scripts, or hard-won pitfalls. Do not bake a model version into durable governance rules.
 8. **Fail closed for Feishu groups**: Treat any skill reachable from Feishu group chats as safety-sensitive. Do not broaden group allowlists or executable tool paths unless the user explicitly approves the capability expansion and the sandbox/verifier contract is updated.
 
 ## Audit Workflow
@@ -55,7 +62,7 @@ Ask whether the user approves the plan or wants changes to the keep/merge/remove
 
 Detailed preferences and criteria are in [`references/skill-maintenance-prefs.md`](references/skill-maintenance-prefs.md). Read that file before proposing broad changes.
 
-## Hermes/GPT-5.5 Refinement Rules
+## Hermes Model Refinement Rules
 
 1. **Make `description` carry trigger semantics.** The description is the pre-load routing surface, so include the core user intents, domain, high-risk boundaries, and main tool context there. Avoid vague descriptions like "Use for docs" when the skill only handles a narrow kind of document.
 2. **Remove generic model advice.** Do not keep skills that only say things a strong coding model already knows, such as "read files first" or "be careful with tokens", unless tied to a local workflow or non-obvious path.

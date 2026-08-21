@@ -1,11 +1,16 @@
 ---
 name: agent-reconnaissance
-description: Use only when authorized to assess an AI agent the user owns, operates, is contracted to red-team, or is analyzing in a CTF/research environment. Covers architecture documentation, prompt/tool-surface review, sandbox introspection, and packaged binary analysis. Do not use for unauthorized probing of public commercial agents.
+description: Authorized security assessment of AI agents and sandboxes.
 ---
 
 # Agent Reconnaissance & Reverse Engineering
 
 This skill covers methodologies for investigating the underlying architecture, frameworks, and tools of AI agents — your own, those you're under contract to red-team, or CTF / research targets.
+
+## When to Use
+
+Use only for an owned agent, a written assessment engagement, or an explicit
+CTF/research target whose rules permit the requested reconnaissance.
 
 ## ⚠️ Authorization Scope (READ FIRST)
 
@@ -32,7 +37,11 @@ Use transparent, authorization-scoped inquiries to document architecture and exp
 When you have remote shell access to the agent's worker sandbox, perform white-box auditing:
 
 - **Process Tree:** `ps auxf` identifies main entry points (Node, Python, Go) and sidecars (e.g., MCP servers, headless browsers like Playwright). Look for process separations indicating an "API Brain vs. Sandbox Worker" architecture.
-- **Environment Variables:** `cat /proc/<PID>/environ | tr '\0' '\n'` reveals API endpoints, model routing URLs, and instance IDs. Note: Look out for `HTTP_PROXY` setups indicating secure VPC boundaries.
+- **Environment Variables:** Never dump the complete environment: it commonly
+  contains API keys, tokens, and credentials. Enumerate variable names first
+  (`tr '\0' '\n' < /proc/<PID>/environ | sed 's/=.*//'`) and inspect only an
+  explicitly authorized, non-secret allowlist. Redact values in notes and user
+  output; proxy presence can be recorded without revealing credentials.
 - **Dependencies:** `pip list` or `npm list` / `package.json`. The presence of heavy orchestrators (`langchain`, `crewai`) vs. raw HTTP/Validation libs (`aiohttp`, `pydantic`) distinguishes wrapper frameworks from custom-built routing engines.
 
 ## 3. Packaged Binary Analysis (PyInstaller / Node pkg)

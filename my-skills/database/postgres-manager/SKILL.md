@@ -1,11 +1,16 @@
 ---
 name: postgres-manager
-description: "Use when managing PostgreSQL connection profiles, refreshing local schema metadata, or executing SQL with cached table and column context. Treat credentials and write queries as sensitive: default to read-only inspection, do not echo connection strings, and confirm before DML/DDL/destructive or broad export operations."
+description: Safely inspect and manage PostgreSQL connection profiles.
 ---
 
 # Postgres Manager
 
 This skill automates the management of PostgreSQL connections, locally caches database schemas (tables, columns, types) to provide accurate context for LLM, and handles query execution.
+
+## When to Use
+
+Use for connection-profile maintenance, schema refresh, read-only database
+inspection, or explicitly approved SQL execution through the local manager.
 
 ## Environment & File Locations
 

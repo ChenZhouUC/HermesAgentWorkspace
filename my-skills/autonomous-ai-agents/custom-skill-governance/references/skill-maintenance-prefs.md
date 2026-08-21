@@ -20,6 +20,12 @@ Mark a skill as a removal candidate when one or more of these are true:
 4. Its scripts are broken, unused, trivial, or no better than a short shell command, and there is no reusable domain knowledge around them.
 5. It hard-codes volatile model/product facts such as model limits, prices, or UI behavior without a workflow to verify current official sources.
 
+Usage telemetry is supporting evidence only. Do not remove a custom skill solely
+because `skills/.usage.json` has no entry or reports zero views/uses: external
+skill accounting may be incomplete, and recently added skills have not had time
+to accumulate meaningful history. Require corroborating evidence from content,
+overlapping triggers, broken resources, or explicit user intent.
+
 ### Merge
 
 Mark skills as merge candidates when they share the same user intent, toolchain, credentials, operational risk, or troubleshooting path. Prefer merging narrow skills into the broader, more durable container.
@@ -53,7 +59,7 @@ Use these observations when extracting the style:
 7. Avoid adding README, changelog, quick reference, or other auxiliary docs unless the skill runtime requires them.
 8. Use direct, imperative instructions. Do not add meta-explanations about why every rule exists unless the caution would otherwise be easy to misapply.
 
-## Hermes/GPT-5.5-Oriented Refinement
+## Hermes Model-Oriented Refinement
 
 Treat the current main model as strong at generic reasoning and weak only where it lacks local context, private operational policy, deterministic scripts, or fresh product facts.
 
@@ -108,3 +114,4 @@ After approved changes:
 3. Validate YAML frontmatter and skill names. Use the system `quick_validate.py` script when available.
 4. For changed scripts, run the cheapest syntax or dry-run check available, such as `python -m py_compile` for Python scripts.
 5. Report checks that could not be run and why.
+6. Run both the generic skill validator and Hermes' `tools/skill_linter.py` when available, but interpret results through this repository's declared style. Missing `version`, `author`, `license`, or `metadata.hermes` is advisory because local skills intentionally prefer `name` + `description`; overlong descriptions, broken resource links, invalid frontmatter, and executable-script failures remain actionable.

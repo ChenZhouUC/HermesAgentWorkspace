@@ -1,11 +1,16 @@
 ---
 name: feishu-docs
-description: "Use when reading, summarizing, creating, importing, updating, rebuilding, deleting, or exporting Feishu/Lark Docs, Docx, file attachments, or Minutes."
+description: Read, create, update, and safely manage Feishu documents.
 ---
 
 # Feishu (Lark) Docs & Minutes Management
 
 Use this skill whenever you need to read, summarize, create, or update documents in Feishu, as well as read Feishu Minutes.
+
+## When to Use
+
+Use for reading, creating, updating, rebuilding, deleting, importing, or
+exporting Feishu Docs, Wiki nodes, file attachments, Sheets, or Minutes.
 
 ## 🚨 Critical Rules & Pitfalls
 
@@ -255,51 +260,15 @@ When the user asks to fabricate or insert custom version history entries (e.g., 
 
 ## 🔄 Converting Feishu Docs to Local LLM Wiki Markdown
 
-When the user asks to extract a Feishu Document and save it into their local LLM Wiki (`~/.hermes/wiki/_living/` or similar), follow this specific transformation pipeline to bridge the two formats:
+This skill owns Feishu extraction mechanics, not Wiki structure. Read
+[`references/local-wiki-ingest.md`](references/local-wiki-ingest.md) before
+writing extracted content into the local Wiki, then load `llm-wiki` and
+`wiki-content-extraction` for source routing and Layer 2 maintenance.
 
-1. **Extract Raw Markdown**:
-   Use the extraction script to get the Feishu document content:
-   `uv run --with requests python <SKILL_DIR>/scripts/extract_docx_to_markdown.py <doc_token>`
-   _(For bulk ingest of a folder, use the bundled automation script: `uv run --with requests python <SKILL_DIR>/scripts/batch_ingest_folder.py <folder_token> <absolute_category_path> <comma_separated_tags>`)_
-   - **Clean Feishu Artifacts**:
-     - **Extract Dates**: Before deleting the Version Table, extract the creation date (first row) and update date (last row) to use in the YAML frontmatter.
-     - **Remove the Version Table**: Delete the Markdown table at the top of the document that tracks `Version | Time | Author`. This is a Feishu-specific artifact that pollutes the static wiki. Use a regex to strip it (e.g., `re.sub(r"^\| Col 0.*?\n(?:\|.*?\n)+", "", content, count=1, flags=re.MULTILINE)`).
-     - **Remove Native Mentions**: Clean up any `@Gödel` or similar Feishu user mentions, converting them to plain text (e.g., "周琛") or removing them entirely (e.g., `re.sub(r"\[@ou_[a-zA-Z0-9]+\]|@ou_[a-zA-Z0-9]+", "", content)`).
-
-2. **Add Wiki YAML Frontmatter (CRITICAL)**:
-   Prepend standard LLM Wiki frontmatter to the top of the file. You MUST include `type`, `tags`, and `sources` per the `llm-wiki` schema.
-
-   ```yaml
-   ---
-   title: <Clean Professional Title>
-   created: <YYYY-MM-DD>
-   updated: <YYYY-MM-DD>
-   type: <entity | concept | comparison | summary>
-   tags: [<applicable tags from wiki taxonomy>]
-   sources: [Feishu Doc URL or Token]
-   ---
-   ```
-
-   _(Keep the original `# <Title>` H1 header below the frontmatter as well)._
-
-3. **Save to Wiki**:
-   Determine the appropriate subdirectory in `~/.hermes/wiki/_living/` (e.g., `AI-Infrastructure/`, `AI-Applications-and-Ops/`, `TCS-and-Math/`).
-   Write the file using `write_file` with lowercase, hyphenated naming: `~/.hermes/wiki/_living/<Category>/<title-with-hyphens>.md`.
-
-4. **Update Wiki Navigation (CRITICAL)**:
-   - **Index**: You MUST append a one-line summary and wikilink to `~/.hermes/wiki/index.md` under the appropriate section.
-   - **Log**: You MUST append an entry to `~/.hermes/wiki/log.md` recording the ingest action (`## [YYYY-MM-DD] ingest | Feishu Doc: <Title>`).
-
-> **⚠️ Ingest Quality Warning (lesson from ReID ingest, May 2026)**: This bridge transforms _layout_, not _semantics_. The output of this script is RAW Feishu markdown — full of project-internal table names, column names, specific thresholds, gantt charts, single-store experiment results. That is implementation detail, NOT reusable knowledge, and violates the user's Layer 1 principle ("只撰写可复现的知识和技术，不体现具体实现的细节"). After running the script, you MUST manually rewrite the doc to:
->
-> 1. Strip all project-internal names (table names like `hidalgo_*`, model node names like `cloth_detection`, config keys like `seq_sn_threshold`);
-> 2. Strip all concrete parameter values (specific thresholds, dimensions, time windows, pixel distances);
-> 3. Strip all specific effect numbers (specific AUC values, accuracy ranges, dedup rates);
-> 4. Strip all specific product/library versions (Milvus / pgvector / Airflow / Spark — keep tech categories, not products);
-> 5. Replace project-internal names with generic functional descriptions ("clothing detection model", "config table", "similarity threshold");
-> 6. Keep only the reproducible architecture, methodology, design rationale, and qualitative effect descriptions.
->
-> Then extract reusable knowledge into Layer 2 `concepts/` or `entities/`, NOT register `_living/` paths in `index.md`'s registry (SCHEMA forbids it — index registers Active Layer 2 only).
+In a Feishu group, extraction may use the approved `feishu_doc_manage` action,
+but the Wiki remains read-only. Do not attempt to write `_living`, Active Layer
+2, `index.md`, or `log.md` from the group; continue the mutation in an
+owner/private or CLI session.
 
 ## 🎙️ Reading Feishu Minutes (飞书妙记)
 

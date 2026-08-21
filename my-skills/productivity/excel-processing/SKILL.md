@@ -1,9 +1,14 @@
 ---
 name: excel-processing
-description: Use when parsing Excel .xlsx files and extracting cell values plus semantic formatting such as strikethroughs or colors without heavy dependencies like pandas.
+description: Extract XLSX values and meaningful cell formatting.
 ---
 
 # Excel Data & Formatting Extraction
+
+## When to Use
+
+Use when `.xlsx` formatting carries meaning—especially strikethroughs, fills,
+or partial rich text—and a plain dataframe extraction would lose it.
 
 When extracting data from `.xlsx` files in an agentic workflow, `pandas` is the standard tool but has two major drawbacks:
 
@@ -28,3 +33,11 @@ An `.xlsx` file is a ZIP archive containing structured XML. You can parse it fla
 A robust standard-library implementation is available in this skill's linked files. Use this script to extract text alongside its formatting (e.g., yielding `[STRIKETHROUGH: text]`), which is incredibly useful for generating diffs. It handles both cell-level and partial run-level rich formatting.
 
 - **`scripts/xlsx_xml_parser.py`**
+
+## Feishu Group Boundary
+
+Feishu groups can use this skill to interpret spreadsheet content already
+extracted by the Gateway, but they do not have `terminal` access and must not be
+instructed to execute `xlsx_xml_parser.py`. If native attachment extraction did
+not provide usable content, ask the user to continue in an owner/private or CLI
+session instead of suggesting a sandbox bypass.

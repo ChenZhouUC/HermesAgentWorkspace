@@ -1,9 +1,15 @@
 ---
 name: character-voices
-description: Private drafting and style-analysis notes for key network contacts. Use only in owner/private contexts to draft messages, anticipate reactions, or analyze tone. Do not use in Feishu groups, do not reveal the registry, and do not impersonate real people or send deceptive messages as them.
+description: Owner-only drafting with private contact voice notes.
 ---
 
 # Character Voice Registry
+
+## When to Use
+
+Use only when the owner privately asks for a clearly labeled draft, tone
+analysis, or reaction forecast involving a known contact. Never use it in a
+shared context or for deceptive impersonation.
 
 ## Critical boundaries
 

@@ -1,6 +1,6 @@
 ---
 name: hermes-agent-meta-ops
-description: "Use when maintaining or debugging Hermes Agent itself: memory recovery, Gateway permissions/session sandboxing, Feishu approval troubleshooting, and Python execution environment choice. For custom skill governance under ~/.hermes/my-skills, use custom-skill-governance instead."
+description: Troubleshoot Hermes memory, Gateway, and permissions.
 ---
 
 # Hermes Agent Meta-Ops
@@ -9,24 +9,31 @@ description: "Use when maintaining or debugging Hermes Agent itself: memory reco
 
 自定义技能治理、`my-skills` 收敛、冗余删除、重复合并和格式统一，请使用 `custom-skill-governance`。
 
+## When to Use
+
+Use this skill for Hermes runtime maintenance: memory repair, Gateway permission
+or sandbox diagnosis, Feishu approval failures, and Python execution-environment
+selection. Do not use it for general application debugging or custom skill
+governance.
+
 ---
 
 ## 一、记忆系统管理 (Memory Management)
 
-**使用场景**：当 Claude Code 的 auto memory 系统中的记忆文件过多、内容冗余或冲突时。
+**使用场景**：当 Hermes 的持久记忆文件过多、内容冗余、冲突或接近容量上限时。
 
 ### 排查与恢复步骤
 
-1.  **诊断**：检查 `~/.claude/projects/-Users-chenzhou--hermes/memory/` 目录，查看记忆文件数量和内容质量。
-2.  **筛选 (Triage)**：
-    - **必须保留**：用户的刚性偏好、OS 环境的独特设定、极易踩坑的工具路径规范。
-    - **必须删除**：历史任务的流水账、临时的 TODO 进度、长篇大论的报错日志。
-    - **必须转移**：如果是复杂的跨步操作流（SOP），应该新建一个 Skill 存起来，而不是塞在记忆里。
-3.  **重建**：
-    - 使用 Read 工具读取记忆文件内容，评估其价值。
-    - 使用 Bash 工具 `rm` 删除冗余记忆文件。
-    - 使用 Write 工具创建精炼后的记忆文件，使用 Edit 工具修改现有记忆。
-    - 更新 `MEMORY.md` 索引文件以反映变更。
+1. **诊断**：检查当前 profile 的 `memories/MEMORY.md` 与 `memories/USER.md`，确认容量、重复项、冲突项和已过时事实。标准 profile 位于 `~/.hermes/memories/`。
+2. **筛选 (Triage)**：
+   - **必须保留**：用户的刚性偏好、OS 环境的独特设定、极易踩坑的工具路径规范。
+   - **必须删除**：历史任务的流水账、临时的 TODO 进度、长篇大论的报错日志。
+   - **必须转移**：如果是复杂的跨步操作流（SOP），应该新建一个 Skill 存起来，而不是塞在记忆里。
+3. **维护**：
+   - 优先使用 Hermes 的 memory 工具做条目级 add / replace / remove。
+   - 只有用户明确要求文件级整理时，才直接编辑对应文件；删除前先确认精确条目，不批量清空目录。
+   - `MEMORY.md` 保存环境事实、项目约定和可复用经验；`USER.md` 保存用户偏好与稳定画像，不混入任务流水账。
+   - 若用户明确要求迁移旧 Claude Code memory，可把 `~/.claude/projects/.../memory/` 当作只读来源，筛选后迁入 Hermes；它不是当前 Hermes 的默认记忆目录。
 
 ### 🚨 绝对红线
 

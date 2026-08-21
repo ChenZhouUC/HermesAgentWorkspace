@@ -1,11 +1,16 @@
 ---
 name: hypertex-mcp
-description: Create, iterate, inspect, or check HyperTeX presentation tasks through MCP. Use for HyperTeX deck requests, existing-case revisions, task IDs, publication links, or case metadata in authorized Feishu chats.
+description: Manage authorized HyperTeX presentation tasks through MCP.
 ---
 
 # HyperTeX MCP
 
 Use HyperTeX as an asynchronous presentation service. Keep the model workflow narrow: one HyperTeX MCP call per inbound Feishu turn, then stop and use the returned result.
+
+## When to Use
+
+Use for an authorized HyperTeX deck request, revision, task status/input,
+cancellation, publication link, or case-state inspection.
 
 ## Fixed sandbox boundary
 

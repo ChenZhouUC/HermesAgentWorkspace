@@ -1,6 +1,6 @@
 ---
 name: feishu-groups
-description: "Use when sending messages or cron jobs to Feishu groups, resolving known chat_ids, listing groups, handling bot availability, reading chat history/merge_forward messages, or parsing share_user contact cards. Treat group-chat use as safety-sensitive: confirm target group and content, avoid private rosters/persona data/local paths/secrets, and preserve the Feishu group sandbox boundary."
+description: Safely inspect and message configured Feishu groups.
 ---
 
 # Feishu Group Directory
@@ -8,6 +8,11 @@ description: "Use when sending messages or cron jobs to Feishu groups, resolving
 This skill documents how the bot talks to Feishu groups. The group roster itself
 — every `chat_id` plus its per-group persona — lives in **one** place:
 `~/.hermes/groups.yaml`. This skill no longer keeps a duplicate id table.
+
+## When to Use
+
+Use to resolve a configured group, inspect narrowly scoped group history, parse
+shared contact/forwarded-message data, or send/schedule an approved message.
 
 ## Group-chat safety rules
 

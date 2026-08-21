@@ -1,33 +1,67 @@
 ---
 name: video-analysis
-description: Use when visually analyzing local video files such as .mp4 or .mov by extracting representative frames with ffmpeg and returning them via MEDIA.
+description: Analyze local videos with native tools or sampled frames.
 ---
 
 # Video Analysis
 
-When the user provides a local video file (e.g., `.mp4`, `.mov`) and asks you to analyze it visually or "see" what is happening, you cannot directly ingest the video file into your vision tools.
+Analyze local or linked video while preserving the best available source
+quality. Prefer Hermes' native video path; use frame extraction only as a
+deliberate fallback or when the user specifically needs frame-level evidence.
 
-## Core Workflow
+## When to Use
 
-Instead of failing or claiming you cannot see the video, use a frame-extraction workaround:
+Use this skill for video description, event inspection, visual comparison,
+timeline analysis, or checking a specific moment in an `.mp4`, `.mov`, `.webm`,
+`.avi`, `.mkv`, or `.mpeg` file.
 
-1. **Find Duration:** Use `ffprobe` to determine the video duration.
+## Routing
+
+1. **Already analyzed by the inbound Gateway:** Use the supplied native or
+   sidecar analysis. Do not reprocess the same attachment unless the user asks
+   for a more specific inspection or the existing result is explicitly
+   incomplete.
+2. **`video_analyze` is available:** Send the local path or URL directly with a
+   focused question. This preserves motion, audio cues, text overlays, and scene
+   transitions better than sparse frames.
+3. **Native analysis is unavailable, unsupported, too large, or the task is
+   frame-specific:** Use the `ffmpeg` fallback below in an owner/private or CLI
+   session.
+
+Feishu groups do not have `terminal`; never instruct a group session to run
+`ffmpeg` or probe host paths. If the Gateway could not analyze the attachment,
+ask the user to continue in an owner/private or CLI session.
+
+## Frame-Extraction Fallback
+
+1. Inspect duration without decoding the whole file:
 
    ```bash
-   ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /path/to/video.mp4
+   ffprobe -v error -show_entries format=duration \
+     -of default=noprint_wrappers=1:nokey=1 /path/to/video.mp4
    ```
 
-2. **Extract Keyframes:** Select 3-5 meaningful timestamps across the duration and extract them as `.jpg` images using `ffmpeg`.
+2. Choose timestamps that match the question. For a general overview, sample
+   the beginning, middle, end, and any visible scene boundaries; do not assume
+   three arbitrary frames represent rapid motion accurately.
+
+3. Extract individual frames into a task-specific temporary directory:
 
    ```bash
-   ffmpeg -y -i /path/to/video.mp4 -ss 00:00:10 -vframes 1 /tmp/frame1.jpg
+   ffmpeg -y -ss 00:00:10 -i /path/to/video.mp4 \
+     -frames:v 1 /tmp/video-audit/frame-001.jpg
    ```
 
-3. **Return Images:** Send the extracted frames back to the user inline using the `MEDIA:<absolute_path>` syntax.
-   `MEDIA:/tmp/frame1.jpg`
-4. **Clarify limitations:** Explain that you extracted representative frames to evaluate the content. If they need a precise evaluation of specific moments (e.g., a rapid animation effect or UI state), instruct them to provide a direct screenshot in the chat.
+4. Inspect the images with the available image-vision path. Return frame files
+   to the user only when they asked for them; otherwise report the timestamps
+   used and the sampling limitation.
 
 ## Pitfalls
 
-- **No Python Vision Libraries First:** Do not try to read the video with `PIL`, `numpy` (which might not be installed), or `cv2` before simply extracting frames with `ffmpeg`. `ffmpeg` is fast, reliable, and available in the environment.
-- **Single Image Syntax:** When using `ffmpeg` to output a single image, if you omit `%03d` formatting, you will get sequence pattern warnings. This is fine as long as `-vframes 1` is supplied.
+- Do not claim full-video understanding from a few sampled frames.
+- Do not fan out dozens of frame-analysis calls when one native video request is
+  available.
+- Avoid Python video stacks as the first fallback; `ffprobe` and `ffmpeg` are
+  lighter and more predictable for deterministic extraction.
+- A single-frame output does not need a `%03d` sequence pattern when
+  `-frames:v 1` is present.

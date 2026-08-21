@@ -5,6 +5,8 @@ description: Use when drafting investor-facing technical narratives.
 
 # Technical Investor Documents
 
+## When to Use
+
 Use this skill when the user asks for investor-facing, board-facing, fundraise, due-diligence, or executive technical narrative materials: technology highlights, technical moat, Q&A prep, pitch support, “先进性”packaging, or product/algorithm capability summaries grounded in internal sources.
 
 ## Core principle
