@@ -13,7 +13,7 @@ The sandbox pins create/iterate calls to:
 
 - contributor: `hermes`
 - runtime agent: omitted — create draws from the `hermes` account's Agentic weights; iterate keeps the case's current Agent
-- case type: `deck` for new cases
+- case type: `freestyle` for new cases
 - assets: attachments from the current Feishu turn, staged automatically
 
 The sandbox removes any model-supplied `agent`; do not ask the user to choose one. Do not ask the user for other pinned fields. Never invent, request, echo, or override local `asset_paths`.

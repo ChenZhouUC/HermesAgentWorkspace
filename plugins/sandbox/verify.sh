@@ -415,7 +415,7 @@ assert sandbox._on_pre_tool_call(
 assert owner_hypertex_args == {
     "prompt": "verify",
     "owner_username": "hermes",
-    "type": "deck",
+    "type": "freestyle",
     "asset_paths": [],
 }
 assert sandbox._on_pre_tool_call(

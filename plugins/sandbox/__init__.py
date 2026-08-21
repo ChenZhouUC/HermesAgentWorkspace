@@ -12,12 +12,12 @@ execution uses argv (never a shell) and, on macOS, ``sandbox-exec`` restricts
 the whole process tree to writes inside that group's workspace.
 
 The owner DM and trusted group testers also have a narrow HyperTeX bridge: MCP
-calls are pinned to the ``hermes`` Contributor and, for a new case, the ``deck``
-case type. The RuntimeAgent is deliberately *not* pinned — a model-supplied
-``agent`` is stripped so HyperTeX applies its own policy: a create draws from the
-owner account's Agentic weights and an iterate keeps the Agent the case was
-produced with. Pinning one here would bypass the weights and silently switch an
-iterating case's Agent. Files attached to the current Feishu turn are copied
+calls are pinned to the ``hermes`` Contributor and, for a new case, the
+``freestyle`` case type. The RuntimeAgent is deliberately *not* pinned — a
+model-supplied ``agent`` is stripped so HyperTeX applies its own policy: a create
+draws from the owner account's Agentic weights, and an iterate keeps the Agent
+the case was produced with. Pinning one here would bypass the weights and silently
+switch an iterating case's Agent. Files attached to the current Feishu turn are copied
 into a private stable staging directory and injected into create/iterate calls
 without exposing cache paths to the model.
 """
@@ -125,7 +125,7 @@ _HYPERTEX_TOOLS = frozenset(
     }
 )
 _HYPERTEX_USERNAME = "hermes"
-_HYPERTEX_CASE_TYPE = "deck"
+_HYPERTEX_CASE_TYPE = "freestyle"
 _HYPERTEX_ONE_CALL_MESSAGE = "本轮已经调用过 HyperTeX。请直接根据已有结果回复用户；状态查询或重试请等待用户下一条消息。"
 _HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE = "HyperTeX 目前未在本群启用。"
 _HYPERTEX_GROUP_BLOCK_MESSAGE = "HyperTeX 群聊内测目前仅对受信任的维护者开放。"

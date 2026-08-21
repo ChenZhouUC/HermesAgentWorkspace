@@ -492,7 +492,7 @@ def test_owner_dm_hypertex_create_uses_owner_weights_and_stages_current_attachme
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
     assert args["owner_username"] == "hermes"
     assert "agent" not in args
-    assert args["type"] == "deck"
+    assert args["type"] == "freestyle"
     staged = [Path(path) for path in args["asset_paths"]]
     assert [path.name for path in staged] == ["Report.pdf", "Report-2.pdf"]
     assert [path.read_bytes() for path in staged] == [b"first", b"second"]
@@ -611,7 +611,7 @@ def test_trusted_group_hypertex_create_uses_owner_weights_and_stages_current_att
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
     assert args["owner_username"] == "hermes"
     assert "agent" not in args
-    assert args["type"] == "deck"
+    assert args["type"] == "freestyle"
     assert len(args["asset_paths"]) == 1
     assert Path(args["asset_paths"][0]).name == "Group.pdf"
 
