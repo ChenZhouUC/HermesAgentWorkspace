@@ -219,7 +219,6 @@ PATCHED_FILES=(
     "gateway/config.py"
     "gateway/display_config.py"
     "plugins/platforms/feishu/adapter.py"
-    "skills/research/llm-wiki/SKILL.md"
     "gateway/platforms/base.py"
     "gateway/run.py"
     "gateway/slash_commands.py"
@@ -229,6 +228,7 @@ PATCHED_FILES=(
     "hermes_cli/doctor.py"
     "hermes_cli/env_loader.py"
     "hermes_cli/model_switch.py"
+    "hermes_cli/config_defaults.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/skill_utils.py"
@@ -260,9 +260,11 @@ PATCHED_FILES=(
     "tests/hermes_cli/test_env_loader.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
+    "hermes_cli/prompt_size.py"
     "website/docs/reference/environment-variables.md"
     "website/docs/user-guide/configuration.md"
     "website/docs/user-guide/messaging/feishu.md"
+    "agent/skill_commands.py"
     "plugins/model-providers/vertex/__init__.py"
     "tests/hermes_cli/test_vertex_provider.py"
     "agent/image_routing.py"
@@ -548,14 +550,14 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-GROUP-ADMISSION] 群聊触发、上下文与当前发言人完整性
 
-| 字段     | 内容                                                                                                                                                                                                                                       |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/authz_mixin.py`, `gateway/run.py`（仅上游 `[New message]` 回归锚点，无本地 hunk）, `gateway/session.py`, `skills/research/llm-wiki/SKILL.md` 及对应 gateway 测试/文档 |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                              |
+| 字段     | 内容                                                                                                                                                                                                                                                                             |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/authz_mixin.py`, `gateway/run.py`（仅上游 `[New message]` 回归锚点，无本地 hunk）, `gateway/session.py` 及对应 gateway 测试/文档；外部维护的 `my-skills/research/llm-wiki/SKILL.md` 不属于内层 patch bundle |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                    |
 
 **问题**：群聊需要同时支持 `@bot` 与 `@配置本人账号` 触发、近期群消息回填和纯 @ 意图推断；共享 session 还必须防止 owner profile、引用内容、历史末位发言人或跨发送者 debounce 被误认成当前提问者。群授权也不能借通配符放开 DM。原纯 @ 分支硬编码排除 `p2p`，导致主会话里回复一条合并转发后只 @Bot 会在剥离 mention 后成为空文本并被静默丢弃。
 
-**修复**：实现 assistant-user/configured-human 两类触发与身份说明、群历史回填、默认关闭且可配置的 `bare_mention_intent`、`FEISHU_GROUP_ALLOWED_CHATS` 群授权；把 bot mention 设为最高触发优先级，批处理合并判定纳入发送者（`_text_batch_is_compatible` 校验 user_id/user_id_alt/user_name；`_text_batch_key` 本身与上游一致），并在 system prompt 标注 current author（**user-turn 侧的 sender 前缀与 `[New message]` 拼接已被上游吸收**——d1afa160 起 `_prepare_inbound_message_text` 原生对 shared multi-user 会话做 `[sender]` 前缀与 channel-context 拼接，本地不再携带该 hunk，system prompt 的 current-author 块仍为本地）。开启 `bare_mention_intent` 后，群聊和 DM 中明确提及 bot 自身的纯 @ 都进入意图推断；引用消息时以引用内容为主题且只读取一次，未引用时使用既有会话历史，空文本但未 @Bot 仍丢弃。技术问题提示显式要求先读 `llm-wiki`，所有 wiki 文件调用必须携带 `~/.hermes/wiki` 路径，禁止用 terminal 探测；bundled skill 同步相同规则。
+**修复**：实现 assistant-user/configured-human 两类触发与身份说明、群历史回填、默认关闭且可配置的 `bare_mention_intent`、`FEISHU_GROUP_ALLOWED_CHATS` 群授权；把 bot mention 设为最高触发优先级，批处理合并判定纳入发送者（`_text_batch_is_compatible` 校验 user_id/user_id_alt/user_name；`_text_batch_key` 本身与上游一致），并在 system prompt 标注 current author（**user-turn 侧的 sender 前缀与 `[New message]` 拼接已被上游吸收**——d1afa160 起 `_prepare_inbound_message_text` 原生对 shared multi-user 会话做 `[sender]` 前缀与 channel-context 拼接，本地不再携带该 hunk，system prompt 的 current-author 块仍为本地）。开启 `bare_mention_intent` 后，群聊和 DM 中明确提及 bot 自身的纯 @ 都进入意图推断；引用消息时以引用内容为主题且只读取一次，未引用时使用既有会话历史，空文本但未 @Bot 仍丢弃。技术问题提示显式要求先读外部 `my-skills` 的 `llm-wiki`，所有 wiki 文件调用必须携带 `~/.hermes/wiki` 路径，禁止用 terminal 探测；官方 bundled `llm-wiki` 不再 patch，由 `skills.hide_bundled` 默认屏蔽。
 
 **验证**：Step 8b 独立 gate 检查 trigger/settings/history/bare-mention/wiki sentinels、DM 纯 @ 回归、group allowlist（含 `test_feishu_group_allowed_chats_wildcard_authorizes_groups_only`——wildcard 不放开 DM 的安全断言，2026-08-07 起入 gate）、current-author system prompt（本地）与 `[New message]` 上游 body-prefix 回归锚点、bot 优先级和跨发送者不合并测试。定向测试覆盖未 @ 静默、第三方 @本人代答、本人 @bot 不自我介绍、群聊与 DM 的纯 @ 引用/历史意图、DM 不被群 allowlist 放开，以及历史末位发言人与当前提问者不同时仍正确锚定当前作者。（2026-08-03 修正：旧哨兵 `_with_current_author_prefix` 在 v0.19.1 冲突解决轮已被重构移除，gate grep 一直误报 inactive；现改为真实锚点。）
 
@@ -599,20 +601,20 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-PLATFORM-CAPABILITY-SCOPE] 平台级 skill allowlist 与只读工具集
 
-| 字段     | 内容                                                                                                       |
-| -------- | ---------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/skill_utils.py`, `agent/prompt_builder.py`, `tools/skills_tool.py`, `toolsets.py` 及对应 tests/docs |
-| **状态** | 🟡 未上游合并                                                                                              |
+| 字段     | 内容                                                                                                                                                                                    |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/skill_utils.py`, `agent/prompt_builder.py`, `agent/skill_commands.py`, `tools/skills_tool.py`, `hermes_cli/{config_defaults.py,prompt_size.py}`, `toolsets.py` 及对应 tests/docs |
+| **状态** | 🟡 未上游合并                                                                                                                                                                           |
 
 **问题**：`skills.disabled` 不能表达“某平台只允许指定 skill”；完整 `skills` toolset 又同时暴露 `skill_manage`。文件工具也缺少只读组合，平台配置容易无意带入写能力。
 
-**修复**：新增 `skills.platform_allowed.<platform>`，并让 prompt、list/view 和 config-var discovery 共用同一解析；增加 `skills_readonly`（list/view）与 `file_readonly`（read/search）内部工具集。分类 skill 的规范名按短名匹配 allowlist，避免 `productivity:feishu-docs` 被错误拒绝。两个通配语义随实现存在并有测试覆盖：`platform_allowed: ["*"]` 为显式 allow-all 逃生口，`platform_disabled: ["*"]` 为全禁（`test_platform_disabled_wildcard`）；本机配置均未使用。
+**修复**：新增 `skills.platform_allowed.<platform>`，并让 prompt、list/view 和 config-var discovery 共用同一解析；增加 `skills_readonly`（list/view）与 `file_readonly`（read/search）内部工具集；新增 `skills.hide_bundled`（默认 `true`），官方 bundled Skills 仍由 updater 镜像但从正常发现、prompt、view 和 slash command 路径隐藏，配置的 external dirs（如 `~/.hermes/my-skills`）不受影响。分类 skill 的规范名按短名匹配 allowlist，避免 `productivity:feishu-docs` 被错误拒绝。两个通配语义随实现存在并有测试覆盖：`platform_allowed: ["*"]` 为显式 allow-all 逃生口，`platform_disabled: ["*"]` 为全禁（`test_platform_disabled_wildcard`）；本机配置均未使用。
 
 2026-08-19 与上游 project-local skill discovery 融合时，保留其 `project_dirs` cache key、trust/quarantine 与项目 skill 扫描，同时让 snapshot、cold scan 和 project scan 三条可见路径统一先过平台 allowlist/disabled 判定；两类治理是正交叠加，不得用其中一个覆盖另一个。
 
 与上游 `skill_view` 的 repeat-view dedup 存根共存时必须保持**先 allowlist 过滤、后 dedup 存根**的执行顺序，防止被 allowlist 拒绝的 skill 因 dedup 缓存返回旧内容（2026-08 上游 `2a3a7e6f5` 融合时确立的顺序不变量，后续该函数任何 3-way 融合都必须复核）。
 
-**验证**：Step 8b 独立检查 `get_allowed_skill_names` 的三个调用面、qualified-name 回归，并用 venv python **精确断言**两个只读工具集的成员列表（`skills_readonly == [skills_list, skill_view]`、`file_readonly == [read_file, search_files]`；2026-08-07 审计修复：旧 gate 对四个工具名的裸 grep 全部能被上游既有 `skills`/`file` 工具集满足，永远不会失败）；测试覆盖空 allowlist、命名 allowlist、`feishu_group` 独立配置、project skill 可见路径及只读工具集不被错误过滤。外层 `plugins/sandbox/verify.sh` 另做群工具面的成员/去写断言。
+**验证**：Step 8b 独立检查 `get_allowed_skill_names` 的三个调用面、`hide_bundled` 默认/显式关闭、qualified-name 回归，并用 venv python **精确断言**两个只读工具集的成员列表（`skills_readonly == [skills_list, skill_view]`、`file_readonly == [read_file, search_files]`；2026-08-07 审计修复：旧 gate 对四个工具名的裸 grep 全部能被上游既有 `skills`/`file` 工具集满足，永远不会失败）；测试覆盖空 allowlist、命名 allowlist、`feishu_group` 独立配置、project skill 可见路径、官方 bundled 隐藏/外部 `my-skills` 保留及只读工具集不被错误过滤。外层 `plugins/sandbox/verify.sh` 另做群工具面的成员/去写断言。
 
 **上游吸收判断**：上游原生提供平台级 skill allowlist 和不含 manage/write 的只读 skill/file toolsets 后可归档。
 

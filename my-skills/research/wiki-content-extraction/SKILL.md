@@ -105,13 +105,13 @@ Fix any issues before declaring done. Common failure modes:
 ## Pitfalls
 
 - **Tag order matters**: Register in SCHEMA.md before using in frontmatter. Doing it backwards creates a validation loop.
-- **Bundled skill limits**: `llm-wiki` is a bundled skill under `~/.hermes/skills/` — cannot be patched. Create custom skills or reference files for extensions.
+- **Official skill boundary**: the upstream `llm-wiki` copy under `~/.hermes/skills/` is kept pristine and hidden by default. The active local version is the external `my-skills/research/llm-wiki` skill, maintained independently of upstream updates.
 - **Alphabetical index**: New entries in index.md must be alphabetically sorted within their section.
 - **\_living sources required**: Every wiki page needs a _living source reference in frontmatter.
 - **Type-directory alignment**: `type: entity` must be in `entities/`, `type: concept` in `concepts/`, etc.
 
 ## Related
 
-- Primary wiki skill: `llm-wiki` (bundled, read-only)
+- Primary wiki skill: `llm-wiki` (external `my-skills`, read-only to official mirror updates)
 - Schema validation: `wiki_lint.py` script
 - Location: `~/.hermes/wiki/`

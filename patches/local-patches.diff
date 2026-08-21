@@ -936,21 +936,23 @@ index fca9201eb69db9f4a617726ee2d3cc1748e2811b..45b3bedbdc1143a2ad41e2d38d31be1b
  
  # Reverse mapping: models.dev id → Hermes ids (built lazily; many-to-one,
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index 4f26ffcf2a9354888dd8ae3f2fa598f6ca755f81..7713b5f7dafa6fda3adcf5e86135d025bfb254d7 100644
+index 4f26ffcf2a9354888dd8ae3f2fa598f6ca755f81..67e2f0fe4ec1420694d1a93ec0f7edd603cba814 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
-@@ -32,7 +32,10 @@ from agent.skill_utils import (
+@@ -32,7 +32,12 @@ from agent.skill_utils import (
      extract_skill_conditions,
      extract_skill_description,
      get_all_skills_dirs,
 +    get_allowed_skill_names,
      get_disabled_skill_names,
++    get_external_skills_dirs,
++    get_hidden_bundled_skill_names,
 +    is_skill_allowed_name,
 +    is_skill_disabled_name,
      iter_skill_index_files,
      org_id_of_path,
      parse_frontmatter,
-@@ -1811,7 +1814,11 @@ def _skill_should_show(
+@@ -1811,7 +1816,11 @@ def _skill_should_show(
  
  def _current_session_platform_hint() -> str:
      """Return the active platform without importing the gateway package on CLI startup."""
@@ -963,7 +965,7 @@ index 4f26ffcf2a9354888dd8ae3f2fa598f6ca755f81..7713b5f7dafa6fda3adcf5e86135d025
      if platform:
          return platform
  
-@@ -1820,7 +1827,11 @@ def _current_session_platform_hint() -> str:
+@@ -1820,7 +1829,11 @@ def _current_session_platform_hint() -> str:
      if get_session_env is None:
          return ""
      try:
@@ -976,23 +978,40 @@ index 4f26ffcf2a9354888dd8ae3f2fa598f6ca755f81..7713b5f7dafa6fda3adcf5e86135d025
      except Exception:
          return ""
  
-@@ -1902,6 +1913,7 @@ def _build_skills_system_prompt_inner(
+@@ -1865,7 +1878,7 @@ def build_skills_system_prompt(
+         skills_dir = get_skills_dir()
+         _home_token = None
+     try:
+-        external_dirs = get_all_skills_dirs()[1:]  # skip local (index 0)
++        external_dirs = get_external_skills_dirs()
+         # Trusted project-local dirs (./.hermes/skills, ./.agents/skills at
+         # the git root) — highest-precedence tier, scanned before local.
+         # Resolved once here; cwd and trust are stable for the session, so
+@@ -1901,7 +1914,9 @@ def _build_skills_system_prompt_inner(
+     # produce distinct cache entries (gateway serves multiple platforms).
      _platform_hint = _current_session_platform_hint()
      disabled = get_disabled_skill_names(_platform_hint or None)
++    hidden_bundled = get_hidden_bundled_skill_names(skills_dir)
      project_dirs = project_dirs or []
 +    allowed = get_allowed_skill_names(_platform_hint or None)
      cache_key = (
          str(skills_dir),
          tuple(str(d) for d in external_dirs),
-@@ -1910,6 +1922,7 @@ def _build_skills_system_prompt_inner(
+@@ -1910,6 +1925,8 @@ def _build_skills_system_prompt_inner(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
++        tuple(sorted(hidden_bundled)),
 +        tuple(sorted(allowed)) if allowed is not None else None,
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1938,7 +1951,9 @@ def _build_skills_system_prompt_inner(
+@@ -1935,10 +1952,14 @@ def _build_skills_system_prompt_inner(
+                 continue
+             skill_name = entry.get("skill_name") or ""
+             frontmatter_name = entry.get("frontmatter_name") or skill_name
++            if frontmatter_name in hidden_bundled or skill_name in hidden_bundled:
++                continue
              platforms = entry.get("platforms") or []
              if not skill_matches_platform_list(platforms):
                  continue
@@ -1003,18 +1022,20 @@ index 4f26ffcf2a9354888dd8ae3f2fa598f6ca755f81..7713b5f7dafa6fda3adcf5e86135d025
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1960,7 +1975,9 @@ def _build_skills_system_prompt_inner(
+@@ -1960,7 +1981,11 @@ def _build_skills_system_prompt_inner(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
 -            if entry["frontmatter_name"] in disabled or skill_name in disabled:
++            if entry["frontmatter_name"] in hidden_bundled or skill_name in hidden_bundled:
++                continue
 +            if not is_skill_allowed_name(entry["frontmatter_name"], allowed) and not is_skill_allowed_name(skill_name, allowed):
 +                continue
 +            if is_skill_disabled_name(entry["frontmatter_name"], disabled) or is_skill_disabled_name(skill_name, disabled):
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -2090,7 +2107,9 @@ def _build_skills_system_prompt_inner(
+@@ -2090,7 +2115,9 @@ def _build_skills_system_prompt_inner(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
@@ -1142,10 +1163,87 @@ index 780fe761bbdaf19d2a5d10e6fe95c294385e603e..b9f2e2db3263ca46e037d0046144dfd2
 +        max_messages if count_on else "off",
 +    )
 +    return agent_history[cut:]
+diff --git a/agent/skill_commands.py b/agent/skill_commands.py
+index f1e42e69023636497f456f0ad10b7ce6c30581ae..f2d5043bd610492b268c412cc7f5bf18587ed52a 100644
+--- a/agent/skill_commands.py
++++ b/agent/skill_commands.py
+@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
+ _skill_commands: Dict[str, Dict[str, Any]] = {}
+ _skill_commands_platform: Optional[str] = None
+ _skill_commands_home: Optional[str] = None
++_skill_commands_hide_bundled: Optional[bool] = None
+ # Guards the (map, platform-tag, home-tag) triple so publication and the
+ # freshness lookup always see a consistent snapshot. Scanning itself stays
+ # outside this lock.
+@@ -427,9 +428,11 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
+     Returns:
+         Dict mapping "/skill-name" to {name, description, skill_md_path, skill_dir}.
+     """
+-    global _skill_commands, _skill_commands_platform, _skill_commands_home
++    global _skill_commands, _skill_commands_platform, _skill_commands_home, _skill_commands_hide_bundled
+     platform = _resolve_skill_commands_platform()
+     home = _resolve_skill_commands_home()
++    from agent.skill_utils import hide_bundled_skills
++    hide_bundled = hide_bundled_skills()
+     # Build into a local map and publish once, at the end. Writing straight
+     # into the global made a scan's partial results visible to everything
+     # else in the process: a second, overlapping scan deduped against its own
+@@ -443,7 +446,7 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
+             get_external_skills_dirs,
+             get_project_skills_dirs,
+             iter_project_skill_files,
+-            iter_skill_index_files,
++            iter_visible_skill_index_files,
+         )
+         from hermes_cli.commands import resolve_command
+         disabled = _get_disabled_skill_names()
+@@ -461,7 +464,7 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
+             _iter = (
+                 iter_project_skill_files(scan_dir)
+                 if scan_dir in project_dirs
+-                else iter_skill_index_files(scan_dir, "SKILL.md")
++                else iter_visible_skill_index_files(scan_dir, "SKILL.md")
+             )
+             for skill_md in _iter:
+                 if any(part in {'.git', '.github', '.hub', '.archive'} for part in skill_md.parts):
+@@ -544,6 +547,7 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
+         _skill_commands = commands
+         _skill_commands_platform = platform
+         _skill_commands_home = home
++        _skill_commands_hide_bundled = hide_bundled
+     return commands
+ 
+ 
+@@ -558,6 +562,8 @@ def get_skill_commands() -> Dict[str, Dict[str, Any]]:
+     """
+     current_platform = _resolve_skill_commands_platform()
+     current_home = _resolve_skill_commands_home()
++    from agent.skill_utils import hide_bundled_skills
++    current_hide_bundled = hide_bundled_skills()
+     # Read the map and its tags under the same lock that publishes them, so
+     # the freshness decision is made against a consistent snapshot.
+     with _publish_lock:
+@@ -566,6 +572,7 @@ def get_skill_commands() -> Dict[str, Dict[str, Any]]:
+             bool(commands)
+             and _skill_commands_platform == current_platform
+             and _skill_commands_home == current_home
++            and _skill_commands_hide_bundled == current_hide_bundled
+         )
+     if is_fresh:
+         return commands
 diff --git a/agent/skill_utils.py b/agent/skill_utils.py
-index 01ad461879a3b54def15ccce3aff46b466d2d8c5..3ec7804585e5c8a96f48ec2b6b924c8e8b6aefaf 100644
+index 01ad461879a3b54def15ccce3aff46b466d2d8c5..aa2e9246caa4f5db9c151477845a1bcaddd1a81d 100644
 --- a/agent/skill_utils.py
 +++ b/agent/skill_utils.py
+@@ -13,7 +13,7 @@ import sys
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Set, Tuple
+ 
+-from hermes_constants import get_config_path, get_skills_dir, is_termux
++from hermes_constants import get_bundled_skills_dir, get_config_path, get_skills_dir, is_termux
+ 
+ logger = logging.getLogger(__name__)
+ 
 @@ -434,6 +434,17 @@ def _load_raw_config() -> Dict[str, Any]:
      return parsed
  
@@ -1164,7 +1262,7 @@ index 01ad461879a3b54def15ccce3aff46b466d2d8c5..3ec7804585e5c8a96f48ec2b6b924c8e
  def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
      """Read disabled skill names from config.yaml.
  
-@@ -456,19 +467,17 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
+@@ -456,22 +467,76 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
      if not isinstance(skills_cfg, dict):
          return set()
  
@@ -1189,7 +1287,66 @@ index 01ad461879a3b54def15ccce3aff46b466d2d8c5..3ec7804585e5c8a96f48ec2b6b924c8e
      return global_disabled
  
  
-@@ -498,6 +507,41 @@ def parse_config_string_list(value) -> List[str]:
++def hide_bundled_skills() -> bool:
++    """Return whether profile-local bundled Skills are hidden from discovery.
++
++    The bundled tree remains on disk so the installer/update mirror can keep it
++    current, but normal skill discovery should use configured external dirs
++    (for example ``~/.hermes/my-skills``) when this profile opts out.  The
++    default is deliberately *on* so upstream Skills are never silently loaded
++    as local prompt instructions.
++    """
++    parsed = _load_raw_config()
++    skills_cfg = parsed.get("skills") if isinstance(parsed, dict) else None
++    if not isinstance(skills_cfg, dict):
++        return True
++    return bool(skills_cfg.get("hide_bundled", True))
++
++
++def get_hidden_bundled_skill_names(skills_dir: Path | None = None) -> Set[str]:
++    """Return bundled skill names hidden for the active profile.
++
++    Bundled provenance is recorded by the official sync manifest.  Reading
++    that sidecar lets discovery hide only upstream-owned Skills while keeping
++    hub-installed or other profile-local Skills visible.
++    """
++    if not hide_bundled_skills():
++        return set()
++    root = Path(skills_dir) if skills_dir is not None else get_skills_dir()
++    manifest = root / ".bundled_manifest"
++    names: Set[str] = set()
++    try:
++        lines = manifest.read_text(encoding="utf-8").splitlines()
++    except OSError:
++        lines = []
++    for line in lines:
++        name = line.strip().split(":", 1)[0].strip()
++        if name:
++            names.add(name)
++
++    # External dirs intentionally shadow same-named bundled Skills during the
++    # native sync, which removes those names from .bundled_manifest.  The
++    # official source tree remains authoritative for provenance, so union its
++    # declared names with the manifest instead of treating the sidecar as the
++    # only source of truth.
++    bundled_dir = get_bundled_skills_dir(Path(__file__).parent.parent / "skills")
++    if bundled_dir.is_dir():
++        for skill_md in iter_skill_index_files(bundled_dir, "SKILL.md"):
++            declared_name = skill_md.parent.name
++            try:
++                raw = skill_md.read_text(encoding="utf-8-sig", errors="replace")
++                frontmatter, _ = parse_frontmatter(raw)
++                declared_name = str(frontmatter.get("name") or declared_name)
++            except OSError:
++                pass
++            names.add(declared_name)
++    return names
++
++
+ def parse_config_string_list(value) -> List[str]:
+     """Normalize a config value that may hold a JSON-array string into a list.
+ 
+@@ -498,6 +563,41 @@ def parse_config_string_list(value) -> List[str]:
      return []
  
  
@@ -1231,7 +1388,49 @@ index 01ad461879a3b54def15ccce3aff46b466d2d8c5..3ec7804585e5c8a96f48ec2b6b924c8e
  def _normalize_string_set(values) -> Set[str]:
      return {name.strip() for name in parse_config_string_list(values) if name.strip()}
  
-@@ -1085,6 +1129,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+@@ -804,6 +904,41 @@ def get_scan_ordered_skills_dirs() -> List[Path]:
+     return dirs
+ 
+ 
++def is_hidden_bundled_skill_path(path: Path, skills_dir: Path | None = None) -> bool:
++    """Return True when *path* is an official bundled Skill hidden by config."""
++    root = Path(skills_dir) if skills_dir is not None else get_skills_dir()
++    try:
++        if root.resolve() != get_skills_dir().resolve():
++            return False
++    except OSError:
++        return False
++    try:
++        path_obj = Path(path)
++        path_obj.relative_to(root)
++    except (TypeError, ValueError, OSError):
++        return False
++    hidden = get_hidden_bundled_skill_names(root)
++    if not hidden:
++        return False
++    skill_dir = path_obj.parent if path_obj.name == "SKILL.md" else path_obj
++    if skill_dir.name in hidden:
++        return True
++    try:
++        raw = (skill_dir / "SKILL.md").read_text(encoding="utf-8-sig", errors="replace")
++        frontmatter, _ = parse_frontmatter(raw)
++        return str(frontmatter.get("name") or "") in hidden
++    except (OSError, UnicodeError):
++        return False
++
++
++def iter_visible_skill_index_files(skills_dir: Path, filename: str):
++    """Yield active skill index files, excluding hidden bundled Skills."""
++    for path in iter_skill_index_files(skills_dir, filename):
++        if filename == "SKILL.md" and is_hidden_bundled_skill_path(path, skills_dir):
++            continue
++        yield path
++
++
+ # ── Project skill quarantine (scan-time injection defense) ────────────────
+ #
+ # Trust (`hermes skills trust`) is a REPO-level decision made once; the repo's
+@@ -1085,10 +1220,11 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
      seen_keys: set = set()
  
      disabled = get_disabled_skill_names()
@@ -1239,7 +1438,12 @@ index 01ad461879a3b54def15ccce3aff46b466d2d8c5..3ec7804585e5c8a96f48ec2b6b924c8e
      for skills_dir in get_all_skills_dirs():
          if not skills_dir.is_dir():
              continue
-@@ -1096,6 +1141,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
+-        for skill_file in iter_skill_index_files(skills_dir, "SKILL.md"):
++        for skill_file in iter_visible_skill_index_files(skills_dir, "SKILL.md"):
+             try:
+                 raw = skill_file.read_text(encoding="utf-8")
+                 frontmatter, _ = parse_frontmatter(raw)
+@@ -1096,6 +1232,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
                  continue
  
              skill_name = frontmatter.get("name") or skill_file.parent.name
@@ -3872,6 +4076,27 @@ index 0715a0e8081b357a2fdbabb799333cf01c7681a8..e8b54551a4196380e9776baedc8d4f32
                      reply_to=self._initial_reply_to_id,
                      metadata=self._metadata_for_send(
                          final=finalize,
+diff --git a/hermes_cli/config_defaults.py b/hermes_cli/config_defaults.py
+index e20450b98b57a87d7160fd8c84e9d3113e356a7d..eb65675d95f1e193409cc2e650c1006fe35e9081 100644
+--- a/hermes_cli/config_defaults.py
++++ b/hermes_cli/config_defaults.py
+@@ -2030,9 +2030,14 @@ DEFAULT_CONFIG = {
+     },
+ 
+     # Skills — external skill directories for sharing skills across tools/agents.
+-    # Each path is expanded (~, ${VAR}) and resolved.  Read-only — skill creation
+-    # always goes to ~/.hermes/skills/.
++    # Each path is expanded (~, ${VAR}) and resolved.  External dirs are the
++    # user-owned discovery/write roots; the official bundled tree remains the
++    # updater-managed mirror under ~/.hermes/skills/.
+     "skills": {
++        # Keep the official bundled Skills tree available for update/mirror
++        # purposes, but hide it from normal discovery by default.  Profiles
++        # that want the upstream Skills exposed can set this to false.
++        "hide_bundled": True,
+         "external_dirs": [],   # e.g. ["~/.agents/skills", "/shared/team-skills"]
+         # Project-local skill discovery: when a session starts inside a git
+         # checkout, ``<root>/.hermes/skills/`` and ``<root>/.agents/skills/``
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
 index 524ab04f119bf9b6578009833d7231a8ccd7db3d..cad4d9f21ff8f10e569058e2e6d123fed1d0c047 100644
 --- a/hermes_cli/doctor.py
@@ -4256,6 +4481,28 @@ index aae5f4cadeea8e5df92e1178187f7a5950200adf..e40a6d3374e3b19329349a8adb88f37b
      resolved_alias = ""
      new_model = raw_input.strip()
      target_provider = current_provider
+diff --git a/hermes_cli/prompt_size.py b/hermes_cli/prompt_size.py
+index aac473db3d0b42a2ef21e05e7491a01a78182c45..c859f94a637b2ca1a580994c9a6d58d1690ef2ed 100644
+--- a/hermes_cli/prompt_size.py
++++ b/hermes_cli/prompt_size.py
+@@ -91,7 +91,7 @@ def _skill_md_paths_by_name() -> Dict[str, Path]:
+     """
+     from agent.skill_utils import (
+         get_all_skills_dirs,
+-        iter_skill_index_files,
++        iter_visible_skill_index_files,
+         parse_frontmatter,
+     )
+ 
+@@ -99,7 +99,7 @@ def _skill_md_paths_by_name() -> Dict[str, Path]:
+     for skills_dir in get_all_skills_dirs():
+         if not skills_dir.exists():
+             continue
+-        for skill_file in iter_skill_index_files(skills_dir, "SKILL.md"):
++        for skill_file in iter_visible_skill_index_files(skills_dir, "SKILL.md"):
+             frontmatter_name = skill_file.parent.name
+             try:
+                 frontmatter, _ = parse_frontmatter(
 diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
 index a28fc09f3d829713c55908885a5a715ec1c7cda0..2ce54e5fa31ae7d3811acf89e6c719fdbca190b8 100644
 --- a/hermes_cli/tools_config.py
@@ -6597,108 +6844,6 @@ index e897064d278dcc58322e164c48586d658e807eef..c24e36bccff6edd5dd15b203493d2ca5
  google = [
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so dev environments (`uv sync --extra google`)
-diff --git a/skills/research/llm-wiki/SKILL.md b/skills/research/llm-wiki/SKILL.md
-index a7a03d422b1308de6ffe596501ee4d03bdee42a7..2381eb26d4b501523b24b7cdc1e4ae4d7136522c 100644
---- a/skills/research/llm-wiki/SKILL.md
-+++ b/skills/research/llm-wiki/SKILL.md
-@@ -37,11 +37,17 @@ Use this skill when the user:
- 
- **Location:** Set via `WIKI_PATH` environment variable (e.g. in `${HERMES_HOME:-~/.hermes}/.env`).
- 
--If unset, defaults to `~/wiki`.
-+If unset, Hermes defaults to `${HERMES_HOME:-$HOME/.hermes}/wiki`. In a standard
-+installation this is `~/.hermes/wiki`.
- 
--```bash
--WIKI="${WIKI_PATH:-$HOME/wiki}"
--```
-+Resolve the root in this order: an explicitly configured `WIKI_PATH`, then
-+`HERMES_HOME/wiki`, then `~/.hermes/wiki`. Do not create a shell variable just
-+to call the file tools.
-+
-+**Sandboxed Feishu groups:** use `read_file` and `search_files` directly, and pass
-+an explicit `path` under `~/.hermes/wiki` on every call. Never use `terminal` to
-+discover or query the wiki, never omit `search_files.path`, never use `~/wiki`,
-+and never pass shell variables such as `$WIKI` literally as tool arguments.
- 
- The wiki is just a directory of markdown files — open it in Obsidian, VS Code, or
- any editor. No database, no special tooling required.
-@@ -77,14 +83,16 @@ When the user has an existing wiki, **always orient yourself before doing anythi
- ② **Read `index.md`** — learn what pages exist and their summaries.
- ③ **Scan recent `log.md`** — read the last 20-30 entries to understand recent activity.
- 
--```bash
--WIKI="${WIKI_PATH:-$HOME/wiki}"
--# Orientation reads at session start
--read_file "$WIKI/SCHEMA.md"
--read_file "$WIKI/index.md"
--read_file "$WIKI/log.md" offset=<last 30 lines>
-+```text
-+# Direct tool calls at session start (standard Hermes installation)
-+read_file(path="~/.hermes/wiki/SCHEMA.md")
-+read_file(path="~/.hermes/wiki/index.md")
-+read_file(path="~/.hermes/wiki/log.md", offset=<last 30 lines>)
- ```
- 
-+If `WIKI_PATH` is explicitly configured, replace `~/.hermes/wiki` above with its
-+resolved absolute value. Do not pass `$WIKI_PATH` literally to a file tool.
-+
- Only after orientation should you ingest, query, or lint. This prevents:
- - Creating duplicate pages for entities that already exist
- - Missing cross-references to existing content
-@@ -98,7 +106,7 @@ at hand before creating anything new.
- 
- When the user asks to create or start a wiki:
- 
--1. Determine the wiki path (from `$WIKI_PATH` env var, or ask the user; default `~/wiki`)
-+1. Determine the wiki path (from `$WIKI_PATH`, or default to the active `HERMES_HOME/wiki`)
- 2. Create the directory structure above
- 3. Ask the user what domain the wiki covers — be specific
- 4. Write `SCHEMA.md` customized to the domain (see template below)
-@@ -369,18 +377,18 @@ wiki = "<WIKI_PATH>"
- 
- ### Searching
- 
--```bash
-+```text
- # Find pages by content
--search_files "transformer" path="$WIKI" file_glob="*.md"
-+search_files(pattern="transformer", path="~/.hermes/wiki", file_glob="*.md")
- 
- # Find pages by filename
--search_files "*.md" target="files" path="$WIKI"
-+search_files(pattern="*.md", target="files", path="~/.hermes/wiki")
- 
- # Find pages by tag
--search_files "tags:.*alignment" path="$WIKI" file_glob="*.md"
-+search_files(pattern="tags:.*alignment", path="~/.hermes/wiki", file_glob="*.md")
- 
- # Recent activity
--read_file "$WIKI/log.md" offset=<last 20 lines>
-+read_file(path="~/.hermes/wiki/log.md", offset=<last 20 lines>)
- ```
- 
- ### Bulk Ingest
-@@ -435,8 +443,8 @@ ob login --email <email> --password '<password>'
- # Create a remote vault for the wiki
- ob sync-create-remote --name "LLM Wiki"
- 
--# Connect the wiki directory to the vault
--cd ~/wiki
-+# Connect the configured wiki directory to the vault
-+cd "${WIKI_PATH:-${HERMES_HOME:-$HOME/.hermes}/wiki}"
- ob sync-setup --vault "<vault-id>"
- 
- # Initial sync
-@@ -471,7 +479,7 @@ systemctl --user enable --now obsidian-wiki-sync
- sudo loginctl enable-linger $USER
- ```
- 
--This lets the agent write to `~/wiki` on a server while you browse the same
-+This lets the agent write to the configured wiki directory on a server while you browse the same
- vault in Obsidian on your laptop/phone — changes appear within seconds.
- 
- ## Pitfalls
 diff --git a/tests/agent/test_image_routing.py b/tests/agent/test_image_routing.py
 index b86fd4145e421650170ce0d7a647606c47462257..a94aa73295cf417f6f8f7b07a094a07088be0931 100644
 --- a/tests/agent/test_image_routing.py
@@ -15537,10 +15682,64 @@ index 1eb34a41c06b1e26e9319bcc3213d79da8315fe8..10d16343c2a893e18f7775485c225dd4
      """The post-recovery updater must not remap native vault dependencies."""
      import hermes_cli.env_loader as env_loader
 diff --git a/tests/hermes_cli/test_skills_config.py b/tests/hermes_cli/test_skills_config.py
-index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd7657959d31 100644
+index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad5254ae11 100644
 --- a/tests/hermes_cli/test_skills_config.py
 +++ b/tests/hermes_cli/test_skills_config.py
-@@ -42,25 +42,100 @@ class TestSaveDisabledSkills:
+@@ -21,6 +21,53 @@ class TestGetDisabledSkills:
+         assert get_disabled_skills({"skills": None}, platform="telegram") == set()
+ 
+ 
++class TestHideBundledSkills:
++    def test_defaults_to_hidden(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text("skills:\n  external_dirs: []\n")
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
++        from agent.skill_utils import hide_bundled_skills
++
++        assert hide_bundled_skills() is True
++
++    def test_can_show_bundled_skills(self, tmp_path, monkeypatch):
++        (tmp_path / "config.yaml").write_text(
++            "skills:\n  hide_bundled: false\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
++        from agent.skill_utils import hide_bundled_skills
++
++        assert hide_bundled_skills() is False
++
++    def test_hidden_bundled_skill_is_not_discovered_but_external_is(self, tmp_path, monkeypatch):
++        local = tmp_path / "skills"
++        external = tmp_path / "my-skills"
++        (local / "official-skill").mkdir(parents=True)
++        (external / "custom-skill").mkdir(parents=True)
++        (local / "official-skill" / "SKILL.md").write_text(
++            "---\nname: official-skill\ndescription: official\n---\nbody\n"
++        )
++        (external / "custom-skill" / "SKILL.md").write_text(
++            "---\nname: custom-skill\ndescription: custom\n---\nbody\n"
++        )
++        # Native sync removes a bundled name from the manifest when an external
++        # dir shadows it, so provenance must also come from the official source.
++        (local / ".bundled_manifest").write_text("")
++        (tmp_path / "config.yaml").write_text(
++            f"skills:\n  hide_bundled: true\n  external_dirs:\n    - {external}\n"
++        )
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
++        import agent.skill_utils as skill_utils
++        import tools.skills_tool as skills_tool
++
++        monkeypatch.setattr(skills_tool, "SKILLS_DIR", local)
++        monkeypatch.setenv("HERMES_BUNDLED_SKILLS", str(local))
++        skill_utils._external_dirs_cache_clear()
++        skills_tool._SKILLS_CACHE.clear()
++        discovered = skills_tool._find_all_skills()
++
++        assert [item["name"] for item in discovered] == ["custom-skill"]
++
++
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -42,25 +89,100 @@ class TestSaveDisabledSkills:
  # ---------------------------------------------------------------------------
  
  class TestIsSkillDisabled:
@@ -15553,7 +15752,7 @@ index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd76
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
 +        from tools.skills_tool import _is_skill_disabled
 +        assert _is_skill_disabled("bad-skill") is True
- 
++
 +    def test_globally_enabled(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text(
 +            "skills:\n"
@@ -15564,12 +15763,6 @@ index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd76
 +        from tools.skills_tool import _is_skill_disabled
 +        assert _is_skill_disabled("good-skill") is False
  
--    @patch("hermes_cli.config.load_config")
--    def test_platform_disabled(self, mock_load):
--        mock_load.return_value = {"skills": {
--            "disabled": [],
--            "platform_disabled": {"telegram": ["tg-skill"]}
--        }}
 +    def test_platform_disabled(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text(
 +            "skills:\n"
@@ -15579,9 +15772,15 @@ index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd76
 +            "      - tg-skill\n"
 +        )
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-         from tools.skills_tool import _is_skill_disabled
-         assert _is_skill_disabled("tg-skill", platform="telegram") is True
++        from tools.skills_tool import _is_skill_disabled
++        assert _is_skill_disabled("tg-skill", platform="telegram") is True
  
+-    @patch("hermes_cli.config.load_config")
+-    def test_platform_disabled(self, mock_load):
+-        mock_load.return_value = {"skills": {
+-            "disabled": [],
+-            "platform_disabled": {"telegram": ["tg-skill"]}
+-        }}
 +    def test_globally_disabled_stays_disabled_on_platform(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text(
 +            "skills:\n"
@@ -15592,11 +15791,11 @@ index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd76
 +            "      - tg-skill\n"
 +        )
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-+        from tools.skills_tool import _is_skill_disabled
+         from tools.skills_tool import _is_skill_disabled
 +        # Union: a globally-disabled skill stays disabled on a platform that
 +        # has its own platform_disabled list (matches issue #46201).
 +        assert _is_skill_disabled("skill-a", platform="telegram") is True
-+        assert _is_skill_disabled("tg-skill", platform="telegram") is True
+         assert _is_skill_disabled("tg-skill", platform="telegram") is True
  
 +    def test_empty_platform_list_keeps_global_disabled(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text(
@@ -15628,7 +15827,7 @@ index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd76
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
 +        from tools.skills_tool import _is_skill_disabled
 +        assert _is_skill_disabled("any-skill") is False
-+
+ 
 +    def test_exception_returns_false(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text("skills: [invalid\n")
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -15652,7 +15851,7 @@ index b5ef5721fe7c469d475b870351984207b7949f21..fdd501445ae42996b42de3f030eafd76
          from tools.skills_tool import _is_skill_disabled
          assert _is_skill_disabled("discord-skill") is True
  
-@@ -110,6 +185,60 @@ class TestGetDisabledSkillNames:
+@@ -110,6 +232,60 @@ class TestGetDisabledSkillNames:
          result = get_disabled_skill_names()
          assert result == {"discord-skill", "global-skill"}
  
@@ -18844,7 +19043,7 @@ index b444056747f688ca8b3485ffc9c0138ef59bcda0..1ea4979aaf4e77f4237f63a70fe1bc7a
  
      message = f"Skill '{name}' deleted."
 diff --git a/tools/skills_tool.py b/tools/skills_tool.py
-index 5bfa6edba3de34df25195d2316547e9f508b583e..38c6e44f6c1ad781dfd42596c07ec805dca4bfde 100644
+index 5bfa6edba3de34df25195d2316547e9f508b583e..145366e2585e0f24e8353f95265d66bcbb8b2e93 100644
 --- a/tools/skills_tool.py
 +++ b/tools/skills_tool.py
 @@ -94,7 +94,8 @@ logger = logging.getLogger(__name__)
@@ -18944,7 +19143,13 @@ index 5bfa6edba3de34df25195d2316547e9f508b583e..38c6e44f6c1ad781dfd42596c07ec805
  def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
      """Recursively find all skills in ~/.hermes/skills/ and external dirs.
  
-@@ -694,9 +712,10 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+@@ -689,14 +707,15 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+         get_external_skills_dirs,
+         get_project_skills_dirs,
+         iter_project_skill_files,
+-        iter_skill_index_files,
++        iter_visible_skill_index_files,
+     )
  
      cache_key = _SKILLS_CACHE_KEY_DISABLED if skip_disabled else _SKILLS_CACHE_KEY_FILTERED
  
@@ -18957,7 +19162,14 @@ index 5bfa6edba3de34df25195d2316547e9f508b583e..38c6e44f6c1ad781dfd42596c07ec805
  
      # Collect directories to scan — same resolution as the scan loop below
      # (_skills_dir() resolves the LIVE profile HERMES_HOME; the module-level
-@@ -710,7 +729,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+@@ -704,13 +723,13 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+     # dirs come FIRST: first-wins dedup below gives them precedence over
+     # same-named local/external skills.
+     project_dirs = list(get_project_skills_dirs())
+-    dirs_to_scan: list = list(project_dirs)
+     active_skills_dir = _skills_dir()
++    dirs_to_scan: list = list(project_dirs)
+     if active_skills_dir.exists():
          dirs_to_scan.append(active_skills_dir)
      dirs_to_scan.extend(get_external_skills_dirs())
  
@@ -18966,6 +19178,15 @@ index 5bfa6edba3de34df25195d2316547e9f508b583e..38c6e44f6c1ad781dfd42596c07ec805
      now = time.monotonic()
  
      cached = _SKILLS_CACHE.get(cache_key)
+@@ -735,7 +754,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+         _iter = (
+             iter_project_skill_files(scan_dir)
+             if _is_project
+-            else iter_skill_index_files(scan_dir, "SKILL.md")
++            else iter_visible_skill_index_files(scan_dir, "SKILL.md")
+         )
+         for skill_md in _iter:
+             if any(part in _EXCLUDED_SKILL_DIRS for part in skill_md.parts):
 @@ -756,7 +775,9 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
                  name = frontmatter.get("name", skill_dir.name)[:MAX_NAME_LENGTH]
                  if name in seen_names:
@@ -19002,7 +19223,45 @@ index 5bfa6edba3de34df25195d2316547e9f508b583e..38c6e44f6c1ad781dfd42596c07ec805
                  if not plugin_skill_md.exists():
                      # Stale registry entry — file deleted out of band
                      pm.remove_plugin_skill(name)
-@@ -1428,6 +1467,30 @@ def skill_view(
+@@ -1209,7 +1248,11 @@ def skill_view(
+             if bare:
+                 local_category_name = f"{namespace}/{bare}"
+ 
+-        from agent.skill_utils import get_external_skills_dirs, get_project_skills_dirs
++        from agent.skill_utils import (
++            get_external_skills_dirs,
++            get_project_skills_dirs,
++            is_hidden_bundled_skill_path,
++        )
+ 
+         # The categorized fall-through form (namespace/bare) joins onto each
+         # search dir too; re-validate it since `bare` is not namespace-checked.
+@@ -1253,12 +1296,14 @@ def skill_view(
+         # the caller — silent shadowing of a local skill by a same-named
+         # external skill is a real bug class (`/skills` shows one, agent
+         # loaded the other) so we surface it loudly instead of guessing.
+-        from agent.skill_utils import iter_skill_index_files
++        from agent.skill_utils import iter_visible_skill_index_files
+ 
+         candidates: List[Tuple[Optional[Path], Path]] = []  # (skill_dir, skill_md)
+         seen_md: set = set()
+ 
+         def _record(sd: Optional[Path], smd: Path) -> None:
++            if is_hidden_bundled_skill_path(smd, active_skills_dir):
++                return
+             try:
+                 key = smd.resolve()
+             except Exception:
+@@ -1306,7 +1351,7 @@ def skill_view(
+             # plus frontmatter `name:` lookup. `skills_list()` exposes the
+             # frontmatter name, so `skill_view(name)` must accept it too even
+             # when the on-disk directory is a shorter category/alias.
+-            for found_skill_md in iter_skill_index_files(search_dir, "SKILL.md"):
++            for found_skill_md in iter_visible_skill_index_files(search_dir, "SKILL.md"):
+                 if found_skill_md.parent.name == name:
+                     _record(found_skill_md.parent, found_skill_md)
+                     continue
+@@ -1428,6 +1473,30 @@ def skill_view(
                  ensure_ascii=False,
              )
  
@@ -19033,7 +19292,7 @@ index 5bfa6edba3de34df25195d2316547e9f508b583e..38c6e44f6c1ad781dfd42596c07ec805
          # Read the file once — reused for platform check and main content below
          try:
              content = skill_md.read_text(encoding="utf-8-sig", errors="replace")
-@@ -1488,6 +1551,15 @@ def skill_view(
+@@ -1488,6 +1557,15 @@ def skill_view(
  
          # Check if the skill is disabled by the user
          resolved_name = parsed_frontmatter.get("name", skill_md.parent.name)

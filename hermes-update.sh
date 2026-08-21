@@ -91,7 +91,6 @@ PATCHED_FILES=(
     "gateway/config.py"
     "gateway/display_config.py"
     "plugins/platforms/feishu/adapter.py"
-    "skills/research/llm-wiki/SKILL.md"
     "gateway/platforms/base.py"
     "gateway/run.py"
     "gateway/slash_commands.py"
@@ -101,8 +100,10 @@ PATCHED_FILES=(
     "hermes_cli/doctor.py"
     "hermes_cli/env_loader.py"
     "hermes_cli/model_switch.py"
+    "hermes_cli/config_defaults.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
+    "agent/skill_commands.py"
     "agent/skill_utils.py"
     "tools/approval.py"
     "tests/tools/test_approval.py"
@@ -132,6 +133,7 @@ PATCHED_FILES=(
     "tests/hermes_cli/test_env_loader.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
+    "hermes_cli/prompt_size.py"
     "website/docs/reference/environment-variables.md"
     "website/docs/user-guide/configuration.md"
     "website/docs/user-guide/messaging/feishu.md"
@@ -1675,8 +1677,8 @@ if [[ -d "${BUNDLED_SKILLS_DIR}" ]]; then
 else
     # Missing bundled skills = the mirror did not run at all. That is a
     # "command not executed / artifact missing" transaction failure, not a
-    # skippable warning — downstream Step 8c llm-wiki re-seed would also be
-    # silently skipped by its file guard.
+    # skippable warning — a missing source means the official Skills mirror did
+    # not run and the transaction cannot be considered converged.
     warn "Bundled skills dir not found: ${BUNDLED_SKILLS_DIR}"
     add_act "Check hermes-agent installation — skills directory missing"
     FINAL_RC=1
@@ -2185,12 +2187,11 @@ RUN_PROGRESS_TEST_PY="${HERMES_AGENT}/tests/gateway/test_run_progress_topics.py"
 BACKGROUND_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_background_command.py"
 VERBOSE_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_verbose_command.py"
 TOOLS_CONFIG_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
-LLM_WIKI_SKILL_MD="${HERMES_AGENT}/skills/research/llm-wiki/SKILL.md"
 
 # PATCH-FEISHU-GROUP-ADMISSION: group admission, context backfill and current-
 # speaker integrity. Trigger priority,
 # per-sender batching and prompt attribution are one admission/identity contract.
-if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" && -f "${FEISHU_TEST_PY}" && -f "${SESSION_TEST_PY}" && -f "${LLM_WIKI_SKILL_MD}" ]]; then
+if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_sender_is_configured_assistant_user' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
@@ -2204,8 +2205,6 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "$
         grep -q 'explicit path under ~/.hermes/wiki' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'bare_mention_intent' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q '_build_bare_mention_intent_text' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'Sandboxed Feishu groups' "${LLM_WIKI_SKILL_MD}" 2>/dev/null &&
-        grep -q 'search_files(pattern="transformer", path="~/.hermes/wiki"' "${LLM_WIKI_SKILL_MD}" 2>/dev/null &&
         grep -q 'test_dm_bare_mention_routes_reply_or_recent_conversation_intent' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_bare_mention_dropped_when_toggle_disabled' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
@@ -2297,8 +2296,11 @@ APPROVAL_TEST_PY="${HERMES_AGENT}/tests/tools/test_approval.py"
 # primitives. Group approval is deliberately verified separately.
 if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${SKILLS_TOOL_TEST_PY}" && -f "${TOOLSETS_PY}" ]]; then
     if grep -q 'get_allowed_skill_names' "${SKILL_UTILS_PY}" 2>/dev/null &&
+        grep -q 'def hide_bundled_skills' "${SKILL_UTILS_PY}" 2>/dev/null &&
+        grep -q 'iter_visible_skill_index_files' "${SKILLS_TOOL_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${PROMPT_BUILDER_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${SKILLS_TOOL_PY}" 2>/dev/null &&
+        grep -q 'test_hidden_bundled_skill_is_not_discovered_but_external_is' "${HERMES_AGENT}/tests/hermes_cli/test_skills_config.py" 2>/dev/null &&
         grep -q 'test_qualified_local_skill_allowed_by_bare_name' "${SKILLS_TOOL_TEST_PY}" 2>/dev/null &&
         grep -q 'skills_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'file_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
@@ -2307,7 +2309,7 @@ import toolsets as t
 assert t.TOOLSETS["skills_readonly"]["tools"] == ["skills_list", "skill_view"], t.TOOLSETS["skills_readonly"]["tools"]
 assert t.TOOLSETS["file_readonly"]["tools"] == ["read_file", "search_files"], t.TOOLSETS["file_readonly"]["tools"]
 ' 2>/dev/null); then
-        ok "PATCH-PLATFORM-CAPABILITY-SCOPE active: allowlist + read-only toolsets"
+        ok "PATCH-PLATFORM-CAPABILITY-SCOPE active: bundled hidden + external allowlist + read-only toolsets"
         _PLATFORM_CAPABILITY_SCOPE_PATCH_OK=true
     else
         warn "PATCH-PLATFORM-CAPABILITY-SCOPE inactive or partial"
@@ -3242,29 +3244,6 @@ else
     add_warn "Replay bundle was not refreshed because one or more engineering patch gates failed"
     add_act "Resolve the PATCH warnings above, then run: bash ${HERMES_HOME}/hermes-update.sh --reconcile"
     FINAL_RC=1
-fi
-
-# The full bundled-skill mirror in step 4b runs before local patches are
-# re-applied. Re-seed llm-wiki from the now-patched bundled source and rebuild
-# its manifest baseline so a future startup/update does not classify this
-# maintained patch as an ad-hoc user edit or restore the old ~/wiki guidance.
-if $_PATCH_APPLY_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && [[ -f "${LLM_WIKI_SKILL_MD}" ]]; then
-    step "Syncing patched llm-wiki skill"
-    set +e
-    _LLM_WIKI_RESET_OUT=$(hermes skills reset llm-wiki --restore --yes 2>&1)
-    _LLM_WIKI_RESET_RC=$?
-    set -e
-    if [[ ${_LLM_WIKI_RESET_RC} -eq 0 ]] &&
-        cmp -s "${LLM_WIKI_SKILL_MD}" "${LOCAL_SKILLS_DIR}/research/llm-wiki/SKILL.md"; then
-        ok "Patched llm-wiki synced and manifest re-baselined"
-    else
-        warn "Could not sync patched llm-wiki into the runtime skills mirror"
-        if [[ -n "${_LLM_WIKI_RESET_OUT:-}" ]]; then
-            add_warn "llm-wiki reset output: ${_LLM_WIKI_RESET_OUT//$'\n'/ | }"
-        fi
-        add_act "Run: hermes skills reset llm-wiki --restore --yes"
-        FINAL_RC=1
-    fi
 fi
 
 # The authoritative plist gate must run after local source patches are active.

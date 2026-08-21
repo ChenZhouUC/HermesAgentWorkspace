@@ -396,6 +396,7 @@ prefill_messages_file: ''
 goals:
   max_turns: 20
 skills:
+  hide_bundled: true
   external_dirs:
     - ~/.hermes/my-skills
   template_vars: true
