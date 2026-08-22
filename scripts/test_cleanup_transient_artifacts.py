@@ -220,6 +220,27 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             self.assertEqual(audit[0].path, ".skills_prompt_snapshot.json")
             self.assertEqual(audit[0].classification, "keep")
 
+    def test_config_corruption_recovery_snapshot_is_explicitly_keep_classified(self) -> None:
+        with tempfile.TemporaryDirectory() as root_raw:
+            root = Path(root_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            backup_name = "config.yaml.corrupt.20260822-174328.bak"
+            (root / ".gitignore").write_text("config.yaml.corrupt.*.bak\n")
+            (root / backup_name).write_text("broken: [\n")
+            policy_path = write_policy(
+                root,
+                ignored_keep={
+                    "config.yaml.corrupt.*.bak": "config recovery snapshot",
+                },
+            )
+
+            audit, errors = cleanup.audit_ignored(root, cleanup.load_policy(policy_path))
+
+            self.assertEqual(errors, [])
+            self.assertEqual(len(audit), 1)
+            self.assertEqual(audit[0].path, backup_name)
+            self.assertEqual(audit[0].classification, "keep")
+
     def test_runtime_session_pointers_are_explicitly_keep_classified(self) -> None:
         """Update-check throttle and per-TTY session pointers must never be swept.
 

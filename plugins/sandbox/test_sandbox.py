@@ -44,6 +44,7 @@ def group_config(tmp_path, monkeypatch):
                 "search_files",
                 "group_cache",
                 "feishu_doc_manage",
+                sandbox._HYPERTEX_CASE_TYPES_TOOL,
                 sandbox._HYPERTEX_LIST_TOOL,
                 sandbox._HYPERTEX_CREATE_TOOL,
                 sandbox._HYPERTEX_ITERATE_TOOL,
@@ -517,6 +518,15 @@ def test_owner_dm_hypertex_reads_are_pinned_to_contributor(group_config):
     assert task_args == {"task_id": "2"}
 
 
+def test_owner_dm_hypertex_case_types_keeps_empty_read_arguments(group_config):
+    sandbox._current_chat_id.set("owner-dm")
+    sandbox._current_chat_type.set("private")
+    args = {}
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CASE_TYPES_TOOL, args=args) is None
+    assert args == {}
+
+
 def test_owner_dm_hypertex_iterate_keeps_case_agent_and_stages_current_attachments(group_config, tmp_path):
     attachment = tmp_path / "doc_aaaaaaaaaaaa_Update.pptx"
     attachment.write_bytes(b"pptx")
@@ -661,10 +671,14 @@ def test_group_hypertex_is_limited_to_trusted_testers(group_config):
     sandbox._current_user_id.set("untrusted-user")
     sandbox._current_user_ids.set(frozenset({"untrusted-user"}))
 
-    assert sandbox._on_pre_tool_call(
-        tool_name=sandbox._HYPERTEX_LIST_TOOL,
-        args={"username": "hermes"},
-    ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_BLOCK_MESSAGE}
+    for tool_name, args in (
+        (sandbox._HYPERTEX_CASE_TYPES_TOOL, {}),
+        (sandbox._HYPERTEX_LIST_TOOL, {"username": "hermes"}),
+    ):
+        assert sandbox._on_pre_tool_call(tool_name=tool_name, args=args) == {
+            "action": "block",
+            "message": sandbox._HYPERTEX_GROUP_BLOCK_MESSAGE,
+        }
 
 
 def test_group_authorization_matches_open_id_from_real_feishu_sender_shape(group_config, monkeypatch):

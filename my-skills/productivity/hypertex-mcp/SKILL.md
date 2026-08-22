@@ -25,6 +25,7 @@ The sandbox removes any model-supplied `agent`; do not ask the user to choose on
 
 ## Available tools
 
+- `mcp__hypertex__hypertex_list_case_types`
 - `mcp__hypertex__hypertex_list_cases`
 - `mcp__hypertex__hypertex_create_case`
 - `mcp__hypertex__hypertex_iterate_case`

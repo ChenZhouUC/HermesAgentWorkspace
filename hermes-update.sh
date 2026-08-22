@@ -70,7 +70,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.4 / main c47f0b4590e6b5bb05fb73a42f447ca5444f5188, `hermes completion zsh` already emits the
+# As of v0.20.5 / main 4a6b362178ab2445e8310cc55a49fa2816b7aad0, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -152,6 +152,7 @@ PATCHED_FILES=(
     "tests/run_agent/test_provider_fallback.py"
     "tests/run_agent/test_compressor_fallback_update.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
+    "agent/chat_completion_helpers.py"
     "agent/conversation_loop.py"
     "agent/tool_executor.py"
     "agent/mcp_task_protocol.py"
@@ -1931,6 +1932,8 @@ _TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK=false
 _FEISHU_RESPONSE_BUDGET_PATCH_OK=false
 _TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK=false
 
+# PATCH-SKILL-CREATE-ROOT: new skills must land in the first configured
+# external skill directory rather than the upstream-managed bundled root.
 if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
     _SKILL_CHECK=$(
         cd "${HERMES_AGENT}" &&
@@ -2128,6 +2131,8 @@ else
     warn "Could not locate configured-only model policy source/tests"
 fi
 
+# PATCH-FEISHU-SOCKS-DEPENDENCY: both eager and lazy Feishu installation
+# paths must carry SOCKS transport support.
 if [[ -f "${PYPROJECT}" && -f "${LAZY_DEPS_PY}" ]]; then
     if grep -q 'python-socks' "${PYPROJECT}" 2>/dev/null &&
         grep -q 'python-socks' "${LAZY_DEPS_PY}" 2>/dev/null; then
@@ -2154,6 +2159,8 @@ else
     warn "Could not locate lazy activation source or regression test"
 fi
 
+# PATCH-OPENCLAW-TOKEN-MIGRATION: the migration must not recreate the removed
+# gateway bearer-token setting or document it as an active destination.
 OPENCLAW_MIGRATOR="${HERMES_AGENT}/optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
 OPENCLAW_MIGRATION_DOC="${HERMES_AGENT}/website/docs/guides/migrate-from-openclaw.md"
 OPENCLAW_MIGRATION_DOC_ZH="${HERMES_AGENT}/website/i18n/zh-Hans/docusaurus-plugin-content-docs/current/guides/migrate-from-openclaw.md"
@@ -3064,16 +3071,23 @@ fi
 # PATCH-TRUNCATED-TOOL-CALL-RECOVERY: providers may rewrite a genuine
 # output-cap finish_reason from length to tool_calls. Incomplete JSON must not
 # execute or terminate immediately; retry with a bounded 8k→16k→32k cap first.
+CHAT_COMPLETION_HELPERS_PY="${HERMES_AGENT}/agent/chat_completion_helpers.py"
 TRUNCATED_TOOL_RECOVERY_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_run_agent.py"
-if [[ -f "${VENV_PY}" && -f "${CONVERSATION_LOOP_PY}" &&
+if [[ -f "${VENV_PY}" && -f "${CONVERSATION_LOOP_PY}" && -f "${CHAT_COMPLETION_HELPERS_PY}" &&
     -f "${MCP_TASK_PERSIST_TEST_PY}" && -f "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" ]]; then
     if grep -q 'def _raise_truncated_tool_call_output_cap' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
+        grep -q 'max_tokens=ephemeral_out if ephemeral_out is not None else (agent.max_tokens or 4096)' "${CHAT_COMPLETION_HELPERS_PY}" 2>/dev/null &&
+        grep -q 'max_tokens=_ephemeral_out if _ephemeral_out is not None else agent.max_tokens' "${CHAT_COMPLETION_HELPERS_PY}" 2>/dev/null &&
         grep -q 'test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_bedrock_consumes_ephemeral_output_cap' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_codex_responses_consumes_ephemeral_output_cap' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
         "${VENV_PY}" -m pytest -q \
             tests/run_agent/test_tool_call_incremental_persistence.py::test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover \
             tests/run_agent/test_run_agent.py::TestRunConversation::test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail \
+            tests/run_agent/test_run_agent.py::TestBuildApiKwargs::test_bedrock_consumes_ephemeral_output_cap \
+            tests/run_agent/test_run_agent.py::TestBuildApiKwargs::test_codex_responses_consumes_ephemeral_output_cap \
             >/dev/null 2>&1; then
         ok "PATCH-TRUNCATED-TOOL-CALL-RECOVERY active: incomplete tool JSON retries with larger cap"
         _TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK=true

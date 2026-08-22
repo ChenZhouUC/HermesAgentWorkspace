@@ -143,6 +143,7 @@ hypertex_mcp = (root.get("mcp_servers") or {}).get("hypertex") or {}
 assert int(hypertex_mcp.get("timeout") or 0) == 30
 assert int(hypertex_mcp.get("idle_timeout_seconds") or 0) == 60
 assert set(((hypertex_mcp.get("tools") or {}).get("include") or [])) == {
+    "hypertex_list_case_types",
     "hypertex_list_cases",
     "hypertex_create_case",
     "hypertex_iterate_case",
@@ -184,6 +185,7 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "search_files",
     "group_cache",
     "feishu_doc_manage",
+    "mcp__hypertex__hypertex_list_case_types",
     "mcp__hypertex__hypertex_list_cases",
     "mcp__hypertex__hypertex_create_case",
     "mcp__hypertex__hypertex_iterate_case",
@@ -192,6 +194,10 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "mcp__hypertex__tasks_cancel",
     "mcp__hypertex__tasks_update",
 }
+# Case-type discovery is read-only in HyperTeX but can reveal owner engine
+# configuration. Keep it inside the same trusted chat + trusted actor gate and
+# one-call-per-turn budget as the existing case reads; never expose it as an
+# unrestricted group utility.
 # ROSTER: open_id only. Tenant-scoped short IDs must not reappear in any
 # allowlist — they are unrecoverable from people.yaml and never delivered by
 # this app, so they were dead weight that made adding a member guesswork.
@@ -344,6 +350,7 @@ assert "sandbox_group" in group_toolsets
 assert "hypertex" in group_toolsets
 assert {"clarify", "web_search", "web_extract", "group_cache", "feishu_doc_manage", "read_file", "search_files"}.issubset(group_tools)
 assert {
+    "mcp__hypertex__hypertex_list_case_types",
     "mcp__hypertex__hypertex_list_cases",
     "mcp__hypertex__hypertex_create_case",
     "mcp__hypertex__hypertex_iterate_case",
@@ -704,6 +711,7 @@ PY
         echo "${current_reg}" | grep -q 'tool_describe' &&
         echo "${current_reg}" | grep -q 'group_cache' &&
         echo "${current_reg}" | grep -q 'feishu_doc_manage' &&
+        echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_list_case_types' &&
         echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_create_case' &&
         echo "${current_reg}" | grep -q 'doc_delete_only=True' &&
         echo "${current_reg}" | grep -q 'hypertex_agent_policy=weighted-create/sticky-iterate' &&

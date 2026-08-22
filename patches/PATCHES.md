@@ -7,7 +7,7 @@
 > - **每次升级后**重写 `## 当前版本：vX.Y.Z (upstream `main` `<SHA>`，YYYY-MM-DD)` header 与下方"最近一次升级"摘要；摘要遵循 5 段结构（上游主线 / patch apply / 依赖 / 已知摩擦 / 配置漂移）。
 > - **新补丁**：使用稳定的语义 ID（`PATCH-<DOMAIN>-<INVARIANT>`），在 `## 当前版本` 节下新增一块 2-row 表（`文件 / 状态`）和 `问题 / 修复 / 验证 / 上游吸收判断` 四段。编号不表达顺序，禁止用 A/B 子编号承载不同吸收单元。
 > - **边界判定**：一个补丁只能有一个可独立说明的责任边界、一个对应生命周期 gate（Step 3/4/7/8b/8e）和一个上游吸收条件。能被不同上游 PR 分别吸收的能力必须拆开；只有必须一起回滚、一起验收、一起吸收的改动才能合并。
-> - **真实回归证据**：每个活跃/归档 PATCH 都必须在 `**验证**` 段落绑定真实测试、运行时边界或保留的上游回归；`python3 scripts/test_patch_evidence.py` 会逐块检查证据、生命周期和 bundle/replay，不接受只有 grep sentinel 或会话口头结论的 PATCH。
+> - **真实回归证据**：每个活跃/归档 PATCH 都必须在 `**验证**` 段落绑定真实测试、运行时边界或保留的上游回归；工程内 PATCH 必须在自己的验证段写出由 `--print-patched-tests` 实际运行的测试路径/函数，专用证据审计必须显式登记，不能借用相邻 gate 中碰巧出现的 `test_*`。`python3 scripts/test_patch_evidence.py` 会逐块检查证据、生命周期、Step 8b 一 PATCH 一 gate 所有权和 bundle/replay，不接受只有 grep sentinel、邻居测试或会话口头结论的 PATCH。
 > - **上游合并某补丁**：把该补丁块整体移动到对应 archive 节，记录吸收 commit 和保留的回归 sentinel；同步更新 `PATCHED_FILES`、验证 gate 和 replay bundle。
 > - **每个语义 ID 的定义块在整份 PATCHES.md 里仅出现一次**——要么活跃、要么归档；依赖、验证和历史摘要可以引用 ID，但不得复制定义块。
 > - **分类结构**：所有活跃定义必须连续放在首个 `## Archive` 之前，按职责类别分组；所有 Archive 统一后置。禁止在 Archive 之后用“活跃定义续接”标题重新打开活跃区，避免活跃状态与生命周期位置错位。
@@ -231,6 +231,7 @@ PATCHED_FILES=(
     "hermes_cli/config_defaults.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
+    "agent/skill_commands.py"
     "agent/skill_utils.py"
     "tools/approval.py"
     "tests/tools/test_approval.py"
@@ -264,7 +265,6 @@ PATCHED_FILES=(
     "website/docs/reference/environment-variables.md"
     "website/docs/user-guide/configuration.md"
     "website/docs/user-guide/messaging/feishu.md"
-    "agent/skill_commands.py"
     "plugins/model-providers/vertex/__init__.py"
     "tests/hermes_cli/test_vertex_provider.py"
     "agent/image_routing.py"
@@ -280,6 +280,7 @@ PATCHED_FILES=(
     "tests/run_agent/test_provider_fallback.py"
     "tests/run_agent/test_compressor_fallback_update.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
+    "agent/chat_completion_helpers.py"
     "agent/conversation_loop.py"
     "agent/tool_executor.py"
     "agent/mcp_task_protocol.py"
@@ -297,7 +298,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（85 文件，2026-08-20 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（88 文件，2026-08-22 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -318,17 +319,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.4 (upstream `main` `c47f0b4590e6b5bb05fb73a42f447ca5444f5188`，2026-08-20)
+## 当前版本：v0.20.5 (upstream `main` `4a6b362178ab2445e8310cc55a49fa2816b7aad0`，2026-08-22)
 
 **活跃补丁**：当前共 42 个语义补丁。34 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA`、`PATCH-GATEWAY-RESTART-CLEANUP` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
-**最近一次升级（v0.20.4，`f43eabee5f36` → `c47f0b4590e`，+5 commits，2026-08-20）要点**：
+**最近一次升级（v0.20.5，`c47f0b4590e` → `4a6b362178a`，+312 commits，2026-08-22）要点**：
 
-- 上游主线：本轮上游新增 5 个 Desktop sidebar/session-row 相关提交（`b6d21b37b6`、`60ff62cb13`、`91670103fd`、`aa08d0fdf4`、`c47f0b4590`），未触及 85 个受管 PATCH 文件；此前的 updater stale-module 修复继续由 `044acf2bf7` 提供。
-- patch apply / registry：85-file full-index bundle clean apply，19 个受管路径与上游同时变化但无 PATCH 生命周期变化；42 个活跃语义补丁仍为 34 个工程内、7 个运行时、1 个外层插件，全部未吸收、未收缩、未归档。Step 8b/8c 自测为 34 active + 6 archived gates，受管 runner **1668 passed / 0 failed / 3 skipped**，bundle 逐字节、cached 正向、worktree 反向和 index-clean 全绿。
-- 依赖：Python 3.12.13、SQLite 3.53.1、20 个 active lazy backend 保持可用；官方 Skills mirror `+0/~1/-0`。root `npm audit` 仍为 **6 high**：Electron/extract-zip 需越 stated range，postcss/nanoid 等待上游 lock/range bump；均属 Desktop/Web build-chain P2，不影响飞书 gateway，未使用 `--force`。`package-lock.json` 为内层非 replay 漂移。
-- 已知摩擦：本轮审计新增 `scripts/test_patch_evidence.py`，首次接入时发现 16 个 PATCH 验证段缺少明确回归 token，并发现 evidence self-test 会污染 `_REQUESTED_MODE`；已分别补齐注册表证据并把 self-test 隔离到 subshell。一次误传 `--reconcile` 因该污染错误进入 acquisition，固定目标 `c47f0b4590e` 后已完成收敛；该故障和恢复规则已落入 playbook。最终 Gateway planned restart 为 `3920 → 40625`（wrapper `40624`），sandbox 53 条 + identity-sync 6 条全绿。
-- 配置漂移：主配置保持 v38，无 deprecated key；Azure → Bedrock → Vertex fallback、Vertex compression、统一 700k threshold、`browser.backend: 'off'` 与 Feishu owner/group sandbox 边界保持。Azure/Bedrock Doctor 探针最终正常；未配置 provider/toolset 属 P3，不存在可修而未修的 P0/P1。
+- 上游主线：升级到 v0.20.5。主线集中在 Gateway/systemd handoff 与恢复（`5b024c7ccc`、`83b09ebd0a`）、State/SQLite 原子备份和修复护栏（`27d661e171`、`1fe8683e58`）、Bot Mode canonical chat / agent messaging（`ff88f27403`、`e26d91dc11`）、更新器分支/多 profile/结构化回执（`91096bb2f0`、`1575116629`、`1d74833d8d`）、Browser/Desktop 渲染与 artifact 边界（`847289864d`、`8f30e9c77a`），以及 Bedrock Responses / OpenCode Free / GLM-5.3 模型链（`e5b96fcb10`、`ca06b87689`、`01d8562fce`）。
+- patch apply / registry：88-file full-index bundle clean apply；上游与 15 个原受管路径相交，逐个按吸收条件复核后仍为 42 个活跃语义补丁（34 工程内、7 运行时、1 外层插件），无新增完全吸收、归档或收缩，`PATCH-DOCUMENT-EXTRACTION` 维持既有部分吸收。裸 upstream 仍缺 Tasks extension/确定性回执、截断 tool JSON 重试、configured-only、ambient credential 隔离、Feishu scope/reply/resource 与本地文档/多模态/Darwin 不变量。Step 8b/8c 为 34 active + 6 archived gates；权威 runner **39 files / 1679 passed / 0 failed / 3 skipped**，bundle byte/cached/reverse/index-clean 闭环全绿。
+- 依赖：Python 3.12.13、SQLite 3.53.1、20 个 active lazy backend 保持可用；官方 Skills mirror `+1/~0/-0`，新增 `research/llm-wiki`。`npm audit fix` 被 Vite 8.2.0/8.2.2 peer resolution 的 `ERESOLVE` 阻挡；root audit 去重后为 **6 high**，Doctor 按 workspace 显示 Web 4 high + UI-TUI 3 high（有重叠），均属构建工具链 P2，不影响飞书 gateway，未使用 `--force`；旧 `package-lock.json` 归一化 stash 已逐项比对为上游 install/layout 所替代，不进入 replay bundle。
+- 已知摩擦：preflight 首次发现 `config.yaml.corrupt.*.bak` 未分类会阻断 restart，已把配置恢复快照加入 keep policy 并补回归；首次 update 又因用户新增 `hypertex_list_case_types` 未同步精确 sandbox 契约而按设计非零，固定 `TARGET_SHA=4a6b362178a` 后仅用 no-network reconcile 收敛。审计确认该读取会暴露 owner 引擎配置，故纳入既有 HyperTeX trusted-chat + trusted-actor + one-call 边界，而非普通群工具；sandbox **54 passed** + identity-sync 6 条全绿。进一步轮询发现 PATCH evidence 曾允许验证段缺少具体测试时向相邻 gate 借用任意 `test_*`，以及截断恢复的 ephemeral cap 未进入 Bedrock/Codex native 请求；前者改为验证段测试必须真实存在于权威 runner、34 个工程 PATCH 与 34 个 Step 8b gate 一一归属并补齐 9 个定义，后者补齐两条 transport 接线与回归。
+- 配置漂移：主配置保持 v38，无 deprecated key；新增 HyperTeX case-type discovery 已同步 MCP include、插件 allowlist、skill 说明与 verifier，owner DM 完整能力和群聊 fail-closed 边界均保持。Azure → Bedrock → Vertex fallback、Vertex compression、统一 700k threshold 与 `browser.backend: 'off'` 不变；未配置 provider/toolset 属 P3，不存在可修而未修的 P0/P1。
 
 ---
 
@@ -434,9 +435,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **问题**：AI/浏览器/测试会话会在共享 `~/.hermes` 工作区留下 pager/slide 验证脚本、pytest/ruff 缓存、`__pycache__` 与 `.DS_Store`。只按文件名临时删除既可能漏掉被 `.gitignore` 隐藏的新产物，也可能误删并发 session 或正式运维脚本；仅依赖会话记忆判断“哪个脚本有用”又无法跨 AI 重建。Gateway restart 是运行态写屏障，如果重启前不先清理和审计，旧临时文件会跨 PID 延续并污染后续 diff、工具发现或下一轮自动化判断。
 
-**修复**：新增 policy 驱动的清理器。`cleanup_policy.json` 对 outer 运维脚本和 `plugins/*/verify.sh` 做显式白名单（keep）/临时脚本黑名单（remove），所有未分类 script-like 文件进入 review；同时读取 outer 与 inner Git 的 `status --ignored`，把每个 ignored 路径按运行态/密钥/依赖白名单、缓存黑名单或 review 三态分类。持久化恢复状态 `.hermes-update-transaction`、原子锁目录 `.hermes-update-transaction.lock/` 与 0600 `.skills_prompt_snapshot.json` 都必须显式 keep：事务文件保存固定 `TARGET_SHA`，skills snapshot 保存经 manifest 校验的冷启动 prompt 元数据，不能因只在特定运行阶段出现就落入 review 或被清理。规范 runner 预编译产生的 apps/evals/optional-skills/scripts/skills/tests/website 文档脚本 `__pycache__` 属确定可再生的 remove 类，运行时 agent/gateway/hermes_cli/tools/plugin 字节码则保持 keep。默认 dry-run，`--json` 输出完整 script/ignored audit、候选大小、跳过原因与 policy error；`--apply` 只把 remove 项移动到带时间戳的 macOS Trash 并保留相对路径，永不自动删除 review。近期临时脚本受 age gate 保护，Git-tracked 文件永不清理，pytest/CDP 等活跃进程会阻断 apply。`hermes-update.sh` preflight 每轮运行清理器自测与 `--dry-run --fail-on-review`；Step 8d 的唯一 restart 调用统一经过 `gateway_restart_with_cleanup()`，先 apply 再排空重启，清理失败、policy 漂移或未知 ignored/script 均使整轮非零。
+**修复**：新增 policy 驱动的清理器。`cleanup_policy.json` 对 outer 运维脚本和 `plugins/*/verify.sh` 做显式白名单（keep）/临时脚本黑名单（remove），所有未分类 script-like 文件进入 review；同时读取 outer 与 inner Git 的 `status --ignored`，把每个 ignored 路径按运行态/密钥/依赖白名单、缓存黑名单或 review 三态分类。持久化恢复状态 `.hermes-update-transaction`、原子锁目录 `.hermes-update-transaction.lock/`、0600 `.skills_prompt_snapshot.json` 与 `config.yaml.corrupt.*.bak` 配置恢复快照都必须显式 keep：事务文件保存固定 `TARGET_SHA`，skills snapshot 保存经 manifest 校验的冷启动 prompt 元数据，配置恢复快照则是用户可回滚证据，不能因只在异常阶段出现就落入 review 或被清理。规范 runner 预编译产生的 apps/evals/optional-skills/scripts/skills/tests/website 文档脚本 `__pycache__` 属确定可再生的 remove 类，运行时 agent/gateway/hermes_cli/tools/plugin 字节码则保持 keep。默认 dry-run，`--json` 输出完整 script/ignored audit、候选大小、跳过原因与 policy error；`--apply` 只把 remove 项移动到带时间戳的 macOS Trash 并保留相对路径，永不自动删除 review。近期临时脚本受 age gate 保护，Git-tracked 文件永不清理，pytest/CDP 等活跃进程会阻断 apply。`hermes-update.sh` preflight 每轮运行清理器自测与 `--dry-run --fail-on-review`；Step 8d 的唯一 restart 调用统一经过 `gateway_restart_with_cleanup()`，先 apply 再排空重启，清理失败、policy 漂移或未知 ignored/script 均使整轮非零。
 
-**验证**：`scripts/test_cleanup_transient_artifacts.py` 覆盖 keep/remove/review 脚本分类、仅黑名单移动、review 阻断 apply、required 脚本缺失/未跟踪、ignored keep/remove/review 分类、事务状态/锁与 skill prompt snapshot 均显式 keep、runtime cache keep 与 tests/website build cache remove，以及 Trash 相对路径保留。现场存在未完成事务或 skills snapshot 时，`--dry-run --json --fail-on-review` 仍必须得到 `script_review=0`、`ignored_review=0`、`policy_errors=[]` 并列出全部被审计脚本/ignored 路径；`--apply --fail-on-review` 后重复 dry-run 的 remove 候选为 0。Step 8d 静态检查不得再直接调用 `hermes gateway restart`，只能调用 cleanup wrapper；真机 restart 必须先输出 cleanup audit/apply，再证明 old PID → different new PID 和最终 verifier 通过。
+**验证**：`scripts/test_cleanup_transient_artifacts.py` 覆盖 keep/remove/review 脚本分类、仅黑名单移动、review 阻断 apply、required 脚本缺失/未跟踪、ignored keep/remove/review 分类、事务状态/锁、skill prompt snapshot 与配置损坏恢复快照均显式 keep、runtime cache keep 与 tests/website build cache remove，以及 Trash 相对路径保留。现场存在未完成事务、skills snapshot 或 `config.yaml.corrupt.*.bak` 时，`--dry-run --json --fail-on-review` 仍必须得到 `script_review=0`、`ignored_review=0`、`policy_errors=[]` 并列出全部被审计脚本/ignored 路径；`--apply --fail-on-review` 后重复 dry-run 的 remove 候选为 0。Step 8d 静态检查不得再直接调用 `hermes gateway restart`，只能调用 cleanup wrapper；真机 restart 必须先输出 cleanup audit/apply，再证明 old PID → different new PID 和最终 verifier 通过。
 
 **上游吸收判断**：这是外层工作区治理策略。只有未来 Gateway/update wrapper 原生提供可配置的脚本/ignored 三态清单、并发安全的可恢复清理、每次 restart 前强制执行和可供无状态 AI 消费的审计输出时，才可归档；单纯增加一个 `rm -rf cache` 命令不构成吸收。
 
@@ -614,7 +615,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 与上游 `skill_view` 的 repeat-view dedup 存根共存时必须保持**先 allowlist 过滤、后 dedup 存根**的执行顺序，防止被 allowlist 拒绝的 skill 因 dedup 缓存返回旧内容（2026-08 上游 `2a3a7e6f5` 融合时确立的顺序不变量，后续该函数任何 3-way 融合都必须复核）。
 
-**验证**：Step 8b 独立检查 `get_allowed_skill_names` 的三个调用面、`hide_bundled` 默认/显式关闭、qualified-name 回归，并用 venv python **精确断言**两个只读工具集的成员列表（`skills_readonly == [skills_list, skill_view]`、`file_readonly == [read_file, search_files]`；2026-08-07 审计修复：旧 gate 对四个工具名的裸 grep 全部能被上游既有 `skills`/`file` 工具集满足，永远不会失败）；测试覆盖空 allowlist、命名 allowlist、`feishu_group` 独立配置、project skill 可见路径、官方 bundled 隐藏/外部 `my-skills` 保留及只读工具集不被错误过滤。外层 `plugins/sandbox/verify.sh` 另做群工具面的成员/去写断言。
+**验证**：Step 8b 独立检查 `get_allowed_skill_names` 的三个调用面、`hide_bundled` 默认/显式关闭、qualified-name 回归，并用 venv python **精确断言**两个只读工具集的成员列表（`skills_readonly == [skills_list, skill_view]`、`file_readonly == [read_file, search_files]`；2026-08-07 审计修复：旧 gate 对四个工具名的裸 grep 全部能被上游既有 `skills`/`file` 工具集满足，永远不会失败）；`test_hidden_bundled_skill_is_not_discovered_but_external_is` 与 `test_qualified_local_skill_allowed_by_bare_name` 等测试覆盖空 allowlist、命名 allowlist、`feishu_group` 独立配置、project skill 可见路径、官方 bundled 隐藏/外部 `my-skills` 保留及只读工具集不被错误过滤。外层 `plugins/sandbox/verify.sh` 另做群工具面的成员/去写断言。
 
 **上游吸收判断**：上游原生提供平台级 skill allowlist 和不含 manage/write 的只读 skill/file toolsets 后可归档。
 
@@ -631,7 +632,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：`resolve_underlying_call()` 在递归检查前只识别一种精确形状：外层 `name == tool_call`，`arguments` 是对象，且内层 `name` 是非 bridge 工具。仅剥离这一层后继续原有 deferrable 分类、session scoped catalog、required-schema probe、middleware 与 sandbox pre/post hooks；修复本身不扩大任何工具 universe。内层仍是 `tool_call` / `tool_search` / `tool_describe` 时保持原递归拒绝，双层以上不递归展开。
 
-**验证**：回归测试使用本次真实 HyperTeX 工具名和参数形状，断言解析为 underlying target 与原始参数；负例把内层继续设为 `tool_call`，必须返回 bridge recursion 错误。Step 8b 单独运行两条测试，确保既能恢复一层模型格式偏差，又不会打开桥接递归或绕过 session/sandbox gate。
+**验证**：`test_resolve_underlying_call_repairs_one_redundant_bridge_envelope` 使用本次真实 HyperTeX 工具名和参数形状，断言解析为 underlying target 与原始参数；`test_resolve_underlying_call_does_not_repair_nested_bridge_recursion` 把内层继续设为 `tool_call`，必须返回 bridge recursion 错误。Step 8b 单独运行这两条测试，确保既能恢复一层模型格式偏差，又不会打开桥接递归或绕过 session/sandbox gate。
 
 **上游吸收判断**：上游为 `tool_call` 提供等价的一层 envelope normalization，并保留 bridge recursion、scoped catalog 和底层 hook 权限语义后可归档。若仅在 prompt 中提醒模型不要双包，不构成确定性吸收。
 
@@ -648,7 +649,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：`_is_restricted_feishu_approval_session()` 对 Feishu group/forum/channel/thread 直接返回 `BLOCKED`，不通知、不入 pending queue、不发送审批卡；owner DM 继续走 manual approval。chat type 优先读 `HERMES_SESSION_CHAT_TYPE` ContextVar、仅在为空时回退解析 session key，使 cron/API/wake 等非规范 key 不会 fail-open。**2026-08-07 审计重排硬拦顺序**：此前硬拦位于 Phase 3，`is_approved()` 进程全局集（owner DM "always" 审批 + `command_allowlist`）、yolo/mode=off 与 smart approval 均在其前短路，配置漂移即可绕过；现改为三层——①主入口与 legacy 入口在 yolo/allowlist **之前**加早期硬地板（cheap `detect_dangerous_command`，危险即 `restricted_chat`）；②tirith 告警在受限会话不消费 `is_approved` 短路、smart approval 对受限会话整体跳过，使告警必达 Phase 3 既有硬拦；③`check_execute_code_guard` 第三入口同样无条件硬拦（整脚本审批卡同为提权面）。当前配置（manual + 空 allowlist）此前恰好兜住，现在不再依赖配置。
 
-**验证**：Step 8b 检查 hard-block helper、`restricted_chat` 行为串、`hard floor` 注释锚点及五条测试：`test_feishu_group_dangerous_command_does_not_send_approval_card`（零通知零 queue）、`test_feishu_group_block_precedes_allowlist_and_prior_approvals`（approve_permanent + allowlist 双短路均不放行）、`test_feishu_group_block_skips_smart_approval`（smart 模式不询问 aux LLM 直接 BLOCKED）、`test_feishu_group_block_via_legacy_check_dangerous_command`、`test_feishu_group_execute_code_guard_blocked`、`test_feishu_group_chat_type_from_context_when_key_not_canonical`（非规范 key 走 ContextVar 不 fail-open）；Step 8e 再验证 owner DM 仍保留完整工具与人工审批策略。
+**验证**：Step 8b 检查 hard-block helper、`restricted_chat` 行为串、`hard floor` 注释锚点及六条测试：`test_feishu_group_dangerous_command_does_not_send_approval_card`（零通知零 queue）、`test_feishu_group_block_precedes_allowlist_and_prior_approvals`（approve_permanent + allowlist 双短路均不放行）、`test_feishu_group_block_skips_smart_approval`（smart 模式不询问 aux LLM 直接 BLOCKED）、`test_feishu_group_block_via_legacy_check_dangerous_command`、`test_feishu_group_execute_code_guard_blocked`、`test_feishu_group_chat_type_from_context_when_key_not_canonical`（非规范 key 走 ContextVar 不 fail-open）；Step 8e 再验证 owner DM 仍保留完整工具与人工审批策略。
 
 **上游吸收判断**：上游 approval 原生按 chat type 禁止共享群创建或批准危险操作、同时不影响 owner DM 时可归档。
 
@@ -665,7 +666,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：发送出口固定 `reply_in_thread=False`；引用目标只取显式 `reply_to`/`reply_to_message_id`；create-message 分支忽略 generic thread metadata，缺引用锚点时回退主聊天普通消息。
 
-**验证**：Step 8b 单独检查 `reply_in_thread = False`、忽略 thread metadata 的实现和回归测试，并带两条**负向锚点**（`! grep 'reply_in_thread = bool'`、`! grep '_build_create_message_request("thread_id"'`，2026-08-07 起）——正向锚点只证明本地行存在，无法发现 3-way 把上游 metadata-driven lane 在注释下方重新合入的对撞形态；覆盖普通引用、文档回复和无引用锚点三条路径。
+**验证**：Step 8b 单独检查 `reply_in_thread = False`、忽略 thread metadata 的实现和 `test_send_never_replies_in_thread_even_with_thread_metadata` / `test_send_ignores_thread_metadata_when_no_reply_anchor`，并带两条**负向锚点**（`! grep 'reply_in_thread = bool'`、`! grep '_build_create_message_request("thread_id"'`，2026-08-07 起）——正向锚点只证明本地行存在，无法发现 3-way 把上游 metadata-driven lane 在注释下方重新合入的对撞形态；这些测试覆盖普通引用、文档回复和无引用锚点三条路径。
 
 **上游吸收判断**：上游提供明确的普通引用/话题开关并保证 generic thread metadata 不改变 Feishu 投递 lane 后可归档。**对撞警示**（2026-08-03 审计）：post-26e0b1c 上游在同一 send/reply-body 区域走**相反语义**——`reply_in_thread = bool(metadata.thread_id)`（metadata 驱动投递 lane），与本补丁"固定 `reply_in_thread=False`、忽略 generic thread metadata"直接冲突。下次升级该区域的 3-way 结果**不可信任自动合并**：必须人工按本补丁不变量重解（普通引用回复永不进 thread lane），并以现有回归测试三条路径复验后才能刷新 bundle。
 
@@ -752,7 +753,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 聊天历史（群聊回填与合并转发展开共用的 `_history_sender_label`）此前只渲染 `ou_xxx` 裸 id 或缓存显示名，缓存未命中时模型无法分辨发言人。现复用同一份 `_lookup_person` 索引（open_id/user_id/union_id/name/aliases）把发送者 join 到 people.yaml：命中则用画像 `name`，并只追加公开面中的 `role`/`department` 作为限定语。历史会被回显进群聊回复，因此限定语字段是白名单而非黑名单，公开四项以外（含 `employee_no`、保密备注等）一律不进入 label；join 失败或 people.yaml 缺失时安全降级为原有 id/显示名。
 
-**验证**：Step 8b 检查 profile loaders/lookups、公开 `address`、未知字段 private-by-default、技术 ID/未公开别名过滤、来源保密常量、私有值/文件名字面量 redactor、stream/TTS filter、后台/临时消息出站测试、后台不回显 prompt 断言，以及 `people.yaml` / `groups.yaml` 的 owner-rw `0600` 权限与热加载自愈测试；另加历史发送者 join 的 `_history_sender_person`/`_history_person_qualifier` 与两个回归测试（公开字段命中 + 保密字段不泄露 / lookup 抛错时降级）。验证只归属于画像与输出过滤；旧 terminal/script-root allowlist 已被删除，不再作为本补丁的实现或测试。
+**验证**：Step 8b 检查 profile loaders/lookups、公开 `address`、未知字段 private-by-default、技术 ID/未公开别名过滤、来源保密常量、私有值/文件名字面量 redactor、stream/TTS filter、后台/临时消息出站测试、后台不回显 prompt 断言，以及 `people.yaml` / `groups.yaml` 的 owner-rw `0600` 权限与热加载自愈测试；`test_private_profile_redactor_keeps_public_fields`、`test_non_dm_interim_direct_fallback_redacts_private_profile`、`test_history_sender_label_joins_people_profile` 和 `test_history_sender_label_survives_profile_lookup_failure` 分别锁定公开字段、非 DM 临时输出、历史发送者公开字段 join 与异常降级。验证只归属于画像与输出过滤；旧 terminal/script-root allowlist 已被删除，不再作为本补丁的实现或测试。
 
 **上游吸收判断**：若上游提供等价的本地 per-sender/per-group profile 注入与全出站路径隐私过滤，可重新评估；否则保持本地补丁。
 
@@ -830,7 +831,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：新增通用 `display.platforms.<platform>.response_char_limit`（整数，0=关闭，范围收敛到 0–100,000）。Gateway 按 source-aware key 区分 `feishu` DM 与 `feishu_group`，把解析值写入 `SessionContext` 并纳入 ephemeral prompt cache key；system prompt 要求最终聊天回复尽量控制在该 Unicode 字符预算内、结论优先、去重复。该预算**只约束最终飞书聊天气泡**，明确禁止据此缩短或截断飞书文档正文、HTML、附件、Markdown 源稿或工具调用 payload；这些交付物保持任务所需的完整长度。用户明确要求长报告/需求文档且有文档/文件工具时，全文写入交付物，群里只回摘要与链接/附件；不得主动把一个答案规划成多条聊天消息。发送侧独立保留硬兜底：Feishu 单条 post 保守预算从 8,000 提到 16,000，使近期 8–12k 回复即使模型没有收敛也能保持一个 post；超过 16k 仍走既有 fence-aware 切分，绝不静默丢内容。
 
-**验证**：display 测试覆盖 DM/group 独立解析、字符串整数、负值关闭与其他平台不受影响；session 测试断言 3,000 字提示、长文档转交付物规则，并证明预算变化会改变 `_ephemeral_change_key`、不会被旧 pin 吃掉；Feishu adapter 测试构造 >8k 且 <16k 的 Markdown，只允许一次 `msg_type=post` 请求。Step 8b 同时 import resolver/prompt/adapter 三层并检查外层配置与三条回归锚点。发送端不做 live 真群探测，避免验证制造外部消息。
+**验证**：`test_response_char_limit_is_platform_scoped_and_normalised` 覆盖 DM/group 独立解析、字符串整数、负值关闭与其他平台不受影响；`test_feishu_response_char_limit_is_injected_and_cache_keyed` 断言 3,000 字提示、长文档转交付物规则，并证明预算变化会改变 `_ephemeral_change_key`、不会被旧 pin 吃掉；`test_send_keeps_recent_twelve_k_markdown_reply_in_one_post` 构造 >8k 且 <16k 的 Markdown，只允许一次 `msg_type=post` 请求。Step 8b 同时 import resolver/prompt/adapter 三层并检查外层配置与三条回归锚点。发送端不做 live 真群探测，避免验证制造外部消息。
 
 **上游吸收判断**：上游提供可配置、按聊天 source scope 生效的生成侧 response budget，并使 Feishu 8–12k Markdown 能单条稳定投递、超大回复仍安全切分后可归档。仅提高 adapter 常量或只加 prompt 文案都不构成完整吸收。
 
@@ -857,16 +858,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-TRUNCATED-TOOL-CALL-RECOVERY] 隐藏截断的工具参数提高预算后重试
 
-| 字段     | 内容                                                                                                          |
-| -------- | ------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/conversation_loop.py`, `tests/run_agent/{test_tool_call_incremental_persistence.py,test_run_agent.py}` |
-| **状态** | 🟡 未上游合并；上游 `finish_reason=tool_calls` + 未闭合 JSON 分支仍立即终止                                   |
+| 字段     | 内容                                                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **文件** | `agent/{chat_completion_helpers.py,conversation_loop.py}`, `tests/run_agent/{test_tool_call_incremental_persistence.py,test_run_agent.py}` |
+| **状态** | 🟡 未上游合并；上游 `finish_reason=tool_calls` + 未闭合 JSON 分支仍立即终止                                                                |
 
 **问题**：大段文档/文件写入会把正文放进工具参数 JSON。Bedrock Converse 默认 `max_tokens=4096`，参数超过预算时有的 provider 返回 `finish_reason=length`，有的 router 却改写成 `tool_calls` 并留下未闭合 JSON。前者已有 4 次有界重试并把输出预算指数提高到 8k/16k/32k；后者在 JSON 校验处直接返回 `Response truncated due to output length limit`，既不重试，也把不可靠的 finish reason 当成确定诊断。2026-08-20 创建飞书需求文档正是此路径：前序工具结果存在，下一次大参数调用被截断，创建脚本从未执行。
 
-**修复**：抽出 `_raise_truncated_tool_call_output_cap()` 作为两类截断的单一预算函数。显式 `length` 与 `tool_calls`+未闭合 JSON 都复用同一 8k→16k→32k 上限与 4 次计数；每次从最后完整 transcript 重跑，不追加、不持久化、更不执行半截参数。若仍耗尽，关闭悬空 tool tail，并返回“工具参数无法完整生成、动作未执行”的准确错误，不再把未知 router 行为一律说成 output length。成功执行任一完整工具批次后，既有逻辑仍重置计数，单次截断不会污染后续 turn。
+**修复**：抽出 `_raise_truncated_tool_call_output_cap()` 作为两类截断的单一预算函数。显式 `length` 与 `tool_calls`+未闭合 JSON 都复用同一 8k→16k→32k 上限与 4 次计数；每次从最后完整 transcript 重跑，不追加、不持久化、更不执行半截参数。若仍耗尽，关闭悬空 tool tail，并返回“工具参数无法完整生成、动作未执行”的准确错误，不再把未知 router 行为一律说成 output length。成功执行任一完整工具批次后，既有逻辑仍重置计数，单次截断不会污染后续 turn。2026-08-22 全路径审计发现 `_ephemeral_max_output_tokens` 原本只在 Anthropic/Chat Completions 请求构造中消费，Bedrock Converse 与 Codex Responses 会继续发送旧 `agent.max_tokens`，导致日志声称提高 cap 而真实 wire 不变；现两条 native transport 都消费一次 ephemeral cap 后立即清空，避免污染下一次请求。
 
-**验证**：新增端到端回归构造 `finish_reason=tool_calls` + 大段未闭合 JSON，断言第一次不 dispatch、第二次请求 cap 至少 8192、完整重试只执行一次工具并正常返回；既有“先成功工具、后连续隐藏截断”测试改为提供 4 次失败，断言总共 6 次 API 调用后 tool tail 闭合且明确声明动作未执行。Step 8b 单独运行这两条测试，防止 helper 存在但分支未接线。
+**验证**：`test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover` 构造 `finish_reason=tool_calls` + 大段未闭合 JSON，断言第一次不 dispatch、第二次请求 cap 至少 8192、完整重试只执行一次工具并正常返回；`test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail` 提供 4 次连续失败，断言总共 6 次 API 调用后 tool tail 闭合且明确声明动作未执行。`test_bedrock_consumes_ephemeral_output_cap` 与 `test_codex_responses_consumes_ephemeral_output_cap` 穿过真实 `_build_api_kwargs()`，分别断言 8192 cap 到达 native transport 且一次性状态被清空。Step 8b 单独运行这四条测试，防止 helper 存在但分支未接线或 provider 分支忽略提升值。
 
 **上游吸收判断**：上游让所有未闭合工具参数（不依赖 finish_reason 字面值）走统一的有界重试/预算提升并保持半截调用零副作用后可归档；若 provider 层能保证真实 `length`，仍需保留 router 改写的回归测试再判断是否收缩。
 
@@ -883,7 +884,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：新增 configured-only 路由表，只从 `model.default/provider` 和有序 `fallback_providers` 构造模型 universe，不扫描 ambient credentials、auth pool、models.dev 或 provider `/models`。路由表复用配置层 `${VAR}` / `${env:VAR}` 展开语义，使 Gateway raw YAML、CLI `load_config()` 和共享核心比较同一 provider/model identity。无参数 `/model` 只显示这些精确 route；Gateway 文本/交互选择和共享 `switch_model()` 核心都只允许切换到同一集合，CLI/TUI/Dashboard 等其它入口同样无法绕过。链外 provider/model 直接拒绝，严格模式强制 session-scoped，并禁止 global switch 绕过手工配置边界。主动切换不改写 fallback 列表：primary 等于 fallback-A 时跳过重复 A、保留 B；primary 等于 fallback-B 时先回退 A、随后跳过重复 B。`auxiliary.compression` 继续读取独立配置，切换 primary 只改变摘要 route 失败时的 current-main fallback，不改变 compaction 首选 route。
 
-**验证**：configured-only helper 使用通用 primary/fallback-A/fallback-B fixture，断言列表完全由传入 config 动态生成，并覆盖 `${VAR}` / `${env:VAR}` 展开、provider-only/唯一 model 解析与链外拒绝；Gateway 边界测试证明 `/model` 显示展开后的 route、不出现任何未配置 provider，链外与 `--global` 在调用 switch 前被拒绝；共享 core 测试证明非 Gateway 调用面也受到同一 guard。fallback 回归成对覆盖“primary 等于 fallback-A 时跳过 A、使用 B”和“primary 等于 fallback-B 时先使用 A”；compressor 回归证明 primary 切换后主 runtime 更新，但独立 `summary_model` 原值保持不变。当前生产 config 的 Azure/Bedrock/Vertex 只是该动态规则的一次实例，未来替换具体 provider/model 不需要改补丁或测试。Step 8b 将上述生产锚点和测试纳入 8c 总闸门。
+**验证**：`test_configured_model_picker_contains_only_config_models` 使用通用 primary/fallback-A/fallback-B fixture，断言列表完全由传入 config 动态生成，并覆盖 `${VAR}` / `${env:VAR}` 展开、provider-only/唯一 model 解析与链外拒绝；`test_model_command_lists_only_configured_routes` 证明 `/model` 显示展开后的 route、不出现任何未配置 provider，链外与 `--global` 在调用 switch 前被拒绝；共享 core 测试证明非 Gateway 调用面也受到同一 guard。`test_primary_fallback_a_skips_duplicate_and_falls_to_b` / `test_primary_fallback_b_uses_a_before_skipping_duplicate` 成对覆盖 primary 与 fallback 去重；compressor 回归证明 primary 切换后主 runtime 更新，但独立 `summary_model` 原值保持不变。当前生产 config 的 Azure/Bedrock/Vertex 只是该动态规则的一次实例，未来替换具体 provider/model 不需要改补丁或测试。Step 8b 将上述生产锚点和测试纳入 8c 总闸门。
 
 **上游吸收判断**：上游提供 profile-owned configured-only picker/switch policy，能同时约束展示、typed switch、global persistence，并保留 primary/fallback 去重与 compaction 独立路由语义后可归档。
 
@@ -1021,7 +1022,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 附带修复（同一责任边界，故并入本补丁）：`video_analyze_tool` 原先只发 `video_url` content part，而 Vertex OpenAI-compat 端点直接 400 `Unrecognized 'type' field in an object element of an array 'content' field; found: 'video_url'`——agent 自己调 `video_analyze` 在 Vertex 上是**硬失败**。改为捕获该错误后以 `image_url` + `data:video/*;base64` 形状重试一次（Vertex 对所有内联媒体都用这个形状）。不做 per-provider 硬表：DashScope/Qwen-VL 确实要 `video_url`，只有 provider 明确拒绝时才换形状。
 
-**验证**：Step 8b 锁定通用 picker、audio/document 能力、data URL 构造、四类生产接线、上下文上界、视频形状兼容重试、path-free content labels 与端到端测试。Gateway 回归分别穿过真实 `_prepare_inbound_message_text` 证明：视频→configured capable route、普通 WAV→capable route 且不进 STT、扫描 PDF 本地空结果→document route、混合 PDF 文本保留并补视觉读取；均断言 `data:video/audio/application-pdf` wire、无全 transcript、成功 prompt 不含原路径/具体 ARN。无能力 route、超限/不支持 MIME 与全部 reader 失败断言明确 `FAILED` 且不含路径；本地 STT 成功保持不旁路。Feishu group consumer 矩阵同样断言图片 native、音视频 sidecar、七类文档提取结果均 path-free。
+**验证**：Step 8b 锁定通用 picker、audio/document 能力、data URL 构造、四类生产接线、上下文上界、视频形状兼容重试、path-free content labels 与端到端测试。`test_prepare_runs_video_sidecar_when_main_model_lacks_video`、`test_prepare_runs_audio_sidecar_for_audio_attachment`、`test_prepare_runs_pdf_sidecar_when_local_extraction_is_empty` 与 `test_prepare_adds_pdf_visual_sidecar_when_text_coverage_has_gaps` 分别穿过真实 `_prepare_inbound_message_text` 证明：视频→configured capable route、普通 WAV→capable route 且不进 STT、扫描 PDF 本地空结果→document route、混合 PDF 文本保留并补视觉读取；均断言 `data:video/audio/application-pdf` wire、无全 transcript、成功 prompt 不含原路径/具体 ARN。`test_prepare_reports_path_free_failure_when_no_link_can_read_video` 等反例对无能力 route、超限/不支持 MIME 与全部 reader 失败断言明确 `FAILED` 且不含路径；本地 STT 成功保持不旁路。`test_feishu_group_image_native_and_audio_video_sidecars` 锁定 Feishu group consumer 的图片 native、音视频 sidecar 与 path-free 交付。
 
 **上游吸收判断**：若上游提供"能力不足时按 modality/capability 自动选辅助后端"的通用机制，覆盖图片、音频、视频与 PDF/text 文件，且保证 bounded current-turn context、native-first、无 transcript replay、无重复分析、path-free 成功提示和显式失败状态，可归档通用 picker/sidecar；provider profile 原生提供媒体 part 形状协商时可单独收缩兼容 hunk。picker 仍依赖 `get_fallback_chain()` 的 list[dict] 契约。
 
@@ -1074,7 +1075,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：`build.sh` 增加 Darwin 分支：强制使用 vendored amalgamation 头（`-Ivendor`，使全部调用走 extension API 指针，`nm -u` 验证 0 个未定义 `sqlite3_*`）+ `-undefined dynamic_lookup` 链接。Linux 路径原逻辑不变。构建产物 `~/.hermes/lib/libfts5_cjk.so` 在仓库外，升级不受影响；仅上游改动 `fts5_cjk.c` 时需重跑 build.sh。
 
-**验证**：Step 8b grep `build.sh` 锚定 **Darwin 分支本体**——`uname -s.*Darwin`、`LDFLAGS_EXTRA="-undefined dynamic_lookup"`、强制 `CFLAGS_EXTRA="-Ivendor"` 与链接行消费 `$LDFLAGS_EXTRA`（2026-08-07 修复：旧锚点 `Ivendor` 在裸上游的 Linux fallback 中同样存在、无判别力，丢失 Darwin 强制 vendored 头的部分回贴会通过旧 gate 并产出加载即段错误的扩展），并提示 `~/.hermes/lib/libfts5_cjk.so` 是否已构建。端到端（2026-07-25）：`load_fts5_cjk_extension()` 返回 True；`:memory:` 建 `tokenize='cjk_unicode61'` FTS5 表后二字中文词 `项目` 索引命中；`hermes sessions optimize-storage` 回填生产索引。
+**验证**：Step 8b grep `build.sh` 锚定 **Darwin 分支本体**——`uname -s.*Darwin`、`LDFLAGS_EXTRA="-undefined dynamic_lookup"`、强制 `CFLAGS_EXTRA="-Ivendor"` 与链接行消费 `$LDFLAGS_EXTRA`（2026-08-07 修复：旧锚点 `Ivendor` 在裸上游的 Linux fallback 中同样存在、无判别力，丢失 Darwin 强制 vendored 头的部分回贴会通过旧 gate 并产出加载即段错误的扩展），并提示 `~/.hermes/lib/libfts5_cjk.so` 是否已构建。`scripts/test_patch_evidence.py::audit_fts5_build` 强制运行上游 `tests/test_fts_cjk_bigram.py`：`load_fts5_cjk_extension()` 返回 True，`:memory:` 建 `tokenize='cjk_unicode61'` FTS5 表后二字中文词 `项目` 索引命中；`hermes sessions optimize-storage` 回填生产索引。
 
 **上游吸收判断**：上游给 build.sh 加 Darwin 分支（或改用统一走 api 指针的构建方式）后，可归档本补丁。
 
@@ -1113,7 +1114,9 @@ cat ~/.hermes/patches/.local-patches.base
 
 **2026-08-20 Data Pipeline Workshop 现场纠正：授信必须归一 Feishu 的多种精确身份**：此前把 `logs/agent.log` 的 `sender=user:ou_…` 当成沙箱实际使用 open_id 的证据，但 adapter 的两条优先级恰好相反——日志展示 `open_id or user_id`，`SessionSource.user_id` 则取 `user_id or open_id`。真实事件同时携带 `open_id=ou_33ee…` 与 tenant `user_id=5397e1a2`；15:16 从授信配置移除短 ID 后，新会话在 16:08–16:17 连续 8 次调用 `list/iterate/get_case` 均于 0.00 秒被本地 hook 误拒，MCP 服务端没有收到请求。修复不把双份 ID 重新塞回 allowlist：`pre_gateway_dispatch` 从原始、已签名 Feishu `sender_id` 收集 `open_id/user_id/union_id`，文档删除与 HyperTeX 对该集合和单一 open_id allowlist 做精确交集，不使用可改名的 display name；拒绝日志附 `actor_ids`。`scripts/pull_feishu_people.py` 同时把 tenant `user_id` 作为 Feishu 权威字段写入 `people.yaml`，真实拉取 218/218 人完整且唯一，缺失或重复会在写 draft 前整轮失败。回归使用真实 `raw_message.event.sender.sender_id` 形状，并同时覆盖 HyperTeX 与 delete 授权，避免以后再被展示日志误导。
 
-**验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML 与 people.yaml 的 open_id↔user_id 完整唯一映射/0600 权限，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset/delete 授信用户/HyperTeX 群与用户双 allowlist/固定脚本及原始工具集合均精确；真实解析 owner/group toolset，断言群聊不含 vision/image/terminal/write surface。除 search/describe 外，verifier 穿过真实 `handle_function_call("tool_call" → underlying)`，证明 bridge scope、底层 hook 和 handler：普通成员的 create/append/rebuild 在满足目标引用规则时可过，非可信 delete 在 handler 前被拦；可信 delete 使用真实 Gateway `[URL](URL)` reply 形状，经 `pre_gateway_dispatch` 生成 provenance 后穿过 deferred bridge 与 handler，trusted script 由 fake runner 代替，验证零外部删除。terminal scope 继续被拦。owner HyperTeX 另覆盖创建参数/附件固定、同轮查询拦截、新 turn `tasks_get` 原样参数；群聊 HyperTeX 覆盖“开通群 + 可信用户”正例、“开通群 + 非可信用户”和“未开通群 + 可信用户”两个反例，并精确断言 4 个开通群、HyperTeX 用户集为 delete 集真超集、以及仅授 MCP 的成员不在 delete 集内。插件 **53 条**回归与 `scripts/test_pull_feishu_people.py` 身份同步回归共同覆盖跨群隔离、wiki/workspace symlink/path traversal、裸 URL + Markdown URL 资源 provenance、历史链接不授权、web_extract 精确临时文件授权/新消息撤销、固定 argv、凭据脱敏、50 MB 下载上限、HyperTeX 附件名 CJK 保留与扩展名不丢失（含纯中文名、路径穿越、bidi override、全标点名反例，并从暂存链路断言中文名文件真实落盘）和真实进程沙箱外写拒绝。最终要求三个 hook/fire site、`ctx.register_tool()`、sandbox-exec 和当前 Gateway 真实子进程 PID 之后同时存在 `active=True` structured-tools trace（含 `hypertex_chats/users`）与 `mcp__hypertex__tasks_get/update/cancel` 注册 trace。任一失败设置升级 `FINAL_RC=1`。
+**2026-08-22 HyperTeX case-type discovery 纳入同级可信边界**：用户在 MCP `include` 中启用 `hypertex_list_case_types` 后，真实群聊模型 schema 会立即发现该工具；仅依赖 `pre_tool_call` 拒绝会制造“看得见但必失败”的工具，并让 verifier 的 YAML 精确契约非零。该调用虽不带参数且只读取 case type，但返回 owner 的 active freestyle engines，不能降级为普通群工具。修复把它加入 `_HYPERTEX_TOOLS` 与插件精确 allowlist，使其和既有 list/create/iterate/get/task 工具共用“开通群 + 可信 actor + 每轮一次”门禁；owner/private 保持空参数原样传递。新增 owner 正例和群聊非可信反例，verifier 同时断言根 MCP include、群 toolset 与 hook allowlist 三层一致，避免以后只改 `config.yaml` 造成 schema/权限漂移。
+
+**验证**：`plugins/sandbox/verify.sh` 作为 `hermes-update.sh` Step 8e 的硬门槛：结构化解析根/插件 YAML 与 people.yaml 的 open_id↔user_id 完整唯一映射/0600 权限，确认群策略保持 `open + require_mention`、审批为 `manual`、launchd 未启用 YOLO、owner Feishu 无 `platform_toolsets.feishu` 收窄、群聊 toolset/delete 授信用户/HyperTeX 群与用户双 allowlist/固定脚本及原始工具集合均精确；真实解析 owner/group toolset，断言群聊不含 vision/image/terminal/write surface。除 search/describe 外，verifier 穿过真实 `handle_function_call("tool_call" → underlying)`，证明 bridge scope、底层 hook 和 handler：普通成员的 create/append/rebuild 在满足目标引用规则时可过，非可信 delete 在 handler 前被拦；可信 delete 使用真实 Gateway `[URL](URL)` reply 形状，经 `pre_gateway_dispatch` 生成 provenance 后穿过 deferred bridge 与 handler，trusted script 由 fake runner 代替，验证零外部删除。terminal scope 继续被拦。owner HyperTeX 另覆盖创建参数/附件固定、case-type 空参数读取、同轮查询拦截、新 turn `tasks_get` 原样参数；群聊 HyperTeX 覆盖“开通群 + 可信用户”正例、“开通群 + 非可信用户”和“未开通群 + 可信用户”两个反例，并精确断言 4 个开通群、HyperTeX 用户集为 delete 集真超集、以及仅授 MCP 的成员不在 delete 集内。插件 **54 条**回归与 `scripts/test_pull_feishu_people.py` 身份同步回归共同覆盖跨群隔离、wiki/workspace symlink/path traversal、裸 URL + Markdown URL 资源 provenance、历史链接不授权、web_extract 精确临时文件授权/新消息撤销、固定 argv、凭据脱敏、50 MB 下载上限、HyperTeX case-type trusted gating、附件名 CJK 保留与扩展名不丢失（含纯中文名、路径穿越、bidi override、全标点名反例，并从暂存链路断言中文名文件真实落盘）和真实进程沙箱外写拒绝。最终要求三个 hook/fire site、`ctx.register_tool()`、sandbox-exec 和当前 Gateway 真实子进程 PID 之后同时存在 `active=True` structured-tools trace（含 `mcp__hypertex__hypertex_list_case_types`、`hypertex_chats/users`）与 `mcp__hypertex__tasks_get/update/cancel` 注册 trace。任一失败设置升级 `FINAL_RC=1`。
 
 **上游吸收判断**：如果上游原生提供按会话隔离的可写工作区、无 shell 的固定动作工具、子进程写范围沙箱、owner-DM/group 独立工具面、当前消息资源 provenance 与安全的 deferred-tool bridge，可迁移到上游能力并归档本补丁；在此之前不得恢复群聊通用 terminal，也不得开放全局 cache/任意 bot 可读文档。
 

@@ -57,7 +57,11 @@ def _files(block: str) -> str:
 
 
 def _test_tokens(validation: str) -> set[str]:
-    return set(re.findall(r"(?:[A-Za-z0-9_/-]*test_[A-Za-z0-9_/-]+|scripts/test_[A-Za-z0-9_./-]+)", validation))
+    path_pattern = r"(?:tests|scripts)/[A-Za-z0-9_./-]*test_[A-Za-z0-9_.-]+\.py"
+    paths = set(re.findall(path_pattern, validation))
+    without_paths = re.sub(path_pattern, "", validation)
+    functions = set(re.findall(r"\btest_[A-Za-z0-9_]+\b(?!\.py)", without_paths))
+    return paths | functions
 
 
 RUNTIME_EVIDENCE: dict[str, tuple[str, ...]] = {
@@ -74,12 +78,42 @@ RUNTIME_EVIDENCE: dict[str, tuple[str, ...]] = {
 }
 
 
+DEDICATED_EVIDENCE_AUDITS: dict[str, tuple[str, str]] = {
+    "PATCH-FEISHU-SOCKS-DEPENDENCY": (
+        "scripts/test_patch_evidence.py",
+        "audit_socks_dependency",
+    ),
+    "PATCH-OPENCLAW-TOKEN-MIGRATION": (
+        "scripts/test_patch_evidence.py",
+        "audit_openclaw_token_migration",
+    ),
+    "PATCH-FTS5-CJK-DARWIN": (
+        "scripts/test_patch_evidence.py",
+        "audit_fts5_build",
+    ),
+}
+
+
+def _patch_test_inventory() -> tuple[set[str], set[str]]:
+    result = _run(["bash", str(SCRIPT), "--print-patched-tests"])
+    if result.returncode:
+        raise EvidenceError(f"could not read PATCH_TESTS: {result.stderr.strip()}")
+    test_files = {line for line in result.stdout.splitlines() if line}
+    missing = [rel for rel in sorted(test_files) if not (INNER / rel).is_file()]
+    if missing:
+        raise EvidenceError(f"PATCH_TESTS contains missing files: {missing}")
+    test_functions: set[str] = set()
+    for rel in test_files:
+        source = (INNER / rel).read_text(encoding="utf-8", errors="ignore")
+        test_functions.update(re.findall(r"(?m)^\s*(?:async\s+)?def\s+(test_[A-Za-z0-9_]+)\s*\(", source))
+    return test_files, test_functions
+
+
 def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
     text = PATCHES.read_text(encoding="utf-8")
-    script = SCRIPT.read_text(encoding="utf-8")
-    gate_region = script.split("# -- 8b.", 1)[1].split("# -- 8c.", 1)[0]
     active = _blocks(text, archive=False)
     archived = _blocks(text, archive=True)
+    test_files, test_functions = _patch_test_inventory()
     all_ids = list(active) + list(archived)
     if len(all_ids) != len(set(all_ids)):
         raise EvidenceError("PATCH IDs are not globally unique")
@@ -104,13 +138,32 @@ def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
             if missing:
                 raise EvidenceError(f"{patch_id}: validation omits runtime evidence {missing}")
             continue
-        if not _test_tokens(validation):
-            # Shared gate blocks are allowed only when the block itself names
-            # concrete tests; a generic “回归覆盖” sentence is not evidence.
-            position = gate_region.find(patch_id)
-            window = gate_region[max(0, position - 1200) : position + 5000] if position >= 0 else ""
-            if not re.search(r"test_[A-Za-z0-9_]+", window):
-                raise EvidenceError(f"{patch_id}: no concrete regression token in validation or its gate")
+        dedicated = DEDICATED_EVIDENCE_AUDITS.get(patch_id)
+        if dedicated is not None:
+            evidence_path, function_name = dedicated
+            if evidence_path not in validation:
+                raise EvidenceError(f"{patch_id}: validation omits dedicated evidence path {evidence_path}")
+            evidence_source = Path(__file__).read_text(encoding="utf-8")
+            if not re.search(rf"^def {re.escape(function_name)}\(", evidence_source, re.M):
+                raise EvidenceError(f"{patch_id}: dedicated evidence function is missing: {function_name}")
+            if len(re.findall(rf"\b{re.escape(function_name)}\(\)", evidence_source)) < 2:
+                raise EvidenceError(f"{patch_id}: dedicated evidence function is not called: {function_name}")
+            continue
+
+        tokens = _test_tokens(validation)
+        if not tokens:
+            raise EvidenceError(f"{patch_id}: validation names no concrete regression test")
+        invalid_tokens = []
+        for token in sorted(tokens):
+            if token.startswith("tests/"):
+                if token not in test_files:
+                    invalid_tokens.append(token)
+            elif token.startswith("scripts/"):
+                invalid_tokens.append(token)
+            elif token not in test_functions:
+                invalid_tokens.append(token)
+        if invalid_tokens:
+            raise EvidenceError(f"{patch_id}: validation test evidence is missing from PATCH_TESTS: {invalid_tokens}")
         if files and "hermes-update.sh" not in files:
             inner_paths = re.findall(r"(?:tests|scripts)/[A-Za-z0-9_./{}-]+\.py", validation)
             for rel in inner_paths:
@@ -127,13 +180,40 @@ def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
 def audit_gate_links(active: dict[str, str], archived: dict[str, str]) -> None:
     script = SCRIPT.read_text(encoding="utf-8")
     gate_region = script.split("# -- 8b.", 1)[1].split("# -- 8c.", 1)[0]
+    declared_active_gates = set(re.findall(r"^(_[A-Z0-9_]+_PATCH_OK)=false$", gate_region, re.M))
+    mapped_gates: dict[str, str] = {}
     for patch_id in active:
         if patch_id == "PATCH-FEISHU-GROUP-SANDBOX":
             continue
         if patch_id in RUNTIME_EVIDENCE:
             continue
-        if patch_id not in gate_region and patch_id not in script:
-            raise EvidenceError(f"{patch_id}: no executable lifecycle reference in hermes-update.sh")
+        headers = list(re.finditer(rf"^# {re.escape(patch_id)}(?::|\s*$)", gate_region, re.M))
+        if len(headers) != 1:
+            raise EvidenceError(f"{patch_id}: expected exactly one Step 8b gate header, found {len(headers)}")
+        next_header = re.search(
+            r"^# (?:PATCH-[A-Z0-9-]+|Archived PATCH-[A-Z0-9-]+)(?::|\s*$)",
+            gate_region[headers[0].end() :],
+            re.M,
+        )
+        block_end = headers[0].end() + next_header.start() if next_header else len(gate_region)
+        gate_block = gate_region[headers[0].start() : block_end]
+        assigned = set(re.findall(r"^\s*(_[A-Z0-9_]+_PATCH_OK)=true$", gate_block, re.M))
+        if len(assigned) != 1:
+            raise EvidenceError(
+                f"{patch_id}: Step 8b block must activate exactly one engineering gate, found {sorted(assigned)}"
+            )
+        gate_name = next(iter(assigned))
+        if gate_name in mapped_gates.values():
+            owner = next(pid for pid, name in mapped_gates.items() if name == gate_name)
+            raise EvidenceError(f"{patch_id}: gate {gate_name} is already owned by {owner}")
+        mapped_gates[patch_id] = gate_name
+    mapped = set(mapped_gates.values())
+    if mapped != declared_active_gates:
+        raise EvidenceError(
+            "Step 8b active gate ownership drift: "
+            f"unowned={sorted(declared_active_gates - mapped)}, "
+            f"unknown={sorted(mapped - declared_active_gates)}"
+        )
     # Archived sentinels may be retired once upstream carries the behavior;
     # the registry's validation section remains the durable evidence instead.
 
@@ -296,10 +376,7 @@ def audit_bundle() -> None:
 
 
 def audit_current_tests() -> dict[str, int]:
-    test_files = [line for line in _run(["bash", str(SCRIPT), "--print-patched-tests"]).stdout.splitlines() if line]
-    missing = [rel for rel in test_files if not (INNER / rel).exists()]
-    if missing:
-        raise EvidenceError(f"PATCH_TESTS contains missing files: {missing}")
+    test_files = sorted(_patch_test_inventory()[0])
     collected = _run(
         [str(INNER / "venv/bin/python"), "-m", "pytest", "--collect-only", "-q", *test_files], cwd=INNER, timeout=180
     )

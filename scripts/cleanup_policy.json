@@ -46,6 +46,7 @@
     "cache/": "Hermes runtime cache; lifecycle is managed by Hermes.",
     "channel_directory.json": "Runtime-generated send-target directory.",
     "checkpoints/": "Agent checkpoint storage.",
+    "config.yaml.corrupt.*.bak": "Recovery snapshot preserved after config parse/corruption handling; operator-owned evidence, never transient cleanup.",
     "context_length_cache.yaml": "Model context-length cache.",
     "credentials/": "Local credential storage.",
     "cron/": "Cron scheduler state and outputs.",

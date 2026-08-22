@@ -660,6 +660,7 @@ mcp_servers:
     idle_timeout_seconds: 60
     tools:
       include:
+        - hypertex_list_case_types
         - hypertex_list_cases
         - hypertex_create_case
         - hypertex_iterate_case

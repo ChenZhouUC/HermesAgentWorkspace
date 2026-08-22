@@ -106,6 +106,7 @@ _READ_PATH_TOOLS: FrozenSet[str] = frozenset({"read_file", "search_files"})
 _GROUP_CHAT_TYPES: FrozenSet[str] = frozenset({"group", "channel", "forum", "thread"})
 _WORKSPACE_TOOL = "group_cache"
 _SCRIPT_TOOL = "feishu_doc_manage"
+_HYPERTEX_CASE_TYPES_TOOL = "mcp__hypertex__hypertex_list_case_types"
 _HYPERTEX_LIST_TOOL = "mcp__hypertex__hypertex_list_cases"
 _HYPERTEX_CREATE_TOOL = "mcp__hypertex__hypertex_create_case"
 _HYPERTEX_ITERATE_TOOL = "mcp__hypertex__hypertex_iterate_case"
@@ -115,6 +116,7 @@ _HYPERTEX_UPDATE_TOOL = "mcp__hypertex__tasks_update"
 _HYPERTEX_CASE_TOOL = "mcp__hypertex__hypertex_get_case"
 _HYPERTEX_TOOLS = frozenset(
     {
+        _HYPERTEX_CASE_TYPES_TOOL,
         _HYPERTEX_LIST_TOOL,
         _HYPERTEX_CREATE_TOOL,
         _HYPERTEX_ITERATE_TOOL,
