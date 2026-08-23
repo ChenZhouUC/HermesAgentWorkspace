@@ -19432,10 +19432,10 @@ index 1357054a6a13572ef4caef39b04e97b058e222f6..b1a8e91f77ae33de9485b05e0a4ec4cd
          return None, {}, "tool_call 'arguments' must be an object"
      if not is_deferrable_tool_name(name):
 diff --git a/tools/vision_tools.py b/tools/vision_tools.py
-index e008983f7f20a78026473cde09220714e8734a3e..eb887da5d098e92ea3b248185ff7c5f39971ab96 100644
+index 074dd14103d2b20d0465200eba523081f1389b63..868f9fa95c7ab4ee910c2855fec6367c534ef1db 100644
 --- a/tools/vision_tools.py
 +++ b/tools/vision_tools.py
-@@ -2078,7 +2078,33 @@ async def video_analyze_tool(
+@@ -2074,7 +2074,33 @@ async def video_analyze_tool(
              call_kwargs["model"] = model
  
          _load_auxiliary_client()

@@ -319,17 +319,17 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.5 (upstream `main` `fd760435c6688a2b6c6b7436dde30e267237baef`，2026-08-23)
+## 当前版本：v0.20.5 (upstream `main` `503d863fcd2cbfc0be5a6d6c536fae2e98aa4204`，2026-08-23)
 
 **活跃补丁**：当前共 42 个语义补丁。34 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA`、`PATCH-GATEWAY-RESTART-CLEANUP` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
-**最近一次升级（v0.20.5，`4a6b362178a` → `fd760435c66`，+33 commits，2026-08-23）要点**：
+**最近一次升级（v0.20.5，`fd760435c66` → `503d863fcd`，+59 commits，2026-08-23）要点**：
 
-- 上游主线：唯一一次 acquisition 固定 `TARGET_SHA=fd760435c66`；33 个提交集中于 Gateway loop-watchdog 有界配置、启动义务 ledger、Gateway-owned control socket、State/SQLite corruption fail-closed、自更新 venv shim 拒绝带占用变更，以及 Desktop tool-call/translucency 修复。失败后的所有收敛均为 no-network `--reconcile`，目标未移动。
-- patch apply / registry：逐项轮询 42 个活跃 + 9 个 Archive PATCH 的吸收条件。上游 55 个变更路径仅 `gateway/config.py`、`gateway/run.py`、`hermes_cli/config_defaults.py` 与 88 个受管路径相交，upstream/local hunk 区间零交叉，裸 upstream discriminator 也未满足任何完整吸收条件；无新增吸收、部分吸收、归档或收缩，`PATCH-DOCUMENT-EXTRACTION` 保持既有部分吸收。88-file bundle clean apply；39 files **1679 passed / 0 failed / 3 skipped**，34 active + 6 archived gates、42+9 PATCH evidence、byte/cached/reverse/index-clean 全绿。
-- 依赖：venv 与 Python 依赖未重建；官方 Skills mirror 首轮 `+1/~0/-0`（`research/llm-wiki`），reconcile 后稳定。monorepo `npm audit --json` 为 6 high：Desktop 的 `electron`/`extract-zip` 3 条与 Web/UI 的 `vite → postcss → nanoid`/`sanitize-html` 3 条；Doctor 分 workspace 报 Web 4 high、UI-TUI 3 high（有重叠）。`npm audit fix` 被 Vite peer `ERESOLVE` 阻挡，均属构建工具链 P2，不影响飞书主链路，未使用 `--force`。
-- 已知摩擦：上游 graceful stop 新暴露 ignored receipt `.clean_shutdown`，cleanup 按设计将未知路径判为 review 并阻断终态 restart；现已加入 keep policy 与回归。外层 tee 未启用 `pipefail` 会掩盖脚本非零，已强制调用 shell 继承首命令状态。提交前证据审计又发现 6 个旧 Archive 块非规范、两个需求退役补丁引用已删除测试；现已把 51 个定义统一为精确四段，并为 9 个 Archive PATCH 增加当前探针。后续自演进再把 active 验证函数唯一解析为完整 pytest node ID，以隔离 JUnit 拒绝同名歧义和 skip/xfail；Archive 退役审计改为 secret-safe、provider/model-independent，行为探针不依赖上游私有测试 helper；新增单一 `--final-audit --json` 汇总 canonical suite、逐 PATCH matrix、bundle/docs/runtime 和最终 cleanup。bundle evidence 的旧 `mkdtemp` 还累计 52 个约 106 MB 临时目录，已迁移 `TemporaryDirectory` 并移入 Trash。终态 Gateway supervisor `12668 → 16471`、真实子进程 `16472`，sandbox **54 条** + identity-sync 6 条全绿。
-- 配置漂移：config 保持 v38，版本仍 v0.20.5，主模型/fallback/compression、Feishu owner/group 能力边界和 zsh completion 行为均未变化；事务成功清除。Doctor 只保留 npm P2 与未登录 provider/未配置可选工具 P3；用户运维 Wiki 仅更新允许的版本/SHA/日期字符串。
+- 上游主线：唯一一次 acquisition 固定 `TARGET_SHA=503d863fcd`；59 个提交集中于 Windows launcher/update 失败回滚、Desktop/dashboard 更新回执与并发启动保护、DB 持久化 marker、browser vision 历史复用，以及 Bot Mode、provider picker 和本地后端路由身份收紧。后续收敛均为 no-network `--reconcile`，目标未移动。
+- patch apply / registry：逐项轮询 42 个活跃 + 9 个 Archive PATCH 的吸收条件；本轮 `fd760435c66..503d863fcd` 的上游重叠仅为 `tools/vision_tools.py`，与受管 hunk 区间零交叉，未满足任何完整吸收条件；无新增吸收、部分吸收、归档或收缩，`PATCH-DOCUMENT-EXTRACTION` 保持既有部分吸收。88-file bundle clean apply；39 files **1679 passed / 0 failed / 3 skipped**，34 active + 6 archived gates、42+9 PATCH evidence、byte/cached/reverse/index-clean 全绿。
+- 依赖：venv 与 Python 依赖未重建；官方 Skills mirror `+1/~0/-0`（新增 `research/llm-wiki`），runtime state 保留。Doctor 仍报 Web 4 high、UI-TUI 3 high；`npm audit fix` 被 Vite peer `ERESOLVE` 阻挡，属于构建工具链 P2 上游 lock/range blocker，不影响飞书主链路，未使用 `--force`。
+- 已知摩擦：更新器在裸 upstream 窗口按设计延后 Gateway 启动，回贴后刷新 plist 并执行排空感知 planned restart；旧 Gateway PID `8128` 被新 wrapper PID `9115` 替换，真实 child PID 为 `9123`。sandbox verifier 与 Feishu identity-sync 合计 **60 passed**；最终 cleanup 将可再生测试缓存移入可恢复 Trash，终态 candidate/review/policy error 均为 0。
+- 配置漂移：config 保持 v38，版本仍 v0.20.5，主模型/fallback/compression、Feishu owner/group 能力边界和 zsh completion 行为均未变化；事务已清除。Doctor 仅保留 npm P2、未登录 provider 与未配置可选工具 P3；本轮只更新当前版本/SHA/摘要现状陈述，历史周 row 不回写。
 
 ---
 

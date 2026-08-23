@@ -10,7 +10,7 @@ updated: 2026-08-23
 > 主模型：**Azure AI Foundry**（`gpt-5.5`，参考 `codex-az`）
 > Fallback[0]：**AWS Bedrock Claude Opus 5**（application inference profile，参考 `claude-am`）
 > Fallback[1]：**Vertex AI Gemini 3.5 Flash**（标准 service account；同时承担 compression 与视频旁路）
-> 适用版本：Hermes Agent **v0.20.5**（upstream `fd760435c6688a2b6c6b7436dde30e267237baef`，2026-08-23）
+> 适用版本：Hermes Agent **v0.20.5**（upstream `503d863fcd2cbfc0be5a6d6c536fae2e98aa4204`，2026-08-23）
 > 本机 `~/.hermes` 使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁；详见 `README.md` 与 `patches/PATCHES.md`
 >
 > 本文涵盖：准备工作 → 卸载旧版 OpenClaw → 安装 Hermes Agent → 配置主模型 + fallback 链 → 辅助脚本与代理注入 → 飞书接入 → 内容迁移 → 日常运维
@@ -781,6 +781,6 @@ launchd
 ---
 
 _文档更新时间：2026-08-23_
-_对应 Hermes Agent 版本：**v0.20.5**（upstream `fd760435c6688a2b6c6b7436dde30e267237baef`，2026-08-23）_
+_对应 Hermes Agent 版本：**v0.20.5**（upstream `503d863fcd2cbfc0be5a6d6c536fae2e98aa4204`，2026-08-23）_
 _主模型：Azure AI Foundry（`gpt-5.5`）Fallback[0]：AWS Bedrock Claude Opus 5；Fallback[1] / compression / 视频旁路：Vertex Gemini 3.5 Flash。_
 _本机使用官方 `hermes-agent` + `patches/local-patches.diff` 管理少量本地补丁。_
