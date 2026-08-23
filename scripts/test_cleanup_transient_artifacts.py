@@ -57,6 +57,14 @@ def args_for(root: Path, policy: Path, trash: Path, *, apply: bool, fail_on_revi
 
 
 class CleanupTransientArtifactsTest(unittest.TestCase):
+    def test_repository_policy_tracks_final_audit_and_evidence_self_tests(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        policy = cleanup.load_policy(root / "scripts/cleanup_policy.json")
+        required = policy["required_scripts"]
+        self.assertIn("scripts/final_upgrade_audit.py", required)
+        self.assertIn("scripts/test_patch_evidence.py", required)
+        self.assertIn("scripts/test_patch_evidence_auditor.py", required)
+
     def test_script_audit_classifies_keep_remove_and_review(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)
@@ -85,7 +93,10 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             )
 
     def test_apply_moves_only_blacklist_candidates(self) -> None:
-        with tempfile.TemporaryDirectory() as root_raw, tempfile.TemporaryDirectory() as trash_raw:
+        with (
+            tempfile.TemporaryDirectory() as root_raw,
+            tempfile.TemporaryDirectory() as trash_raw,
+        ):
             root = Path(root_raw)
             trash = Path(trash_raw)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
@@ -112,7 +123,10 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             self.assertTrue((trash_dir / "test-pager-check.js").is_file())
 
     def test_fail_on_review_blocks_apply_before_moving(self) -> None:
-        with tempfile.TemporaryDirectory() as root_raw, tempfile.TemporaryDirectory() as trash_raw:
+        with (
+            tempfile.TemporaryDirectory() as root_raw,
+            tempfile.TemporaryDirectory() as trash_raw,
+        ):
             root = Path(root_raw)
             trash = Path(trash_raw)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
@@ -221,7 +235,9 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             self.assertEqual(audit[0].path, ".clean_shutdown")
             self.assertEqual(audit[0].classification, "keep")
 
-    def test_persistent_skill_prompt_snapshot_is_explicitly_keep_classified(self) -> None:
+    def test_persistent_skill_prompt_snapshot_is_explicitly_keep_classified(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
@@ -241,7 +257,9 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             self.assertEqual(audit[0].path, ".skills_prompt_snapshot.json")
             self.assertEqual(audit[0].classification, "keep")
 
-    def test_config_corruption_recovery_snapshot_is_explicitly_keep_classified(self) -> None:
+    def test_config_corruption_recovery_snapshot_is_explicitly_keep_classified(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)
             subprocess.run(["git", "init", "-q", str(root)], check=True)

@@ -83,7 +83,17 @@ bash ~/.hermes/hermes-update.sh --update
 
 `--update` 是唯一允许接触官方仓库的入口。正常情况在同一次用户升级任务中只显式调用一次：若没有未完成事务，就执行 scoped fetch、立即固定 commit，再运行被 SHA 约束且禁止网络 fetch 的官方 updater。若首次 acquisition 在拿到任何 SHA 前失败，`--transaction-status` 会显示 `target_sha=pending`，脚本会明确要求**一次**恢复性 `--update`；它只补完同一 acquisition。已有 target 后即使再次传 `--update` 也只能复用固定目标，不会二次 fetch/pull。除此之外默认无参数与 `--reconcile` 等价，只围绕事务 `TARGET_SHA`（无事务时为当前 HEAD）重跑本地 patch、依赖修复、gate、镜像、verifier 和健康闭环。
 
-建议 background + tee 日志；**任何 `hermes-update.sh | tee ...` 管道都必须由启用 `pipefail` 的 shell 执行**，例如 `bash -o pipefail -c 'bash "$HOME/.hermes/hermes-update.sh" --update 2>&1 | tee /tmp/hermes-update.log'`，并以该 shell 的退出码为准。否则 `tee` 成功会把升级脚本的非零终态伪装成 0，事务虽保留但外层自动化会误判成功。外层任务超时不要用固定数字：Step 8d 的等待预算用 `bash ~/.hermes/hermes-update.sh --print-restart-wait-seconds` 只读获取（底层为脚本 `gw_restart_wait_seconds()`；新运行时 = drain + `restart_after_turn_timeout` + 余量）。上游 `0c6761c51` 已把 after-turn 默认值从 6h 收窄到 30min，本轮新运行时当前输出为 2745s ≈ 45.8min；用户配置仍可覆盖，因此外层超时必须大于该入口的**现场输出**，不能抄默认数字。同一只读入口还提供 `--print-patched-files` / `--print-patched-tests`，供 Step 2c/3 读取脚本现场数组；`--self-test-patch-gates` 则在零副作用模式下证明 Step 8b 所有活跃/归档 gate 都存在成功路径并被 Step 8c 聚合条件实际消费；`--self-test-patch-evidence` 与 `python3 scripts/test_patch_evidence.py` 逐个解析 42 个活跃/9 个归档 PATCH，要求全部 51 个定义各有且仅有 `问题 / 修复 / 验证 / 上游吸收判断` 四段。每个工程 PATCH 必须在自己的验证段绑定权威 runner 实际收集的测试路径/函数或显式专用审计，34 个工程 PATCH 与 34 个 Step 8b gate 一一归属；9 个 Archive PATCH 也必须执行自己的当前证据——上游吸收项跑保留的 pytest/CLI/行为探针，因需求退役项跑“旧能力面未复活 + 替代链健康”的负向审计，历史 passed 数或已删除测试名不能充当现行回归。审计同时覆盖 bundle、SOCKS/OpenClaw/npm/Skills/FTS5 边界，相邻 PATCH 的测试名不得作为兜底；isolated bundle index 必须由受控 `TemporaryDirectory` 自动回收，禁止每轮在系统 temp 留下 `hermes-patch-evidence-*` 沉积。**不要 `source hermes-update.sh` 取函数或数组**——该文件是可执行升级入口，不是函数库，source 会被拒绝。忙时段升级前先确认在途任务量或接受长排空，不得因等待排空而误判脚本卡死、更不得强杀。脚本自带：cleanup policy 自测与 outer/inner ignored/script 三态审计 / patch gate 集合自测 / PATCH evidence 审计 / 事务 SHA 固定 / 内层 patch 存档到外层 `patches/local-patches.diff` / 首轮 `hermes update` 或后续无网络 reconcile / npm audit / skills 镜像 / gateway plist / 补全脚本 / patch 回贴 + 结构化 sentinel 验证 / replay bundle 逐字节与正反向完整性 gate / restart 前可恢复清理 + 排空感知 planned restart / 用户 plugin verify / 健康检查。Step 8b sentinel 只证明关键实现锚点存在，不能替代 Step 2c 的行为回归；PATCH evidence 审计只证明每个 PATCH 已绑定真实回归边界，最终行为仍必须由规范 runner 的 0 failed 结果证明。需要重载时必须观察到 cleanup 成功且 PID 从旧值替换为新值；无变化 reconcile 明确跳过重启，不能为“证明执行过”制造 PID。
+日志可使用 background + tee，但**任何管道都必须由启用 `pipefail` 的 shell 执行**，并以该 shell 或 `wait` 的退出码为准；`tee` 成功不代表升级成功。等待预算和所有数量均从只读入口或最终 JSON 动态读取，不在 playbook 长期正文复制当前值：
+
+```bash
+bash ~/.hermes/hermes-update.sh --print-restart-wait-seconds
+bash ~/.hermes/hermes-update.sh --print-patched-files
+bash ~/.hermes/hermes-update.sh --print-patched-tests
+```
+
+Preflight 的 `--self-test-patch-evidence` 是 **quick 模式**，只证明四段结构、专用探针、runtime contract 和归档边界存在；输出必须带 `"mode": "quick"`，不得作为最终行为回归。完整证据由 `python3 scripts/test_patch_evidence.py --report-json <path>` 生成：每个 active 工程 PATCH 的验证函数必须唯一解析为完整 pytest node ID，并在隔离环境中通过 JUnit 证明 outcome 为 passed；同名歧义、未收集、skip、xfail、error 或 failure 均阻断。Archive 上游吸收项执行当前 pytest/CLI/行为探针；因需求退役项只证明旧 capability/resolver/config-key surface 未复活，names-only 检查不得读取 secret 值，也不得硬编码当前生产 provider/model。isolated bundle/mirror 临时目录必须自动回收。
+
+Step 8b sentinel 只证明关键实现锚点存在，Step 2c canonical runner 证明完整文件行为，PATCH evidence 证明逐 PATCH 精确 node outcome；三者互不替代。所有 patch、gate、执行/审计脚本与 playbook 共演进修改结束后，先完成最终 `--reconcile`，再由 Step 5d 的单一 `--final-audit --json` 给出终态权威。**不要 source `hermes-update.sh`**；忙时段升级要接受动态排空预算，不得强杀在途任务。
 
 **收敛循环**：apply 失败、gate 失败或任何修复之后，都必须运行 `bash ~/.hermes/hermes-update.sh --reconcile`，直到一次完整本地收敛运行 exit 0 且无 `✗`；**禁止为收尾证据再次运行新的 `--update`**。逐项人工验证（定向测试、手动重启、单独跑 verifier）可以用于定位问题，但不能替代 reconcile 闸门作为收尾证据——8b 哨兵与实现的漂移只有跑脚本才会暴露（2026-08-03 实例：`_with_current_author_prefix` 哨兵在一轮"定向测试 + 手动重启"收尾后失效 14 小时无人发现）。脚本失败/中断时保留事务文件；reconcile 成功退出后才自动删除。此后本任务若又发现本地问题，继续用 `--reconcile`（它会重新以当前 HEAD 建立无网络本地事务），仍不得更新 upstream。
 
@@ -148,6 +158,7 @@ cd "$HOME/.hermes/hermes-agent"
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **事务目标**      | 本轮至多一次显式 `--update`；失败/中断后的事务文件固定同一个 `TARGET_SHA`，所有后续执行均为 `--reconcile` 且日志明确 `no fetch/pull`。终态 `HEAD == TARGET_SHA`；事务文件只能在整支脚本 exit 0 后消失。`origin/main` 在事务期间即使被其他进程刷新也不得改变当前目标。                                                                                                                                                                                                                                                                                                                                                                                                 |
 | **受管文件集合**  | 用 `bash ~/.hermes/hermes-update.sh --print-patched-files` 读取权威 `PATCHED_FILES`，不得依赖文档快照或 source 脚本。每个受管文件都应有预期内 diff；任一 zero-diff path 必须判定为吸收、漏补或 stale registry，不能让 bundle 静默少一项。内层其他 modified/untracked 文件逐项归类。已知 `package-lock.json` npm 归一化噪音可保留，但不得混入 replay bundle。                                                                                                                                                                                                                                                                                                          |
+| **上游交叉矩阵**  | full `scripts/test_patch_evidence.py --report-json` 必须从每个 PATCH 的 `文件` 字段解析 owned files，证明所有 `PATCHED_FILES` 至少有一个活跃 owner，并为每个 PATCH 输出本轮 `OLD_SHA..NEW_SHA` 的 `upstream_overlap`。所有相交路径必须出现在 `PATCHES.md` 当前升级摘要，agent 逐个读取对应 `上游吸收判断` 后给出未吸收/部分吸收/完全吸收结论；“无路径相交”只能作为低风险信号，不能替代语义判定。文件字段禁止只写“及对应 tests/docs”而不列出受管路径，否则 ownership gate 应失败。                                                                                                                                                                                     |
 | **bundle 一致性** | 从 `HEAD` 建立**独立临时 index**，对每个 `PATCHED_FILES`：工作树存在则 `git add -f`，不存在则 `git rm --cached --ignore-unmatch`，再用该 index 执行 `git diff --cached --full-index HEAD -- <PATCHED_FILES>`；结果与 `patches/local-patches.diff` 必须**逐字节一致**。仅当确认全部受管路径都已被 HEAD 跟踪时，才可简化为普通 `git diff --full-index HEAD`。临时 index 是必要条件：受管 new/ignored 文件不会出现在普通 worktree diff 中。必须固定 `--full-index`，避免 Git 对象库增长导致自动缩写位数变化；文件数量、行数或“看起来一样”都不能替代 `cmp`。脚本 Step 2/8c 已 fail-closed 自动执行同一物理 gate，升级审计仍须独立复核输出与现场，防止脚本自身被错误修订。 |
 | **可回放性**      | 确认内层 index 干净后，`git -C ~/.hermes/hermes-agent apply --cached --check ../patches/local-patches.diff` 对 HEAD 正向通过；当前已打补丁的 worktree 上执行 `git -C ~/.hermes/hermes-agent apply --check --reverse ../patches/local-patches.diff` 通过。两项分别证明“下次能贴”和“当前 bundle 确实描述现状”。                                                                                                                                                                                                                                                                                                                                                         |
 | **基线来源**      | `patches/.local-patches.base` 第一列 SHA 等于内层 `git rev-parse HEAD`；时间戳只作审计信息。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -240,7 +251,7 @@ cd ~/.hermes && grep -rln -E "<OLD_SHA>|<OLD_DATE>" \
 - **并入现有语义 PATCH**：修复与该补丁共享同一不变量、必须一起回滚/验收，且预期上游会在同一个 PR 中吸收。例如新的 Feishu strong-flanking case 归入 `PATCH-FEISHU-MARKDOWN`。更新问题/修复/验证/上游吸收判断四段与 sentinel，不创建变体编号。
 - **新增语义 PATCH**：能独立失效、独立回滚或被不同上游 PR 吸收的关注点必须拆开，即使改同一文件。例如 `PATCH-FEISHU-GROUP-APPROVAL` 与 `PATCH-APPROVAL-DARWIN-TMP` 都改 `approval.py`，但安全不变量和吸收条件完全不同。ID 使用 `PATCH-<DOMAIN>-<INVARIANT>`，禁止 A/B 子编号。
 - 工程内补丁无论新增还是并入，**五处**同步缺一不可：新触及文件加入 `PATCHED_FILES`（已有文件免）；sentinel 块（新增 PATCH 时含 gate 变量并纳入 8c 刷新条件）；`PATCHES.md` 对应块；`PATCHES.md` §「受 `PATCHED_FILES` 管理的文件」的**快照数组与其后括注的文件数**（2026-08-11 实抓：受管文件 64 → 67 后只改了脚本数组，快照与注数字停留在 64，Step 5 断言才拦下）；`local-patches.diff` / `.local-patches.base` 用与脚本 8c 相同的命令刷新，并按 Step 3 完成闭环核对。快照按 `bash ~/.hermes/hermes-update.sh --print-patched-files` 的输出整块重建，不要手工增删单行。
-- **哨兵锚点选择与共演进**：新写 grep 哨兵优先锚定**测试名或行为特征串**（测试名受 Step 2c 保护、很少被重构改名），避免锚定私有 helper 名——上游或本地重构最容易杀死后者（2026-08-03 实例：`_with_current_author_prefix` 被冲突轮重构移除，gate 误报 14 小时）。配置驱动的补丁还必须让测试 fixture、测试名和 gate 使用 `primary` / `fallback-A` / `fallback-B` 这类角色语义，不能把当前生产 config 的 provider/model 名写成补丁契约；否则未来只换配置也会留下伪失效的执行链。条件允许时向 PATCH-SKILL-CREATE-ROOT 的真实 import + 调用模式靠拢。**冲突解决或重构触及文件 X 后，必须核对 8b 中所有针对 X 的哨兵仍能命中**——最省事的核对方式就是按收敛循环重跑脚本。
+- **哨兵锚点选择与共演进**：新写 grep 哨兵优先锚定**测试名或行为特征串**（测试名受 Step 2c 保护、很少被重构改名），避免锚定私有 helper 名——上游或本地重构最容易杀死后者（2026-08-03 实例：`_with_current_author_prefix` 被冲突轮重构移除，gate 误报 14 小时）。配置驱动的补丁还必须让测试 fixture、测试名和 gate 使用 `primary` / `fallback-A` / `fallback-B` 这类角色语义，不能把当前生产 config 的 provider/model 名写成补丁契约；否则未来只换配置也会留下伪失效的执行链。Requirement-retired Archive 的负向审计同样不得要求“当前替代者必须是 provider X/model Y”：它只验证旧 registry/resolver/schema/config-key surface 未复活，dotenv 仅 names-only 读取；当前主/fallback/compression 的健康由动态 route/runtime 总闸门证明。行为探针必须自建稳定 fixture 或调用 public API，不得 import 上游测试文件的私有 helper。条件允许时向 PATCH-SKILL-CREATE-ROOT 的真实 import + 调用模式靠拢。**冲突解决或重构触及文件 X 后，必须核对 8b 中所有针对 X 的哨兵仍能命中**——最省事的核对方式就是按收敛循环重跑脚本。
 - 运行时补丁不进入 `PATCHED_FILES` / replay bundle，但必须在 `hermes-update.sh` 有明确步骤、可审计输出和验证口径，并在 `PATCHES.md` 登记生命周期；不要为凑 Step 8b gate 制造空源码 hunk。
 - 配置仓库用户插件补丁（当前 `PATCH-FEISHU-GROUP-SANDBOX`）不进入 `PATCHED_FILES` / `local-patches.diff`。它必须同时具备：外层 Git 跟踪的插件/配置/skill 文件；独立 `verify.sh`；`hermes-update.sh` Step 8e 固定登记；verifier 缺失、不可执行或失败时 `FINAL_RC=1`；`PATCHES.md` 对应块。verifier 至少结构化解析 YAML、解析真实平台 toolset、跑行为测试，核对 launchd wrapper 受监管，并把注册日志绑定到 `gateway.status.get_running_pid()` 返回的真实 Gateway 子进程。对渐进式工具披露还必须穿过真实 `handle_function_call(tool_call → underlying)`，证明 scope gate、底层 hook 和 handler 全部执行；枚举 model-facing 直接工具并逐项确认 hook 不会误拦。凡工具结果要求后续 `read_file` 分页，verifier 还必须证明 continuation 文件只对当前会话/群精确授权，不能靠开放整个全局 cache 解决。
 
@@ -430,7 +441,7 @@ dangling = refs - known
 assert not dangling, f"playbook references unknown PATCH ids: {sorted(dangling)}"
 
 # 2) playbook 引用的脚本只读入口/函数必须仍存在于 hermes-update.sh
-entries = set(re.findall(r"--(?:print-[a-z-]+|transaction-status|self-test-patch-gates)\b", pb))
+entries = set(re.findall(r"--(?:print-[a-z-]+|transaction-status|self-test-patch-gates|self-test-patch-evidence|final-audit)\b", pb))
 entries |= {"gw_restart_wait_seconds", "_get_restart_exit_wait_budget"}
 missing = {e for e in entries if e not in script}
 assert not missing, f"playbook references missing script entries: {sorted(missing)}"
@@ -442,11 +453,41 @@ print("playbook-hygiene OK")
 PY
 ```
 
+#### Step 5d — 单一终态审计（每轮必做）
+
+Step 5c 完成后，如果修改过任何 patch、gate、`hermes-update.sh`、`scripts/final_upgrade_audit.py`、`scripts/test_patch_evidence.py`、cleanup policy/verifier 或其他升级执行脚本，必须先再跑一次完整 no-network `--reconcile`；docs-only 修改不要求制造新的 Gateway PID，但仍由本步骤检查派生一致性。随后运行：
+
+```bash
+bash ~/.hermes/hermes-update.sh --final-audit --json \
+  > /tmp/hermes-final-audit.json
+```
+
+这是最终报告的唯一机器权威，取代 agent 手工拼装多段摘要。它必须在一个调用中完成：
+
+- 完整 PATCH evidence matrix：每个 active PATCH 的唯一 pytest node outcome、每个 Archive PATCH 的当前行为/退役探针、runtime evidence 类型与 npm telemetry 状态
+- canonical `--print-patched-tests` 文件套件，0 failed；skip/xfail 不能充当某个 PATCH 的唯一 evidence
+- patch gate/transaction/fetch self-test、bundle byte/cached/reverse/index/base 闭环
+- README 周键唯一与当前周摘要有效内容不超过 1500 字；`PATCHED_FILES` 数组/快照/注数一致；51 个定义精确四段；playbook 摩擦表列结构与 Wiki lint 正常
+- `hermes doctor` 的无 active security advisory、config up-to-date、无 deprecated key，sandbox verifier、launchd supervisor PID、真实 Gateway child PID 与 transaction=`none`
+- 所有测试/formatter/verifier 完成后的最终 cleanup apply，再 dry-run 证明 candidate/review/policy error 为 0
+
+JSON 必须为 `status=ok`、`mode=full`，包含逐 PATCH `patches[]` 明细和 `failed_step` 可定位失败；只看到 aggregate 数字、quick mode 或单独运行的若干绿灯不能替代本步骤。final-audit 自己完成最后 cleanup，因此成功后只允许只读检查和报告；如果又运行 pytest、py_compile、formatter、verifier 或任何会生成缓存的命令，必须重新运行 final-audit。
+
+#### Step 5e — 用户明确要求提交时的可选闭环
+
+默认仍不自动提交。只有用户明确要求 commit 时，才在 Step 5d `status=ok` 后执行：
+
+1. 检查 outer/inner `git status`、staged/unstaged diff、文档/ignore/workflow/changelog 是否齐全；只 stage 外层 `~/.hermes` 的升级监管文件，内层 88-file overlay 不提交。
+2. 运行 `$HOME/.config/git/hooks/copilot-git-approve commit`，随后创建引用 upstream SHA 与受影响语义 PATCH ID 的 commit；不得绕过 hook。
+3. 检查 pre-commit formatter 是否改写文件和 commit 后工作树是否干净。若 hook 后仍有 diff，先审计、复验并再次 approval 后再 amend/补交，不能把格式化后的未验证内容留在工作树。
+4. 对已提交内容运行 `bash ~/.hermes/hermes-update.sh --final-audit --json --require-clean-outer`；post-commit JSON 仍须 `status=ok`，outer clean、inner 仅为预期 overlay。该调用会清理 commit hook/pytest 新产生的缓存，并机械阻断 hook 遗留 diff。
+5. push 是独立动作：先汇总 branch/outgoing commits 并向在场用户确认，再运行 `$HOME/.config/git/hooks/copilot-git-approve push`；commit 授权不自动包含 push。
+
 ### Step 6 — 收尾报告
 
 向用户报告（**不要自动提交**）：
 
-- **完成标准**：首次官方获取至多调用一次 `--update`；**最后一次 `hermes-update.sh --reconcile` 完整本地收敛运行 exit 0 且无 `✗`，并晚于本轮最后一次 patch / gate / 脚本修改**（逐项人工验证不能替代 reconcile 闸门，哨兵漂移只有跑脚本才会暴露），且日志/事务证据证明所有复跑固定同一 `TARGET_SHA`、未再次 fetch/pull；补丁回归 **0 failed 且测试清单/关键边界未退化**、Step 3 八层仓库闭环全部成立、Step 5 派生一致性断言通过、cleanup policy/test 通过且 script/ignored `review=0`、每次实际 restart 前 apply 成功、Step 5b 的终态 supervisor PID 晚于最后一次运行态修改、真实 Gateway 子进程 PID 可解析且所有用户插件 verifier 绑定该子进程通过、doctor/npm warning 已按 P0/P1/P2/P3 分级且无可修而未修的 P0/P1、无环境残留，且 **Step 5c playbook 自审已执行、结论已落盘**。达不到时不得声称完成，单列阻塞项、原因与建议
+- **完成标准**：首次官方获取至多调用一次 `--update`；最后一次完整 `--reconcile` exit 0 且晚于最后 patch/gate/执行脚本修改，所有复跑固定同一 `TARGET_SHA`；Step 5c 自审已落盘；最末一次 Step 5d `--final-audit --json` 为 `status=ok / mode=full`，逐 PATCH evidence matrix、canonical tests、Archive 探针、bundle、docs/Wiki、runtime/verifier、transaction 和最终 cleanup 全部闭合。用户要求 commit 时，post-commit final-audit 也必须通过且 outer clean。任何一项不成立都不得声称完成
 - 升级 `OLD_SHA → NEW_SHA`，`+N commits`
 - 问题分级结果：P0 修复项与验证、P1 已修或决策项、P2 上游等待项、P3 可选缺口；P2/P3 必须说明是否影响飞书主链路
 - 文档对齐了哪些文件（列文件名 + 改动类别一句话，不展开内容）
@@ -454,6 +495,7 @@ PY
 - Gateway / Doctor 现状（异常项展开，正常项一行带过）；安全插件需报告 verifier 对照的当前 PID，以及 owner 主会话与群聊实际 toolset 是否仍满足边界
 - 持久化演进接管性：报告活跃 PATCH 的未吸收 / 部分吸收 / 完全吸收判定及相应状态变化；列出本轮新发现的冲突、摩擦或规则缺口分别落盘到哪个权威文件，如没有新增经验也明确写“无”。确认不存在下一轮升级必需、但只保留在本次会话或临时日志中的恢复知识
 - Step 5c playbook 自审结论：增补 / 清理 / 修订三类各做了什么及依据，任一类为空写明"审计后无该类变更"；playbook-hygiene 断言块运行结果
+- Step 5d final-audit JSON 的 run time、target SHA、逐 PATCH 通过数、canonical suite、Gateway 双 PID、cleanup 终态与失败项（正常时明确 `failed_step` 不存在）
 - 工作树里哪些是“升级相关”、哪些是“用户先前在编辑的其他东西”，提示后者保持不动；明确说明内层受管 modified files 是预期 patch overlay，外层 bundle 才是待提交记录
 - 若 Step 2/3 中发现脚本侧的新兼容性问题，单列一节描述给用户决策
 - 提醒：若用户随后明确要求提交，只提交外层 `~/.hermes` 仓库里的升级监管改动；不要在 `~/.hermes/hermes-agent` 创建 commit

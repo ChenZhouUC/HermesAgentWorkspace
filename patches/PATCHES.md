@@ -7,7 +7,7 @@
 > - **每次升级后**重写 `## 当前版本：vX.Y.Z (upstream `main` `<SHA>`，YYYY-MM-DD)` header 与下方"最近一次升级"摘要；摘要遵循 5 段结构（上游主线 / patch apply / 依赖 / 已知摩擦 / 配置漂移）。
 > - **新补丁**：使用稳定的语义 ID（`PATCH-<DOMAIN>-<INVARIANT>`），在 `## 当前版本` 节下新增一块 2-row 表（`文件 / 状态`）和 `问题 / 修复 / 验证 / 上游吸收判断` 四段。编号不表达顺序，禁止用 A/B 子编号承载不同吸收单元。
 > - **边界判定**：一个补丁只能有一个可独立说明的责任边界、一个对应生命周期 gate（Step 3/4/7/8b/8e）和一个上游吸收条件。能被不同上游 PR 分别吸收的能力必须拆开；只有必须一起回滚、一起验收、一起吸收的改动才能合并。
-> - **真实回归证据**：每个活跃/归档 PATCH 都必须在 `**验证**` 段落绑定真实测试、运行时边界或保留的上游回归；工程内 PATCH 必须在自己的验证段写出由 `--print-patched-tests` 实际运行的测试路径/函数，专用证据审计必须显式登记，不能借用相邻 gate 中碰巧出现的 `test_*`。Archive 也不能只留历史 passed 数或已删除测试名：上游吸收项必须运行当前 pytest/CLI/行为探针，因需求退役项必须执行“旧能力面未复活 + 标准替代链健康”的负向审计。`python3 scripts/test_patch_evidence.py` 会逐块检查精确四段结构、证据、生命周期、Step 8b 一 PATCH 一 gate 所有权和 bundle/replay，不接受只有 grep sentinel、邻居测试或会话口头结论的 PATCH。
+> - **真实回归证据**：每个活跃/归档 PATCH 都必须在 `**验证**` 段落绑定真实测试、运行时边界或保留的上游回归。工程 PATCH 的验证函数由 full evidence 唯一解析成完整 pytest node ID，并在隔离 JUnit 中真实 passed；同名歧义、未收集、skip、xfail、error 或 failure 均拒绝，不能借用相邻 gate 的 `test_*`。Archive 上游吸收项运行当前 pytest/CLI/行为探针；因需求退役项执行 secret-safe、provider/model-independent 的旧 capability/resolver/config-key surface 负向审计。`python3 scripts/test_patch_evidence.py --report-json <path>` 逐块输出 lifecycle、evidence type、完整 node、owned files、upstream overlap 与 outcome；`--final-audit --json` 再把 canonical suite、runtime/verifier/docs/cleanup 合成终态权威。
 > - **上游合并某补丁**：把该补丁块整体移动到对应 archive 节，记录吸收 commit 和保留的回归 sentinel；同步更新 `PATCHED_FILES`、验证 gate 和 replay bundle。
 > - **每个语义 ID 的定义块在整份 PATCHES.md 里仅出现一次**——要么活跃、要么归档；依赖、验证和历史摘要可以引用 ID，但不得复制定义块。
 > - **分类结构**：所有活跃定义必须连续放在首个 `## Archive` 之前，按职责类别分组；所有 Archive 统一后置。禁止在 Archive 之后用“活跃定义续接”标题重新打开活跃区，避免活跃状态与生命周期位置错位。
@@ -328,7 +328,7 @@ cat ~/.hermes/patches/.local-patches.base
 - 上游主线：唯一一次 acquisition 固定 `TARGET_SHA=fd760435c66`；33 个提交集中于 Gateway loop-watchdog 有界配置、启动义务 ledger、Gateway-owned control socket、State/SQLite corruption fail-closed、自更新 venv shim 拒绝带占用变更，以及 Desktop tool-call/translucency 修复。失败后的所有收敛均为 no-network `--reconcile`，目标未移动。
 - patch apply / registry：逐项轮询 42 个活跃 + 9 个 Archive PATCH 的吸收条件。上游 55 个变更路径仅 `gateway/config.py`、`gateway/run.py`、`hermes_cli/config_defaults.py` 与 88 个受管路径相交，upstream/local hunk 区间零交叉，裸 upstream discriminator 也未满足任何完整吸收条件；无新增吸收、部分吸收、归档或收缩，`PATCH-DOCUMENT-EXTRACTION` 保持既有部分吸收。88-file bundle clean apply；39 files **1679 passed / 0 failed / 3 skipped**，34 active + 6 archived gates、42+9 PATCH evidence、byte/cached/reverse/index-clean 全绿。
 - 依赖：venv 与 Python 依赖未重建；官方 Skills mirror 首轮 `+1/~0/-0`（`research/llm-wiki`），reconcile 后稳定。monorepo `npm audit --json` 为 6 high：Desktop 的 `electron`/`extract-zip` 3 条与 Web/UI 的 `vite → postcss → nanoid`/`sanitize-html` 3 条；Doctor 分 workspace 报 Web 4 high、UI-TUI 3 high（有重叠）。`npm audit fix` 被 Vite peer `ERESOLVE` 阻挡，均属构建工具链 P2，不影响飞书主链路，未使用 `--force`。
-- 已知摩擦：上游 graceful stop 新暴露 ignored receipt `.clean_shutdown`，cleanup 按设计将未知路径判为 review 并阻断终态 restart；现已按 Gateway startup 消费语义加入 keep policy、补独立回归并同步 README/PATCH 注册表/playbook。另实抓外层 `hermes-update.sh | tee` 未启用 `pipefail` 会掩盖脚本非零，已把强制 `bash -o pipefail` 与事务复核规则写入 playbook。提交前全量证据审计又发现 6 个旧 Archive 块仍使用非规范段名、其中两个需求退役补丁引用已删除的历史测试；现已把 51 个定义统一为精确四段，并为 9 个 Archive PATCH 增加真实 pytest/CLI/行为或负向退役审计。bundle evidence 的旧 `mkdtemp` 路径还累计留下 52 个约 106 MB 临时目录，已改为 `TemporaryDirectory` 自动回收并把旧目录移动到 Trash。修复后 Gateway supervisor `12668 → 16471`、真实子进程 `16472`，sandbox **54 条** + identity-sync 6 条全绿。
+- 已知摩擦：上游 graceful stop 新暴露 ignored receipt `.clean_shutdown`，cleanup 按设计将未知路径判为 review 并阻断终态 restart；现已加入 keep policy 与回归。外层 tee 未启用 `pipefail` 会掩盖脚本非零，已强制调用 shell 继承首命令状态。提交前证据审计又发现 6 个旧 Archive 块非规范、两个需求退役补丁引用已删除测试；现已把 51 个定义统一为精确四段，并为 9 个 Archive PATCH 增加当前探针。后续自演进再把 active 验证函数唯一解析为完整 pytest node ID，以隔离 JUnit 拒绝同名歧义和 skip/xfail；Archive 退役审计改为 secret-safe、provider/model-independent，行为探针不依赖上游私有测试 helper；新增单一 `--final-audit --json` 汇总 canonical suite、逐 PATCH matrix、bundle/docs/runtime 和最终 cleanup。bundle evidence 的旧 `mkdtemp` 还累计 52 个约 106 MB 临时目录，已迁移 `TemporaryDirectory` 并移入 Trash。终态 Gateway supervisor `12668 → 16471`、真实子进程 `16472`，sandbox **54 条** + identity-sync 6 条全绿。
 - 配置漂移：config 保持 v38，版本仍 v0.20.5，主模型/fallback/compression、Feishu owner/group 能力边界和 zsh completion 行为均未变化；事务成功清除。Doctor 只保留 npm P2 与未登录 provider/未配置可选工具 P3；用户运维 Wiki 仅更新允许的版本/SHA/日期字符串。
 
 ---
@@ -386,7 +386,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：保留 Step 4 的 `npm audit fix --quiet`。audit 非零时完整输出进入升级日志，action 改为 `npm audit --json` 定性且明确禁止 `--force`；不再建议机械重跑刚刚失败的同一 fix 命令。上游 lock/range 暂无非破坏解且不影响飞书主链路时归为 P2，允许 warning + 落盘摘要收敛；命令未执行、产物缺失、影响飞书主链路或出现不可解释 drift 才是事务失败。**install-script 策略片段已退役（2026-08-08）**：上游 `package.json` 自带钉版 `allowScripts` 允许清单（agent-browser/esbuild/fsevents 双版/node-pty/electron\*，`unicode-animations` 显式 false），npm ≥12 将其视为权威并以 "being ignored" 警告忽略任何 .npmrc/global `allow-scripts`；本地临时 global-config 分支因此从 Step 3 删除（退役实现见外层 Git pre-2026-08-08 历史），仅保留空 `_NPM_POLICY_ENV` 声明与惰性清理守卫。
 
-**验证**：`hermes update` 的 root + workspace 安装在上游 `allowScripts` 下无 `install scripts blocked` / `not covered by allowScripts`，且日志不再出现本地 policy 的 "being ignored" 警告；audit 恢复完整 workspace 产物，`agent-browser`、`esbuild`、`require("fsevents")` 可用，package.json / lockfile 无 tracked drift。隔离 fake 令 audit 非零时，日志必须保留原始诊断、action 只建议 `npm audit --json` 且包含 `do not use --force`，不得再次建议无条件 `npm audit fix`。
+**验证**：`hermes update` 必须实际执行 `npm audit fix`；root + workspace 安装在上游 `allowScripts` 下无 `install scripts blocked` / `not covered by allowScripts`，且日志不再出现本地 policy 的 "being ignored" 警告；audit 恢复完整 workspace 产物，`agent-browser`、`esbuild`、`require("fsevents")` 可用，package.json / lockfile 无 tracked drift。隔离 fake 令 audit 非零时，日志必须保留原始诊断、action 只建议 `npm audit --json` 且包含 `do not use --force`。PATCH evidence 的 offline contract 检查脚本行为与禁止 force；live `npm audit --json` 成功解析且出现 critical 才阻断，registry/telemetry 暂不可用按 P2 `telemetry_unavailable` 进入 final JSON，不能伪装成 PATCH 回归缺失。
 
 **上游吸收判断**：install-script allowlist 片段已由上游 `package.json.allowScripts` 吸收（≤`863e31318` 引入，本机 npm 升至 12 后生效确认）。剩余本地不变量只有"升级后自动 `npm audit fix` + 失败分级定性"；上游升级器原生提供等价的 audit/修复流程后可整体归档本补丁。若上游未来移除 `allowScripts`，从外层 Git 历史恢复临时 policy 分支。
 
@@ -411,16 +411,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-UPDATE-GATE-EXIT-STATUS] 升级 gate 失败必须非零退出
 
-| 字段     | 内容                                 |
-| -------- | ------------------------------------ |
-| **文件** | `hermes-update.sh`                   |
-| **状态** | 🟢 自动化（Step 8 transaction gate） |
+| 字段     | 内容                                                                                                                                                                |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `hermes-update.sh`, `scripts/{final_upgrade_audit.py,test_patch_evidence.py,test_patch_evidence_auditor.py}`, `.github/copilot-instructions.md`, `hermes-update.md` |
+| **状态** | 🟢 自动化（Step 8 transaction gate）                                                                                                                                |
 
 **问题**：旧脚本在 patch apply、Step 8b sentinel、冲突标记或意外空 diff 失败时只追加 warning/action 并跳过 Step 8c，没有设置 `FINAL_RC=1`。Step 8d 也只检查“存在任意 Gateway PID”：若 stop/start 没有真正替换旧进程，仍会把磁盘上已更新、运行时未加载的补丁误报为 active。即使后来补了 PID 替换门禁，macOS 的 `gateway stop` 仍会在短固定宽限后 SIGKILL，绕过 `agent.restart_drain_timeout`，本轮真实飞书任务因此被中断并进入恢复路径。结果既可能运行旧代码，也可能为了加载新代码破坏在途 turn，而脚本仍有机会把表面新 PID 当成功。可重入审计又发现四个同类缺口：把可执行脚本 `source` 后调用预算函数会直接启动整轮升级；3-way apply 失败后的单次批量 restore 会因任一上游已删除 path 令整个 pathspec 失败；3-way 成功隐式留下 staged index；以及接管“bundle 存在、worktree 已裸”的中断现场时没有重新武装 EXIT trap。更严重的是，Step 2 会把仅部分受管文件存在的 diff 当成新 canonical bundle，可能把完整本地不变量集合永久降级为残缺快照。2026-08-15 又实抓一处同类运行态假阳性：Step 5 只因 Gateway 进程正在运行就跳过 plist freshness 检查，最终 status 已明确显示 service definition stale；首次修复又只等待 plist 文件变 current，未等 launchd 重新加载并产生新 PID，导致 verifier 在 reload 窗口拿不到当前进程。**2026-08-20 AI 自演进审计再抓一处聚合假阳性**：`_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK` 与 `_COMPACTION_LIFECYCLE_SILENCE_PATCH_OK` 均有声明、真实 sentinel 和 `=true` 路径，却漏出 Step 8c 的长条件；两者即使失败，bundle/base 仍可刷新。现有 PATCH 数量/SHA/路径 hygiene 全部通过也没有发现它，证明“定义存在”与“总闸门实际消费”必须机器比较。
 
-**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker、部分或全部受管 diff 意外为空、byte/cached/reverse replay 任一失败也设置非零。Step 8d 仅在事务 `runtime_dirty=1` 时捕获旧 PID、走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载并清脏标记。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀；`runtime_dirty=1` 但当前无 Gateway PID 时同样 `FINAL_RC=1` 并保留脏标记（2026-08-07 审计补：此前静默跳过整个 8d 块）；等待预算的解释器不可用 fallback 为 930s（本机 drain 900+30，2026-08-07 起替换与任何公式都不符的旧值 210）；HEAD/overlay 未变化的 reconcile 明确跳过重启。Step 5 在 patch 还原窗口只做 plist 快照、不得改写最终定义；Step 8 回贴全部源码后再走官方 `gateway start` 自愈，并按同一动态预算等待“definition current + launchd wrapper supervised PID + real Gateway child PID”同时成立，任何超时或 verifier 抢跑都使整轮失败。Step 7 补全脚本生成失败（sentinel 无法运行）同样设置非零。playbook Step 5b 再把同一规则设为所有后续代码/配置修复后的终态写屏障。脚本新增 side-effect-free `--print-restart-wait-seconds` / `--print-patched-files` / `--print-patched-tests` / `--transaction-status` 与隔离事务 self-test，并在任何状态变更前拒绝 bash/zsh source 及 dirty index；patch rollback 改为逐路径恢复，HEAD 已删除的受管文件只在 apply 确实把它放入 index 时才清除，遇到同名 untracked 文件 fail closed。自动 3-way 成功后立即清 staged index；EXIT trap 在裸树接管时保持武装，恢复失败会清理半合并态并保留 bundle。Step 2 对部分 overlay fail closed，只有完整且可正反向 replay 的临时包才允许替换 canonical bundle。2026-08-20 起 Step 8c 补接 quote-chain/compaction 两个遗漏变量，并新增 side-effect-free `--self-test-patch-gates`：从脚本现场解析 Step 8b 的全部 `*_PATCH_OK` 与 `_ARCHIVED_*_OK` 声明，证明每个变量均存在 `=true` 路径、且集合与 Step 8c 聚合条件逐项相等；preflight 在任何 patch/事务变更前强制执行，漏接或幽灵变量均非零退出。具体 PATCH warning 继续保留用于定位，退出码成为可供自动化和下一轮 agent 信任的总闸门。
+**修复**：Step 8c 总条件失败直接设置非零；条件通过后发现 conflict marker、部分或全部受管 diff 意外为空、byte/cached/reverse replay 任一失败也设置非零。Step 8d 仅在事务 `runtime_dirty=1` 时捕获旧 PID、走排空感知的 `hermes gateway restart`，等待预算优先取更新后运行时的 `_get_restart_exit_wait_budget()`（上游 `db3f7e4eb` 起原生覆盖 drain + after-turn 两段），旧运行时回落 `restart_drain_timeout`，再统一加 30 秒 supervisor 余量；只有命令成功且轮询到不同的新 PID 才确认 patched modules 已加载并清脏标记。旧 PID 未替换、Gateway 未恢复或 restart 非零都会设置 `FINAL_RC=1`，且不再建议 stop/start 强杀；`runtime_dirty=1` 但当前无 Gateway PID 时同样 `FINAL_RC=1` 并保留脏标记。Step 5 在 patch 还原窗口只做 plist 快照、不得改写最终定义；Step 8 回贴全部源码后再走官方 `gateway start` 自愈并验证 wrapper/child 双 PID。脚本提供 side-effect-free `--print-*` / `--transaction-status` / self-test 入口，拒绝 source 与 dirty index，保护 partial overlay、untracked 同名路径、3-way staged index 和 EXIT trap。2026-08-20 起 `--self-test-patch-gates` 机器比较 Step 8b 声明与 Step 8c 消费集合。2026-08-23 起新增 `--final-audit --json`：在最后一次 reconcile 与全部文档/脚本修改之后，单一入口运行精确 pytest node outcome、完整 canonical PATCH suite、9 个 Archive 探针、bundle closure、Wiki/README/Markdown 派生一致性、sandbox runtime trace、Gateway 双 PID 与最终 cleanup；任何子项失败均以结构化 `failed_step` 非零退出，取代靠 agent 手工拼装十余条命令的收尾方式。
 
-**验证**：静态检查 Step 8c 的总条件 `else`、conflict-marker、partial/empty `_REFRESHED` 和 replay-integrity 分支都包含 `FINAL_RC=1`；`bash hermes-update.sh --self-test-patch-gates` 必须报告当前 **34 active engineering gates / 6 archived regression gates**，且从条件中移除任意一个声明变量或加入未声明变量都必须失败。Step 8d 在 `runtime_dirty=1` 时必须调用 `hermes gateway restart`、不得调用 `gateway stop`，等待预算来自 `gw_restart_wait_seconds()`（native exit-wait budget 优先、drain 回落，+30s），并同时比较 `_GW_OLD_PID` / `_GW_NEW_PID`；`runtime_dirty=0` 必须跳过 PID churn。stale-plist 真机验证必须证明：裸 upstream 窗口只快照，补丁回贴后才生成最终 plist；只有 status 报 current definition + supervised wrapper PID，且 `gateway.status.get_running_pid()` 返回真实子进程，才允许进入 verifier。任一 gate 为 false、restart/refresh 非零、超时或返回相同/空 PID 都必须得到非零终态；全部 gate 为 true 且 PID 替换后才允许报告 patched modules active。所有只读入口只输出现场状态且不改变仓库/Gateway；bash/zsh source 和 dirty index 在任何 update mutation 前返回非零；逐路径 restore 的 present/deleted/untracked 三种路径分别恢复、删除 apply 产物、保护用户文件。另以临时 Git repo 覆盖完整 overlay、61/62 部分 overlay、裸树 + bundle、3-way staged/冲突清理及 bundle byte/cached/reverse gate。终态若发生 Step 8d 后的运行时修改，还必须按 playbook Step 5b 重启并让 verifier 绑定最终 runtime PID。
+**验证**：静态检查 Step 8c 的失败分支都设置 `FINAL_RC=1`；`bash hermes-update.sh --self-test-patch-gates` 必须证明声明/消费集合相等并能抓到 fault injection。Step 8d 必须只用 planned restart、比较 old/new PID，`runtime_dirty=0` 跳过 churn；stale plist 只有在 current definition + wrapper PID + real child PID 同时成立后才进入 verifier。临时 Git repo 覆盖完整/部分/裸 overlay、3-way staged/冲突和 byte/cached/reverse replay。`python3 scripts/test_patch_evidence_auditor.py` 以负例证明缺四段、同名测试歧义和 skip outcome 会被拒绝；`bash hermes-update.sh --final-audit --json` 必须输出 `status=ok`、51 条逐 PATCH evidence、canonical suite 0 failed、文档/表格/周记录派生一致、Doctor 无 active advisory/config 漂移/deprecated key、runtime/verifier 健康和 cleanup candidate/review 归零。终态若发生 Step 8d 后的运行时修改，仍须先 reconcile/restart，再重新执行 final audit。
 
 **上游吸收判断**：这是外层升级 wrapper 的事务语义；只有 wrapper 被替换，且新入口能对 replay apply、全部 sentinel、冲突和空 bundle 提供等价非零总闸门时，才可归档。**排空子项已被上游替代并完成对接**（2026-08-03，本轮升级已跨过 `db3f7e4eb`）：`hermes gateway restart` 原生排空——SIGUSR1 先拒新 turn、按 `agent.restart_after_turn_timeout` 等 in-flight 归零才 stop，`restart_drain_timeout` 收窄为 stop 内强杀预算。上游 `0c6761c51` 已把 after-turn 默认值从 6h 收窄到 30min；本地 `gw_restart_wait_seconds()` 经 `_get_restart_exit_wait_budget()` 读取原生合并预算，本轮新运行时实测 **2745s = 900 + 1800 + 15 + 30**。等待预算必须始终以只读入口当前输出为准，不在 wrapper 内复制默认值；本补丁剩余职责为退出码总闸门与 PID 替换硬校验。
 
@@ -428,16 +428,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-GATEWAY-RESTART-CLEANUP] Gateway 重启前脚本与 ignored 文件审计清理
 
-| 字段     | 内容                                                                                                                                                                  |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `scripts/{cleanup_transient_artifacts.py,cleanup_policy.json,test_cleanup_transient_artifacts.py}`, `hermes-update.sh`, `hermes-update.md`, `.gitignore`, `README.md` |
-| **状态** | 🟢 自动化（每轮 preflight dry-run 审计；Step 8d restart 前 apply）                                                                                                    |
+| 字段     | 内容                                                                                                                                                                                         |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `scripts/{cleanup_transient_artifacts.py,cleanup_policy.json,final_upgrade_audit.py,test_cleanup_transient_artifacts.py}`, `hermes-update.sh`, `hermes-update.md`, `.gitignore`, `README.md` |
+| **状态** | 🟢 自动化（每轮 preflight dry-run 审计；Step 8d restart 前 apply）                                                                                                                           |
 
 **问题**：AI/浏览器/测试会话会在共享 `~/.hermes` 工作区留下 pager/slide 验证脚本、pytest/ruff 缓存、`__pycache__` 与 `.DS_Store`。只按文件名临时删除既可能漏掉被 `.gitignore` 隐藏的新产物，也可能误删并发 session 或正式运维脚本；仅依赖会话记忆判断“哪个脚本有用”又无法跨 AI 重建。Gateway restart 是运行态写屏障，如果重启前不先清理和审计，旧临时文件会跨 PID 延续并污染后续 diff、工具发现或下一轮自动化判断。
 
 **修复**：新增 policy 驱动的清理器。`cleanup_policy.json` 对 outer 运维脚本和 `plugins/*/verify.sh` 做显式白名单（keep）/临时脚本黑名单（remove），所有未分类 script-like 文件进入 review；同时读取 outer 与 inner Git 的 `status --ignored`，把每个 ignored 路径按运行态/密钥/依赖白名单、缓存黑名单或 review 三态分类。持久化恢复状态 `.hermes-update-transaction`、原子锁目录 `.hermes-update-transaction.lock/`、0600 `.skills_prompt_snapshot.json`、Gateway graceful-exit receipt `.clean_shutdown` 与 `config.yaml.corrupt.*.bak` 配置恢复快照都必须显式 keep：事务文件保存固定 `TARGET_SHA`，skills snapshot 保存经 manifest 校验的冷启动 prompt 元数据，`.clean_shutdown` 只在排空成功到下一次启动消费之间短暂存在、删除会把干净重启误判为 crash，配置恢复快照则是用户可回滚证据；这些路径不能因只在异常或窄时间窗出现就落入 review 或被清理。规范 runner 预编译产生的 apps/evals/optional-skills/scripts/skills/tests/website 文档脚本 `__pycache__` 属确定可再生的 remove 类，运行时 agent/gateway/hermes_cli/tools/plugin 字节码则保持 keep。默认 dry-run，`--json` 输出完整 script/ignored audit、候选大小、跳过原因与 policy error；`--apply` 只把 remove 项移动到带时间戳的 macOS Trash 并保留相对路径，永不自动删除 review。近期临时脚本受 age gate 保护，Git-tracked 文件永不清理，pytest/CDP 等活跃进程会阻断 apply。`hermes-update.sh` preflight 每轮运行清理器自测与 `--dry-run --fail-on-review`；Step 8d 的唯一 restart 调用统一经过 `gateway_restart_with_cleanup()`，先 apply 再排空重启，清理失败、policy 漂移或未知 ignored/script 均使整轮非零。
 
-**验证**：`scripts/test_cleanup_transient_artifacts.py` 覆盖 keep/remove/review 脚本分类、仅黑名单移动、review 阻断 apply、required 脚本缺失/未跟踪、ignored keep/remove/review 分类、事务状态/锁、skill prompt snapshot、`.clean_shutdown` 与配置损坏恢复快照均显式 keep、runtime cache keep 与 tests/website build cache remove，以及 Trash 相对路径保留。现场存在未完成事务、skills snapshot、graceful-shutdown receipt 或 `config.yaml.corrupt.*.bak` 时，`--dry-run --json --fail-on-review` 仍必须得到 `script_review=0`、`ignored_review=0`、`policy_errors=[]` 并列出全部被审计脚本/ignored 路径；`--apply --fail-on-review` 后重复 dry-run 的 remove 候选为 0。Step 8d 静态检查不得再直接调用 `hermes gateway restart`，只能调用 cleanup wrapper；真机 restart 必须先输出 cleanup audit/apply，再证明 old PID → different new PID 和最终 verifier 通过。
+**验证**：`scripts/test_cleanup_transient_artifacts.py` 覆盖 keep/remove/review、仅黑名单移动、review 阻断、required 脚本缺失/未跟踪、事务/skill snapshot/`.clean_shutdown`/配置恢复快照 keep、runtime cache 与可再生测试缓存分流，以及 Trash 相对路径；并明确断言 `final_upgrade_audit.py`、PATCH evidence 及其负例测试都在 required script policy 中。preflight 成功时只打印 summary，失败时才展开 review/policy error，避免完整 ignored JSON 淹没升级日志。Step 8d restart 必须先 cleanup apply；Step 5d final-audit 在所有 pytest/formatter/verifier 之后再 apply，并以重复 dry-run 的 candidate/review/policy error 全 0 收尾。真机 restart 仍须证明 old PID → different new PID 和最终 verifier 通过。
 
 **上游吸收判断**：这是外层工作区治理策略。只有未来 Gateway/update wrapper 原生提供可配置的脚本/ignored 三态清单、并发安全的可恢复清理、每次 restart 前强制执行和可供无状态 AI 消费的审计输出时，才可归档；单纯增加一个 `rm -rf cache` 命令不构成吸收。
 
@@ -551,10 +551,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-GROUP-ADMISSION] 群聊触发、上下文与当前发言人完整性
 
-| 字段     | 内容                                                                                                                                                                                                                                                                             |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/authz_mixin.py`, `gateway/run.py`（仅上游 `[New message]` 回归锚点，无本地 hunk）, `gateway/session.py` 及对应 gateway 测试/文档；外部维护的 `my-skills/research/llm-wiki/SKILL.md` 不属于内层 patch bundle |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                    |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/authz_mixin.py`, `gateway/run.py`, `gateway/session.py`, `tests/gateway/{feishu_helpers.py,test_feishu.py,test_feishu_bot_admission.py,test_feishu_bot_auth_bypass.py,test_session.py}`, `website/docs/{reference/environment-variables.md,user-guide/messaging/feishu.md}`；外部 `my-skills/research/llm-wiki/SKILL.md` 不进 bundle |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                                                                                                             |
 
 **问题**：群聊需要同时支持 `@bot` 与 `@配置本人账号` 触发、近期群消息回填和纯 @ 意图推断；共享 session 还必须防止 owner profile、引用内容、历史末位发言人或跨发送者 debounce 被误认成当前提问者。群授权也不能借通配符放开 DM。原纯 @ 分支硬编码排除 `p2p`，导致主会话里回复一条合并转发后只 @Bot 会在剥离 mention 后成为空文本并被静默丢弃。
 
@@ -568,10 +568,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-MISSED-EVENT-BACKFILL] Feishu 断线/重连漏消息补偿
 
-| 字段     | 内容                                                                                                                                                                                                                                                      |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `tests/gateway/test_feishu.py`, `website/docs/user-guide/messaging/feishu.md`, `website/docs/user-guide/configuration.md`（本机 `config.yaml` 启用 6h 窗口与 60s/30s/10s WebSocket 恢复参数） |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                             |
+| 字段     | 内容                                                                                                                                                                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `tests/gateway/test_feishu.py`, `website/docs/{reference/environment-variables.md,user-guide/messaging/feishu.md,user-guide/configuration.md}`（本机 `config.yaml` 启用恢复参数） |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                 |
 
 **问题**：Feishu `history_backfill` 只在 Hermes 已收到一条触发消息后补上下文，不能主动发现断网、睡眠或 stale WebSocket 期间漏掉的 `@Hermes` 触发事件。SDK 内部自动重连成功也不会通知 adapter 做补偿扫描，导致漏消息可能等 Feishu 服务端迟迟推送旧事件后才被回复；用户手动 quote 原消息再 @Hermes 触发回答后，旧事件晚到又会让 Hermes 重复回答同一问题。初版补丁另有一处主会话盲区（2026-08-08 修复）：回放重建事件用 `chat_id.startswith("oc_")` 推断 chat_type，而飞书 p2p 会话 ID 同为 `oc_` 前缀，owner DM（home channel）虽在扫描目标里，回放消息却被误标为 group、被群 mention gate 以 `trigger_mention_missing` 拒掉——主会话事实上没有恢复补偿；且 `get_chat_info` 读的 `chat_type` 是 private/public 可见性字段（DM 实测为 `None`），不能作判别源。
 
@@ -602,10 +602,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-PLATFORM-CAPABILITY-SCOPE] 平台级 skill allowlist 与只读工具集
 
-| 字段     | 内容                                                                                                                                                                                    |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/skill_utils.py`, `agent/prompt_builder.py`, `agent/skill_commands.py`, `tools/skills_tool.py`, `hermes_cli/{config_defaults.py,prompt_size.py}`, `toolsets.py` 及对应 tests/docs |
-| **状态** | 🟡 未上游合并                                                                                                                                                                           |
+| 字段     | 内容                                                                                                                                                                                                                                                     |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/{skill_utils.py,prompt_builder.py,skill_commands.py}`, `tools/skills_tool.py`, `hermes_cli/{config_defaults.py,prompt_size.py}`, `toolsets.py`, `tests/hermes_cli/test_skills_config.py`, `tests/tools/test_skills_tool.py` 及其他对应 tests/docs |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                            |
 
 **问题**：`skills.disabled` 不能表达“某平台只允许指定 skill”；完整 `skills` toolset 又同时暴露 `skill_manage`。文件工具也缺少只读组合，平台配置容易无意带入写能力。
 
@@ -742,10 +742,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-LOCAL-PROFILES] 本地人物/群画像与群聊输出保密
 
-| 字段     | 内容                                                                                                                                                                 |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/session.py`, `gateway/run.py`, `gateway/stream_consumer.py`, `plugins/platforms/feishu/adapter.py` 及对应测试；`people.yaml` / `groups.yaml` 为配置仓库数据 |
-| **状态** | 🟡 本地个性化功能，不预期上游直接吸收                                                                                                                                |
+| 字段     | 内容                                                                                                                                                                                                                    |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/{session.py,run.py,stream_consumer.py}`, `plugins/platforms/feishu/adapter.py`, `tests/gateway/{test_feishu.py,test_session.py,test_stream_consumer_silence.py}`；`people.yaml` / `groups.yaml` 为配置仓库数据 |
+| **状态** | 🟡 本地个性化功能，不预期上游直接吸收                                                                                                                                                                                   |
 
 **问题**：模型只凭 open_id/显示名无法按用户维护的人物背景和群人设调整表达；画像私有字段、数据来源和 `people.yaml` 文件名又绝不能在群聊泄露。工具受限时也必须披露证据边界，不能把未验证内容包装成结论。
 
@@ -780,10 +780,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-DOCUMENT-EXTRACTION] 可信文档文本抽取
 
-| 字段     | 内容                                                                                                                          |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/run.py`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock` 及对应 tests                     |
-| **状态** | 🟡 部分吸收（XLSX/DOCX/IPYNB 抽取、`read_file` 接线和 anydoc-only 扩展已上游合并；native PDF/HTML/PPTX/ODT 与入站接线仍本地） |
+| 字段     | 内容                                                                                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/run.py`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock`, `tests/gateway/test_document_context_note.py`, `tests/tools/test_read_extract.py` |
+| **状态** | 🟡 部分吸收（XLSX/DOCX/IPYNB 抽取、`read_file` 接线和 anydoc-only 扩展已上游合并；native PDF/HTML/PPTX/ODT 与入站接线仍本地）                                                   |
 
 **问题**：附件成功下载后，PDF/HTML/PPTX/ODT 等二进制仍只给模型路径；群聊又不能临时执行解析脚本。上游 `tools/read_extract.py` 已覆盖 IPYNB/DOCX/XLSX，并在 `b2598b41e` 后通过可选 anydoc 覆盖 legacy Office/ODF/RTF/EPUB/PDF，但这些路径依赖可选转换器且没有替代本地 native PDF/HTML/PPTX/ODT、pypdf pin 与 Gateway 入站抽取。初版入站抽取虽把文本送进 prompt，仍同时暴露原始 cache 绝对路径，真实 `Data Pipeline Workshop` turn 因此在已经拿到 PDF 文本后又调用一次 `read_file` 并被群沙箱拒绝；同时“只要任意页有文字就算成功”的分支会漏掉混合 PDF 中占比较高的扫描/图片页。
 
@@ -962,7 +962,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：在 `ChatCompletionsTransport.convert_messages()` 的 Gemini-family 出站分支中，对缺少嵌套 `extra_content.google.thought_signature` 的历史 tool call 使用 copy-on-write 注入 Google 官方兼容哨兵 `skip_thought_signature_validator`；如果旧 adapter 留下直接位于 `extra_content.thought_signature` 的真实签名，则把原值规范化到 Google wire shape，不用哨兵覆盖。Gemini 已有真实签名保持原样，原始会话历史不被修改；非 Gemini 目标仍按上游既有逻辑剥离 `extra_content`，避免严格 OpenAI-compatible provider 拒绝未知字段。
 
-**验证**：`tests/agent/transports/test_chat_completions.py` 通过真实 `build_kwargs()` 边界构造 Azure/Codex 风格的 `skill_view` tool call（含 `call_id` / `response_item_id`、无 Gemini metadata），断言最终 provider request 删除 Codex 私有字段并注入嵌套兼容签名，同时原 history 不变；另覆盖已有真实签名 identity-preserve 与 legacy direct signature 规范化。Step 8b 直接 import `ChatCompletionsTransport` 并执行无签名历史转换，不依赖私有 helper 名；补丁测试必须由 `scripts/run_tests.sh` 运行。
+**验证**：`tests/agent/transports/test_chat_completions.py` 的 `test_gemini_fallback_adds_signature_to_cross_provider_tool_history` 通过真实 `build_kwargs()` 边界构造 Azure/Codex 风格的 `skill_view` tool call（含 `call_id` / `response_item_id`、无 Gemini metadata），断言最终 provider request 删除 Codex 私有字段并注入嵌套兼容签名，同时原 history 不变；`test_gemini_fallback_preserves_real_signature` 与 `test_gemini_fallback_normalizes_legacy_direct_signature` 分别覆盖已有真实签名 identity-preserve 与 legacy direct signature 规范化。Step 8b 直接 import `ChatCompletionsTransport` 并执行无签名历史转换，不依赖私有 helper 名；补丁测试必须由 `scripts/run_tests.sh` 运行。
 
 **上游吸收判断**：当上游 Chat Completions transport（或通用 provider-switch history adapter）原生在切换到 Gemini/Gemma 时，为所有无签名历史 function call 补充官方 skip-validator 哨兵，同时保持真实签名、非 Gemini 严格字段清理和 copy-on-write 不变量，并有跨 provider 回归测试后，可删除本地 hunk、Step 8b gate 和两个受管文件并将本块移入 Archive。仅有 `ToolCall.extra_content` 保留能力不算吸收。
 
@@ -1166,7 +1166,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 归档前配套（历史）：`~/.hermes/.env` 曾使用 `VERTEX_FALLBACK_CREDENTIALS_PATH` + `VERTEX_FALLBACK_PROJECT_ID` 管理第二账号；这些键已于 2026-08-15 从 `.env` 删除。
 
-**验证**：`scripts/test_patch_evidence.py::audit_archived_vertex_fallback` 每轮检查当前 `config.yaml` 仍使用标准 `vertex/google/gemini-3.5-flash`，并对历史涉及的五个源码入口、当前配置和 replay bundle 做负向审计，确保 `vertex-fallback`、`vertex-secondary` 与第二账号凭据键未被静默复活。历史实现与 2026-08-07 的 14 条通过结果只作背景，不再冒充当前回归证据。
+**验证**：`scripts/test_patch_evidence.py::audit_archived_vertex_fallback` 不绑定当前生产 provider/model：它以 names-only 方式读取 `.env` / `.env.example` 键名，不加载或输出 secret 值，并对历史涉及的五个源码入口、当前配置和 replay bundle 做负向审计；随后穿过真实 provider registry/profile resolver，断言 `vertex-fallback`、`vertex2`、`vertex-secondary` 与第二账号凭据键都未被静默复活。用户以后把主模型或 fallback 换成其他合法 provider 不会误触发本归档审计。历史实现与 2026-08-07 的通过数字只作背景，不再冒充当前回归证据。
 
 **上游吸收判断**：本补丁是因需求退场而归档，并非被上游完全吸收。只有未来再次需要同 provider 的 per-project 配额隔离时才重新评估：优先使用上游 credential pool；仅当它仍无法表达 per-entry service-account 文件与独立 project，且真实需求重新出现时，才恢复新的最小补丁与回归，不能直接复活历史 hunk。
 
@@ -1185,7 +1185,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：新增 provider-aware `is_native_gemini_provider_base_url()`：当 canonical provider 是 `gemini` 时，任意合法自定义 host 默认沿用原生 Gemini wire；只有 base URL 显式以 `/openai` 结尾才选择兼容面。hostname-strict 的 `is_native_gemini_base_url()` 保持不变，避免把其他 custom provider 误判为 Gemini。主 agent client factory、stream options、auxiliary client/pool 和 transport extra-body 过滤统一接入 provider-aware 判定；`GeminiNativeClient` 继续使用 `x-goog-api-key` 与 `models/{model}:generateContent`。私有 gateway 若未实现 `streamGenerateContent?alt=sse`，client 在收到 `stream=True` 时直接返回一次非流式 `generateContent` 的完整 response；Relay 的既有 completed-response 分支会交付该结果并把当前 session 后续调用切成非流式，不引入 heartbeat 私有协议，也不会掩盖 DNS/连接异常。Google 官方 host 保留真 SSE，显式 `/openai` 用户保持兼容路径。Doctor 不再对私有 native gateway 做 Bearer-auth `/models` 探测，而是选取当前 compression/fallback/main 配置中的 Gemini 模型，用 `GeminiNativeClient` 做最小 `generateContent` 健康检查。
 
-**验证**：`scripts/test_patch_evidence.py::audit_archived_gemini_custom_native_base` 每轮负向检查当前配置、源码与 bundle 未恢复 `GEMINI_BASE_URL` 私有链路或 `is_native_gemini_provider_base_url` helper，同时真实运行 `test_native_client_uses_x_goog_api_key_and_native_models_endpoint` 与 `test_gemini_resolve_provider_client_uses_native_client`，证明标准 Gemini native wire 仍健康。历史私有 gateway 结果仅作归档背景。
+**验证**：`scripts/test_patch_evidence.py::audit_archived_gemini_custom_native_base` 以 names-only 方式检查 `config.yaml`、`.env` / `.env.example`、源码与 bundle 未恢复 `GEMINI_BASE_URL` / `GOOGLE_GEMINI_BASE_URL` 私有链路或 `is_native_gemini_provider_base_url` helper，不读取 secret 值；同时真实运行 `test_native_client_uses_x_goog_api_key_and_native_models_endpoint` 与 `test_gemini_resolve_provider_client_uses_native_client`，证明通用标准 Gemini native wire 仍健康。历史私有 gateway 结果仅作归档背景。
 
 **上游吸收判断**：本补丁因私有 gateway 退场而归档，并非上游完整吸收。只有再次启用私有 Gemini gateway，且其完整 `systemInstruction`、工具 schema、streaming 与 `/openai` opt-in 均通过真实回归时才重新评估；不能仅凭短请求成功恢复旧 helper。
 
@@ -1328,7 +1328,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 上游追踪：v0.10.0 合入等价修复（具体吸收 commit 未在本地记录），本地 PATCH-DELEGATE-ACP-ROUTING 已退役，不再通过 `PATCHED_FILES` / `local-patches.diff` 管理。
 
-**验证**：`scripts/test_patch_evidence.py::audit_archived_delegate_acp_routing` 每轮用真实 `_build_child_agent()`、有效 ACP 命令探针和 mock child constructor，断言 `override_acp_command="copilot"` 确定性产生 `provider="copilot-acp"` 且保留命令；Step 8b 同时检查两个实现锚点，任一缺失即阻断升级收敛。
+**验证**：`scripts/test_patch_evidence.py::audit_archived_delegate_acp_routing` 使用审计器自建的最小 parent fixture，不导入上游测试文件的私有 helper；它穿过真实 `_build_child_agent()`、有效 ACP 命令探针和 mock child constructor，断言 `override_acp_command="copilot"` 确定性产生 `provider="copilot-acp"` 且保留命令。Step 8b 同时检查两个实现锚点，任一缺失即阻断升级收敛。
 
 **上游吸收判断**：已由 v0.10.0 上游实现完全吸收；若行为探针或实现锚点回归，归档审计必须失败并重新评估补丁。
 

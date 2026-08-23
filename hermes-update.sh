@@ -21,6 +21,8 @@
 #      8d. Cleanup + Gateway restart (audit scripts/ignored paths, move blacklist to Trash, reload runtime)
 #   8e. User-plugin compatibility checks (plugins/*/verify.sh)
 #   9. Health verification         (hermes doctor + gateway status)
+#   Final audit (explicit mode)     (--final-audit: full PATCH matrix, canonical tests,
+#                                    docs/runtime checks, and final cleanup JSON)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
 #    - If hermes update adds/removes steps, review whether steps 5–9 are still needed
@@ -43,6 +45,7 @@
 #   bash ~/.hermes/hermes-update.sh --print-restart-wait-seconds
 #   bash ~/.hermes/hermes-update.sh --print-patched-files
 #   bash ~/.hermes/hermes-update.sh --print-patched-tests
+#   bash ~/.hermes/hermes-update.sh --final-audit --json
 #   bash ~/.hermes/hermes-update.sh --self-test-transaction
 #   bash ~/.hermes/hermes-update.sh --self-test-patch-gates
 
@@ -728,7 +731,7 @@ EOF
         _TX_TARGET_SHA=""
         _TX_PHASE="acquiring"
         _write_transaction() { :; }
-        _acquire_upstream_target_with_retry "${_log}"
+        _acquire_upstream_target_with_retry "${_log}" >/dev/null 2>&1
         [[ "${_TX_TARGET_SHA}" == "${_sha}" ]]
         [[ "$(<"${_state}")" == 2 ]]
     ); then
@@ -749,7 +752,7 @@ EOF
         _TX_TARGET_SHA=""
         _TX_PHASE="acquiring"
         _write_transaction() { :; }
-        if _acquire_upstream_target_with_retry "${_log}"; then
+        if _acquire_upstream_target_with_retry "${_log}" >/dev/null 2>&1; then
             exit 1
         fi
         [[ "$(<"${_state}")" == 3 ]]
@@ -771,7 +774,7 @@ EOF
         _TX_TARGET_SHA=""
         _TX_PHASE="acquiring"
         _write_transaction() { :; }
-        if _acquire_upstream_target_with_retry "${_log}"; then
+        if _acquire_upstream_target_with_retry "${_log}" >/dev/null 2>&1; then
             exit 1
         fi
         [[ "$(<"${_state}")" == 1 ]]
@@ -975,16 +978,43 @@ PY
 }
 
 audit_cleanup_policy() {
-    local cleanup_py
+    local cleanup_py _audit_json
     cleanup_py=$(cleanup_python) || return 1
     [[ -f "${CLEANUP_SCRIPT}" && -f "${CLEANUP_POLICY}" ]] || return 1
     "${cleanup_py}" "${HERMES_HOME}/scripts/test_cleanup_transient_artifacts.py" >/dev/null || return 1
-    "${cleanup_py}" "${CLEANUP_SCRIPT}" \
+    _audit_json=$(mktemp -t hermes-cleanup-audit.XXXXXX)
+    if ! "${cleanup_py}" "${CLEANUP_SCRIPT}" \
         --dry-run \
         --json \
         --fail-on-review \
         --min-age-minutes "${CLEANUP_MIN_AGE_MINUTES}" \
-        --policy "${CLEANUP_POLICY}"
+        --policy "${CLEANUP_POLICY}" >"${_audit_json}"; then
+        "${cleanup_py}" - "${_audit_json}" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text())
+except Exception:
+    print(path.read_text(), end="")
+    raise SystemExit(0)
+print(json.dumps({
+    "summary": payload.get("summary", {}),
+    "policy_errors": payload.get("policy_errors", []),
+    "script_review": [x for x in payload.get("script_audit", []) if x.get("classification") == "review"],
+    "ignored_review": [x for x in payload.get("ignored_audit", []) if x.get("classification") == "review"],
+}, ensure_ascii=False))
+PY
+        rm -f -- "${_audit_json}"
+        return 1
+    fi
+    "${cleanup_py}" - "${_audit_json}" <<'PY'
+import json, sys
+from pathlib import Path
+payload = json.loads(Path(sys.argv[1]).read_text())
+print(json.dumps({"cleanup_summary": payload["summary"]}, ensure_ascii=False))
+PY
+    rm -f -- "${_audit_json}"
 }
 
 cleanup_before_gateway_restart() {
@@ -1046,8 +1076,22 @@ case "${1:-}" in
     _self_test_patch_evidence
     exit $?
     ;;
+--final-audit)
+    shift
+    for _audit_arg in "$@"; do
+        if [[ "${_audit_arg}" != "--json" && "${_audit_arg}" != "--require-clean-outer" ]]; then
+            printf 'Usage: %s --final-audit [--json] [--require-clean-outer]\n' "$0" >&2
+            exit 2
+        fi
+    done
+    _audit_python=$(cleanup_python) || {
+        printf 'No Python interpreter available for final audit.\n' >&2
+        exit 1
+    }
+    exec "${_audit_python}" "${HERMES_HOME}/scripts/final_upgrade_audit.py" "$@"
+    ;;
 *)
-    printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction|--self-test-patch-gates|--self-test-patch-evidence]\n' "$0" >&2
+    printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction|--self-test-patch-gates|--self-test-patch-evidence|--final-audit [--json] [--require-clean-outer]]\n' "$0" >&2
     exit 2
     ;;
 esac
@@ -1313,7 +1357,7 @@ if ! _self_test_patch_evidence; then
     printf '  Every active/archive PATCH must have durable regression evidence before mutation.\n'
     exit 1
 fi
-ok "PATCH evidence audit: every active/archive PATCH has a durable regression boundary"
+ok "PATCH evidence quick audit: structure, dedicated probes, and runtime contracts are present"
 
 if ! audit_cleanup_policy; then
     fail "Transient cleanup policy audit failed"
