@@ -200,6 +200,27 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
                 },
             )
 
+    def test_clean_shutdown_receipt_is_explicitly_keep_classified(self) -> None:
+        """The restart gate must preserve Gateway's graceful-exit receipt."""
+        with tempfile.TemporaryDirectory() as root_raw:
+            root = Path(root_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / ".gitignore").write_text(".clean_shutdown\n")
+            (root / ".clean_shutdown").touch()
+            policy_path = write_policy(
+                root,
+                ignored_keep={
+                    ".clean_shutdown": "graceful-shutdown receipt",
+                },
+            )
+
+            audit, errors = cleanup.audit_ignored(root, cleanup.load_policy(policy_path))
+
+            self.assertEqual(errors, [])
+            self.assertEqual(len(audit), 1)
+            self.assertEqual(audit[0].path, ".clean_shutdown")
+            self.assertEqual(audit[0].classification, "keep")
+
     def test_persistent_skill_prompt_snapshot_is_explicitly_keep_classified(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)

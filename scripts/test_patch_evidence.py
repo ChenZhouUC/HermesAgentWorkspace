@@ -94,6 +94,33 @@ DEDICATED_EVIDENCE_AUDITS: dict[str, tuple[str, str]] = {
 }
 
 
+ARCHIVED_EVIDENCE_AUDITS: dict[str, str] = {
+    "PATCH-LAUNCHD-WRAPPER-SUPERVISOR": "audit_archived_launchd_wrapper_supervisor",
+    "PATCH-VERTEX-FALLBACK": "audit_archived_vertex_fallback",
+    "PATCH-GEMINI-CUSTOM-NATIVE-BASE": "audit_archived_gemini_custom_native_base",
+    "PATCH-LAZY-ACTIVATION": "audit_archived_lazy_activation",
+    "PATCH-DOCTOR-ENABLED-TOOLSETS": "audit_archived_doctor_enabled_toolsets",
+    "PATCH-ZSH-COMPLETION-SYNTAX": "audit_archived_zsh_completion_syntax",
+    "PATCH-DASHBOARD-BUILD-CACHE": "audit_archived_dashboard_build_cache",
+    "PATCH-GEMINI-THOUGHT-SIGNATURE": "audit_archived_gemini_thought_signature",
+    "PATCH-DELEGATE-ACP-ROUTING": "audit_archived_delegate_acp_routing",
+}
+
+
+REQUIRED_PATCH_SECTIONS = ("问题", "修复", "验证", "上游吸收判断")
+
+
+def _audit_section_shape(patch_id: str, block: str) -> None:
+    counts = {
+        label: len(re.findall(rf"^\*\*{re.escape(label)}\*\*：", block, re.M)) for label in REQUIRED_PATCH_SECTIONS
+    }
+    invalid = {label: count for label, count in counts.items() if count != 1}
+    if invalid:
+        raise EvidenceError(
+            f"{patch_id}: PATCH definition must contain exactly one 问题/修复/验证/上游吸收判断 section; got {invalid}"
+        )
+
+
 def _patch_test_inventory() -> tuple[set[str], set[str]]:
     result = _run(["bash", str(SCRIPT), "--print-patched-tests"])
     if result.returncode:
@@ -121,9 +148,20 @@ def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
         raise EvidenceError("active PATCH definitions resume after Archive")
     if not active or not archived:
         raise EvidenceError("PATCH registry is missing active or archive definitions")
+    for patch_id, block in {**active, **archived}.items():
+        _audit_section_shape(patch_id, block)
     for patch_id, block in archived.items():
-        if "**验证**" not in block and not re.search(r"test_[A-Za-z0-9_]+", block):
-            raise EvidenceError(f"{patch_id}: archive definition has no retained regression evidence")
+        validation = _validation(block)
+        function_name = ARCHIVED_EVIDENCE_AUDITS.get(patch_id)
+        if function_name is None:
+            raise EvidenceError(f"{patch_id}: archive definition has no dedicated evidence audit")
+        if "scripts/test_patch_evidence.py" not in validation or function_name not in validation:
+            raise EvidenceError(f"{patch_id}: validation must bind scripts/test_patch_evidence.py::{function_name}")
+        evidence_source = Path(__file__).read_text(encoding="utf-8")
+        if not re.search(rf"^def {re.escape(function_name)}\(", evidence_source, re.M):
+            raise EvidenceError(f"{patch_id}: archived evidence function is missing: {function_name}")
+        if len(re.findall(rf"\b{re.escape(function_name)}\(\)", evidence_source)) < 2:
+            raise EvidenceError(f"{patch_id}: archived evidence function is not called: {function_name}")
     for patch_id, block in active.items():
         validation = _validation(block)
         files = _files(block)
@@ -332,8 +370,161 @@ def audit_fts5_build() -> None:
         raise EvidenceError(f"FTS5 CJK regression failed: {result.stdout[-1000:]}{result.stderr[-1000:]}")
 
 
+def _run_archived_pytest(*node_ids: str) -> None:
+    result = _run(
+        [
+            str(INNER / "venv/bin/python"),
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            *node_ids,
+        ],
+        cwd=INNER,
+        timeout=180,
+    )
+    if result.returncode:
+        raise EvidenceError(f"archived PATCH regression failed: {result.stdout[-1500:]}{result.stderr[-1500:]}")
+
+
+def audit_archived_launchd_wrapper_supervisor() -> None:
+    _run_archived_pytest("tests/hermes_cli/test_gateway_external_supervisor.py")
+
+
+def audit_archived_vertex_fallback() -> None:
+    """Prove the retired second-Vertex surface has not silently returned."""
+    config = (ROOT / "config.yaml").read_text(encoding="utf-8")
+    source_paths = (
+        "agent/vertex_adapter.py",
+        "hermes_cli/auth.py",
+        "hermes_cli/runtime_provider.py",
+        "agent/auxiliary_client.py",
+        "plugins/model-providers/vertex/__init__.py",
+    )
+    source = "\n".join((INNER / rel).read_text(encoding="utf-8") for rel in source_paths)
+    forbidden = (
+        "vertex-fallback",
+        "vertex-secondary",
+        "vertex2",
+        "VERTEX_FALLBACK_CREDENTIALS_PATH",
+        "VERTEX_FALLBACK_PROJECT_ID",
+        "get_vertex_fallback_config",
+    )
+    for needle in forbidden:
+        if needle in config or needle in source or needle in BUNDLE.read_text(encoding="utf-8"):
+            raise EvidenceError(f"archived Vertex fallback surface returned: {needle}")
+    if not re.search(r"(?m)^\s*-?\s*provider:\s*vertex\s*$", config):
+        raise EvidenceError("standard Vertex route is missing after vertex-fallback retirement")
+    if "google/gemini-3.5-flash" not in config:
+        raise EvidenceError("standard Vertex Gemini fallback/compression route is missing")
+
+
+def audit_archived_gemini_custom_native_base() -> None:
+    """Prove the private-base overlay stays retired while native Gemini still works."""
+    config = (ROOT / "config.yaml").read_text(encoding="utf-8")
+    source = "\n".join(
+        (INNER / rel).read_text(encoding="utf-8")
+        for rel in (
+            "agent/gemini_native_adapter.py",
+            "agent/agent_runtime_helpers.py",
+            "agent/auxiliary_client.py",
+        )
+    )
+    if "GEMINI_BASE_URL" in config:
+        raise EvidenceError("retired custom Gemini base is configured again")
+    if "is_native_gemini_provider_base_url" in source or "is_native_gemini_provider_base_url" in BUNDLE.read_text(
+        encoding="utf-8"
+    ):
+        raise EvidenceError("retired provider-aware custom Gemini helper returned")
+    _run_archived_pytest(
+        "tests/agent/test_gemini_native_adapter.py::test_native_client_uses_x_goog_api_key_and_native_models_endpoint",
+        "tests/hermes_cli/test_gemini_provider.py::TestGeminiAgentInit::test_gemini_resolve_provider_client_uses_native_client",
+    )
+
+
+def audit_archived_lazy_activation() -> None:
+    _run_archived_pytest(
+        "tests/tools/test_lazy_deps.py::TestActiveFeatures::test_shared_dependency_does_not_activate_feature"
+    )
+
+
+def audit_archived_doctor_enabled_toolsets() -> None:
+    _run_archived_pytest(
+        "tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilitySummary::test_missing_api_key_summary_ignores_disabled_toolsets"
+    )
+
+
+def audit_archived_zsh_completion_syntax() -> None:
+    result = _run([str(INNER / "venv/bin/hermes"), "completion", "zsh"], cwd=INNER, timeout=60)
+    if result.returncode:
+        raise EvidenceError(f"zsh completion generation failed: {result.stderr[-1000:]}")
+    output = result.stdout
+    required = ("'(-)'{-h,--help}", "'(-)'{-V,--version}", "'(-)'{-p,--profile}")
+    forbidden = ("){-h,--help}", "){-V,--version}", "){-p,--profile}")
+    if any(token not in output for token in required) or any(token in output for token in forbidden):
+        raise EvidenceError("zsh completion output no longer satisfies the archived syntax invariant")
+
+
+def audit_archived_dashboard_build_cache() -> None:
+    _run_archived_pytest(
+        "tests/hermes_cli/test_web_ui_build.py::TestWebUIBuildNeeded::test_mtime_only_change_is_not_stale"
+    )
+
+
+def audit_archived_gemini_thought_signature() -> None:
+    _run_archived_pytest(
+        "tests/agent/transports/test_types.py::TestToolCallBackwardCompat::test_extra_content_getattr_pattern"
+    )
+
+
+def audit_archived_delegate_acp_routing() -> None:
+    code = r"""
+from unittest.mock import MagicMock, patch
+from tests.tools.test_delegate import _make_mock_parent
+from tools.delegate_tool import _build_child_agent
+
+parent = _make_mock_parent(depth=0)
+parent._fallback_chain = None
+with patch("tools.delegate_tool._load_config", return_value={}), \
+     patch("shutil.which", return_value="/usr/bin/copilot"), \
+     patch("run_agent.AIAgent") as mock_agent:
+    mock_agent.return_value = MagicMock()
+    _build_child_agent(
+        task_index=0,
+        goal="archived ACP routing audit",
+        context=None,
+        toolsets=None,
+        model=None,
+        max_iterations=10,
+        parent_agent=parent,
+        task_count=1,
+        override_acp_command="copilot",
+    )
+kwargs = mock_agent.call_args.kwargs
+assert kwargs["provider"] == "copilot-acp"
+assert kwargs["acp_command"] == "copilot"
+"""
+    result = _run([str(INNER / "venv/bin/python"), "-c", code], cwd=INNER, timeout=60)
+    if result.returncode:
+        raise EvidenceError(f"archived delegate ACP routing regression failed: {result.stderr[-1500:]}")
+
+
+def audit_archived_regressions() -> None:
+    audit_archived_launchd_wrapper_supervisor()
+    audit_archived_vertex_fallback()
+    audit_archived_gemini_custom_native_base()
+    audit_archived_lazy_activation()
+    audit_archived_doctor_enabled_toolsets()
+    audit_archived_zsh_completion_syntax()
+    audit_archived_dashboard_build_cache()
+    audit_archived_gemini_thought_signature()
+    audit_archived_delegate_acp_routing()
+
+
 def audit_bundle() -> None:
     import os
+    import tempfile
 
     files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
     if not files:
@@ -341,31 +532,33 @@ def audit_bundle() -> None:
     status = _run(["git", "diff", "--cached", "--quiet"], cwd=INNER)
     if status.returncode != 0:
         raise EvidenceError("inner index is staged")
-    # Use a temporary index but intentionally leave the OS temp directory for
-    # normal cleanup; this audit must never delete user paths.
-    temp = Path(__import__("tempfile").mkdtemp(prefix="hermes-patch-evidence-"))
-    index = temp / "index"
-    env = os.environ.copy()
-    env["GIT_INDEX_FILE"] = str(index)
-    subprocess.run(["git", "read-tree", "HEAD"], cwd=INNER, env=env, check=True, timeout=30)
-    for rel in files:
-        path = INNER / rel
-        if path.exists() or path.is_symlink():
-            subprocess.run(["git", "add", "-f", "--", rel], cwd=INNER, env=env, check=True, timeout=30)
-    live = temp / "live.diff"
-    result = subprocess.run(
-        ["git", "diff", "--cached", "--full-index", "HEAD", "--", *files],
-        cwd=INNER,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=60,
-    )
-    if result.returncode:
-        raise EvidenceError(f"isolated bundle diff failed: {result.stderr.strip()}")
-    live.write_text(result.stdout, encoding="utf-8")
-    if live.read_bytes() != BUNDLE.read_bytes():
-        raise EvidenceError("isolated full-index live diff differs from canonical bundle")
+    # A private temporary index keeps the real index untouched. The context
+    # manager proves cleanup is scoped to the directory created by this audit,
+    # so repeated AI runs do not leak /tmp/hermes-patch-evidence-* sediment.
+    with tempfile.TemporaryDirectory(prefix="hermes-patch-evidence-") as temp_raw:
+        temp = Path(temp_raw)
+        index = temp / "index"
+        env = os.environ.copy()
+        env["GIT_INDEX_FILE"] = str(index)
+        subprocess.run(["git", "read-tree", "HEAD"], cwd=INNER, env=env, check=True, timeout=30)
+        for rel in files:
+            path = INNER / rel
+            if path.exists() or path.is_symlink():
+                subprocess.run(["git", "add", "-f", "--", rel], cwd=INNER, env=env, check=True, timeout=30)
+        live = temp / "live.diff"
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--full-index", "HEAD", "--", *files],
+            cwd=INNER,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
+        if result.returncode:
+            raise EvidenceError(f"isolated bundle diff failed: {result.stderr.strip()}")
+        live.write_text(result.stdout, encoding="utf-8")
+        if live.read_bytes() != BUNDLE.read_bytes():
+            raise EvidenceError("isolated full-index live diff differs from canonical bundle")
     for argv in (
         ("git", "apply", "--cached", "--check", str(BUNDLE)),
         ("git", "apply", "--check", "--reverse", str(BUNDLE)),
@@ -401,6 +594,7 @@ def main() -> int:
         audit_npm_dependency_hygiene()
         audit_skills_mirror()
         audit_fts5_build()
+        audit_archived_regressions()
         audit_bundle()
         tests = {"files": 0, "collected": 0}
         if not args.quick:

@@ -29,6 +29,7 @@
   "ignored_keep_globs": {
     ".backup.lock": "Runtime backup lock.",
     ".claude/": "Local Claude/Codex workflow metadata.",
+    ".clean_shutdown": "Ephemeral graceful-shutdown receipt consumed by Gateway startup; preserving it prevents clean restarts from being misclassified as crashes.",
     ".env": "Local secrets and provider configuration.",
     ".env.*": "Local environment variants.",
     ".hermes-update-transaction": "Persistent update transaction state required for pinned-SHA recovery after failure or interruption.",
