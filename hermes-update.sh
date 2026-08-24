@@ -3097,12 +3097,13 @@ if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MC
         grep -q 'assert "copy it verbatim"' "${MCP_UTILITY_GATE_TEST_PY}" 2>/dev/null &&
         grep -q '_mcp_field(result, "is_error", "isError", False)' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_skips_validation_for_error_across_sdk_field_rename' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_created_task_receipt_is_a_language_neutral_table' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_completed_task_receipt_only_exposes_task_id_and_links' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_streamable_http_task_requests_get_standard_routing_headers' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_input_required_uses_normal_model_path_for_mrtr_handling' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_mixed_task_and_regular_tool_results_do_not_short_circuit_model' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_tasks_extension_registers_standard_task_utilities' "${MCP_UTILITY_GATE_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-MCP-TASKS-ASYNC-HANDOFF active: task handles return concise receipts without a second LLM call"
+        ok "PATCH-MCP-TASKS-ASYNC-HANDOFF active: task handles return structured Markdown tables without a second LLM call"
         _MCP_TASKS_ASYNC_HANDOFF_PATCH_OK=true
     else
         warn "PATCH-MCP-TASKS-ASYNC-HANDOFF inactive or partial"
