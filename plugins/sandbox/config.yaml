@@ -72,6 +72,8 @@ trusted_feishu_chat_ids_for_group_hypertex:
   - oc_0663408600b12ccec166f9889046a36a
   # SpaceSight Tech Sharing Group
   - oc_1d81b1992a1cf99620bf815945782f27
+  # NA AI Lab
+  - oc_a8f0507b63c187d376752647b695bbfe
 
 # This list is deliberately NOT the same as the delete-only mutations list
 # above: HyperTeX trust and Feishu document deletion are separate grants, so a
@@ -87,6 +89,8 @@ trusted_feishu_user_ids_for_group_hypertex:
   - ou_d97d97c79bd2c6bffaed857dd463b26b
   # 沈舒仪 — HyperTeX only, deliberately absent from the delete list above
   - ou_2f4ae9dcc13555fc703e9813d39ecd81
+  # Jielin HE (Leo HE)
+  - ou_c29a333fad13e7f46846249aa678fc26
 
 # Direct file tools may read the wiki. Reads under group_workspace_root are
 # narrowed again at runtime to the current group's hashed subdirectory.

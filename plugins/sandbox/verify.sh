@@ -219,6 +219,7 @@ assert hypertex_chats == {
     "oc_e11903076f3393e0f237cb406b6c3a07",
     "oc_0663408600b12ccec166f9889046a36a",
     "oc_1d81b1992a1cf99620bf815945782f27",
+    "oc_a8f0507b63c187d376752647b695bbfe",
 }
 hypertex_users = set(plugin.get("trusted_feishu_user_ids_for_group_hypertex") or [])
 expected_hypertex_users = {
@@ -232,6 +233,8 @@ expected_hypertex_users = {
     "ou_d97d97c79bd2c6bffaed857dd463b26b",
     # 沈舒仪
     "ou_2f4ae9dcc13555fc703e9813d39ecd81",
+    # Jielin HE (Leo HE)
+    "ou_c29a333fad13e7f46846249aa678fc26",
 }
 assert hypertex_users == expected_hypertex_users
 assert mutation_users < hypertex_users, \
