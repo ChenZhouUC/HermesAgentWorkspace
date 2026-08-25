@@ -439,6 +439,8 @@ def build_generation_prompt(day: dt.date, session_text: str) -> str:
         - JSON schema: {{"today":"1. ...\\n2. ...","plan":"1. ...\\n2. ...","goodnight":"..."}}
         - today 和 plan 都必须是带序号的换行分点文本。
         - today 和 plan 目标各自控制在 {TARGET_REPORT_CHARS} 字左右，略超可以；只有明显超过 {MAX_REPORT_CHARS} 字才需要压缩。
+        - goodnight 必须恰好两句并换行：第一句中文，第二句英文；两句表达相同的完整含义，英文是中文的自然翻译。
+        - goodnight 的中英文两句都要完整包含问好与 Gödel 身份、日报已帮琛哥发好、感谢大家辛苦工作、晚安祝愿，不要拆成更多句子。
         - 不要出现“骂、开除、喷、吹牛、老登、锅、完蛋”等玩笑或攻击性表达。
         - 不要编造客户名称之外的新事实；可做适度职业化概括。
 
@@ -560,13 +562,23 @@ def ensure_goodnight_requirements(text: str) -> str:
     text = re.sub(r"[\U00010000-\U0010ffff]", "", text).strip()
     text = dedupe_sentences(text)
     text = dedupe_report_done_sentences(text)
-    if not goodnight_has_required_order(text):
+    sentences = split_sentences(text)
+    if len(sentences) != 2:
         return default_goodnight()
-    return text
+    chinese, english = sentences
+    if cjk_len(chinese) < 8 or CJK_RE.search(english) or not re.search(r"[A-Za-z]", english):
+        return default_goodnight()
+    if not goodnight_has_required_order(chinese) or not english_goodnight_has_required_order(english):
+        return default_goodnight()
+    return f"{chinese}\n{english}"
 
 
 def default_goodnight() -> str:
-    return "大家好，我是琛哥的赛博助手 Gödel。今天的日报已经帮琛哥发好了。大家今天工作辛苦了，晚安，祝大家好梦。"
+    return (
+        "大家好，我是琛哥的赛博助手 Gödel；今天的日报已经帮琛哥发好了，大家今天工作辛苦了，晚安，祝大家好梦。\n"
+        "Hello everyone, I’m Chen’s cyber assistant Gödel; today’s daily report has been sent for Chen, and after "
+        "all your hard work, I wish you a good night and sweet dreams."
+    )
 
 
 def goodnight_has_required_order(text: str) -> bool:
@@ -577,6 +589,17 @@ def goodnight_has_required_order(text: str) -> bool:
     if min(intro_pos, report_pos, work_pos, night_pos) < 0:
         return False
     if not any(word in text for word in report_done_words()):
+        return False
+    return intro_pos <= report_pos <= min(work_pos, night_pos)
+
+
+def english_goodnight_has_required_order(text: str) -> bool:
+    normalized = text.casefold()
+    intro_pos = first_index(normalized, ("gödel", "godel", "cyber assistant"))
+    report_pos = first_index(normalized, ("daily report", "report"))
+    work_pos = first_index(normalized, ("hard work", "great work", "effort", "worked hard", "long day"))
+    night_pos = first_index(normalized, ("good night", "sweet dreams", "rest well", "sleep well"))
+    if min(intro_pos, report_pos, work_pos, night_pos) < 0:
         return False
     return intro_pos <= report_pos <= min(work_pos, night_pos)
 

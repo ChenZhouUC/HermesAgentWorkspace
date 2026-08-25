@@ -95,6 +95,40 @@ class NightlyArgumentParsingTests(unittest.TestCase):
         self.assertIn("expected YYYY-MM-DD", stderr.getvalue())
 
 
+class NightlyGreetingFormattingTests(unittest.TestCase):
+    def test_generation_prompt_requires_chinese_then_english(self) -> None:
+        prompt = nightly.build_generation_prompt(dt.date(2026, 8, 25), "SESSION")
+
+        self.assertIn("第一句中文，第二句英文", prompt)
+        self.assertIn("两句表达相同的完整含义", prompt)
+        self.assertIn("不要拆成更多句子", prompt)
+
+    def test_default_goodnight_is_a_two_line_bilingual_pair(self) -> None:
+        chinese, english = nightly.default_goodnight().splitlines()
+
+        self.assertGreaterEqual(nightly.cjk_len(chinese), 8)
+        self.assertIsNone(nightly.CJK_RE.search(english))
+        self.assertTrue(nightly.goodnight_has_required_order(chinese))
+        self.assertTrue(nightly.english_goodnight_has_required_order(english))
+
+    def test_valid_bilingual_goodnight_is_normalized_to_two_lines(self) -> None:
+        text = (
+            "大家好，我是琛哥的赛博助手 Gödel；日报已经帮琛哥发好了，大家辛苦了，晚安好梦。 "
+            "Hello everyone, I am Chen's cyber assistant Gödel; the daily report has been sent for Chen, "
+            "and after all your hard work, I wish you good night and sweet dreams."
+        )
+
+        result = nightly.ensure_goodnight_requirements(text)
+
+        self.assertEqual(len(result.splitlines()), 2)
+        self.assertEqual(result.replace("\n", " "), text)
+
+    def test_non_bilingual_goodnight_uses_bilingual_fallback(self) -> None:
+        chinese_only = "大家好，我是琛哥的赛博助手 Gödel；日报已经帮琛哥发好了，大家辛苦了，晚安好梦。"
+
+        self.assertEqual(nightly.ensure_goodnight_requirements(chinese_only), nightly.default_goodnight())
+
+
 class NightlyRunOptionAuditTests(unittest.TestCase):
     def run_flow(
         self,
