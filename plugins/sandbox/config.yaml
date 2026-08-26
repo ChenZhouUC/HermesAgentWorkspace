@@ -70,6 +70,8 @@ trusted_feishu_chat_ids_for_group_hypertex:
   - oc_e11903076f3393e0f237cb406b6c3a07
   # AI 解放生产力
   - oc_0663408600b12ccec166f9889046a36a
+  # SpaceSight 救命稻草
+  - oc_4ca3cb5ee37232ca0b244f139ae785fa
   # SpaceSight Tech Sharing Group
   - oc_1d81b1992a1cf99620bf815945782f27
   # NA AI Lab
@@ -91,6 +93,8 @@ trusted_feishu_user_ids_for_group_hypertex:
   - ou_2f4ae9dcc13555fc703e9813d39ecd81
   # Jielin HE (Leo HE)
   - ou_c29a333fad13e7f46846249aa678fc26
+  # Min LI 李敏
+  - ou_42c47e42a5ddd4aa186cf1aa8b6e4de0
 
 # Direct file tools may read the wiki. Reads under group_workspace_root are
 # narrowed again at runtime to the current group's hashed subdirectory.

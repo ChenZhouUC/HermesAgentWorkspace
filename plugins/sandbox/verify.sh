@@ -218,6 +218,7 @@ assert hypertex_chats == {
     "oc_7c6cad99e7f0090c15fc943a12edc6e4",
     "oc_e11903076f3393e0f237cb406b6c3a07",
     "oc_0663408600b12ccec166f9889046a36a",
+    "oc_4ca3cb5ee37232ca0b244f139ae785fa",
     "oc_1d81b1992a1cf99620bf815945782f27",
     "oc_a8f0507b63c187d376752647b695bbfe",
 }
@@ -235,6 +236,8 @@ expected_hypertex_users = {
     "ou_2f4ae9dcc13555fc703e9813d39ecd81",
     # Jielin HE (Leo HE)
     "ou_c29a333fad13e7f46846249aa678fc26",
+    # Min LI 李敏
+    "ou_42c47e42a5ddd4aa186cf1aa8b6e4de0",
 }
 assert hypertex_users == expected_hypertex_users
 assert mutation_users < hypertex_users, \

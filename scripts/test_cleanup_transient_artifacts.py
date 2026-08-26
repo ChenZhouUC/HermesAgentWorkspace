@@ -314,6 +314,62 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
                 {".update_check", "terminal-sessions/"},
             )
 
+    def test_repository_policy_keeps_wiki_state_without_preserving_finder_metadata(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        policy = cleanup.load_policy(repository_root / "scripts/cleanup_policy.json")
+        with tempfile.TemporaryDirectory() as root_raw:
+            root = Path(root_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / ".gitignore").write_text(
+                "\n".join(
+                    (
+                        ".DS_Store",
+                        "wiki/.obsidian/workspace.json",
+                        "wiki/.obsidian/graph.json",
+                        "wiki/.obsidian/plugins/obsidian-git/obsidian_askpass.sh",
+                    )
+                )
+                + "\n"
+            )
+            raw = root / "wiki" / "raw"
+            raw.mkdir(parents=True)
+            tracked_wiki_file = root / "wiki" / "tracked.md"
+            tracked_wiki_file.write_text("tracked\n")
+            subprocess.run(["git", "-C", str(root), "add", "wiki/tracked.md"], check=True)
+            (raw / ".DS_Store").write_bytes(b"finder")
+            obsidian = root / "wiki" / ".obsidian"
+            obsidian.mkdir(parents=True)
+            tracked_obsidian_file = obsidian / "app.json"
+            tracked_obsidian_file.write_text("{}")
+            subprocess.run(["git", "-C", str(root), "add", "wiki/.obsidian/app.json"], check=True)
+            (obsidian / ".DS_Store").write_bytes(b"finder")
+            (obsidian / "workspace.json").write_text("{}")
+            (obsidian / "graph.json").write_text("{}")
+            obsidian_git = obsidian / "plugins" / "obsidian-git"
+            obsidian_git.mkdir(parents=True)
+            tracked_plugin_file = obsidian_git / "manifest.json"
+            tracked_plugin_file.write_text("{}")
+            subprocess.run(
+                ["git", "-C", str(root), "add", "wiki/.obsidian/plugins/obsidian-git/manifest.json"],
+                check=True,
+            )
+            askpass = obsidian_git / "obsidian_askpass.sh"
+            askpass.write_text("#!/bin/sh\n")
+
+            audit, errors = cleanup.audit_ignored(root, policy)
+
+            self.assertEqual(errors, [])
+            self.assertEqual(
+                {item.path: item.classification for item in audit},
+                {
+                    "wiki/.obsidian/.DS_Store": "remove",
+                    "wiki/.obsidian/graph.json": "keep",
+                    "wiki/.obsidian/plugins/obsidian-git/obsidian_askpass.sh": "keep",
+                    "wiki/.obsidian/workspace.json": "keep",
+                    "wiki/raw/": "keep",
+                },
+            )
+
     def test_runtime_bytecode_is_kept_while_test_bytecode_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)
