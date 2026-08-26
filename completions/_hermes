@@ -180,6 +180,7 @@ _hermes() {
                     cron_cmds=(
                     'create:Create a scheduled job'
                     'edit:Edit an existing scheduled job'
+                    'incidents:List or acknowledge durable cron failure incidents'
                     'list:List scheduled jobs'
                     'notepad:Read/write a jobs durable notepad (persistent KV across runs'
                     'pause:Pause a scheduled job'

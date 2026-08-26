@@ -94,6 +94,21 @@ def _markdown_table_summary(row: str) -> str:
     return cells[3].strip() if len(cells) >= 5 else ""
 
 
+def _current_week_readme_rows(readme: str, today: date) -> list[str]:
+    """Return version-table rows belonging to today's ISO week."""
+    current_iso = today.isocalendar()
+    current_key = (current_iso.year, current_iso.week)
+    rows: list[str] = []
+    for line in readme.splitlines():
+        match = re.match(r"^\|\s*v[^|]*\|\s*(\d{4}-\d{2}-\d{2})\s*\|", line)
+        if match is None:
+            continue
+        row_iso = date.fromisoformat(match.group(1)).isocalendar()
+        if (row_iso.year, row_iso.week) == current_key:
+            rows.append(line)
+    return rows
+
+
 def _derived_checks(patched_files: list[str], evidence: dict[str, object]) -> dict[str, object]:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     patches = (ROOT / "patches/PATCHES.md").read_text(encoding="utf-8")
@@ -110,12 +125,17 @@ def _derived_checks(patched_files: list[str], evidence: dict[str, object]) -> di
     if not version_match:
         raise FinalAuditError("derived-docs", "could not read current Hermes version")
     current_version = version_match.group(1)
-    current_rows = [line for line in readme.splitlines() if line.startswith(f"| v{current_version}")]
+    current_rows = _current_week_readme_rows(readme, date.today())
     current_summary = _markdown_table_summary(current_rows[0]) if current_rows else ""
     if len(current_rows) != 1 or not current_summary or len(current_summary) > 1500:
         raise FinalAuditError(
             "derived-docs",
             f"current README row count/summary length invalid: count={len(current_rows)} length={len(current_summary)}",
+        )
+    if not current_rows[0].startswith(f"| v{current_version}"):
+        raise FinalAuditError(
+            "derived-docs",
+            f"current README week does not report checkout version v{current_version}",
         )
 
     array = re.findall(

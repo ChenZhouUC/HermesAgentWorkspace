@@ -310,6 +310,7 @@ if [[ -x "${VENV_PYTHON}" ]] &&
         cd "${HERMES_AGENT}" &&
             "${VENV_PYTHON}" - <<'PY'
 import importlib
+import json
 from types import SimpleNamespace
 
 from hermes_cli.config import load_config
@@ -384,27 +385,27 @@ group_defs = get_tool_definitions(
     skip_tool_search_assembly=True,
 )
 search_payload = tool_search.dispatch_tool_search(
-    {"query": "group cache feishu doc hypertex presentation"},
+    {"queries": ["group cache feishu doc hypertex presentation"]},
     current_tool_defs=group_defs,
 )
 assert "group_cache" in search_payload
 assert "feishu_doc_manage" in search_payload
 assert "mcp__hypertex__hypertex_iterate_case" in search_payload
 hypertex_create_payload = tool_search.dispatch_tool_search(
-    {"query": "create case"},
+    {"queries": ["create case"]},
     current_tool_defs=group_defs,
 )
 assert "mcp__hypertex__hypertex_create_case" in hypertex_create_payload
 describe_group = tool_search.dispatch_tool_describe(
-    {"name": "group_cache"},
+    {"names": ["group_cache"]},
     current_tool_defs=group_defs,
 )
 describe_doc = tool_search.dispatch_tool_describe(
-    {"name": "feishu_doc_manage"},
+    {"names": ["feishu_doc_manage"]},
     current_tool_defs=group_defs,
 )
-assert '"name": "group_cache"' in describe_group
-assert '"name": "feishu_doc_manage"' in describe_doc
+assert "group_cache" in (json.loads(describe_group).get("tools") or {})
+assert "feishu_doc_manage" in (json.loads(describe_doc).get("tools") or {})
 
 # Also pass through the actual sandbox pre_tool_call hook. The dispatch checks
 # above alone can be green while Feishu groups still block the bridge tools.
@@ -481,8 +482,12 @@ for document_args in (
     ) is None
 sandbox._current_resource_refs.set(frozenset())
 assert sandbox._on_pre_tool_call(tool_name="clarify", args={"question": "pick one"}) is None
-assert sandbox._on_pre_tool_call(tool_name="tool_search", args={"query": "group cache"}) is None
-assert sandbox._on_pre_tool_call(tool_name="tool_describe", args={"name": "group_cache"}) is None
+assert sandbox._on_pre_tool_call(
+    tool_name="tool_search", args={"queries": ["group cache"]}
+) is None
+assert sandbox._on_pre_tool_call(
+    tool_name="tool_describe", args={"names": ["group_cache"]}
+) is None
 assert sandbox._on_pre_tool_call(tool_name="vision_analyze", args={"image_url": "/tmp/x.png"}) == {
     "action": "block",
     "message": sandbox._BLOCK_MESSAGE,

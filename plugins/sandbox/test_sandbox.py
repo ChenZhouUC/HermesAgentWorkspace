@@ -233,8 +233,8 @@ def test_group_has_no_terminal_or_direct_write_surface(group_config, tmp_path):
 
 
 def test_group_allows_readonly_tool_discovery_bridge(group_config):
-    assert sandbox._on_pre_tool_call(tool_name="tool_search", args={"query": "group cache"}) is None
-    assert sandbox._on_pre_tool_call(tool_name="tool_describe", args={"name": "group_cache"}) is None
+    assert sandbox._on_pre_tool_call(tool_name="tool_search", args={"queries": ["group cache"]}) is None
+    assert sandbox._on_pre_tool_call(tool_name="tool_describe", args={"names": ["group_cache"]}) is None
 
 
 def test_group_allows_declared_core_tools_but_not_outsider_dm_vision_tools(group_config):

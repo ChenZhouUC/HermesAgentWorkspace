@@ -243,6 +243,17 @@ def _resolve_active_patch_nodes(active: dict[str, str], collected_nodes: list[st
                 )
             nodes.append(candidates[0])
         resolved[patch_id] = sorted(set(nodes))
+
+    node_owners: dict[str, list[str]] = defaultdict(list)
+    for patch_id, nodes in resolved.items():
+        for node in nodes:
+            node_owners[node].append(patch_id)
+    shared = {node: owners for node, owners in node_owners.items() if len(owners) > 1}
+    if shared:
+        raise EvidenceError(
+            "active PATCH evidence nodes must be exclusive to one PATCH: "
+            + "; ".join(f"{node} -> {', '.join(owners)}" for node, owners in sorted(shared.items()))
+        )
     return resolved
 
 
@@ -1014,10 +1025,15 @@ def main() -> int:
         audit_skills_mirror()
         audit_fts5_build()
         audit_archived_regressions()
-        audit_bundle()
         tests = {"files": 0, "collected": 0}
         resolved: dict[str, list[str]] = {}
         if not args.quick:
+            # Preflight quick mode runs before Step 2 captures a manually
+            # resolved post-upgrade overlay into the canonical bundle.  Bundle
+            # parity is therefore a terminal/full invariant, not a pre-mutation
+            # structural one; checking it here would make the documented
+            # conflict-recovery path impossible to re-enter.
+            audit_bundle()
             tests, resolved = audit_current_tests(active)
     except (EvidenceError, subprocess.SubprocessError, OSError) as exc:
         print(f"patch-evidence self-test FAILED: {exc}", file=sys.stderr)

@@ -73,7 +73,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.5 / main 503d863fcd2cbfc0be5a6d6c536fae2e98aa4204, `hermes completion zsh` already emits the
+# As of v0.20.5 / main 9aa7530f7b53699e2c6d648ded8f6300503b3dc7, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -1967,6 +1967,7 @@ _VERTEX_VIDEO_ROUTING_PATCH_OK=false
 _MULTIMODAL_SIDECAR_PATCH_OK=false
 _HISTORY_RETENTION_PATCH_OK=false
 _MCP_TASKS_ASYNC_HANDOFF_PATCH_OK=false
+_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK=false
 _APPROVAL_TEMP_CLEANUP_PATCH_OK=false
 _FTS5_CJK_BUILD_PATCH_OK=false
 _COMPACTION_LIFECYCLE_SILENCE_PATCH_OK=false
@@ -3113,6 +3114,27 @@ else
     warn "Could not locate PATCH-MCP-TASKS-ASYNC-HANDOFF files"
 fi
 
+# PATCH-MCP-STDIO-WATCHER-LIFECYCLE: the stdio liveness watcher must be
+# materialized exactly once per RPC. Calling the async factory once for an
+# isawaitable() probe and again for scheduling leaks the first coroutine.
+if [[ -f "${VENV_PY}" && -f "${MCP_TOOL_PY}" && -f "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" ]]; then
+    if grep -q '_watch_coro = (' "${MCP_TOOL_PY}" 2>/dev/null &&
+        grep -q 'watch_task = asyncio.ensure_future(_watch_coro)' "${MCP_TOOL_PY}" 2>/dev/null &&
+        grep -q 'test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
+        cd "${HERMES_AGENT}" &&
+        "${VENV_PY}" -m pytest -q -p no:cacheprovider -W error::RuntimeWarning \
+            tests/tools/test_mcp_tool.py::TestToolHandler::test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine \
+            >/dev/null 2>&1; then
+        ok "PATCH-MCP-STDIO-WATCHER-LIFECYCLE active: one awaited child watcher per MCP RPC"
+        _MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK=true
+    else
+        warn "PATCH-MCP-STDIO-WATCHER-LIFECYCLE inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-MCP-STDIO-WATCHER-LIFECYCLE]"
+    fi
+else
+    warn "Could not locate PATCH-MCP-STDIO-WATCHER-LIFECYCLE files"
+fi
+
 # PATCH-TRUNCATED-TOOL-CALL-RECOVERY: providers may rewrite a genuine
 # output-cap finish_reason from length to tool_calls. Incomplete JSON must not
 # execute or terminate immediately; retry with a bounded 8k→16k→32k cap first.
@@ -3229,7 +3251,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_COMPACTION_LIFECYCLE_SILENCE_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_COMPACTION_LIFECYCLE_SILENCE_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"
