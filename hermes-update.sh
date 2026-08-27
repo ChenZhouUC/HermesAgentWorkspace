@@ -2588,10 +2588,19 @@ if [[ -f "${VENV_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${NOISE_FILTER_TEST_PY}" 
         cd "${HERMES_AGENT}" &&
             "${VENV_PY}" - <<'PYEOF' 2>/dev/null
 from gateway.run import _prepare_gateway_status_message
+from agent.chat_completion_helpers import _format_fallback_notice
+from agent.error_classifier import FailoverReason
 
 statuses = (
     "🔄 Primary model failed — switching to fallback: model-b via provider-b",
     "🔄 Switched to fallback model: model-a via provider-a → model-b via provider-b",
+    _format_fallback_notice(
+        "primary-model",
+        "primary-provider",
+        "fallback-model",
+        "fallback-provider",
+        FailoverReason.timeout,
+    ),
 )
 for status in statuses:
     for platform in ("feishu", "feishu_group", "telegram", "slack", "discord"):
@@ -2605,7 +2614,8 @@ print("ok")
 PYEOF
     )
     if [[ "${_FAILOVER_STATUS_CHECK}" == "ok" ]] &&
-        grep -q 'test_programmatic_surfaces_keep_raw_fallback_status' "${NOISE_FILTER_TEST_PY}" 2>/dev/null; then
+        grep -q 'test_programmatic_surfaces_keep_raw_fallback_status' "${NOISE_FILTER_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_generated_fallback_notice_suppressed_on_chat_surfaces' "${NOISE_FILTER_TEST_PY}" 2>/dev/null; then
         ok "PATCH-GATEWAY-FAILOVER-STATUS-SILENCE active: model routing stays out of chats"
         _GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK=true
     else

@@ -1,5 +1,5 @@
 diff --git a/agent/chat_completion_helpers.py b/agent/chat_completion_helpers.py
-index e63e28f3bd342f932c7c4bedd73a247bf38b92c4..7f66b815024b13d53a56760438cf2455c86f44c3 100644
+index e63e28f3bd342f932c7c4bedd73a247bf38b92c4..c2626dd513aafc2be55a9491dd551060f6b847a0 100644
 --- a/agent/chat_completion_helpers.py
 +++ b/agent/chat_completion_helpers.py
 @@ -1861,11 +1861,14 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
@@ -37,6 +37,44 @@ index e63e28f3bd342f932c7c4bedd73a247bf38b92c4..7f66b815024b13d53a56760438cf2455
              timeout=agent._resolved_api_call_timeout(),
              request_overrides=agent.request_overrides,
              provider=getattr(agent, "provider", None),
+@@ -2459,6 +2465,21 @@ def _fallback_reason_text(reason: "FailoverReason | None") -> str:
+     return str(value or reason or "provider failure").replace("_", " ")
+ 
+ 
++def _format_fallback_notice(
++    old_model: str,
++    old_provider: str,
++    fallback_model: str,
++    fallback_provider: str,
++    reason: "FailoverReason | None",
++) -> str:
++    """Build the one-shot provider fallback notice consumed by all surfaces."""
++    return (
++        f"⚠️ Model fallback: {old_model} via {old_provider} unavailable "
++        f"({_fallback_reason_text(reason)}); using "
++        f"{fallback_model} via {fallback_provider}."
++    )
++
++
+ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool:
+     """Switch to the next fallback model/provider in the chain.
+ 
+@@ -2849,9 +2870,12 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
+         # answering, so "what model are you?" doesn't report the primary.
+         rewrite_prompt_model_identity(agent, fb_model, fb_provider)
+ 
+-        notice = (
+-            f"⚠️ Model fallback: {old_model} via {old_provider} unavailable "
+-            f"({_fallback_reason_text(reason)}); using {fb_model} via {fb_provider}."
++        notice = _format_fallback_notice(
++            old_model,
++            old_provider,
++            fb_model,
++            fb_provider,
++            reason,
+         )
+         # The buffered switch is surfaced on terminal failure. A successful
+         # fallback clears retry chatter, so retain every switch as a durable
 diff --git a/agent/conversation_loop.py b/agent/conversation_loop.py
 index 23be8bedb1f39ec9b835047bb2b163286b17000f..353ba239f0874a92899060bf3c7942bf1a4f9e13 100644
 --- a/agent/conversation_loop.py
@@ -1814,7 +1852,7 @@ index e990255794bfa6bf4982989f0f29e878fa5de34b..f1347d3a5bd2ca868435eb6ce0e2d75a
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad37300dfb0199 100644
+index 915eee4d494e17ea376b28ccea122657e1f759db..c07aa07273fdd6393c265c724b78c7a826336bea 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -49,6 +49,7 @@ from typing import Awaitable, Callable, Dict, Optional, Any, List, Tuple, Union,
@@ -1878,7 +1916,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
      r"|resumed\s+after\s+\d+s\s+idle\s+[—-]\s+compacting"
      r"|preflight\s+compression"
      r"|pre[- ]api\s+compression"
-@@ -145,6 +185,12 @@ _TELEGRAM_NOISY_STATUS_RE = re.compile(
+@@ -145,6 +185,13 @@ _TELEGRAM_NOISY_STATUS_RE = re.compile(
      r"|rate\s+limited\.\s+waiting\s+\d"
      r"|retrying\s+in\s+\d"
      r"|max\s+retries\s+\(\d+\).*(?:trying\s+fallback|exhausted|invalid\s+responses)"
@@ -1888,10 +1926,11 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
 +    r"|primary\s+model\s+failed.*switching\s+to\s+fallback"
 +    r"|switched\s+to\s+fallback\s+model"
 +    r"|switching\s+to\s+fallback\s+(?:model|provider)"
++    r"|model\s+fallback\s*:"
      r"|stream\s+(?:drop|drop\s+mid\s+tool-call).+retry\s+\d"
      r"|stale\s+connections\s+from\s+a\s+previous\s+provider\s+issue"
      r")",
-@@ -338,6 +384,11 @@ _COMPRESSION_PROGRESS_STATUS_RE = re.compile(
+@@ -338,6 +385,11 @@ _COMPRESSION_PROGRESS_STATUS_RE = re.compile(
          _status_template_to_regex(_template)
          for _template in (
              COMPACTION_STATUS,
@@ -1903,7 +1942,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              PRE_API_COMPRESSION_STATUS_TEMPLATE,
              PREFLIGHT_COMPRESSION_STATUS_TEMPLATE,
              IDLE_COMPACTION_STATUS_TEMPLATE,
-@@ -1768,6 +1819,7 @@ from agent.replay_cleanup import (  # noqa: E402
+@@ -1768,6 +1820,7 @@ from agent.replay_cleanup import (  # noqa: E402
      strip_interrupted_tool_tails,
      strip_dangling_tool_call_tail,
      strip_stale_dangerous_confirmations,
@@ -1911,7 +1950,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  )
  
  
-@@ -2651,6 +2703,7 @@ from gateway.session import (
+@@ -2651,6 +2704,7 @@ from gateway.session import (
      build_session_key,
      is_shared_multi_user_session,
      neutralize_untrusted_inline_text,
@@ -1919,7 +1958,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  )
  from gateway.delivery import (
      DeliveryRouter,
-@@ -3146,45 +3199,118 @@ def _build_media_placeholder(event) -> str:
+@@ -3146,45 +3200,118 @@ def _build_media_placeholder(event) -> str:
      """
      parts = []
      media_urls = getattr(event, "media_urls", None) or []
@@ -2060,7 +2099,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  def _format_duration(seconds: float) -> str:
      total = int(round(seconds))
      if total < 0:
-@@ -3628,6 +3754,52 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -3628,6 +3755,52 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -2113,7 +2152,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -5428,6 +5600,13 @@ class TurnRunner:
+@@ -5428,6 +5601,13 @@ class TurnRunner:
          # reads it via ``streaming_tts_consumer_holder[0]`` for delta
          # callback wiring.
          _stts_consumer_ref = ctx.streaming_tts_consumer_holder[0]
@@ -2127,7 +2166,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
          _scfg = getattr(getattr(self._runner, 'config', None), 'streaming', None)
          if _scfg is None:
              from gateway.config import StreamingConfig
-@@ -5472,6 +5651,12 @@ class TurnRunner:
+@@ -5472,6 +5652,12 @@ class TurnRunner:
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=ctx.event_message_id,
                          run_still_current=ctx._run_still_current,
@@ -2140,7 +2179,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                      )
                      if _want_stream_deltas:
                          def _stream_delta_cb(text: str) -> None:
-@@ -5479,7 +5664,7 @@ class TurnRunner:
+@@ -5479,7 +5665,7 @@ class TurnRunner:
                                  _stream_consumer.on_delta(text)
                                  # Tee to the streaming-TTS consumer (#60671).
                                  if _stts_consumer_ref is not None:
@@ -2149,7 +2188,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                      ctx.stream_consumer_holder[0] = _stream_consumer
              except Exception as _sc_err:
                  logger.debug("Could not set up stream consumer: %s", _sc_err)
-@@ -5490,12 +5675,16 @@ class TurnRunner:
+@@ -5490,12 +5676,16 @@ class TurnRunner:
          if _stream_delta_cb is None and _stts_consumer_ref is not None:
              def _stream_delta_cb(text: str) -> None:
                  if ctx._run_still_current():
@@ -2168,7 +2207,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              if _stream_consumer is not None:
                  if already_streamed:
                      _stream_consumer.on_segment_break()
-@@ -6090,7 +6279,22 @@ class TurnRunner:
+@@ -6090,7 +6280,22 @@ class TurnRunner:
                  agent_history = strip_stale_dangerous_confirmations(
                      _selected, now=time.time()
                  )
@@ -2192,7 +2231,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
          # Collect MEDIA paths already in history so we can exclude them
          # from the current turn's extraction. This is compression-safe:
          # even if the message list shrinks, we know which paths are old.
-@@ -6363,26 +6567,53 @@ class TurnRunner:
+@@ -6363,26 +6568,53 @@ class TurnRunner:
              # content list. Consume-and-clear so subsequent turns on the same
              # runner instance don't re-attach stale images.
              _native_imgs = self._runner._consume_pending_native_image_paths(ctx.session_key)
@@ -2251,7 +2290,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                          _img_exc,
                      )
                      _run_message = ctx.message
-@@ -6607,6 +6838,10 @@ class TurnRunner:
+@@ -6607,6 +6839,10 @@ class TurnRunner:
              final_response = _sanitize_gateway_final_response(ctx.source.platform, final_response)
              if not final_response:
                  final_response = f"⚠️ {result['error']}" if result.get("error") else ""
@@ -2262,7 +2301,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              return {
                  "final_response": final_response,
                  "messages": result.get("messages", []),
-@@ -10507,7 +10742,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10507,7 +10743,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return True  # interrupt sent (if not queue), ack already delivered recently
  
          from gateway.display_config import resolve_display_setting
@@ -2271,7 +2310,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  
          # In steer mode the user's text has already been injected into the
          # active run. Some mobile chat setups want that steering to be silent,
-@@ -10539,7 +10774,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10539,7 +10775,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -2280,7 +2319,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                  "busy_ack_detail",
                  True,
              )
-@@ -18645,6 +18880,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18645,6 +18881,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # Reset only this session's per-call buffer; other sessions may be
          # concurrently preparing multimodal turns on the same runner.
          self._consume_pending_native_image_paths(session_key)
@@ -2290,7 +2329,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  
          _is_shared_multi_user = is_shared_multi_user_session(
              source,
-@@ -18728,39 +18966,83 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18728,39 +18967,83 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      )
                  else:
                      logger.info(
@@ -2397,7 +2436,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                  # Echo each successful transcript back to the user immediately
                  # when configured. Lets users verify STT quality in real-time,
                  # while allowing quiet STT for users who only want the agent to
-@@ -18791,52 +19073,129 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18791,52 +19074,129 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # language. The hardcoded send has therefore been removed.
  
          if audio_file_paths:
@@ -2557,7 +2596,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                  # document mixed into a PHOTO/VOICE message (whole-message type
                  # != DOCUMENT) still reach the agent as a readable cached file,
                  # instead of being silently dropped because the message-level
-@@ -18858,22 +19217,105 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18858,22 +19218,105 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                              mtype = guessed
                          else:
                              mtype = "application/octet-stream"
@@ -2678,7 +2717,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  
          # Discord: surface the triggering message id per-turn on the user
          # message rather than in the cached system prompt. message_id changes
-@@ -18901,7 +19343,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -18901,7 +19344,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # is referencing. History can contain the same or similar text
              # multiple times, and without an explicit pointer the agent has to
              # guess (or answer for both subjects). Token overhead is minimal.
@@ -2694,7 +2733,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              if getattr(event, "reply_to_is_own_message", False):
                  message_text = (
                      f'[Replying to your previous message: "{reply_snippet}"]\n\n'
-@@ -19062,6 +19511,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19062,6 +19512,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          state.persistent.native_image_paths = []
          return paths
  
@@ -2707,7 +2746,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -19523,6 +19978,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19523,6 +19979,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          try:
              _pcfg = _load_gateway_config()
              _redact_pii = bool((_pcfg.get("privacy") or {}).get("redact_pii", False))
@@ -2725,7 +2764,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
          except Exception:
              pass
  
-@@ -20826,6 +21292,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20826,6 +21293,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -2737,7 +2776,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -20867,7 +21338,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20867,7 +21339,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -2746,7 +2785,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -20897,7 +21368,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20897,7 +21369,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          from gateway.display_config import resolve_display_setting
                          _reasoning_style = resolve_display_setting(
                              _load_gateway_config(),
@@ -2755,7 +2794,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                              "reasoning_style",
                              "code",
                          )
-@@ -20928,7 +21399,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -20928,7 +21400,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -2764,7 +2803,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -23009,7 +23480,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23009,7 +23481,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -2773,7 +2812,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  
              enabled_toolsets = self._resolve_enabled_toolsets_for_source(
                  user_config, source, platform_key
-@@ -23100,6 +23571,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23100,6 +23572,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      result.get("messages", []),
                  )
  
@@ -2785,7 +2824,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              # Extract media files from the response
              if response:
                  media_files, response = adapter.extract_media(response)
-@@ -23107,8 +23583,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23107,8 +23584,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  media_files = BasePlatformAdapter.filter_media_delivery_paths(media_files)
                  images, text_content = adapter.extract_images(response)
  
@@ -2797,7 +2836,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  
                  if text_content:
                      await adapter.send(
-@@ -23126,6 +23603,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23126,6 +23604,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # Send extracted images
                  for image_url, alt_text in (images or []):
                      try:
@@ -2806,7 +2845,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                          await adapter.send_image(
                              chat_id=source.chat_id,
                              image_url=image_url,
-@@ -23173,19 +23652,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23173,19 +23653,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      except Exception:
                          pass
              else:
@@ -2831,7 +2870,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                      metadata=_thread_metadata,
                  )
              except Exception:
-@@ -24986,6 +25467,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -24986,6 +25468,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -2842,7 +2881,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              chat_id=context.source.chat_id,
              chat_type=(
                  str(context.source.chat_type) if context.source.chat_type else ""
-@@ -25065,11 +25550,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25065,11 +25551,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -2858,7 +2897,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -25079,7 +25566,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25079,7 +25567,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          only the persisted default model.
          """
          try:
@@ -2867,7 +2906,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              from agent.auxiliary_client import _read_main_model, _read_main_provider
              from hermes_cli.config import load_config
  
-@@ -25120,6 +25607,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25120,6 +25608,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not resolved_model:
                  resolved_model = _read_main_model()
  
@@ -2883,7 +2922,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              return decide_image_input_mode(
                  resolved_provider,
                  resolved_model,
-@@ -25139,10 +25635,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25139,10 +25636,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          Auto-analyze user-attached images with the vision tool and prepend
          the descriptions to the message text.
  
@@ -2896,7 +2935,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
  
          Args:
              user_text:   The user's original caption / message text.
-@@ -25175,22 +25669,25 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25175,22 +25670,25 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      description = result.get("analysis", "")
                      description = sanitize_context(description)
                      enriched_parts.append(
@@ -2931,7 +2970,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                  )
  
          # Combine: vision descriptions first, then the user's original text
-@@ -25201,6 +25698,156 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25201,6 +25699,156 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return prefix
          return user_text
  
@@ -3088,7 +3127,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
      async def _enrich_message_with_transcription(
          self,
          user_text: str,
-@@ -25228,14 +25875,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25228,14 +25876,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          if not getattr(self.config, "stt_enabled", True):
              notes = []
              for path in audio_paths:
@@ -3110,7 +3149,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              if not notes:
                  return user_text, []
              prefix = "\n\n".join(notes)
-@@ -25314,21 +25964,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25314,21 +25965,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      # logged for operator diagnosis but kept out of the
                      # LLM-visible prompt.
                      logger.info("Voice transcription failed for %s: %s", path, error)
@@ -3142,7 +3181,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                  )
  
          if enriched_parts:
-@@ -27478,6 +28128,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -27478,6 +28129,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              str(src.user_id or ""),
              str(getattr(src, "profile", None) or ""),
              bool(context.shared_multi_user_session),
@@ -3150,7 +3189,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
              discord_ids,
              discord_tools,
              slack_tools,
-@@ -28241,7 +28892,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -28241,7 +28893,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -3159,7 +3198,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -28274,6 +28925,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -28274,6 +28926,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -3172,7 +3211,7 @@ index 915eee4d494e17ea376b28ccea122657e1f759db..749eaa475905ca75d968bc8f56ad3730
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -28650,7 +29307,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -28650,7 +29308,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -15353,25 +15392,47 @@ index 7f807e3560cd295ae02409f5e59207da0b2af1b9..9a9052681654edb68b74c7c9f4914483
  # ---------------------------------------------------------------------------
 -
 diff --git a/tests/gateway/test_telegram_noise_filter.py b/tests/gateway/test_telegram_noise_filter.py
-index 3c7b292bf95ac813159f3e66f135fd358ce72850..a89160d4b25457c2ab4da256c5e4976c03f6114f 100644
+index 3c7b292bf95ac813159f3e66f135fd358ce72850..4d8299d5f9f1b86767028f7d55858283484f4957 100644
 --- a/tests/gateway/test_telegram_noise_filter.py
 +++ b/tests/gateway/test_telegram_noise_filter.py
-@@ -3,11 +3,14 @@
+@@ -2,12 +2,17 @@
+ 
  import pytest
  
++from agent.chat_completion_helpers import _format_fallback_notice
  from agent.conversation_compression import (
 +    COMPACTION_DONE_STATUS,
 +    COMPACTION_STATUS,
      CONTEXT_OVERFLOW_BLOCKED_WARNING_TEMPLATE,
      ROUTINE_COMPRESSION_STATUS_SAMPLES,
  )
++from agent.error_classifier import FailoverReason
  from gateway.config import Platform
  from gateway.run import (
 +    _COMPRESSION_PROGRESS_STATUS_RE,
      _prepare_gateway_status_message,
      _sanitize_gateway_final_response,
  )
-@@ -36,6 +39,14 @@ NOISY_STATUS_MESSAGES = [
+@@ -24,6 +29,18 @@ CHAT_PLATFORMS = [
+     "feishu",
+ ]
+ 
++
++def _generated_fallback_notice() -> str:
++    """Use the real producer so wording drift cannot silently bypass the gate."""
++    return _format_fallback_notice(
++        "gpt-5.5",
++        "azure-foundry",
++        "arn:aws:bedrock:us-east-1:123456789012:inference-profile/global.example",
++        "bedrock",
++        FailoverReason.timeout,
++    )
++
++
+ NOISY_STATUS_MESSAGES = [
+     "🗜️ Preflight compression check before sending...",
+     (
+@@ -36,6 +53,15 @@ NOISY_STATUS_MESSAGES = [
      "⚠ Compression summary failed: upstream error. Inserted a fallback context marker.",
      "⏱️ Rate limited. Waiting 30.0s (attempt 2/3)...",
      "⏳ Retrying in 4.2s (attempt 1/3)...",
@@ -15383,15 +15444,16 @@ index 3c7b292bf95ac813159f3e66f135fd358ce72850..a89160d4b25457c2ab4da256c5e4976c
 +        "🔄 Switched to fallback model: gpt-5.5 via azure-foundry → "
 +        "global.example via bedrock"
 +    ),
++    _generated_fallback_notice(),
      # Buffered overflow/attempt-cap retry chatter (replayed on retry exhaustion).
      "🗜️ Context too large (~250,000 tokens) — compressing (1/3)...",
      "🗜️ Compressed 30 → 12 messages, retrying...",
-@@ -134,6 +145,15 @@ def test_programmatic_surfaces_keep_raw_status():
+@@ -134,6 +160,24 @@ def test_programmatic_surfaces_keep_raw_status():
          )
  
  
 +def test_programmatic_surfaces_keep_raw_fallback_status():
-+    message = "🔄 Primary model failed — switching to fallback: model-b via provider-b"
++    message = _generated_fallback_notice()
 +
 +    for platform in ("local", "api_server", "webhook", "msgraph_webhook"):
 +        assert (
@@ -15399,10 +15461,19 @@ index 3c7b292bf95ac813159f3e66f135fd358ce72850..a89160d4b25457c2ab4da256c5e4976c
 +        )
 +
 +
++def test_generated_fallback_notice_suppressed_on_chat_surfaces():
++    """The producer's current one-shot notice must never reach human chats."""
++    message = _generated_fallback_notice()
++
++    assert message.startswith("⚠️ Model fallback: gpt-5.5 via azure-foundry unavailable")
++    for platform in (*CHAT_PLATFORMS, "discord", "feishu_group"):
++        assert _prepare_gateway_status_message(platform, "lifecycle", message) is None
++
++
  @pytest.mark.parametrize("message", ["still on it", "⏳ Working — 3 min"])
  def test_telegram_status_keeps_legitimate_heartbeat_messages(message):
      """The compression filter must not swallow user-facing work heartbeats."""
-@@ -165,6 +185,47 @@ def test_all_routine_compression_statuses_suppressed_from_source_constants(
+@@ -165,6 +209,47 @@ def test_all_routine_compression_statuses_suppressed_from_source_constants(
      assert _prepare_gateway_status_message(platform, "lifecycle", message) is None
  
  
