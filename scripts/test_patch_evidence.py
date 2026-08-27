@@ -5,8 +5,8 @@ This is intentionally a repository-level audit rather than another source
 sentinel.  A PATCH is accepted only when its lifecycle is registered, its
 validation section names a real regression boundary, and the corresponding
 current artifact/test entry exists on disk. Full mode also profiles each
-evidence node and requires source-owning PATCHes to execute at least one of
-their declared production files. Runtime PATCHes use their
+evidence node and requires source-owning PATCHes to execute every declared
+Python production file. Runtime PATCHes use their
 operator-level evidence (transaction, replay, cleanup, mirror, npm or
 verifier checks) instead of pretending that a source grep is a behavioral
 test.
@@ -270,6 +270,18 @@ def _resolve_active_patch_nodes(active: dict[str, str], collected_nodes: list[st
             nodes.append(candidates[0])
         resolved[patch_id] = sorted(set(nodes))
 
+        files_text = _files(block)
+        if files_text:
+            unowned_test_files = sorted(
+                {
+                    node.split("::", 1)[0]
+                    for node in resolved[patch_id]
+                    if not _owned_managed_files(block, [node.split("::", 1)[0]])
+                }
+            )
+            if unowned_test_files:
+                raise EvidenceError(f"{patch_id}: evidence nodes come from undeclared test files: {unowned_test_files}")
+
     node_owners: dict[str, list[str]] = defaultdict(list)
     for patch_id, nodes in resolved.items():
         for node in nodes:
@@ -289,28 +301,32 @@ def _validate_patch_trace_hits(
     traced_files: dict[str, set[str]],
     managed_files: list[str],
 ) -> dict[str, list[str]]:
-    """Require each source-owning PATCH's tests to execute owned production code."""
+    """Require each source-owning PATCH's tests to execute all owned Python production code."""
     hits: dict[str, list[str]] = {}
     missing: list[str] = []
     for patch_id, nodes in resolved.items():
         owned = _owned_managed_files(active[patch_id], managed_files)
         production = [path for path in owned if not path.startswith(("tests/", "website/"))]
-        if not production:
+        traceable = [path for path in production if path.endswith(".py")]
+        if not traceable:
             # Test-only portability/hermeticity PATCHes have no production
-            # implementation file to trace; their exclusive, clean pytest node
-            # remains the relevant behavioral evidence.
+            # Python implementation file to trace; their exclusive, clean
+            # pytest node remains the relevant behavioral evidence. Non-Python
+            # production surfaces are covered by their declared runtime/gate
+            # contracts because sys.setprofile cannot observe them.
             hits[patch_id] = []
             continue
         executed: set[str] = set()
         for node in nodes:
             executed.update(traced_files.get(node, set()))
-        patch_hits = sorted(set(production) & executed)
+        patch_hits = sorted(set(traceable) & executed)
         hits[patch_id] = patch_hits
-        if not patch_hits:
-            missing.append(f"{patch_id} (owned production={production}, evidence={nodes})")
+        untraced = sorted(set(traceable) - executed)
+        if untraced:
+            missing.append(f"{patch_id} (unexecuted owned Python production={untraced}, evidence={nodes})")
     if missing:
         raise EvidenceError(
-            "active PATCH evidence passed without executing owned production code: " + "; ".join(missing)
+            "active PATCH evidence passed without executing every owned Python production file: " + "; ".join(missing)
         )
     return hits
 
@@ -333,6 +349,8 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
                 import threading
                 from pathlib import Path
 
+                import pytest
+
                 ROOT = Path(os.environ["HERMES_PATCH_TRACE_ROOT"]).resolve()
                 OUT = Path(os.environ["HERMES_PATCH_TRACE_OUT"])
                 _current = None
@@ -349,17 +367,18 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
                         return
                     _seen.setdefault(_current, set()).add(rel)
 
-                def pytest_runtest_setup(item):
+                @pytest.hookimpl(hookwrapper=True)
+                def pytest_runtest_call(item):
                     global _current
                     _current = item.nodeid
                     sys.setprofile(_profile)
                     threading.setprofile(_profile)
-
-                def pytest_runtest_teardown(item, nextitem):
-                    global _current
-                    sys.setprofile(None)
-                    threading.setprofile(None)
-                    _current = None
+                    try:
+                        yield
+                    finally:
+                        sys.setprofile(None)
+                        threading.setprofile(None)
+                        _current = None
 
                 def pytest_sessionfinish(session, exitstatus):
                     OUT.write_text(

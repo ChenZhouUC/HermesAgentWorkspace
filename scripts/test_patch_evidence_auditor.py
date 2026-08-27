@@ -98,27 +98,99 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                 ["tests/test_contract.py::TestContract::test_contract"],
             )
 
+    def test_evidence_node_must_come_from_patch_owned_test_file(self) -> None:
+        active = {
+            "PATCH-TEST-CONTRACT": (
+                "| **文件** | `tests/test_owned.py`, `agent/feature.py` |\n\n" + patch_block("test_contract")
+            )
+        }
+        with self.assertRaisesRegex(evidence.EvidenceError, "undeclared test files"):
+            evidence._resolve_active_patch_nodes(
+                active,
+                ["tests/test_unowned.py::TestContract::test_contract"],
+            )
+
     def test_patch_trace_requires_owned_production_execution(self) -> None:
-        block = "| **文件** | `agent/feature.py`, `tests/test_feature.py` |\n\n" + patch_block("test_feature")
+        block = "| **文件** | `agent/feature.py`, `agent/helper.py`, `tests/test_feature.py` |\n\n" + patch_block(
+            "test_feature"
+        )
         active = {"PATCH-TEST-CONTRACT": block}
         resolved = {"PATCH-TEST-CONTRACT": ["tests/test_feature.py::TestFeature::test_feature"]}
-        managed = ["agent/feature.py", "tests/test_feature.py"]
-        with self.assertRaisesRegex(evidence.EvidenceError, "without executing owned production code"):
+        managed = ["agent/feature.py", "agent/helper.py", "tests/test_feature.py"]
+        with self.assertRaisesRegex(
+            evidence.EvidenceError,
+            "without executing every owned Python production file",
+        ):
             evidence._validate_patch_trace_hits(
                 active,
                 resolved,
-                {"tests/test_feature.py::TestFeature::test_feature": {"agent/unrelated.py"}},
+                {"tests/test_feature.py::TestFeature::test_feature": {"agent/feature.py"}},
                 managed,
             )
         self.assertEqual(
             evidence._validate_patch_trace_hits(
                 active,
                 resolved,
-                {"tests/test_feature.py::TestFeature::test_feature": {"agent/feature.py"}},
+                {
+                    "tests/test_feature.py::TestFeature::test_feature": {
+                        "agent/feature.py",
+                        "agent/helper.py",
+                    }
+                },
                 managed,
             ),
-            {"PATCH-TEST-CONTRACT": ["agent/feature.py"]},
+            {"PATCH-TEST-CONTRACT": ["agent/feature.py", "agent/helper.py"]},
         )
+
+    def test_fixture_setup_cannot_impersonate_test_call_coverage(self) -> None:
+        interpreter = evidence.INNER / "venv/bin/python"
+        with tempfile.TemporaryDirectory() as temp_raw:
+            root = Path(temp_raw)
+            (root / "agent").mkdir()
+            (root / "tests").mkdir()
+            (root / "venv/bin").mkdir(parents=True)
+            (root / "agent/__init__.py").write_text("", encoding="utf-8")
+            (root / "agent/feature.py").write_text(
+                "def touch():\n    return True\n",
+                encoding="utf-8",
+            )
+            (root / "tests/test_feature.py").write_text(
+                "import pytest\n"
+                "from agent.feature import touch\n\n"
+                "@pytest.fixture(autouse=True)\n"
+                "def exercise_only_during_setup():\n"
+                "    touch()\n\n"
+                "def test_feature():\n"
+                "    assert True\n",
+                encoding="utf-8",
+            )
+            python_wrapper = root / "venv/bin/python"
+            python_wrapper.write_text(
+                f'#!/bin/sh\nexec "{interpreter}" "$@"\n',
+                encoding="utf-8",
+            )
+            python_wrapper.chmod(0o755)
+            active = {
+                "PATCH-TEST-CONTRACT": (
+                    "| **文件** | `agent/feature.py`, `tests/test_feature.py` |\n\n" + patch_block("test_feature")
+                )
+            }
+            resolved = {"PATCH-TEST-CONTRACT": ["tests/test_feature.py::test_feature"]}
+            managed = subprocess.CompletedProcess(
+                ["bash"],
+                0,
+                "agent/feature.py\ntests/test_feature.py\n",
+                "",
+            )
+            with (
+                patch.object(evidence, "INNER", root),
+                patch.object(evidence, "_run", return_value=managed),
+                self.assertRaisesRegex(
+                    evidence.EvidenceError,
+                    "without executing every owned Python production file",
+                ),
+            ):
+                evidence._run_active_patch_nodes(active, resolved)
 
     def test_dotenv_inventory_reads_names_without_exposing_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_raw:

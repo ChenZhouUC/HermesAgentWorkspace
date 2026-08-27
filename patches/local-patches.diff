@@ -15851,10 +15851,10 @@ index 1eb34a41c06b1e26e9319bcc3213d79da8315fe8..10d16343c2a893e18f7775485c225dd4
      """The post-recovery updater must not remap native vault dependencies."""
      import hermes_cli.env_loader as env_loader
 diff --git a/tests/hermes_cli/test_skills_config.py b/tests/hermes_cli/test_skills_config.py
-index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad5254ae11 100644
+index b5ef5721fe7c469d475b870351984207b7949f21..9460d9edabbcb63e637d7dcea05d248a8a9aa3d0 100644
 --- a/tests/hermes_cli/test_skills_config.py
 +++ b/tests/hermes_cli/test_skills_config.py
-@@ -21,6 +21,53 @@ class TestGetDisabledSkills:
+@@ -21,6 +21,121 @@ class TestGetDisabledSkills:
          assert get_disabled_skills({"skills": None}, platform="telegram") == set()
  
  
@@ -15903,12 +15903,80 @@ index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad
 +        discovered = skills_tool._find_all_skills()
 +
 +        assert [item["name"] for item in discovered] == ["custom-skill"]
++class TestPlatformCapabilityIntegration:
++    def test_prompt_builder_prefers_session_platform_config_key(self, monkeypatch):
++        monkeypatch.delenv("HERMES_PLATFORM", raising=False)
++        monkeypatch.setenv("HERMES_SESSION_PLATFORM_CONFIG_KEY", "feishu_group")
++        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "feishu")
 +
++        from agent.prompt_builder import _current_session_platform_hint
 +
++        assert _current_session_platform_hint() == "feishu_group"
++
++    def test_skill_command_cache_invalidates_when_hide_bundled_changes(
++        self, tmp_path, monkeypatch
++    ):
++        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
++        import agent.skill_commands as skill_commands
++
++        cached = {"/cached": {"name": "cached"}}
++        rescanned = {"/rescanned": {"name": "rescanned"}}
++        monkeypatch.setattr(skill_commands, "_skill_commands", cached)
++        monkeypatch.setattr(
++            skill_commands,
++            "_skill_commands_platform",
++            skill_commands._resolve_skill_commands_platform(),
++        )
++        monkeypatch.setattr(
++            skill_commands,
++            "_skill_commands_home",
++            skill_commands._resolve_skill_commands_home(),
++        )
++        monkeypatch.setattr(skill_commands, "_skill_commands_hide_bundled", False)
++
++        with (
++            patch("agent.skill_utils.hide_bundled_skills", return_value=True),
++            patch.object(
++                skill_commands, "scan_skill_commands", return_value=rescanned
++            ) as scan,
++        ):
++            assert skill_commands.get_skill_commands() == rescanned
++        scan.assert_called_once_with()
++
++    def test_default_config_hides_bundled_skills(self):
++        import importlib
++        import hermes_cli.config_defaults as config_defaults
++
++        config_defaults = importlib.reload(config_defaults)
++        assert config_defaults.DEFAULT_CONFIG["skills"]["hide_bundled"] is True
++
++    def test_prompt_size_uses_visible_skill_iterator(self, tmp_path):
++        from hermes_cli import prompt_size
++
++        with (
++            patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]),
++            patch(
++                "agent.skill_utils.iter_visible_skill_index_files", return_value=[]
++            ) as visible,
++        ):
++            assert prompt_size._skill_md_paths_by_name() == {}
++        visible.assert_called_once_with(tmp_path, "SKILL.md")
++
++    def test_readonly_toolsets_are_exact(self):
++        from toolsets import resolve_toolset
++
++        assert set(resolve_toolset("skills_readonly", include_registry=False)) == {
++            "skills_list",
++            "skill_view",
++        }
++        assert set(resolve_toolset("file_readonly", include_registry=False)) == {
++            "read_file",
++            "search_files",
++        }
  
  
  # ---------------------------------------------------------------------------
-@@ -42,25 +89,100 @@ class TestSaveDisabledSkills:
+@@ -42,25 +157,100 @@ class TestSaveDisabledSkills:
  # ---------------------------------------------------------------------------
  
  class TestIsSkillDisabled:
@@ -15921,7 +15989,7 @@ index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
 +        from tools.skills_tool import _is_skill_disabled
 +        assert _is_skill_disabled("bad-skill") is True
-+
+ 
 +    def test_globally_enabled(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text(
 +            "skills:\n"
@@ -15932,6 +16000,12 @@ index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad
 +        from tools.skills_tool import _is_skill_disabled
 +        assert _is_skill_disabled("good-skill") is False
  
+-    @patch("hermes_cli.config.load_config")
+-    def test_platform_disabled(self, mock_load):
+-        mock_load.return_value = {"skills": {
+-            "disabled": [],
+-            "platform_disabled": {"telegram": ["tg-skill"]}
+-        }}
 +    def test_platform_disabled(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text(
 +            "skills:\n"
@@ -15941,15 +16015,9 @@ index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad
 +            "      - tg-skill\n"
 +        )
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-+        from tools.skills_tool import _is_skill_disabled
-+        assert _is_skill_disabled("tg-skill", platform="telegram") is True
+         from tools.skills_tool import _is_skill_disabled
+         assert _is_skill_disabled("tg-skill", platform="telegram") is True
  
--    @patch("hermes_cli.config.load_config")
--    def test_platform_disabled(self, mock_load):
--        mock_load.return_value = {"skills": {
--            "disabled": [],
--            "platform_disabled": {"telegram": ["tg-skill"]}
--        }}
 +    def test_globally_disabled_stays_disabled_on_platform(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text(
 +            "skills:\n"
@@ -15960,11 +16028,11 @@ index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad
 +            "      - tg-skill\n"
 +        )
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-         from tools.skills_tool import _is_skill_disabled
++        from tools.skills_tool import _is_skill_disabled
 +        # Union: a globally-disabled skill stays disabled on a platform that
 +        # has its own platform_disabled list (matches issue #46201).
 +        assert _is_skill_disabled("skill-a", platform="telegram") is True
-         assert _is_skill_disabled("tg-skill", platform="telegram") is True
++        assert _is_skill_disabled("tg-skill", platform="telegram") is True
  
 +    def test_empty_platform_list_keeps_global_disabled(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text(
@@ -15996,7 +16064,7 @@ index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
 +        from tools.skills_tool import _is_skill_disabled
 +        assert _is_skill_disabled("any-skill") is False
- 
++
 +    def test_exception_returns_false(self, tmp_path, monkeypatch):
 +        (tmp_path / "config.yaml").write_text("skills: [invalid\n")
 +        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -16020,7 +16088,7 @@ index b5ef5721fe7c469d475b870351984207b7949f21..8bd7d2e608cdf8723036185fb55a53ad
          from tools.skills_tool import _is_skill_disabled
          assert _is_skill_disabled("discord-skill") is True
  
-@@ -110,6 +232,60 @@ class TestGetDisabledSkillNames:
+@@ -110,6 +300,60 @@ class TestGetDisabledSkillNames:
          result = get_disabled_skill_names()
          assert result == {"discord-skill", "global-skill"}
  
