@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,7 @@ from final_upgrade_audit import _current_week_readme_rows, _markdown_table_summa
 def patch_block(validation: str) -> str:
     return (
         "### [PATCH-TEST-CONTRACT] synthetic\n\n"
+        "| **文件** | `tests/test_contract.py` |\n\n"
         "**问题**：problem\n\n"
         "**修复**：fix\n\n"
         f"**验证**：{validation}\n\n"
@@ -27,6 +29,11 @@ def patch_block(validation: str) -> str:
 
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
+    def test_duplicate_patch_definition_in_one_lifecycle_is_rejected(self) -> None:
+        duplicate = patch_block("test_first") + "\n" + patch_block("test_second")
+        with self.assertRaisesRegex(evidence.EvidenceError, "duplicate active PATCH definitions"):
+            evidence._blocks(duplicate, archive=False)
+
     def test_quick_mode_defers_bundle_parity_until_full_audit(self) -> None:
         with ExitStack() as stack:
             stack.enter_context(patch.object(sys, "argv", ["test_patch_evidence.py", "--quick"]))
@@ -127,6 +134,124 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
         ):
             final_audit._run_canonical_patch_tests(["tests/test_contract.py"])
 
+    def test_final_canonical_coverage_must_match_collected_nodes(self) -> None:
+        final_audit._validate_canonical_coverage(
+            {"files": 2, "passed": 7, "failed": 0, "skipped": 1},
+            {"files": 2, "collected": 8},
+        )
+        with self.assertRaisesRegex(
+            final_audit.FinalAuditError,
+            "do not cover the full collected PATCH suite",
+        ):
+            final_audit._validate_canonical_coverage(
+                {"files": 2, "passed": 6, "failed": 0, "skipped": 1},
+                {"files": 2, "collected": 8},
+            )
+
+    def test_absorption_matrix_covers_every_overlap_once(self) -> None:
+        records = [
+            {"id": "PATCH-A", "lifecycle": "active", "upstream_overlap": ["a.py"]},
+            {"id": "PATCH-B", "lifecycle": "active", "upstream_overlap": []},
+            {"id": "PATCH-C", "lifecycle": "archived", "upstream_overlap": ["c.py"]},
+        ]
+        self.assertEqual(
+            final_audit._validate_absorption_matrix(
+                records,
+                "`PATCH-A`=部分吸收；`PATCH-C`=完全吸收；无路径相交=1",
+            ),
+            {"overlap_verdicts": 2, "active_no_overlap": 1},
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "matrix drift"):
+            final_audit._validate_absorption_matrix(
+                records,
+                "`PATCH-C`=完全吸收；无路径相交=1",
+            )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "conflicts with lifecycle"):
+            final_audit._validate_absorption_matrix(
+                records,
+                "`PATCH-A`=完全吸收；`PATCH-C`=完全吸收；无路径相交=1",
+            )
+
+    def test_evidence_upgrade_range_must_end_at_current_head(self) -> None:
+        old_sha = "a" * 40
+        head = "b" * 40
+        records = [
+            {"upgrade_range": {"old_sha": old_sha, "new_sha": head}},
+            {"upgrade_range": {"old_sha": old_sha, "new_sha": head}},
+        ]
+        self.assertEqual(
+            final_audit._validate_evidence_upgrade_range(records, head),
+            {"old_sha": old_sha, "new_sha": head},
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "stale or invalid"):
+            final_audit._validate_evidence_upgrade_range(
+                [{"upgrade_range": {"old_sha": old_sha, "new_sha": "c" * 40}}],
+                head,
+            )
+
+    def test_patch_count_claims_must_match_evidence_lifecycles(self) -> None:
+        records = [
+            {"lifecycle": "active", "evidence_type": "pytest_node"},
+            {"lifecycle": "active", "evidence_type": "runtime_contract"},
+            {"lifecycle": "active", "evidence_type": "external_verifier"},
+            {"lifecycle": "archived", "evidence_type": "archive_behavior_or_retirement_audit"},
+        ]
+        patches = "当前共 3 个语义补丁。1 个工程内补丁"
+        readme = "维护 3 个按职责命名的活跃语义补丁：1 个工程内补丁"
+        summary = "终态为 3 active + 1 Archive"
+        self.assertEqual(
+            final_audit._validate_patch_count_claims(records, patches, readme, summary),
+            {"active": 3, "archived": 1, "engineering": 1},
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "count claims drift"):
+            final_audit._validate_patch_count_claims(
+                records,
+                "当前共 4 个语义补丁。1 个工程内补丁",
+                readme,
+                summary,
+            )
+
+    def test_documented_regression_counts_must_match_final_results(self) -> None:
+        canonical = {"files": 2, "passed": 7, "failed": 0, "skipped": 1}
+        records = [{"id": "PATCH-A"}, {"id": "PATCH-B"}]
+        summary = "final **2 files / 7 passed / 0 failed / 1 skipped**; 2/2 full PATCH evidence"
+        self.assertEqual(
+            final_audit._validate_documented_regression_counts(
+                canonical,
+                records,
+                summary,
+                summary,
+            )["patch_evidence"],
+            2,
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "canonical test count drift"):
+            final_audit._validate_documented_regression_counts(
+                canonical,
+                records,
+                "final **2 files / 6 passed / 0 failed / 1 skipped**",
+                summary,
+            )
+
+    def test_documented_gate_counts_must_match_declared_gates(self) -> None:
+        script = """\
+# -- 8b. Patch invariant gates
+_FIRST_PATCH_OK=false
+_SECOND_PATCH_OK=false
+_ARCHIVED_ONE_OK=false
+# -- 8c. Refresh saved diff
+"""
+        summary = "2 active + 1 archived gates"
+        self.assertEqual(
+            final_audit._validate_documented_gate_counts(script, summary, summary),
+            {"active": 2, "archived": 1},
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "gate count drift"):
+            final_audit._validate_documented_gate_counts(
+                script,
+                "1 active + 1 archived gates",
+                summary,
+            )
+
     def test_readme_summary_length_ignores_prettier_table_padding(self) -> None:
         row = "| v1.2.3 | 2026-08-23 | semantic summary" + (" " * 500) + " |"
         self.assertEqual(_markdown_table_summary(row), "semantic summary")
@@ -143,6 +268,27 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
             ["| v0.20.5 | 2026-08-26 | current week |"],
         )
 
+    def test_final_repository_status_allows_only_unstaged_package_lock(self) -> None:
+        self.assertEqual(
+            final_audit._validate_inner_status(
+                [" M agent/feature.py", "?? tests/test_feature.py", " M package-lock.json"],
+                ["agent/feature.py", "tests/test_feature.py"],
+            ),
+            ["package-lock.json"],
+        )
+
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "extra=.*notes.txt"):
+            final_audit._validate_inner_status(
+                [" M agent/feature.py", "?? notes.txt"],
+                ["agent/feature.py"],
+            )
+
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "invalid_reviewed"):
+            final_audit._validate_inner_status(
+                [" M agent/feature.py", "M  package-lock.json"],
+                ["agent/feature.py"],
+            )
+
     def test_exact_four_section_shape_rejects_missing_validation(self) -> None:
         block = patch_block("test_contract").replace("**验证**：test_contract\n\n", "")
         with self.assertRaises(evidence.EvidenceError):
@@ -153,6 +299,7 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
         resolved = evidence._resolve_active_patch_nodes(
             active,
             ["tests/test_contract.py::TestContract::test_contract"],
+            ["tests/test_contract.py"],
         )
         self.assertEqual(
             resolved,
@@ -165,6 +312,7 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                     "tests/test_a.py::TestA::test_contract",
                     "tests/test_b.py::TestB::test_contract",
                 ],
+                ["tests/test_a.py", "tests/test_b.py"],
             )
 
     def test_active_patches_cannot_borrow_the_same_evidence_node(self) -> None:
@@ -176,6 +324,7 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
             evidence._resolve_active_patch_nodes(
                 active,
                 ["tests/test_contract.py::TestContract::test_contract"],
+                ["tests/test_contract.py"],
             )
 
     def test_evidence_node_must_come_from_patch_owned_test_file(self) -> None:
@@ -184,11 +333,178 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                 "| **文件** | `tests/test_owned.py`, `agent/feature.py` |\n\n" + patch_block("test_contract")
             )
         }
-        with self.assertRaisesRegex(evidence.EvidenceError, "undeclared test files"):
+        with self.assertRaisesRegex(evidence.EvidenceError, "undeclared managed test files"):
             evidence._resolve_active_patch_nodes(
                 active,
                 ["tests/test_unowned.py::TestContract::test_contract"],
+                ["tests/test_unowned.py"],
             )
+
+    def test_owned_file_matching_is_token_exact_not_substring_based(self) -> None:
+        block = "| **文件** | `tests/agent/feature.py` |\n"
+        self.assertEqual(
+            evidence._owned_managed_files(
+                block,
+                ["agent/feature.py", "tests/agent/feature.py"],
+            ),
+            ["tests/agent/feature.py"],
+        )
+
+    def test_active_engineering_patch_must_own_a_managed_path(self) -> None:
+        active = {"PATCH-TEST-CONTRACT": ("| **文件** | `tests/test_missing.py` |\n\n" + patch_block("test_contract"))}
+        with (
+            patch.dict(evidence.RUNTIME_EVIDENCE, {}, clear=True),
+            patch.dict(evidence.EXTERNAL_EVIDENCE_AUDITS, {}, clear=True),
+            self.assertRaisesRegex(evidence.EvidenceError, "owns no PATCHED_FILES path"),
+        ):
+            evidence._audit_active_patch_ownership(active, ["tests/test_other.py"])
+
+    def test_archived_step8_gate_must_map_to_a_registered_archive(self) -> None:
+        script = """\
+# -- 8b. Patch invariant gates
+_ARCHIVED_TEST_OK=false
+# Archived PATCH-UNKNOWN: synthetic
+if true; then
+    _ARCHIVED_TEST_OK=true
+fi
+# -- 8c. Refresh saved diff
+if $_PATCH_APPLY_OK && $_ARCHIVED_TEST_OK; then
+    :
+fi
+"""
+        with tempfile.TemporaryDirectory() as temp_raw:
+            script_path = Path(temp_raw) / "update.sh"
+            script_path.write_text(script, encoding="utf-8")
+            with (
+                patch.object(evidence, "SCRIPT", script_path),
+                self.assertRaisesRegex(evidence.EvidenceError, "unknown archived PATCH ID"),
+            ):
+                evidence.audit_gate_links({}, {"PATCH-ARCHIVE": patch_block("test_contract")})
+
+    def test_step8_gate_success_assignment_must_be_unique(self) -> None:
+        script = """\
+# -- 8b. Patch invariant gates
+_TEST_PATCH_OK=false
+# PATCH-TEST-CONTRACT: synthetic
+if true; then
+    _TEST_PATCH_OK=true
+    _TEST_PATCH_OK=true
+fi
+# -- 8c. Refresh saved diff
+if $_PATCH_APPLY_OK && $_TEST_PATCH_OK; then
+    :
+fi
+"""
+        with tempfile.TemporaryDirectory() as temp_raw:
+            script_path = Path(temp_raw) / "update.sh"
+            script_path.write_text(script, encoding="utf-8")
+            with (
+                patch.object(evidence, "SCRIPT", script_path),
+                self.assertRaisesRegex(evidence.EvidenceError, "exactly once"),
+            ):
+                evidence.audit_gate_links(
+                    {"PATCH-TEST-CONTRACT": patch_block("test_contract")},
+                    {},
+                )
+
+    def test_gateway_state_must_belong_to_live_non_pytest_gateway(self) -> None:
+        head = "a" * 40
+        payload = {
+            "kind": "hermes-gateway",
+            "pid": 42,
+            "argv": ["python", "-m", "hermes_cli.main", "gateway", "run"],
+            "gateway_state": "running",
+            "code_sha": head,
+        }
+        self.assertEqual(
+            final_audit._validate_gateway_state_payload(
+                payload,
+                gateway_pid=42,
+                expected_sha=head,
+            )["state_file_pid"],
+            42,
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "pytest process"):
+            final_audit._validate_gateway_state_payload(
+                {**payload, "argv": ["python", "-m", "pytest"]},
+                gateway_pid=42,
+                expected_sha=head,
+            )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "not live Gateway PID"):
+            final_audit._validate_gateway_state_payload(
+                {**payload, "pid": 41},
+                gateway_pid=42,
+                expected_sha=head,
+            )
+
+    def test_post_test_bundle_reverification_is_fail_closed(self) -> None:
+        with patch.object(
+            final_audit.patch_evidence,
+            "audit_bundle",
+            side_effect=evidence.EvidenceError("changed after tests"),
+        ):
+            with self.assertRaisesRegex(
+                final_audit.FinalAuditError,
+                "post-test replay bundle verification failed",
+            ):
+                final_audit._reverify_bundle_after_tests()
+
+    def test_bundle_audit_materializes_managed_deletions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_raw:
+            root = Path(temp_raw)
+            inner = root / "inner"
+            inner.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=inner, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "audit@example.invalid"],
+                cwd=inner,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Audit Test"],
+                cwd=inner,
+                check=True,
+            )
+            # This synthetic repository tests bundle mechanics, not the user's
+            # global commit policy. Isolate it from core.hooksPath without
+            # changing or bypassing hooks in the real workspace.
+            hooks = root / "empty-hooks"
+            hooks.mkdir()
+            subprocess.run(
+                ["git", "config", "core.hooksPath", str(hooks)],
+                cwd=inner,
+                check=True,
+            )
+            kept = inner / "kept.py"
+            deleted = inner / "deleted.py"
+            kept.write_text("VALUE = 1\n", encoding="utf-8")
+            deleted.write_text("REMOVE = True\n", encoding="utf-8")
+            subprocess.run(["git", "add", "kept.py", "deleted.py"], cwd=inner, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=inner, check=True)
+            kept.write_text("VALUE = 2\n", encoding="utf-8")
+            deleted.unlink()
+
+            script = root / "update.sh"
+            script.write_text(
+                "#!/bin/sh\nprintf '%s\\n' kept.py deleted.py\n",
+                encoding="utf-8",
+            )
+            bundle = root / "local-patches.diff"
+            diff = subprocess.run(
+                ["git", "diff", "--full-index", "HEAD", "--", "kept.py", "deleted.py"],
+                cwd=inner,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            bundle.write_text(diff.stdout, encoding="utf-8")
+
+            with (
+                patch.object(evidence, "INNER", inner),
+                patch.object(evidence, "SCRIPT", script),
+                patch.object(evidence, "BUNDLE", bundle),
+            ):
+                evidence.audit_bundle()
 
     def test_patch_trace_requires_owned_production_execution(self) -> None:
         block = "| **文件** | `agent/feature.py`, `agent/helper.py`, `tests/test_feature.py` |\n\n" + patch_block(
@@ -221,6 +537,42 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
             ),
             {"PATCH-TEST-CONTRACT": ["agent/feature.py", "agent/helper.py"]},
         )
+
+    def test_module_import_coverage_requires_an_explicit_patch_file_exception(self) -> None:
+        node = "tests/test_feature.py::test_feature"
+        block = "| **文件** | `agent/feature.py`, `tests/test_feature.py` |\n\n" + patch_block("test_feature")
+        active = {"PATCH-TEST-CONTRACT": block}
+        resolved = {"PATCH-TEST-CONTRACT": [node]}
+        managed = ["agent/feature.py", "tests/test_feature.py"]
+        with (
+            patch.dict(evidence.MODULE_IMPORT_EVIDENCE, {}, clear=True),
+            self.assertRaisesRegex(
+                evidence.EvidenceError,
+                "without executing every owned Python production file",
+            ),
+        ):
+            evidence._validate_patch_trace_hits(
+                active,
+                resolved,
+                {node: set()},
+                managed,
+                {node: {"agent/feature.py"}},
+            )
+        with patch.dict(
+            evidence.MODULE_IMPORT_EVIDENCE,
+            {"PATCH-TEST-CONTRACT": ("agent/feature.py",)},
+            clear=True,
+        ):
+            self.assertEqual(
+                evidence._validate_patch_trace_hits(
+                    active,
+                    resolved,
+                    {node: set()},
+                    managed,
+                    {node: {"agent/feature.py"}},
+                ),
+                {"PATCH-TEST-CONTRACT": ["agent/feature.py"]},
+            )
 
     def test_fixture_setup_cannot_impersonate_test_call_coverage(self) -> None:
         interpreter = evidence.INNER / "venv/bin/python"
@@ -271,6 +623,91 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                 ),
             ):
                 evidence._run_active_patch_nodes(active, resolved)
+
+    def test_import_only_cannot_impersonate_production_execution(self) -> None:
+        interpreter = evidence.INNER / "venv/bin/python"
+        with tempfile.TemporaryDirectory() as temp_raw:
+            root = Path(temp_raw)
+            (root / "agent").mkdir()
+            (root / "tests").mkdir()
+            (root / "venv/bin").mkdir(parents=True)
+            (root / "agent/__init__.py").write_text("", encoding="utf-8")
+            (root / "agent/feature.py").write_text(
+                "VALUE = 1\n\ndef touch():\n    return True\n",
+                encoding="utf-8",
+            )
+            (root / "tests/test_feature.py").write_text(
+                "def test_feature():\n    import agent.feature\n    assert agent.feature.VALUE == 1\n",
+                encoding="utf-8",
+            )
+            python_wrapper = root / "venv/bin/python"
+            python_wrapper.write_text(
+                f'#!/bin/sh\nexec "{interpreter}" "$@"\n',
+                encoding="utf-8",
+            )
+            python_wrapper.chmod(0o755)
+            active = {
+                "PATCH-TEST-CONTRACT": (
+                    "| **文件** | `agent/feature.py`, `tests/test_feature.py` |\n\n" + patch_block("test_feature")
+                )
+            }
+            resolved = {"PATCH-TEST-CONTRACT": ["tests/test_feature.py::test_feature"]}
+            managed = subprocess.CompletedProcess(
+                ["bash"],
+                0,
+                "agent/feature.py\ntests/test_feature.py\n",
+                "",
+            )
+            with (
+                patch.object(evidence, "INNER", root),
+                patch.object(evidence, "_run", return_value=managed),
+                self.assertRaisesRegex(
+                    evidence.EvidenceError,
+                    "without executing every owned Python production file",
+                ),
+            ):
+                evidence._run_active_patch_nodes(active, resolved)
+
+    def test_active_patch_nodes_run_in_separate_pytest_processes(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(argv, *, env=None, **_kwargs):
+            calls.append(list(argv))
+            node = argv[-1]
+            function = node.rsplit("::", 1)[-1]
+            junit_arg = next(value for value in argv if value.startswith("--junitxml="))
+            Path(junit_arg.split("=", 1)[1]).write_text(
+                f'<testsuite tests="1"><testcase name="{function}" /></testsuite>',
+                encoding="utf-8",
+            )
+            Path(env["HERMES_PATCH_TRACE_OUT"]).write_text(
+                json.dumps({node: []}),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(argv, 0, "1 passed", "")
+
+        active = {
+            "PATCH-TEST-FIRST": "| **文件** | `tests/test_first.py` |\n",
+            "PATCH-TEST-SECOND": "| **文件** | `tests/test_second.py` |\n",
+        }
+        resolved = {
+            "PATCH-TEST-FIRST": ["tests/test_first.py::test_first"],
+            "PATCH-TEST-SECOND": ["tests/test_second.py::test_second"],
+        }
+        managed = subprocess.CompletedProcess(
+            ["bash"],
+            0,
+            "tests/test_first.py\ntests/test_second.py\n",
+            "",
+        )
+        with (
+            patch.object(evidence.subprocess, "run", side_effect=fake_run),
+            patch.object(evidence, "_run", return_value=managed),
+        ):
+            evidence._run_active_patch_nodes(active, resolved)
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual({call[-1] for call in calls}, {resolved[key][0] for key in resolved})
 
     def test_dotenv_inventory_reads_names_without_exposing_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_raw:

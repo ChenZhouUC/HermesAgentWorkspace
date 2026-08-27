@@ -69,6 +69,7 @@
     "people*.yaml*": "Private people profile sources and generated drafts.",
     "plugins/**/__pycache__/": "Warm bytecode cache for outer runtime plugins.",
     "processes.json": "Runtime process registry.",
+    "spawn-ledger.json*": "Machine-scoped process identity ledger and corruption quarantine used for safe orphan reaping across restricted process environments.",
     "projects.db*": "Project database files.",
     "provider_models_cache.json": "Provider model cache.",
     "response_store.db*": "Response store database files.",

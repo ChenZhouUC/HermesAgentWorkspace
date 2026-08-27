@@ -4,12 +4,13 @@
 This is intentionally a repository-level audit rather than another source
 sentinel.  A PATCH is accepted only when its lifecycle is registered, its
 validation section names a real regression boundary, and the corresponding
-current artifact/test entry exists on disk. Full mode also profiles each
-evidence node and requires source-owning PATCHes to execute every declared
-Python production file. Runtime, dedicated, archive, and external-verifier
-PATCHes are executed from one probe registry and must leave a fresh per-PATCH
-receipt; prose tokens or an unconditional contract status cannot turn them
-green.
+current artifact/test entry exists on disk. Full mode runs every PATCH in a
+separate pytest process, profiles non-import execution, and requires
+source-owning PATCHes to execute every declared Python production file unless
+that exact module-level data file has an explicit import-evidence exception.
+Runtime, dedicated, archive, and external-verifier PATCHes are executed from
+one probe registry and must leave a fresh per-PATCH receipt; prose tokens or an
+unconditional contract status cannot turn them green.
 """
 
 from __future__ import annotations
@@ -71,6 +72,11 @@ def _hermetic_test_env() -> dict[str, str]:
 def _blocks(text: str, *, archive: bool) -> dict[str, str]:
     section = text.split("\n## Archive", 1)[1] if archive else text.split("\n## Archive", 1)[0]
     matches = list(re.finditer(r"^### \[(PATCH-[A-Z0-9-]+)\] .+$", section, re.MULTILINE))
+    ids = [match.group(1) for match in matches]
+    duplicates = sorted({patch_id for patch_id in ids if ids.count(patch_id) > 1})
+    if duplicates:
+        lifecycle = "archive" if archive else "active"
+        raise EvidenceError(f"duplicate {lifecycle} PATCH definitions: {duplicates}")
     return {
         m.group(1): section[m.start() : matches[i + 1].start() if i + 1 < len(matches) else len(section)]
         for i, m in enumerate(matches)
@@ -108,7 +114,7 @@ def _owned_managed_files(block: str, managed_files: list[str]) -> list[str]:
     return sorted(
         path
         for path in managed_files
-        if path in files_text or any(fnmatch.fnmatch(path, pattern.replace("...", "*")) for pattern in patterns)
+        if any(fnmatch.fnmatchcase(path, pattern.replace("...", "*")) for pattern in patterns)
     )
 
 
@@ -118,6 +124,25 @@ def _test_tokens(validation: str) -> set[str]:
     without_paths = re.sub(path_pattern, "", validation)
     functions = set(re.findall(r"\btest_[A-Za-z0-9_]+\b(?!\.py)", without_paths))
     return paths | functions
+
+
+def _audit_active_patch_ownership(active: dict[str, str], managed_files: list[str]) -> None:
+    """Every non-runtime active PATCH must own at least one managed path."""
+    for patch_id, block in active.items():
+        if patch_id in RUNTIME_EVIDENCE or patch_id in EXTERNAL_EVIDENCE_AUDITS:
+            continue
+        if not _owned_managed_files(block, managed_files):
+            raise EvidenceError(f"{patch_id}: active engineering/dedicated PATCH owns no PATCHED_FILES path")
+    unknown_import_exceptions = set(MODULE_IMPORT_EVIDENCE) - set(active)
+    if unknown_import_exceptions:
+        raise EvidenceError(
+            f"module-import evidence maps unknown active PATCH IDs: {sorted(unknown_import_exceptions)}"
+        )
+    for patch_id, paths in MODULE_IMPORT_EVIDENCE.items():
+        owned = set(_owned_managed_files(active[patch_id], managed_files))
+        invalid = sorted(set(paths) - owned)
+        if invalid:
+            raise EvidenceError(f"{patch_id}: module-import evidence references unowned paths: {invalid}")
 
 
 RUNTIME_EVIDENCE: dict[str, tuple[str, ...]] = {
@@ -189,8 +214,17 @@ EXTERNAL_EVIDENCE_AUDITS: dict[str, tuple[str, str, str]] = {
 }
 
 
+# A small number of PATCHes intentionally modify module-level configuration
+# constants. Import execution is meaningful evidence only for these exact
+# PATCH/file pairs; every other production file requires a non-module call.
+MODULE_IMPORT_EVIDENCE: dict[str, tuple[str, ...]] = {
+    "PATCH-PLATFORM-CAPABILITY-SCOPE": ("hermes_cli/config_defaults.py",),
+}
+
+
 ARCHIVED_EVIDENCE_AUDITS: dict[str, str] = {
     "PATCH-LAUNCHD-WRAPPER-SUPERVISOR": "audit_archived_launchd_wrapper_supervisor",
+    "PATCH-COMPACTION-LIFECYCLE-SILENCE": "audit_archived_compaction_lifecycle_silence",
     "PATCH-VERTEX-FALLBACK": "audit_archived_vertex_fallback",
     "PATCH-GEMINI-CUSTOM-NATIVE-BASE": "audit_archived_gemini_custom_native_base",
     "PATCH-LAZY-ACTIVATION": "audit_archived_lazy_activation",
@@ -353,7 +387,11 @@ def _node_function(node_id: str) -> str:
     return _base_node_id(node_id).rsplit("::", 1)[-1]
 
 
-def _resolve_active_patch_nodes(active: dict[str, str], collected_nodes: list[str]) -> dict[str, list[str]]:
+def _resolve_active_patch_nodes(
+    active: dict[str, str],
+    collected_nodes: list[str],
+    managed_files: list[str],
+) -> dict[str, list[str]]:
     by_function: dict[str, set[str]] = defaultdict(set)
     for node in collected_nodes:
         by_function[_node_function(node)].add(_base_node_id(node))
@@ -382,17 +420,14 @@ def _resolve_active_patch_nodes(active: dict[str, str], collected_nodes: list[st
             nodes.append(candidates[0])
         resolved[patch_id] = sorted(set(nodes))
 
-        files_text = _files(block)
-        if files_text:
-            unowned_test_files = sorted(
-                {
-                    node.split("::", 1)[0]
-                    for node in resolved[patch_id]
-                    if not _owned_managed_files(block, [node.split("::", 1)[0]])
-                }
+        owned = set(_owned_managed_files(block, managed_files))
+        unowned_test_files = sorted(
+            {node.split("::", 1)[0] for node in resolved[patch_id] if node.split("::", 1)[0] not in owned}
+        )
+        if unowned_test_files:
+            raise EvidenceError(
+                f"{patch_id}: evidence nodes come from undeclared managed test files: {unowned_test_files}"
             )
-            if unowned_test_files:
-                raise EvidenceError(f"{patch_id}: evidence nodes come from undeclared test files: {unowned_test_files}")
 
     node_owners: dict[str, list[str]] = defaultdict(list)
     for patch_id, nodes in resolved.items():
@@ -412,6 +447,7 @@ def _validate_patch_trace_hits(
     resolved: dict[str, list[str]],
     traced_files: dict[str, set[str]],
     managed_files: list[str],
+    imported_files: dict[str, set[str]] | None = None,
 ) -> dict[str, list[str]]:
     """Require each source-owning PATCH's tests to execute all owned Python production code."""
     hits: dict[str, list[str]] = {}
@@ -429,11 +465,15 @@ def _validate_patch_trace_hits(
             hits[patch_id] = []
             continue
         executed: set[str] = set()
+        imported: set[str] = set()
         for node in nodes:
             executed.update(traced_files.get(node, set()))
-        patch_hits = sorted(set(traceable) & executed)
+            imported.update((imported_files or {}).get(node, set()))
+        allowed_imports = set(MODULE_IMPORT_EVIDENCE.get(patch_id, ()))
+        effective_hits = executed | (imported & allowed_imports)
+        patch_hits = sorted(set(traceable) & effective_hits)
         hits[patch_id] = patch_hits
-        untraced = sorted(set(traceable) - executed)
+        untraced = sorted(set(traceable) - effective_hits)
         if untraced:
             missing.append(f"{patch_id} (unexecuted owned Python production={untraced}, evidence={nodes})")
     if missing:
@@ -444,13 +484,10 @@ def _validate_patch_trace_hits(
 
 
 def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str]]) -> dict[str, list[str]]:
-    unique_nodes = sorted({node for nodes in resolved.values() for node in nodes})
-    if not unique_nodes:
+    if not any(resolved.values()):
         raise EvidenceError("active engineering PATCH evidence resolved to no pytest nodes")
     with tempfile.TemporaryDirectory(prefix="hermes-active-patch-evidence-") as temp_raw:
         temp = Path(temp_raw)
-        junit = temp / "active-patch-evidence.xml"
-        trace_json = temp / "active-patch-trace.json"
         plugin = temp / "patch_trace_plugin.py"
         plugin.write_text(
             textwrap.dedent(
@@ -467,6 +504,7 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
                 OUT = Path(os.environ["HERMES_PATCH_TRACE_OUT"])
                 _current = None
                 _seen = {}
+                _imports = {}
 
                 def _profile(frame, event, arg):
                     if event != "call" or _current is None:
@@ -477,7 +515,8 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
                         return
                     if rel.startswith(("tests/", "venv/", ".hermes-runtime/")):
                         return
-                    _seen.setdefault(_current, set()).add(rel)
+                    target = _imports if frame.f_code.co_name == "<module>" else _seen
+                    target.setdefault(_current, set()).add(rel)
 
                 @pytest.hookimpl(hookwrapper=True)
                 def pytest_runtest_call(item):
@@ -494,7 +533,10 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
 
                 def pytest_sessionfinish(session, exitstatus):
                     OUT.write_text(
-                        json.dumps({key: sorted(value) for key, value in _seen.items()}),
+                        json.dumps({
+                            "calls": {key: sorted(value) for key, value in _seen.items()},
+                            "imports": {key: sorted(value) for key, value in _imports.items()},
+                        }),
                         encoding="utf-8",
                     )
                 """
@@ -502,47 +544,57 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
             + "\n",
             encoding="utf-8",
         )
-        env = _hermetic_test_env()
-        env["PYTHONPATH"] = os.pathsep.join(part for part in (str(temp), str(INNER), env.get("PYTHONPATH", "")) if part)
-        env["HERMES_PATCH_TRACE_ROOT"] = str(INNER)
-        env["HERMES_PATCH_TRACE_OUT"] = str(trace_json)
-        result = subprocess.run(
-            [
-                str(INNER / "venv/bin/python"),
-                "-m",
-                "pytest",
-                "-q",
-                "-p",
-                "no:cacheprovider",
-                "-p",
-                "patch_trace_plugin",
-                "-o",
-                "junit_family=xunit2",
-                f"--junitxml={junit}",
-                *unique_nodes,
-            ],
-            cwd=INNER,
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=600,
-            check=False,
-        )
-        if result.returncode:
-            raise EvidenceError(f"active PATCH node regression failed: {result.stdout[-2000:]}{result.stderr[-2000:]}")
-        if re.search(r"\b\d+\s+xpassed\b", result.stdout):
-            raise EvidenceError("active PATCH node regression contains xpassed outcomes")
-        try:
-            root = ET.parse(junit).getroot()
-        except (ET.ParseError, OSError) as exc:
-            raise EvidenceError(f"active PATCH JUnit report is unreadable: {exc}") from exc
-        cases = list(root.iter("testcase"))
-        if not cases:
-            raise EvidenceError("active PATCH JUnit report contains no test cases")
-        outcomes: dict[str, list[ET.Element]] = defaultdict(list)
-        for case in cases:
-            outcomes[str(case.attrib.get("name") or "").split("[", 1)[0]].append(case)
-        for patch_id, nodes in resolved.items():
+        traced_files: dict[str, set[str]] = defaultdict(set)
+        imported_files: dict[str, set[str]] = defaultdict(set)
+        for patch_index, (patch_id, nodes) in enumerate(sorted(resolved.items())):
+            if not nodes:
+                raise EvidenceError(f"{patch_id}: resolved to no pytest nodes")
+            junit = temp / f"patch-{patch_index}.xml"
+            trace_json = temp / f"patch-{patch_index}-trace.json"
+            env = _hermetic_test_env()
+            env["PYTHONPATH"] = os.pathsep.join(
+                part for part in (str(temp), str(INNER), env.get("PYTHONPATH", "")) if part
+            )
+            env["HERMES_PATCH_TRACE_ROOT"] = str(INNER)
+            env["HERMES_PATCH_TRACE_OUT"] = str(trace_json)
+            result = subprocess.run(
+                [
+                    str(INNER / "venv/bin/python"),
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-p",
+                    "no:cacheprovider",
+                    "-p",
+                    "patch_trace_plugin",
+                    "-o",
+                    "junit_family=xunit2",
+                    f"--junitxml={junit}",
+                    *nodes,
+                ],
+                cwd=INNER,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=300,
+                check=False,
+            )
+            if result.returncode:
+                raise EvidenceError(
+                    f"{patch_id}: active PATCH node regression failed: {result.stdout[-2000:]}{result.stderr[-2000:]}"
+                )
+            if re.search(r"\b\d+\s+xpassed\b", result.stdout):
+                raise EvidenceError(f"{patch_id}: active PATCH node regression contains xpassed outcomes")
+            try:
+                root = ET.parse(junit).getroot()
+            except (ET.ParseError, OSError) as exc:
+                raise EvidenceError(f"{patch_id}: active PATCH JUnit report is unreadable: {exc}") from exc
+            cases = list(root.iter("testcase"))
+            if not cases:
+                raise EvidenceError(f"{patch_id}: active PATCH JUnit report contains no test cases")
+            outcomes: dict[str, list[ET.Element]] = defaultdict(list)
+            for case in cases:
+                outcomes[str(case.attrib.get("name") or "").split("[", 1)[0]].append(case)
             for node in nodes:
                 function = _node_function(node)
                 matched = outcomes.get(function, [])
@@ -551,19 +603,21 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
                 for case in matched:
                     if any(case.find(tag) is not None for tag in ("failure", "error", "skipped")):
                         raise EvidenceError(f"{patch_id}: evidence node did not pass cleanly: {node}")
-        try:
-            raw_trace = json.loads(trace_json.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise EvidenceError(f"active PATCH execution trace is unreadable: {exc}") from exc
-        traced_files: dict[str, set[str]] = defaultdict(set)
-        for node, files in raw_trace.items():
-            traced_files[_base_node_id(node)].update(str(path) for path in files)
+            try:
+                raw_trace = json.loads(trace_json.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise EvidenceError(f"{patch_id}: active PATCH execution trace is unreadable: {exc}") from exc
+            for node, files in raw_trace.get("calls", {}).items():
+                traced_files[_base_node_id(node)].update(str(path) for path in files)
+            for node, files in raw_trace.get("imports", {}).items():
+                imported_files[_base_node_id(node)].update(str(path) for path in files)
         managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
         return _validate_patch_trace_hits(
             active,
             resolved,
             traced_files,
             managed_files,
+            imported_files,
         )
 
 
@@ -579,9 +633,11 @@ def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
         raise EvidenceError("active PATCH definitions resume after Archive")
     if not active or not archived:
         raise EvidenceError("PATCH registry is missing active or archive definitions")
+    managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
     for patch_id, block in {**active, **archived}.items():
         _audit_section_shape(patch_id, block)
     _audit_registered_probe_contract(active, archived)
+    _audit_active_patch_ownership(active, managed_files)
     for patch_id, block in archived.items():
         validation = _validation(block)
         function_name = ARCHIVED_EVIDENCE_AUDITS.get(patch_id)
@@ -643,6 +699,7 @@ def audit_gate_links(active: dict[str, str], archived: dict[str, str]) -> None:
     script = SCRIPT.read_text(encoding="utf-8")
     gate_region = script.split("# -- 8b.", 1)[1].split("# -- 8c.", 1)[0]
     declared_active_gates = set(re.findall(r"^(_[A-Z0-9_]+_PATCH_OK)=false$", gate_region, re.MULTILINE))
+    declared_archived_gates = set(re.findall(r"^(_ARCHIVED_[A-Z0-9_]+_OK)=false$", gate_region, re.MULTILINE))
     mapped_gates: dict[str, str] = {}
     for patch_id in active:
         if patch_id in EXTERNAL_EVIDENCE_AUDITS:
@@ -659,7 +716,12 @@ def audit_gate_links(active: dict[str, str], archived: dict[str, str]) -> None:
         )
         block_end = headers[0].end() + next_header.start() if next_header else len(gate_region)
         gate_block = gate_region[headers[0].start() : block_end]
-        assigned = set(re.findall(r"^\s*(_[A-Z0-9_]+_PATCH_OK)=true$", gate_block, re.MULTILINE))
+        assignments = re.findall(r"^\s*(_[A-Z0-9_]+_PATCH_OK)=true$", gate_block, re.MULTILINE)
+        assigned = set(assignments)
+        if len(assignments) != 1:
+            raise EvidenceError(
+                f"{patch_id}: Step 8b block must activate its engineering gate exactly once; found {assignments}"
+            )
         if len(assigned) != 1:
             raise EvidenceError(
                 f"{patch_id}: Step 8b block must activate exactly one engineering gate, found {sorted(assigned)}"
@@ -676,8 +738,41 @@ def audit_gate_links(active: dict[str, str], archived: dict[str, str]) -> None:
             f"unowned={sorted(declared_active_gates - mapped)}, "
             f"unknown={sorted(mapped - declared_active_gates)}"
         )
-    # Archived sentinels may be retired once upstream carries the behavior;
-    # the registry's validation section remains the durable evidence instead.
+
+    archived_headers = list(re.finditer(r"^# Archived (PATCH-[A-Z0-9-]+)(?::|\s*$)", gate_region, re.MULTILINE))
+    mapped_archived: dict[str, str] = {}
+    for index, header in enumerate(archived_headers):
+        patch_id = header.group(1)
+        if patch_id not in archived:
+            raise EvidenceError(f"Step 8b references unknown archived PATCH ID: {patch_id}")
+        if patch_id in mapped_archived:
+            raise EvidenceError(f"{patch_id}: duplicate archived Step 8b gate header")
+        block_end = archived_headers[index + 1].start() if index + 1 < len(archived_headers) else len(gate_region)
+        next_active = re.search(
+            r"^# PATCH-[A-Z0-9-]+(?::|\s*$)",
+            gate_region[header.end() : block_end],
+            re.MULTILINE,
+        )
+        if next_active:
+            block_end = header.end() + next_active.start()
+        gate_block = gate_region[header.start() : block_end]
+        assignments = re.findall(r"^\s*(_ARCHIVED_[A-Z0-9_]+_OK)=true$", gate_block, re.MULTILINE)
+        if len(assignments) != 1:
+            raise EvidenceError(
+                f"{patch_id}: archived Step 8b block must activate its gate exactly once; found {assignments}"
+            )
+        gate_name = assignments[0]
+        if gate_name in mapped_archived.values():
+            owner = next(pid for pid, name in mapped_archived.items() if name == gate_name)
+            raise EvidenceError(f"{patch_id}: archived gate {gate_name} is already owned by {owner}")
+        mapped_archived[patch_id] = gate_name
+    mapped_archived_gates = set(mapped_archived.values())
+    if mapped_archived_gates != declared_archived_gates:
+        raise EvidenceError(
+            "Step 8b archived gate ownership drift: "
+            f"unowned={sorted(declared_archived_gates - mapped_archived_gates)}, "
+            f"unknown={sorted(mapped_archived_gates - declared_archived_gates)}"
+        )
 
 
 RUNTIME_ARTIFACT_NEEDLES: dict[str, tuple[str, ...]] = {
@@ -971,6 +1066,14 @@ def audit_archived_launchd_wrapper_supervisor() -> None:
     _run_archived_pytest("tests/hermes_cli/test_gateway_external_supervisor.py")
 
 
+def audit_archived_compaction_lifecycle_silence() -> None:
+    _run_archived_pytest(
+        "tests/gateway/test_telegram_noise_filter.py::test_all_routine_compression_statuses_suppressed_from_source_constants",
+        "tests/gateway/test_compression_progress_notices.py::test_compaction_completion_notice_respects_progress_notices_gate",
+        "tests/gateway/test_compression_progress_notices.py::test_progress_regex_covers_every_routine_sample",
+    )
+
+
 def _env_key_names(path: Path) -> set[str]:
     """Read dotenv key names without loading, expanding, or exposing values."""
     if not path.is_file():
@@ -1160,6 +1263,16 @@ def audit_bundle() -> None:
                     check=True,
                     timeout=30,
                 )
+            else:
+                subprocess.run(
+                    ["git", "rm", "-f", "--cached", "--ignore-unmatch", "--", rel],
+                    cwd=INNER,
+                    env=env,
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=30,
+                )
         live = temp / "live.diff"
         result = subprocess.run(
             ["git", "diff", "--cached", "--full-index", "HEAD", "--", *files],
@@ -1188,8 +1301,9 @@ def audit_current_tests(
     active: dict[str, str],
 ) -> tuple[dict[str, int], dict[str, list[str]], dict[str, list[str]]]:
     test_files = _patch_test_inventory()[0]
+    managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
     collected_nodes = _collect_patch_nodes(test_files)
-    resolved = _resolve_active_patch_nodes(active, collected_nodes)
+    resolved = _resolve_active_patch_nodes(active, collected_nodes, managed_files)
     executed_owned_files = _run_active_patch_nodes(active, resolved)
     return (
         {"files": len(test_files), "collected": len(collected_nodes)},
@@ -1215,9 +1329,15 @@ def _evidence_records(
     upgrade_range: dict[str, str] | None = None
     if range_match:
         old_ref, new_ref = range_match.groups()
-        old_sha = _run(["git", "rev-parse", old_ref], cwd=INNER).stdout.strip()
-        new_sha = _run(["git", "rev-parse", new_ref], cwd=INNER).stdout.strip()
+        old_result = _run(["git", "rev-parse", old_ref], cwd=INNER)
+        new_result = _run(["git", "rev-parse", new_ref], cwd=INNER)
+        if old_result.returncode or new_result.returncode:
+            raise EvidenceError("PATCHES current upgrade range does not resolve in the inner repository")
+        old_sha = old_result.stdout.strip()
+        new_sha = new_result.stdout.strip()
         changed = _run(["git", "diff", "--name-only", f"{old_sha}..{new_sha}"], cwd=INNER)
+        if changed.returncode:
+            raise EvidenceError(f"could not compute PATCH upstream overlap: {changed.stderr.strip()}")
         changed_paths = {line for line in changed.stdout.splitlines() if line}
         upgrade_range = {"old_sha": old_sha, "new_sha": new_sha}
     managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
@@ -1350,6 +1470,7 @@ def main() -> int:
     report = {
         "status": "ok",
         "mode": mode,
+        "execution_scope": "per_patch_process" if mode == "full" else "deferred_full",
         "active": len(active),
         "archived": len(archived),
         **tests,
@@ -1360,6 +1481,7 @@ def main() -> int:
             "deferred": len(_registered_probe_specs(active, archived))
             - sum(len(results) for results in probe_results.values()),
         },
+        "module_import_evidence": {patch_id: list(paths) for patch_id, paths in sorted(MODULE_IMPORT_EVIDENCE.items())},
         "patches": _evidence_records(
             active,
             archived,

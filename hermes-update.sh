@@ -74,7 +74,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.5 / main 9aa7530f7b53699e2c6d648ded8f6300503b3dc7, `hermes completion zsh` already emits the
+# As of v0.20.6 / main 8966b0a70029cb226e35c49f91d0c2208ab1d8c4, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -118,6 +118,8 @@ PATCHED_FILES=(
     "tests/tools/test_feishu_tools.py"
     "tools/read_extract.py"
     "tests/tools/test_read_extract.py"
+    "tests/conftest.py"
+    "tests/test_runtime_home_isolation.py"
     "tests/gateway/feishu_helpers.py"
     "tests/gateway/test_config.py"
     "tests/gateway/test_display_config.py"
@@ -925,11 +927,15 @@ def audit_gate_coverage(text):
     declared = active | archived
     require(declared, "no Step 8b patch gates were discovered")
 
-    never_true = {
-        name for name in declared
-        if re.search(rf"^\s*{re.escape(name)}=true\s*$", gate_region, re.M) is None
+    true_counts = {
+        name: len(re.findall(rf"^\s*{re.escape(name)}=true\s*$", gate_region, re.M))
+        for name in declared
     }
-    require(not never_true, f"patch gates never set true: {sorted(never_true)}")
+    invalid_true_counts = {name: count for name, count in true_counts.items() if count != 1}
+    require(
+        not invalid_true_counts,
+        f"patch gates must be set true exactly once: {invalid_true_counts}",
+    )
 
     condition = re.search(
         r"^if \$_PATCH_APPLY_OK && .+?; then$",
@@ -937,11 +943,19 @@ def audit_gate_coverage(text):
         re.M,
     )
     require(condition is not None, "Step 8c aggregate gate condition is missing")
-    consumed = {
+    consumed_tokens = [
         token[1:]
         for token in re.findall(r"\$_[A-Z0-9_]+_OK", condition.group(0))
         if token != "$_PATCH_APPLY_OK"
+    ]
+    duplicate_consumers = {
+        name for name in consumed_tokens if consumed_tokens.count(name) != 1
     }
+    require(
+        not duplicate_consumers,
+        f"Step 8c consumes patch gates more than once: {sorted(duplicate_consumers)}",
+    )
+    consumed = set(consumed_tokens)
 
     missing = declared - consumed
     unknown = consumed - declared
@@ -968,6 +982,31 @@ except GateAuditError:
     pass
 else:
     raise GateAuditError("fault injection was not detected by the patch-gate audit")
+
+# A duplicated success assignment must not collapse through set semantics.
+assignment = re.search(rf"^\s*{re.escape(probe_name)}=true\s*$", script, re.M)
+require(assignment is not None, f"fault injection could not find success assignment for {probe_name}")
+assignment_line = assignment.group(0)
+probe_script = script[:assignment.end()] + "\n" + assignment_line + script[assignment.end():]
+try:
+    audit_gate_coverage(probe_script)
+except GateAuditError:
+    pass
+else:
+    raise GateAuditError("duplicate-success fault injection was not detected")
+
+# The aggregate must consume each gate exactly once; a duplicate token is a
+# maintenance error even though shell truth semantics would still be green.
+probe_condition = condition_text.replace(
+    f"${probe_name}", f"${probe_name} && ${probe_name}", 1
+)
+probe_script = script[:absolute_start] + probe_condition + script[absolute_end:]
+try:
+    audit_gate_coverage(probe_script)
+except GateAuditError:
+    pass
+else:
+    raise GateAuditError("duplicate-consumer fault injection was not detected")
 
 print(
     f"patch-gate self-test OK: {len(active)} active engineering gates; "
@@ -1965,6 +2004,7 @@ _FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK=false
 _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK=false
+_TEST_RUNTIME_STATE_ISOLATION_PATCH_OK=false
 _IMAGE_NATIVE_ROUTING_PATCH_OK=false
 _VERTEX_VIDEO_ROUTING_PATCH_OK=false
 _MULTIMODAL_SIDECAR_PATCH_OK=false
@@ -1973,7 +2013,7 @@ _MCP_TASKS_ASYNC_HANDOFF_PATCH_OK=false
 _MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK=false
 _APPROVAL_TEMP_CLEANUP_PATCH_OK=false
 _FTS5_CJK_BUILD_PATCH_OK=false
-_COMPACTION_LIFECYCLE_SILENCE_PATCH_OK=false
+_ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK=false
 _FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK=false
 _GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK=false
 _TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK=false
@@ -2006,6 +2046,8 @@ else
     warn "Could not locate venv or skill_manager_tool.py — skipping skill routing check"
 fi
 
+# Archived PATCH-DOCTOR-ENABLED-TOOLSETS: upstream owns the enabled-toolset
+# issue-count filter; retain a regression sentinel.
 if [[ -f "${DOCTOR_PY}" ]]; then
     if grep -q "_get_platform_tools" "${DOCTOR_PY}" 2>/dev/null; then
         ok "Doctor issue-count filter: active (upstream merged, PATCH-DOCTOR-ENABLED-TOOLSETS retired)"
@@ -2018,7 +2060,7 @@ else
     warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
 fi
 
-# PATCH-DASHBOARD-BUILD-CACHE (dashboard web-build skip) was merged upstream via _web_ui_build_needed()
+# Archived PATCH-DASHBOARD-BUILD-CACHE: dashboard web-build skip was merged upstream via _web_ui_build_needed()
 # in commit 5b5a53a1; verify the upstream helper is present so we can detect
 # regressions, but no local patch is required.
 MAIN_PY="${HERMES_AGENT}/hermes_cli/main.py"
@@ -2032,7 +2074,7 @@ if [[ -f "${MAIN_PY}" ]]; then
     fi
 fi
 
-# PATCH-DELEGATE-ACP-ROUTING (delegate ACP routing) was merged upstream in v0.10.0.
+# Archived PATCH-DELEGATE-ACP-ROUTING: delegate ACP routing was merged upstream in v0.10.0.
 # Verify the behavior still exists but don't require local patch.
 if [[ -f "${DELEGATE_TOOL}" ]]; then
     if grep -q 'override_acp_command' "${DELEGATE_TOOL}" 2>/dev/null &&
@@ -2047,7 +2089,7 @@ else
     warn "Could not locate tools/delegate_tool.py — skipping delegate patch check"
 fi
 
-# PATCH-GEMINI-THOUGHT-SIGNATURE was merged upstream in v0.11.0. Preserve the
+# Archived PATCH-GEMINI-THOUGHT-SIGNATURE: merged upstream in v0.11.0. Preserve the
 # property + regression-test contract so Gemini tool replay cannot silently
 # drop thought_signature metadata again.
 TRANSPORT_TYPES_PY="${HERMES_AGENT}/agent/transports/types.py"
@@ -2194,6 +2236,8 @@ else
     warn "Could not locate pyproject.toml or tools/lazy_deps.py — skipping feishu deps check"
 fi
 
+# Archived PATCH-LAZY-ACTIVATION: upstream owns the first-dependency identity
+# anchor; retain its implementation and regression sentinel.
 if [[ -f "${LAZY_DEPS_PY}" && -f "${LAZY_DEPS_TEST_PY}" ]]; then
     if grep -q 'if specs and _is_present(specs\[0\])' "${LAZY_DEPS_PY}" 2>/dev/null &&
         grep -q 'test_shared_dependency_does_not_activate_feature' "${LAZY_DEPS_TEST_PY}" 2>/dev/null; then
@@ -2510,14 +2554,14 @@ else
     warn "Could not locate PATCH-FEISHU-QUOTE-CHAIN-SESSION files"
 fi
 
-# PATCH-COMPACTION-LIFECYCLE-SILENCE: BOTH edges of the routine auto-compaction
-# lifecycle must stay off human-facing chat surfaces. Upstream registers only the
-# start edge in ROUTINE_COMPRESSION_STATUS_SAMPLES, so the done edge escaped both
-# the noise regex and the progress_notices gate and leaked into a Feishu work
-# group (2026-08-12). Behavioral check — drives the real filter rather than
-# grepping wording, and asserts the failure-class carve-out stays visible.
+# Archived PATCH-COMPACTION-LIFECYCLE-SILENCE: upstream 7a21bfe68a now
+# registers the completion edge in its routine samples, shared chat-noise
+# filter, and progress-notices gate. Keep a behavioral regression guard without
+# retaining a local source/test hunk.
 NOISE_FILTER_TEST_PY="${HERMES_AGENT}/tests/gateway/test_telegram_noise_filter.py"
-if [[ -f "${VENV_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${NOISE_FILTER_TEST_PY}" ]]; then
+COMPRESSION_PROGRESS_TEST_PY="${HERMES_AGENT}/tests/gateway/test_compression_progress_notices.py"
+if [[ -f "${VENV_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${NOISE_FILTER_TEST_PY}" &&
+    -f "${COMPRESSION_PROGRESS_TEST_PY}" ]]; then
     _COMPACTION_SILENCE_CHECK=$(
         cd "${HERMES_AGENT}" &&
             "${VENV_PY}" - <<'PYEOF' 2>/dev/null
@@ -2562,25 +2606,25 @@ print("ok")
 PYEOF
     )
     if [[ "${_COMPACTION_SILENCE_CHECK}" == "ok" ]] &&
-        grep -q 'test_both_auto_compaction_lifecycle_edges_suppressed' "${NOISE_FILTER_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_both_auto_compaction_edges_are_progress_gated' "${NOISE_FILTER_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-COMPACTION-LIFECYCLE-SILENCE active: both compaction edges silent on chat surfaces"
-        _COMPACTION_LIFECYCLE_SILENCE_PATCH_OK=true
+        grep -q 'test_compaction_completion_notice_respects_progress_notices_gate' "${COMPRESSION_PROGRESS_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_progress_regex_covers_every_routine_sample' "${COMPRESSION_PROGRESS_TEST_PY}" 2>/dev/null; then
+        ok "Archived PATCH-COMPACTION-LIFECYCLE-SILENCE invariant: active upstream"
+        _ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK=true
     elif [[ "${_COMPACTION_SILENCE_CHECK}" == "leak" ]]; then
-        warn "PATCH-COMPACTION-LIFECYCLE-SILENCE inactive: a compaction status reaches chat users"
-        add_act "Re-apply: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
+        warn "Archived PATCH-COMPACTION-LIFECYCLE-SILENCE regressed: a compaction status reaches chat users"
+        add_act "Review upstream regression: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
     elif [[ "${_COMPACTION_SILENCE_CHECK}" == "ungated" ]]; then
-        warn "PATCH-COMPACTION-LIFECYCLE-SILENCE partial: done edge escapes the progress_notices gate"
-        add_act "Re-apply: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
+        warn "Archived PATCH-COMPACTION-LIFECYCLE-SILENCE regressed: done edge escapes the progress_notices gate"
+        add_act "Review upstream regression: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
     elif [[ "${_COMPACTION_SILENCE_CHECK}" == "overreach" ]]; then
-        warn "PATCH-COMPACTION-LIFECYCLE-SILENCE over-broad: it now eats failure notices or local diagnostics"
-        add_act "Narrow the regex: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
+        warn "Archived PATCH-COMPACTION-LIFECYCLE-SILENCE regressed: failure notices or local diagnostics are suppressed"
+        add_act "Review upstream regression: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
     else
-        warn "PATCH-COMPACTION-LIFECYCLE-SILENCE inactive or partial"
-        add_act "Re-apply: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
+        warn "Archived PATCH-COMPACTION-LIFECYCLE-SILENCE invariant missing or partial"
+        add_act "Review upstream regression: see PATCHES.md § [PATCH-COMPACTION-LIFECYCLE-SILENCE]"
     fi
 else
-    warn "Could not locate PATCH-COMPACTION-LIFECYCLE-SILENCE files"
+    warn "Could not locate archived PATCH-COMPACTION-LIFECYCLE-SILENCE files"
 fi
 
 # PATCH-GATEWAY-FAILOVER-STATUS-SILENCE: model/provider routing is operator
@@ -2961,6 +3005,29 @@ else
     warn "Could not locate PATCH-DOCTOR-TEST-NETWORK-ISOLATION file"
 fi
 
+# PATCH-TEST-RUNTIME-STATE-ISOLATION: even tests that temporarily clear the
+# entire environment must keep process identity/status writes inside the
+# per-test Hermes home rather than falling back to the operator's live root.
+RUNTIME_HOME_ISOLATION_TEST_PY="${HERMES_AGENT}/tests/test_runtime_home_isolation.py"
+if [[ -f "${VENV_PY}" && -f "${HERMES_AGENT}/tests/conftest.py" &&
+    -f "${RUNTIME_HOME_ISOLATION_TEST_PY}" ]]; then
+    if grep -q '"_get_process_hermes_home"' "${HERMES_AGENT}/tests/conftest.py" 2>/dev/null &&
+        grep -q '"_ledger_path"' "${HERMES_AGENT}/tests/conftest.py" 2>/dev/null &&
+        grep -q 'test_runtime_identity_paths_stay_sandboxed_when_environment_is_cleared' "${RUNTIME_HOME_ISOLATION_TEST_PY}" 2>/dev/null &&
+        cd "${HERMES_AGENT}" &&
+        "${VENV_PY}" -m pytest -q -p no:cacheprovider \
+            tests/test_runtime_home_isolation.py::test_runtime_identity_paths_stay_sandboxed_when_environment_is_cleared \
+            >/dev/null 2>&1; then
+        ok "PATCH-TEST-RUNTIME-STATE-ISOLATION active: pytest cannot write process state into the live Hermes home"
+        _TEST_RUNTIME_STATE_ISOLATION_PATCH_OK=true
+    else
+        warn "PATCH-TEST-RUNTIME-STATE-ISOLATION inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-TEST-RUNTIME-STATE-ISOLATION]"
+    fi
+else
+    warn "Could not locate PATCH-TEST-RUNTIME-STATE-ISOLATION files"
+fi
+
 # PATCH-IMAGE-NATIVE-ROUTING: main-model image capability must be recognised so
 # auto mode routes natively instead of degrading to auxiliary text analysis.
 # Three capability sources, one invariant: Vertex Gemini 3.x and Bedrock
@@ -3127,24 +3194,23 @@ else
     warn "Could not locate PATCH-MCP-TASKS-ASYNC-HANDOFF files"
 fi
 
-# PATCH-MCP-STDIO-WATCHER-LIFECYCLE: the stdio liveness watcher must be
-# materialized exactly once per RPC, and live child PIDs must never satisfy the
-# "all children dead" predicate. Both defects otherwise fast-fail healthy MCP
-# calls or leak an un-awaited watcher coroutine.
-if [[ -f "${VENV_PY}" && -f "${MCP_TOOL_PY}" && -f "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" ]]; then
+# PATCH-MCP-STDIO-WATCHER-LIFECYCLE: upstream now owns aggregate child
+# liveness/fail-open behavior; the remaining local invariant is that each RPC
+# materializes exactly one watcher coroutine and awaits that same object.
+MCP_STDIO_UPSTREAM_TEST_PY="${HERMES_AGENT}/tests/tools/test_mcp_stdio_children_dead.py"
+if [[ -f "${VENV_PY}" && -f "${MCP_TOOL_PY}" && -f "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" &&
+    -f "${MCP_STDIO_UPSTREAM_TEST_PY}" ]]; then
     if grep -q '_watch_coro = (' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'watch_task = asyncio.ensure_future(_watch_coro)' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
-        grep -q 'test_stdio_children_dead_is_false_when_any_child_is_alive' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
-        grep -q 'test_live_stdio_child_does_not_fast_fail_tool_call' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
+        grep -q 'test_live_child_reports_not_dead' "${MCP_STDIO_UPSTREAM_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_pid_probe_error_stays_fail_open' "${MCP_STDIO_UPSTREAM_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
         "${VENV_PY}" -m pytest -q -p no:cacheprovider -W error::RuntimeWarning \
             tests/tools/test_mcp_tool.py::TestToolHandler::test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine \
-            tests/tools/test_mcp_tool.py::TestStdioChildLiveness::test_stdio_children_dead_is_false_when_any_child_is_alive \
-            tests/tools/test_mcp_tool.py::TestStdioChildLiveness::test_stdio_children_dead_is_true_when_all_children_exited \
-            tests/tools/test_mcp_tool.py::TestToolHandler::test_live_stdio_child_does_not_fast_fail_tool_call \
+            tests/tools/test_mcp_stdio_children_dead.py \
             >/dev/null 2>&1; then
-        ok "PATCH-MCP-STDIO-WATCHER-LIFECYCLE active: live children stay connected and each RPC owns one awaited watcher"
+        ok "PATCH-MCP-STDIO-WATCHER-LIFECYCLE active: each RPC owns one awaited watcher; upstream liveness guard remains healthy"
         _MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK=true
     else
         warn "PATCH-MCP-STDIO-WATCHER-LIFECYCLE inactive or partial"
@@ -3270,7 +3336,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_COMPACTION_LIFECYCLE_SILENCE_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_TEST_RUNTIME_STATE_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

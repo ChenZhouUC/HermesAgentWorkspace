@@ -31,6 +31,7 @@ _hermes() {
                 'approvals:Approval-prompt tools (mine history into allowlist proposals'
                 'auth:Manage pooled provider credentials'
                 'backup:Back up Hermes home directory to a zip file'
+                'browser:Real-profile browsing helpers (close a browser locking its p'
                 'bundles:Create, list, and manage skill bundles (aliases for multiple'
                 'chat:Interactive chat with the agent'
                 'checkpoints:Inspect / prune / clear ~/.hermes/checkpoints/'
@@ -119,6 +120,13 @@ _hermes() {
                     'status:Show auth status for a provider'
                     )
                     _describe 'auth command' auth_cmds
+                    ;;
+                browser)
+                    local -a browser_cmds
+                    browser_cmds=(
+                    'close-profile:Close the browser locking your real profile (asks nothing — '
+                    )
+                    _describe 'browser command' browser_cmds
                     ;;
                 bundles)
                     local -a bundles_cmds

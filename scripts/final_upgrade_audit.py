@@ -4,7 +4,8 @@
 This entrypoint intentionally runs after the last reconcile. It executes the
 canonical patched-file test suite with retries disabled, per-PATCH evidence
 matrix with fresh registered probe receipts, documentation/schema checks,
-replay closure, runtime plugin verification, and the final recoverable cleanup.
+post-test replay closure, final runtime/plugin identity verification, and the
+final recoverable cleanup.
 Output is one JSON object suitable for the final report or a post-commit
 verification step.
 """
@@ -21,6 +22,8 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import test_patch_evidence as patch_evidence
+
 ROOT = Path(__file__).resolve().parents[1]
 INNER = ROOT / "hermes-agent"
 UPDATE = ROOT / "hermes-update.sh"
@@ -28,6 +31,7 @@ EVIDENCE = ROOT / "scripts/test_patch_evidence.py"
 CLEANUP = ROOT / "scripts/cleanup_transient_artifacts.py"
 CLEANUP_POLICY = ROOT / "scripts/cleanup_policy.json"
 WIKI_LINT = ROOT / "scripts/wiki_lint.py"
+_ALLOWED_REVIEWED_INNER_DIRTY = {"package-lock.json": " M"}
 
 
 class FinalAuditError(RuntimeError):
@@ -93,6 +97,19 @@ def _run_canonical_patch_tests(test_files: list[str]) -> dict[str, int]:
     return {"files": files, "passed": passed, "failed": failed, "skipped": skipped}
 
 
+def _validate_canonical_coverage(canonical: dict[str, int], evidence: dict[str, object]) -> None:
+    evidence_files = int(evidence.get("files") or 0)
+    evidence_collected = int(evidence.get("collected") or 0)
+    completed = canonical["passed"] + canonical["skipped"]
+    if canonical["files"] != evidence_files or completed != evidence_collected:
+        raise FinalAuditError(
+            "canonical-patch-tests",
+            "canonical results do not cover the full collected PATCH suite: "
+            f"files={canonical['files']}/{evidence_files} "
+            f"completed={completed}/{evidence_collected}",
+        )
+
+
 def _markdown_table_summary(row: str) -> str:
     """Return semantic summary content, ignoring formatter alignment padding."""
     cells = row.split("|")
@@ -114,7 +131,199 @@ def _current_week_readme_rows(readme: str, today: date) -> list[str]:
     return rows
 
 
-def _derived_checks(patched_files: list[str], evidence: dict[str, object]) -> dict[str, object]:
+def _validate_absorption_matrix(patch_records: list[dict[str, object]], summary_text: str) -> dict[str, int]:
+    pairs = re.findall(
+        r"`(PATCH-[A-Z0-9-]+)`=(未吸收|部分吸收|完全吸收)",
+        summary_text,
+    )
+    seen: dict[str, str] = {}
+    duplicates: set[str] = set()
+    for patch_id, verdict in pairs:
+        if patch_id in seen:
+            duplicates.add(patch_id)
+        seen[patch_id] = verdict
+    if duplicates:
+        raise FinalAuditError(
+            "derived-docs",
+            f"duplicate PATCH absorption verdicts: {sorted(duplicates)}",
+        )
+
+    overlapping = {str(record.get("id")): record for record in patch_records if record.get("upstream_overlap")}
+    missing = sorted(set(overlapping) - set(seen))
+    extra = sorted(set(seen) - set(overlapping))
+    if missing or extra:
+        raise FinalAuditError(
+            "derived-docs",
+            f"PATCH absorption matrix drift: missing={missing} extra={extra}",
+        )
+    invalid = {
+        patch_id: verdict
+        for patch_id, verdict in seen.items()
+        if (overlapping[patch_id].get("lifecycle") == "active" and verdict == "完全吸收")
+        or (overlapping[patch_id].get("lifecycle") == "archived" and verdict != "完全吸收")
+    }
+    if invalid:
+        raise FinalAuditError(
+            "derived-docs",
+            f"PATCH absorption verdict conflicts with lifecycle: {invalid}",
+        )
+
+    no_overlap_match = re.search(r"无路径相交=(\d+)", summary_text)
+    active_no_overlap = sum(
+        1 for record in patch_records if record.get("lifecycle") == "active" and not record.get("upstream_overlap")
+    )
+    if no_overlap_match is None or int(no_overlap_match.group(1)) != active_no_overlap:
+        reported = int(no_overlap_match.group(1)) if no_overlap_match else None
+        raise FinalAuditError(
+            "derived-docs",
+            f"no-overlap active PATCH count drift: reported={reported} actual={active_no_overlap}",
+        )
+    return {
+        "overlap_verdicts": len(seen),
+        "active_no_overlap": active_no_overlap,
+    }
+
+
+def _validate_evidence_upgrade_range(patch_records: list[dict[str, object]], current_head: str) -> dict[str, str]:
+    ranges = {
+        (
+            str(record.get("upgrade_range", {}).get("old_sha") or ""),
+            str(record.get("upgrade_range", {}).get("new_sha") or ""),
+        )
+        for record in patch_records
+    }
+    if len(ranges) != 1:
+        raise FinalAuditError(
+            "derived-docs",
+            f"PATCH evidence does not have one consistent upgrade range: {sorted(ranges)}",
+        )
+    old_sha, new_sha = next(iter(ranges))
+    if not re.fullmatch(r"[0-9a-f]{40}", old_sha) or new_sha != current_head:
+        raise FinalAuditError(
+            "derived-docs",
+            f"PATCH evidence upgrade range is stale or invalid: {old_sha!r} -> {new_sha!r}, HEAD={current_head}",
+        )
+    return {"old_sha": old_sha, "new_sha": new_sha}
+
+
+def _validate_patch_count_claims(
+    patch_records: list[dict[str, object]],
+    patches_text: str,
+    readme_text: str,
+    summary_text: str,
+) -> dict[str, int]:
+    active = sum(record.get("lifecycle") == "active" for record in patch_records)
+    archived = sum(record.get("lifecycle") == "archived" for record in patch_records)
+    engineering = sum(
+        record.get("lifecycle") == "active"
+        and record.get("evidence_type") not in {"runtime_contract", "external_verifier"}
+        for record in patch_records
+    )
+    claims = {
+        "PATCHES active": re.search(r"当前共 (\d+) 个语义补丁", patches_text),
+        "PATCHES engineering": re.search(r"(\d+) 个工程内补丁", patches_text),
+        "README active": re.search(r"维护 (\d+) 个按职责命名的活跃语义补丁", readme_text),
+        "README engineering": re.search(r"活跃语义补丁：(\d+) 个工程内补丁", readme_text),
+        "summary active/archive": re.search(r"终态为 (\d+) active \+ (\d+) Archive", summary_text),
+    }
+    missing = [label for label, match in claims.items() if match is None]
+    if missing:
+        raise FinalAuditError("derived-docs", f"PATCH count claims are missing: {missing}")
+    observed = {
+        "PATCHES active": int(claims["PATCHES active"].group(1)),
+        "PATCHES engineering": int(claims["PATCHES engineering"].group(1)),
+        "README active": int(claims["README active"].group(1)),
+        "README engineering": int(claims["README engineering"].group(1)),
+        "summary active": int(claims["summary active/archive"].group(1)),
+        "summary archived": int(claims["summary active/archive"].group(2)),
+    }
+    expected = {
+        "PATCHES active": active,
+        "PATCHES engineering": engineering,
+        "README active": active,
+        "README engineering": engineering,
+        "summary active": active,
+        "summary archived": archived,
+    }
+    if observed != expected:
+        raise FinalAuditError(
+            "derived-docs",
+            f"PATCH count claims drift: observed={observed} expected={expected}",
+        )
+    return {"active": active, "archived": archived, "engineering": engineering}
+
+
+def _validate_documented_regression_counts(
+    canonical: dict[str, int],
+    patch_records: list[dict[str, object]],
+    readme_summary: str,
+    patch_summary: str,
+) -> dict[str, int]:
+    pattern = re.compile(
+        r"(\d+)\s+files\s*/\s*\*{0,2}(\d+)\s+passed\s*/\s*"
+        r"(\d+)\s+failed\s*/\s*(\d+)\s+skipped\*{0,2}"
+    )
+    expected = (
+        canonical["files"],
+        canonical["passed"],
+        canonical["failed"],
+        canonical["skipped"],
+    )
+    for label, text in (("README", readme_summary), ("PATCHES", patch_summary)):
+        match = pattern.search(text)
+        observed = tuple(int(value) for value in match.groups()) if match else None
+        if observed != expected:
+            raise FinalAuditError(
+                "derived-docs",
+                f"{label} canonical test count drift: observed={observed} expected={expected}",
+            )
+
+    evidence_matches = re.findall(r"(\d+)/(\d+)\s+full PATCH evidence", patch_summary)
+    expected_evidence = len(patch_records)
+    if len(evidence_matches) != 1 or tuple(map(int, evidence_matches[0])) != (
+        expected_evidence,
+        expected_evidence,
+    ):
+        raise FinalAuditError(
+            "derived-docs",
+            f"PATCHES full evidence count drift: observed={evidence_matches} expected={expected_evidence}",
+        )
+    return {
+        "files": canonical["files"],
+        "passed": canonical["passed"],
+        "failed": canonical["failed"],
+        "skipped": canonical["skipped"],
+        "patch_evidence": expected_evidence,
+    }
+
+
+def _validate_documented_gate_counts(
+    script_text: str,
+    readme_summary: str,
+    patch_summary: str,
+) -> dict[str, int]:
+    gate_region = script_text.split("# -- 8b.", 1)[1].split("# -- 8c.", 1)[0]
+    expected = (
+        len(set(re.findall(r"^(_[A-Z0-9_]+_PATCH_OK)=false$", gate_region, re.MULTILINE))),
+        len(set(re.findall(r"^(_ARCHIVED_[A-Z0-9_]+_OK)=false$", gate_region, re.MULTILINE))),
+    )
+    pattern = re.compile(r"(\d+) active \+ (\d+) archived gates")
+    for label, text in (("README", readme_summary), ("PATCHES", patch_summary)):
+        match = pattern.search(text)
+        observed = tuple(int(value) for value in match.groups()) if match else None
+        if observed != expected:
+            raise FinalAuditError(
+                "derived-docs",
+                f"{label} Step 8b gate count drift: observed={observed} expected={expected}",
+            )
+    return {"active": expected[0], "archived": expected[1]}
+
+
+def _derived_checks(
+    patched_files: list[str],
+    evidence: dict[str, object],
+    canonical: dict[str, int],
+) -> dict[str, object]:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     patches = (ROOT / "patches/PATCHES.md").read_text(encoding="utf-8")
     playbook = (ROOT / "hermes-update.md").read_text(encoding="utf-8")
@@ -151,6 +360,8 @@ def _derived_checks(patched_files: list[str], evidence: dict[str, object]) -> di
     snapshot_section = patches.split("受 `PATCHED_FILES` 管理的文件", 1)[1].split("> 以上", 1)
     snapshot = re.findall(r'"([^"]+)"', snapshot_section[0])
     note_count = int(re.search(r"（(\d+) 文件", snapshot_section[1]).group(1))
+    if len(array) != len(set(array)) or len(snapshot) != len(set(snapshot)):
+        raise FinalAuditError("derived-docs", "PATCHED_FILES contains duplicate paths")
     if array != snapshot or note_count != len(array) or array != patched_files:
         raise FinalAuditError("derived-docs", "PATCHED_FILES array/snapshot/print output drift")
 
@@ -188,14 +399,9 @@ def _derived_checks(patched_files: list[str], evidence: dict[str, object]) -> di
             "derived-docs",
             "per-PATCH report count differs from registry definition count",
         )
-    overlap_paths = sorted(
-        {
-            path
-            for record in evidence.get("patches", [])
-            if record.get("lifecycle") == "active"
-            for path in record.get("upstream_overlap", [])
-        }
-    )
+    patch_records = list(evidence.get("patches", []))
+    upgrade_range = _validate_evidence_upgrade_range(patch_records, head)
+    overlap_paths = sorted({path for record in patch_records for path in record.get("upstream_overlap", [])})
     summary_match = re.search(r"\*\*最近一次升级.*?(?=\n---\n)", patches, re.DOTALL)
     if not summary_match:
         raise FinalAuditError("derived-docs", "PATCHES current upgrade summary is missing")
@@ -206,6 +412,24 @@ def _derived_checks(patched_files: list[str], evidence: dict[str, object]) -> di
             "derived-docs",
             f"current summary does not record upstream overlap/absorption review: {missing_overlap_notes}",
         )
+    absorption = _validate_absorption_matrix(patch_records, summary_text)
+    patch_counts = _validate_patch_count_claims(
+        patch_records,
+        patches,
+        readme,
+        summary_text,
+    )
+    regression_counts = _validate_documented_regression_counts(
+        canonical,
+        patch_records,
+        current_summary,
+        summary_text,
+    )
+    gate_counts = _validate_documented_gate_counts(
+        script,
+        current_summary,
+        summary_text,
+    )
 
     known = set(re.findall(r"^### \[(PATCH-[A-Z0-9-]+)\]", patches, re.MULTILINE))
     refs = set(re.findall(r"PATCH-[A-Z0-9][A-Z0-9-]*[A-Z0-9]", playbook)) - {"PATCH-FOO-BAR"}
@@ -225,7 +449,48 @@ def _derived_checks(patched_files: list[str], evidence: dict[str, object]) -> di
         "friction_table_valid": True,
         "base_sha": base,
         "upstream_overlap_paths": overlap_paths,
+        "absorption_matrix": absorption,
+        "patch_counts": patch_counts,
+        "regression_counts": regression_counts,
+        "gate_counts": gate_counts,
+        "upgrade_range": upgrade_range,
     }
+
+
+def _validate_gateway_state_payload(
+    payload: object,
+    *,
+    gateway_pid: int,
+    expected_sha: str,
+) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        raise FinalAuditError("gateway-runtime", "gateway_state.json is not a JSON object")
+    if payload.get("kind") != "hermes-gateway":
+        raise FinalAuditError(
+            "gateway-runtime",
+            f"gateway_state.json has unexpected kind: {payload.get('kind')!r}",
+        )
+    recorded_pid = payload.get("pid")
+    if isinstance(recorded_pid, bool) or not isinstance(recorded_pid, int):
+        raise FinalAuditError("gateway-runtime", "gateway_state.json has no integer pid")
+    if recorded_pid != gateway_pid:
+        raise FinalAuditError(
+            "gateway-runtime",
+            f"gateway_state.json belongs to PID {recorded_pid}, not live Gateway PID {gateway_pid}",
+        )
+    argv_value = payload.get("argv")
+    argv = " ".join(str(part) for part in argv_value) if isinstance(argv_value, list) else str(argv_value or "")
+    if "pytest" in argv.lower():
+        raise FinalAuditError("gateway-runtime", "gateway_state.json was overwritten by a pytest process")
+    if payload.get("code_sha") != expected_sha:
+        raise FinalAuditError(
+            "gateway-runtime",
+            f"gateway_state.json code_sha {payload.get('code_sha')!r} != HEAD {expected_sha}",
+        )
+    state = str(payload.get("gateway_state") or "")
+    if state not in {"running", "degraded"}:
+        raise FinalAuditError("gateway-runtime", f"gateway_state.json is not serving: {state!r}")
+    return {"state": state, "state_file_pid": recorded_pid, "code_sha": expected_sha}
 
 
 def _gateway_runtime() -> dict[str, object]:
@@ -246,7 +511,55 @@ def _gateway_runtime() -> dict[str, object]:
             "gateway-runtime",
             "could not resolve supervisor and real Gateway child PIDs",
         )
-    return {"supervisor_pid": int(supervisor.group(1)), "gateway_pid": int(child)}
+    gateway_pid = int(child)
+    supervisor_pid = int(supervisor.group(1))
+    if supervisor_pid == gateway_pid:
+        raise FinalAuditError(
+            "gateway-runtime",
+            "launchd supervisor PID and real Gateway child PID unexpectedly match",
+        )
+    state_path = ROOT / "gateway_state.json"
+    try:
+        state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FinalAuditError(
+            "gateway-runtime",
+            f"could not read current gateway_state.json: {exc}",
+        ) from exc
+    head = _run("gateway-head-sha", ["git", "rev-parse", "HEAD"], cwd=INNER).stdout.strip()
+    state_details = _validate_gateway_state_payload(
+        state_payload,
+        gateway_pid=gateway_pid,
+        expected_sha=head,
+    )
+
+    ledger_path = ROOT / "spawn-ledger.json"
+    ledger_entries = 0
+    if ledger_path.is_file():
+        try:
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise FinalAuditError(
+                "gateway-runtime",
+                f"spawn-ledger.json is unreadable: {exc}",
+            ) from exc
+        if not isinstance(ledger, list):
+            raise FinalAuditError("gateway-runtime", "spawn-ledger.json is not a JSON list")
+        contaminated = [
+            entry for entry in ledger if isinstance(entry, dict) and "pytest" in str(entry.get("argv") or "").lower()
+        ]
+        if contaminated:
+            raise FinalAuditError(
+                "gateway-runtime",
+                f"spawn-ledger.json contains {len(contaminated)} pytest process record(s)",
+            )
+        ledger_entries = len(ledger)
+    return {
+        "supervisor_pid": supervisor_pid,
+        "gateway_pid": gateway_pid,
+        "spawn_ledger_entries": ledger_entries,
+        **state_details,
+    }
 
 
 def _doctor_health() -> dict[str, object]:
@@ -268,6 +581,38 @@ def _doctor_health() -> dict[str, object]:
     }
 
 
+def _validate_inner_status(inner_lines: list[str], patched_files: list[str]) -> list[str]:
+    entries = {line[3:]: line[:2] for line in inner_lines if len(line) >= 4}
+    inner_paths = set(entries)
+    expected = set(patched_files)
+    missing = expected - inner_paths
+    extra = inner_paths - expected
+    disallowed_extra = extra - set(_ALLOWED_REVIEWED_INNER_DIRTY)
+    invalid_reviewed = {
+        path: entries[path]
+        for path in extra & set(_ALLOWED_REVIEWED_INNER_DIRTY)
+        if entries[path] != _ALLOWED_REVIEWED_INNER_DIRTY[path]
+    }
+    if missing or disallowed_extra or invalid_reviewed:
+        raise FinalAuditError(
+            "repository-checks",
+            f"inner status differs from PATCHED_FILES: missing={sorted(missing)} "
+            f"extra={sorted(disallowed_extra)} invalid_reviewed={invalid_reviewed}",
+        )
+    return sorted(extra)
+
+
+def _reverify_bundle_after_tests() -> None:
+    """Close the gap between the initial evidence run and final repository state."""
+    try:
+        patch_evidence.audit_bundle()
+    except (patch_evidence.EvidenceError, subprocess.SubprocessError, OSError) as exc:
+        raise FinalAuditError(
+            "repository-checks",
+            f"post-test replay bundle verification failed: {exc}",
+        ) from exc
+
+
 def _repository_checks(patched_files: list[str]) -> dict[str, object]:
     _run("outer-diff-check", ["git", "diff", "--check"], cwd=ROOT)
     _run("outer-cached-diff-check", ["git", "diff", "--cached", "--check"], cwd=ROOT)
@@ -277,9 +622,7 @@ def _repository_checks(patched_files: list[str]) -> dict[str, object]:
         raise FinalAuditError("repository-checks", "replay bundle contains conflict markers")
     for rel in patched_files:
         path = INNER / rel
-        if not path.exists():
-            raise FinalAuditError("repository-checks", f"managed path is missing: {rel}")
-        if re.search(
+        if (path.exists() or path.is_symlink()) and re.search(
             r"^(<<<<<<<($| )|=======$|>>>>>>>($| ))",
             path.read_text(errors="ignore"),
             re.MULTILINE,
@@ -287,15 +630,21 @@ def _repository_checks(patched_files: list[str]) -> dict[str, object]:
             raise FinalAuditError("repository-checks", f"managed path contains conflict markers: {rel}")
 
     inner_lines = _run("inner-git-status", ["git", "status", "--short"], cwd=INNER).stdout.splitlines()
-    inner_paths = {line[3:] for line in inner_lines if len(line) >= 4}
-    if inner_paths != set(patched_files):
-        raise FinalAuditError(
-            "repository-checks",
-            f"inner status differs from PATCHED_FILES: missing={sorted(set(patched_files) - inner_paths)} "
-            f"extra={sorted(inner_paths - set(patched_files))}",
-        )
+    reviewed_non_patch_paths = _validate_inner_status(inner_lines, patched_files)
+    for rel in reviewed_non_patch_paths:
+        if rel == "package-lock.json":
+            try:
+                json.loads((INNER / rel).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise FinalAuditError(
+                    "repository-checks",
+                    f"reviewed npm lockfile is invalid JSON: {exc}",
+                ) from exc
+    _reverify_bundle_after_tests()
     return {
-        "inner_overlay_paths": len(inner_paths),
+        "inner_overlay_paths": len(patched_files),
+        "reviewed_non_patch_paths": reviewed_non_patch_paths,
+        "bundle_reverified_after_tests": True,
         "conflict_markers": 0,
         "diff_check": "ok",
     }
@@ -366,11 +715,16 @@ def main() -> int:
             _run(
                 "patch-evidence-full",
                 [sys.executable, str(EVIDENCE), "--report-json", str(evidence_path)],
-                timeout=600,
+                timeout=1200,
             )
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
             if evidence.get("status") != "ok" or evidence.get("mode") != "full":
                 raise FinalAuditError("patch-evidence-full", "evidence report is not status=ok/mode=full")
+            if evidence.get("execution_scope") != "per_patch_process":
+                raise FinalAuditError(
+                    "patch-evidence-full",
+                    "active PATCH evidence was not executed in per-PATCH process isolation",
+                )
             probe_summary = evidence.get("probes", {})
             if (
                 probe_summary.get("registered", 0) <= 0
@@ -404,9 +758,29 @@ def main() -> int:
                 )
 
         canonical_tests = _run_canonical_patch_tests(test_files)
+        _validate_canonical_coverage(canonical_tests, evidence)
         wiki = json.loads(_run("wiki-lint", [sys.executable, str(WIKI_LINT), "--json"]).stdout)
         if any(wiki.values()):
             raise FinalAuditError("wiki-lint", "wiki lint JSON contains issues")
+        try:
+            final_sandbox = patch_evidence.audit_sandbox_verifier()
+        except (patch_evidence.EvidenceError, subprocess.SubprocessError, OSError) as exc:
+            raise FinalAuditError(
+                "sandbox-final-verifier",
+                f"post-canonical sandbox verifier failed: {exc}",
+            ) from exc
+        final_sandbox_passed = final_sandbox.get("passed")
+        if not isinstance(final_sandbox_passed, int) or final_sandbox_passed <= 0:
+            raise FinalAuditError(
+                "sandbox-final-verifier",
+                "post-canonical sandbox verifier reported no executed tests",
+            )
+        if final_sandbox_passed != sandbox_passed:
+            raise FinalAuditError(
+                "sandbox-final-verifier",
+                f"sandbox regression count changed during final audit: "
+                f"initial={sandbox_passed} final={final_sandbox_passed}",
+            )
 
         report.update(
             {
@@ -416,9 +790,12 @@ def main() -> int:
                 "transaction": "none",
                 "patch_evidence": evidence,
                 "canonical_patch_tests": canonical_tests,
-                "sandbox": {"passed": sandbox_passed},
+                "sandbox": {
+                    "initial_passed": sandbox_passed,
+                    "final_passed": final_sandbox_passed,
+                },
                 "wiki_lint": {"checks_with_issues": 0},
-                "derived": _derived_checks(patched_files, evidence),
+                "derived": _derived_checks(patched_files, evidence, canonical_tests),
                 "runtime": _gateway_runtime(),
                 "doctor": _doctor_health(),
                 "repository": _repository_checks(patched_files),

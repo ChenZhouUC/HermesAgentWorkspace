@@ -235,6 +235,32 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             self.assertEqual(audit[0].path, ".clean_shutdown")
             self.assertEqual(audit[0].classification, "keep")
 
+    def test_spawn_ledger_is_explicitly_keep_classified(self) -> None:
+        """The process-identity ledger is runtime state, not cleanup debris."""
+        with tempfile.TemporaryDirectory() as root_raw:
+            root = Path(root_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / ".gitignore").write_text("spawn-ledger.json\nspawn-ledger.json.corrupt\n")
+            (root / "spawn-ledger.json").write_text("[]\n")
+            (root / "spawn-ledger.json.corrupt").write_text("not-json\n")
+            policy_path = write_policy(
+                root,
+                ignored_keep={
+                    "spawn-ledger.json*": "machine process identity ledger",
+                },
+            )
+
+            audit, errors = cleanup.audit_ignored(root, cleanup.load_policy(policy_path))
+
+            self.assertEqual(errors, [])
+            self.assertEqual(
+                {entry.path: entry.classification for entry in audit},
+                {
+                    "spawn-ledger.json": "keep",
+                    "spawn-ledger.json.corrupt": "keep",
+                },
+            )
+
     def test_persistent_skill_prompt_snapshot_is_explicitly_keep_classified(
         self,
     ) -> None:
