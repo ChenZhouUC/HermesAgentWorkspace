@@ -13,7 +13,9 @@ verification step.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -198,12 +200,42 @@ def _validate_evidence_upgrade_range(patch_records: list[dict[str, object]], cur
             f"PATCH evidence does not have one consistent upgrade range: {sorted(ranges)}",
         )
     old_sha, new_sha = next(iter(ranges))
-    if not re.fullmatch(r"[0-9a-f]{40}", old_sha) or new_sha != current_head:
+    if not re.fullmatch(r"[0-9a-f]{40}", old_sha) or old_sha == new_sha or new_sha != current_head:
         raise FinalAuditError(
             "derived-docs",
             f"PATCH evidence upgrade range is stale or invalid: {old_sha!r} -> {new_sha!r}, HEAD={current_head}",
         )
     return {"old_sha": old_sha, "new_sha": new_sha}
+
+
+def _validate_evidence_registry(
+    patch_records: list[dict[str, object]],
+    patches_text: str,
+) -> dict[str, int]:
+    expected_active = set(patch_evidence._blocks(patches_text, archive=False))
+    expected_archived = set(patch_evidence._blocks(patches_text, archive=True))
+    observed: dict[str, str] = {}
+    duplicates: set[str] = set()
+    for record in patch_records:
+        patch_id = str(record.get("id") or "")
+        lifecycle = str(record.get("lifecycle") or "")
+        if patch_id in observed:
+            duplicates.add(patch_id)
+        observed[patch_id] = lifecycle
+    expected = {
+        **{patch_id: "active" for patch_id in expected_active},
+        **{patch_id: "archived" for patch_id in expected_archived},
+    }
+    if duplicates or observed != expected:
+        raise FinalAuditError(
+            "derived-docs",
+            "PATCH evidence registry differs from PATCHES.md: "
+            f"duplicates={sorted(duplicates)} "
+            f"missing={sorted(set(expected) - set(observed))} "
+            f"unknown={sorted(set(observed) - set(expected))} "
+            f"lifecycle_mismatch={sorted(pid for pid in set(observed) & set(expected) if observed[pid] != expected[pid])}",
+        )
+    return {"active": len(expected_active), "archived": len(expected_archived)}
 
 
 def _validate_patch_count_claims(
@@ -297,6 +329,40 @@ def _validate_documented_regression_counts(
     }
 
 
+def _validate_documented_sandbox_count(
+    sandbox_passed: int,
+    readme_summary: str,
+    patch_summary: str,
+) -> int:
+    pattern = re.compile(r"sandbox/identity-sync\s+\*{0,2}(\d+)\s+passed\*{0,2}")
+    for label, text in (("README", readme_summary), ("PATCHES", patch_summary)):
+        matches = pattern.findall(text)
+        observed = int(matches[0]) if len(matches) == 1 else None
+        if observed != sandbox_passed:
+            raise FinalAuditError(
+                "derived-docs",
+                f"{label} sandbox regression count drift: observed={observed} expected={sandbox_passed}",
+            )
+    return sandbox_passed
+
+
+def _validate_documented_support_count(
+    support_files: int,
+    readme_summary: str,
+    patch_summary: str,
+) -> int:
+    pattern = re.compile(r"另有\s+(\d+)\s+个 test support modules")
+    for label, text in (("README", readme_summary), ("PATCHES", patch_summary)):
+        matches = pattern.findall(text)
+        observed = int(matches[0]) if len(matches) == 1 else None
+        if observed != support_files:
+            raise FinalAuditError(
+                "derived-docs",
+                f"{label} PATCH test support count drift: observed={observed} expected={support_files}",
+            )
+    return support_files
+
+
 def _validate_documented_gate_counts(
     script_text: str,
     readme_summary: str,
@@ -323,6 +389,7 @@ def _derived_checks(
     patched_files: list[str],
     evidence: dict[str, object],
     canonical: dict[str, int],
+    sandbox_passed: int,
 ) -> dict[str, object]:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     patches = (ROOT / "patches/PATCHES.md").read_text(encoding="utf-8")
@@ -400,7 +467,19 @@ def _derived_checks(
             "per-PATCH report count differs from registry definition count",
         )
     patch_records = list(evidence.get("patches", []))
+    evidence_registry = _validate_evidence_registry(patch_records, patches)
     upgrade_range = _validate_evidence_upgrade_range(patch_records, head)
+    _run(
+        "upgrade-range-ancestry",
+        [
+            "git",
+            "merge-base",
+            "--is-ancestor",
+            upgrade_range["old_sha"],
+            upgrade_range["new_sha"],
+        ],
+        cwd=INNER,
+    )
     overlap_paths = sorted({path for record in patch_records for path in record.get("upstream_overlap", [])})
     summary_match = re.search(r"\*\*最近一次升级.*?(?=\n---\n)", patches, re.DOTALL)
     if not summary_match:
@@ -422,6 +501,16 @@ def _derived_checks(
     regression_counts = _validate_documented_regression_counts(
         canonical,
         patch_records,
+        current_summary,
+        summary_text,
+    )
+    sandbox_count = _validate_documented_sandbox_count(
+        sandbox_passed,
+        current_summary,
+        summary_text,
+    )
+    support_count = _validate_documented_support_count(
+        int(evidence.get("support_files") or 0),
         current_summary,
         summary_text,
     )
@@ -451,7 +540,10 @@ def _derived_checks(
         "upstream_overlap_paths": overlap_paths,
         "absorption_matrix": absorption,
         "patch_counts": patch_counts,
+        "evidence_registry": evidence_registry,
         "regression_counts": regression_counts,
+        "sandbox_passed": sandbox_count,
+        "test_support_files": support_count,
         "gate_counts": gate_counts,
         "upgrade_range": upgrade_range,
     }
@@ -461,6 +553,7 @@ def _validate_gateway_state_payload(
     payload: object,
     *,
     gateway_pid: int,
+    gateway_start_time: int,
     expected_sha: str,
 ) -> dict[str, object]:
     if not isinstance(payload, dict):
@@ -478,10 +571,24 @@ def _validate_gateway_state_payload(
             "gateway-runtime",
             f"gateway_state.json belongs to PID {recorded_pid}, not live Gateway PID {gateway_pid}",
         )
+    recorded_start_time = payload.get("start_time")
+    if isinstance(recorded_start_time, bool) or not isinstance(recorded_start_time, int):
+        raise FinalAuditError("gateway-runtime", "gateway_state.json has no integer start_time")
+    if recorded_start_time != gateway_start_time:
+        raise FinalAuditError(
+            "gateway-runtime",
+            "gateway_state.json process start fingerprint does not match the live Gateway: "
+            f"recorded={recorded_start_time} live={gateway_start_time}",
+        )
     argv_value = payload.get("argv")
     argv = " ".join(str(part) for part in argv_value) if isinstance(argv_value, list) else str(argv_value or "")
     if "pytest" in argv.lower():
         raise FinalAuditError("gateway-runtime", "gateway_state.json was overwritten by a pytest process")
+    if "gateway" not in argv.lower() or "run" not in argv.lower():
+        raise FinalAuditError(
+            "gateway-runtime",
+            f"gateway_state.json argv is not a Gateway run command: {argv!r}",
+        )
     if payload.get("code_sha") != expected_sha:
         raise FinalAuditError(
             "gateway-runtime",
@@ -490,28 +597,52 @@ def _validate_gateway_state_payload(
     state = str(payload.get("gateway_state") or "")
     if state not in {"running", "degraded"}:
         raise FinalAuditError("gateway-runtime", f"gateway_state.json is not serving: {state!r}")
-    return {"state": state, "state_file_pid": recorded_pid, "code_sha": expected_sha}
+    return {
+        "state": state,
+        "state_file_pid": recorded_pid,
+        "state_file_start_time": recorded_start_time,
+        "code_sha": expected_sha,
+    }
 
 
 def _gateway_runtime() -> dict[str, object]:
     status = _run("gateway-status", ["hermes", "gateway", "status"], timeout=60)
     supervisor = re.search(r"supervised by launchd \(PID (\d+)\)", status.stdout)
-    child = _run(
-        "gateway-child-pid",
+    child_identity_raw = _run(
+        "gateway-child-identity",
         [
             str(INNER / "venv/bin/python"),
             "-c",
-            "from gateway.status import get_running_pid; print(get_running_pid() or '')",
+            (
+                "import json; from gateway.status import get_process_start_time, get_running_pid; "
+                "pid = get_running_pid(); print(json.dumps({'pid': pid, "
+                "'start_time': get_process_start_time(pid) if pid else None}))"
+            ),
         ],
         cwd=INNER,
         timeout=60,
     ).stdout.strip()
-    if not supervisor or not child.isdigit():
+    try:
+        child_identity = json.loads(child_identity_raw)
+    except json.JSONDecodeError as exc:
         raise FinalAuditError(
             "gateway-runtime",
-            "could not resolve supervisor and real Gateway child PIDs",
+            f"could not parse real Gateway child identity: {child_identity_raw!r}",
+        ) from exc
+    child_pid = child_identity.get("pid") if isinstance(child_identity, dict) else None
+    child_start_time = child_identity.get("start_time") if isinstance(child_identity, dict) else None
+    if (
+        not supervisor
+        or isinstance(child_pid, bool)
+        or not isinstance(child_pid, int)
+        or isinstance(child_start_time, bool)
+        or not isinstance(child_start_time, int)
+    ):
+        raise FinalAuditError(
+            "gateway-runtime",
+            "could not resolve supervisor and real Gateway child process identity",
         )
-    gateway_pid = int(child)
+    gateway_pid = child_pid
     supervisor_pid = int(supervisor.group(1))
     if supervisor_pid == gateway_pid:
         raise FinalAuditError(
@@ -530,6 +661,7 @@ def _gateway_runtime() -> dict[str, object]:
     state_details = _validate_gateway_state_payload(
         state_payload,
         gateway_pid=gateway_pid,
+        gateway_start_time=child_start_time,
         expected_sha=head,
     )
 
@@ -557,6 +689,7 @@ def _gateway_runtime() -> dict[str, object]:
     return {
         "supervisor_pid": supervisor_pid,
         "gateway_pid": gateway_pid,
+        "gateway_start_time": child_start_time,
         "spawn_ledger_entries": ledger_entries,
         **state_details,
     }
@@ -683,6 +816,85 @@ def _cleanup_final() -> dict[str, object]:
     return summary
 
 
+def _outer_workspace_snapshot() -> dict[str, object]:
+    """Fingerprint tracked changes and non-ignored untracked files without exposing contents."""
+
+    def run_bytes(step: str, argv: list[str]) -> bytes:
+        result = subprocess.run(
+            argv,
+            cwd=ROOT,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode:
+            tail = (result.stdout + result.stderr)[-2000:].decode("utf-8", "replace")
+            raise FinalAuditError(step, f"command failed ({result.returncode}): {' '.join(argv)}\n{tail}")
+        return result.stdout
+
+    status = run_bytes(
+        "outer-workspace-snapshot",
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    )
+    tracked_diff = run_bytes(
+        "outer-workspace-snapshot",
+        ["git", "diff", "--binary", "HEAD", "--"],
+    )
+    untracked_raw = run_bytes(
+        "outer-workspace-snapshot",
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+    )
+    untracked = [os.fsdecode(raw) for raw in untracked_raw.split(b"\0") if raw]
+    digest = hashlib.sha256()
+    digest.update(status)
+    digest.update(tracked_diff)
+    for rel in sorted(untracked):
+        path = ROOT / rel
+        digest.update(rel.encode("utf-8", "surrogateescape"))
+        digest.update(str(path.lstat().st_mode).encode("ascii"))
+        if path.is_symlink():
+            digest.update(os.readlink(path).encode("utf-8", "surrogateescape"))
+        elif path.is_file():
+            digest.update(path.read_bytes())
+    return {
+        "digest": digest.hexdigest(),
+        "status_bytes": len(status),
+        "tracked_diff_bytes": len(tracked_diff),
+        "untracked_files": len(untracked),
+    }
+
+
+def _validate_outer_workspace_stability(
+    before: dict[str, object],
+    after: dict[str, object],
+) -> None:
+    if after.get("digest") != before.get("digest"):
+        raise FinalAuditError(
+            "outer-workspace-stability",
+            f"final audit changed tracked or non-ignored outer workspace content: before={before} after={after}",
+        )
+
+
+def _validate_sandbox_result(details: object, *, label: str) -> dict[str, object]:
+    if not isinstance(details, dict):
+        raise FinalAuditError("patch-evidence-full", f"{label} sandbox result is not an object")
+    counts = {key: details.get(key) for key in ("passed", "skipped", "failed", "errors")}
+    if (
+        isinstance(counts["passed"], bool)
+        or not isinstance(counts["passed"], int)
+        or counts["passed"] <= 0
+        or any(
+            isinstance(counts[key], bool) or not isinstance(counts[key], int) or counts[key] != 0
+            for key in ("skipped", "failed", "errors")
+        )
+    ):
+        raise FinalAuditError(
+            "patch-evidence-full",
+            f"{label} sandbox result is incomplete or non-passing: {counts}",
+        )
+    return dict(details)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -702,6 +914,7 @@ def main() -> int:
         "started_at": started.isoformat(),
     }
     try:
+        outer_workspace_before = _outer_workspace_snapshot()
         transaction = _run("transaction-status", ["bash", str(UPDATE), "--transaction-status"]).stdout.strip()
         if transaction != "none":
             raise FinalAuditError("transaction-status", f"unfinished update transaction: {transaction}")
@@ -750,12 +963,8 @@ def main() -> int:
             )
             sandbox_probes = sandbox_record.get("probe_results", []) if sandbox_record else []
             sandbox_details = sandbox_probes[0].get("details", {}) if len(sandbox_probes) == 1 else {}
-            sandbox_passed = sandbox_details.get("passed")
-            if not isinstance(sandbox_passed, int) or sandbox_passed <= 0:
-                raise FinalAuditError(
-                    "patch-evidence-full",
-                    "sandbox PATCH lacks an executed verifier result",
-                )
+            initial_sandbox = _validate_sandbox_result(sandbox_details, label="initial")
+            sandbox_passed = int(initial_sandbox["passed"])
 
         canonical_tests = _run_canonical_patch_tests(test_files)
         _validate_canonical_coverage(canonical_tests, evidence)
@@ -764,24 +973,42 @@ def main() -> int:
             raise FinalAuditError("wiki-lint", "wiki lint JSON contains issues")
         try:
             final_sandbox = patch_evidence.audit_sandbox_verifier()
-        except (patch_evidence.EvidenceError, subprocess.SubprocessError, OSError) as exc:
+        except (
+            patch_evidence.EvidenceError,
+            subprocess.SubprocessError,
+            OSError,
+        ) as exc:
             raise FinalAuditError(
                 "sandbox-final-verifier",
                 f"post-canonical sandbox verifier failed: {exc}",
             ) from exc
-        final_sandbox_passed = final_sandbox.get("passed")
-        if not isinstance(final_sandbox_passed, int) or final_sandbox_passed <= 0:
+        final_sandbox_details = _validate_sandbox_result(final_sandbox, label="post-canonical")
+        final_sandbox_passed = int(final_sandbox_details["passed"])
+        if final_sandbox_details != initial_sandbox:
             raise FinalAuditError(
                 "sandbox-final-verifier",
-                "post-canonical sandbox verifier reported no executed tests",
-            )
-        if final_sandbox_passed != sandbox_passed:
-            raise FinalAuditError(
-                "sandbox-final-verifier",
-                f"sandbox regression count changed during final audit: "
-                f"initial={sandbox_passed} final={final_sandbox_passed}",
+                "sandbox verifier result changed during final audit: "
+                f"initial={initial_sandbox} final={final_sandbox_details}",
             )
 
+        derived = _derived_checks(
+            patched_files,
+            evidence,
+            canonical_tests,
+            sandbox_passed,
+        )
+        doctor = _doctor_health()
+        repository = _repository_checks(patched_files)
+        cleanup = _cleanup_final()
+        runtime = _gateway_runtime()
+        outer_workspace_after = _outer_workspace_snapshot()
+        _validate_outer_workspace_stability(
+            outer_workspace_before,
+            outer_workspace_after,
+        )
+        outer_status = _run("outer-git-status", ["git", "status", "--short"], cwd=ROOT).stdout.splitlines()
+        if args.require_clean_outer and outer_status:
+            raise FinalAuditError("outer-git-status", f"outer repository is not clean: {outer_status}")
         report.update(
             {
                 "status": "ok",
@@ -795,18 +1022,19 @@ def main() -> int:
                     "final_passed": final_sandbox_passed,
                 },
                 "wiki_lint": {"checks_with_issues": 0},
-                "derived": _derived_checks(patched_files, evidence, canonical_tests),
-                "runtime": _gateway_runtime(),
-                "doctor": _doctor_health(),
-                "repository": _repository_checks(patched_files),
+                "derived": derived,
+                "runtime": runtime,
+                "doctor": doctor,
+                "repository": repository,
+                "cleanup": cleanup,
+                "outer_workspace": {
+                    "stable": True,
+                    "snapshot": outer_workspace_after,
+                },
+                "outer_git_status": outer_status,
+                "inner_git_status_count": repository["inner_overlay_paths"],
             }
         )
-        report["cleanup"] = _cleanup_final()
-        outer_status = _run("outer-git-status", ["git", "status", "--short"], cwd=ROOT).stdout.splitlines()
-        if args.require_clean_outer and outer_status:
-            raise FinalAuditError("outer-git-status", f"outer repository is not clean: {outer_status}")
-        report["outer_git_status"] = outer_status
-        report["inner_git_status_count"] = report["repository"]["inner_overlay_paths"]
     except (
         FinalAuditError,
         subprocess.SubprocessError,

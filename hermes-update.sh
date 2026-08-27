@@ -1098,7 +1098,9 @@ case "${1:-}" in
     ;;
 --print-patched-tests)
     for _f in "${PATCHED_FILES[@]}"; do
-        [[ "${_f}" == tests/* ]] && printf '%s\n' "${_f}"
+        if [[ "${_f}" == tests/* && "${_f##*/}" == test_*.py ]]; then
+            printf '%s\n' "${_f}"
+        fi
     done
     exit 0
     ;;

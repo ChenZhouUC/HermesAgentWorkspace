@@ -16,6 +16,7 @@ unconditional contract status cannot turn them green.
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import json
 import os
@@ -39,8 +40,22 @@ class EvidenceError(RuntimeError):
     pass
 
 
-def _run(argv: list[str], *, cwd: Path = ROOT, timeout: int = 180) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(argv, cwd=cwd, text=True, capture_output=True, timeout=timeout, check=False)
+def _run(
+    argv: list[str],
+    *,
+    cwd: Path = ROOT,
+    timeout: int = 180,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
 
 
 def _hermetic_test_env() -> dict[str, str]:
@@ -106,11 +121,31 @@ def _expand_braces(pattern: str) -> set[str]:
     return expanded
 
 
-def _owned_managed_files(block: str, managed_files: list[str]) -> list[str]:
-    files_text = _files(block)
+def _declared_file_patterns(block: str) -> list[str]:
     patterns: set[str] = set()
-    for token in re.findall(r"`([^`]+)`", files_text):
+    for token in re.findall(r"`([^`]+)`", _files(block)):
         patterns.update(_expand_braces(token))
+    return sorted(patterns)
+
+
+def _declared_upstream_overlap(
+    block: str,
+    changed_paths: set[str],
+    *,
+    include: bool,
+) -> list[str]:
+    if not include:
+        return []
+    patterns = _declared_file_patterns(block)
+    return sorted(
+        path
+        for path in changed_paths
+        if any(fnmatch.fnmatchcase(path, pattern.replace("...", "*")) for pattern in patterns)
+    )
+
+
+def _owned_managed_files(block: str, managed_files: list[str]) -> list[str]:
+    patterns = _declared_file_patterns(block)
     return sorted(
         path
         for path in managed_files
@@ -124,6 +159,15 @@ def _test_tokens(validation: str) -> set[str]:
     without_paths = re.sub(path_pattern, "", validation)
     functions = set(re.findall(r"\btest_[A-Za-z0-9_]+\b(?!\.py)", without_paths))
     return paths | functions
+
+
+def _explicit_test_nodes(validation: str) -> set[str]:
+    """Return path-qualified pytest node IDs written in PATCH validation prose."""
+    pattern = (
+        r"tests/[A-Za-z0-9_./-]+\.py"
+        r"(?:::[A-Za-z_][A-Za-z0-9_.-]*(?:\[[^\]\n`]*\])?)+"
+    )
+    return {_base_node_id(node) for node in re.findall(pattern, validation)}
 
 
 def _audit_active_patch_ownership(active: dict[str, str], managed_files: list[str]) -> None:
@@ -311,7 +355,11 @@ def _registered_probe_specs(active: dict[str, str], archived: dict[str, str]) ->
     specs.update(
         {
             patch_id: (function_name, minimum_mode)
-            for patch_id, (_path, function_name, minimum_mode) in EXTERNAL_EVIDENCE_AUDITS.items()
+            for patch_id, (
+                _path,
+                function_name,
+                minimum_mode,
+            ) in EXTERNAL_EVIDENCE_AUDITS.items()
         }
     )
     specs.update({patch_id: (function_name, "quick") for patch_id, function_name in ARCHIVED_EVIDENCE_AUDITS.items()})
@@ -342,6 +390,9 @@ def _patch_test_inventory() -> tuple[set[str], set[str]]:
     if result.returncode:
         raise EvidenceError(f"could not read PATCH_TESTS: {result.stderr.strip()}")
     test_files = {line for line in result.stdout.splitlines() if line}
+    invalid_names = sorted(path for path in test_files if not Path(path).name.startswith("test_"))
+    if invalid_names:
+        raise EvidenceError(f"PATCH_TESTS contains non-test support files: {invalid_names}")
     missing = [rel for rel in sorted(test_files) if not (INNER / rel).is_file()]
     if missing:
         raise EvidenceError(f"PATCH_TESTS contains missing files: {missing}")
@@ -350,6 +401,65 @@ def _patch_test_inventory() -> tuple[set[str], set[str]]:
         source = (INNER / rel).read_text(encoding="utf-8", errors="ignore")
         test_functions.update(re.findall(r"(?m)^\s*(?:async\s+)?def\s+(test_[A-Za-z0-9_]+)\s*\(", source))
     return test_files, test_functions
+
+
+def _patch_test_support_files() -> list[str]:
+    result = _run(["bash", str(SCRIPT), "--print-patched-files"])
+    if result.returncode:
+        raise EvidenceError(f"could not read PATCHED_FILES: {result.stderr.strip()}")
+    support_files = sorted(
+        path
+        for path in result.stdout.splitlines()
+        if path.startswith("tests/") and path.endswith(".py") and not Path(path).name.startswith("test_")
+    )
+    missing = [rel for rel in support_files if not (INNER / rel).is_file()]
+    if missing:
+        raise EvidenceError(f"PATCH test support contains missing files: {missing}")
+    for rel in support_files:
+        try:
+            ast.parse((INNER / rel).read_text(encoding="utf-8"), filename=rel)
+        except (OSError, SyntaxError) as exc:
+            raise EvidenceError(f"PATCH test support is not valid Python: {rel}: {exc}") from exc
+    return support_files
+
+
+def _patch_test_support_consumers(
+    support_files: list[str],
+    test_files: set[str],
+) -> dict[str, list[str]]:
+    imported_by: dict[str, set[str]] = defaultdict(set)
+    for rel in test_files:
+        tree = ast.parse((INNER / rel).read_text(encoding="utf-8"), filename=rel)
+        package_parts = list(Path(rel).with_suffix("").parts[:-1])
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported_by[rel].update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    keep = max(0, len(package_parts) - (node.level - 1))
+                    prefix = package_parts[:keep]
+                    module = ".".join([*prefix, *(node.module or "").split(".")]).strip(".")
+                else:
+                    module = node.module or ""
+                if module:
+                    imported_by[rel].add(module)
+
+    consumers: dict[str, list[str]] = {}
+    unused: list[str] = []
+    for support in support_files:
+        support_path = Path(support)
+        if support_path.name == "conftest.py":
+            parent = support_path.parent.as_posix().rstrip("/")
+            matched = sorted(path for path in test_files if path == f"{parent}.py" or path.startswith(f"{parent}/"))
+        else:
+            module = support_path.with_suffix("").as_posix().replace("/", ".")
+            matched = sorted(path for path, imports in imported_by.items() if module in imports)
+        consumers[support] = matched
+        if not matched:
+            unused.append(support)
+    if unused:
+        raise EvidenceError(f"PATCH test support files have no collected test consumers: {unused}")
+    return consumers
 
 
 def _collect_patch_nodes(test_files: set[str]) -> list[str]:
@@ -376,6 +486,16 @@ def _collect_patch_nodes(test_files: set[str]) -> list[str]:
     nodes = [line.strip() for line in result.stdout.splitlines() if line.strip().startswith("tests/") and "::" in line]
     if not nodes:
         raise EvidenceError("patched test collection reported no node IDs")
+    duplicate_nodes = sorted(node for node in set(nodes) if nodes.count(node) > 1)
+    if duplicate_nodes:
+        raise EvidenceError(f"patched test collection reported duplicate node IDs: {duplicate_nodes}")
+    collected_files = {node.split("::", 1)[0] for node in nodes}
+    missing_files = sorted(test_files - collected_files)
+    unexpected_files = sorted(collected_files - test_files)
+    if missing_files or unexpected_files:
+        raise EvidenceError(
+            f"PATCH_TESTS collection is not file-complete: zero_collected={missing_files} unexpected={unexpected_files}"
+        )
     return nodes
 
 
@@ -397,18 +517,28 @@ def _resolve_active_patch_nodes(
         by_function[_node_function(node)].add(_base_node_id(node))
 
     resolved: dict[str, list[str]] = {}
+    collected_bases = {_base_node_id(node) for node in collected_nodes}
     for patch_id, block in active.items():
         if patch_id in EXTERNAL_EVIDENCE_AUDITS or patch_id in RUNTIME_EVIDENCE:
             continue
         if patch_id in DEDICATED_EVIDENCE_AUDITS:
             continue
         validation = _validation(block)
-        functions = sorted(token for token in _test_tokens(validation) if token.startswith("test_"))
-        if not functions:
+        explicit_nodes = sorted(_explicit_test_nodes(validation))
+        explicit_functions = {_node_function(node) for node in explicit_nodes}
+        functions = sorted(
+            token for token in _test_tokens(validation) if token.startswith("test_") and token not in explicit_functions
+        )
+        if not explicit_nodes and not functions:
             raise EvidenceError(
                 f"{patch_id}: full evidence requires at least one concrete test function, not only a file path"
             )
-        nodes: list[str] = []
+        nodes: list[str] = list(explicit_nodes)
+        missing_explicit = sorted(set(explicit_nodes) - collected_bases)
+        if missing_explicit:
+            raise EvidenceError(
+                f"{patch_id}: explicit evidence node was not collected exactly as documented: {missing_explicit}"
+            )
         for function in functions:
             candidates = sorted(by_function.get(function, set()))
             if not candidates:
@@ -775,6 +905,30 @@ def audit_gate_links(active: dict[str, str], archived: dict[str, str]) -> None:
         )
 
 
+def _configured_plugin_verifiers(script: str) -> list[str]:
+    match = re.search(r"PLUGIN_VERIFIERS=\((.*?)\)", script, re.DOTALL)
+    if match is None:
+        raise EvidenceError("Step 8e PLUGIN_VERIFIERS registry is missing")
+    entries = re.findall(r'"([^"]+)"', match.group(1))
+    prefix = "${HERMES_HOME}/"
+    invalid = sorted(entry for entry in entries if not entry.startswith(prefix))
+    if invalid:
+        raise EvidenceError(f"Step 8e verifier paths are not rooted at HERMES_HOME: {invalid}")
+    paths = [entry[len(prefix) :] for entry in entries]
+    duplicates = sorted(path for path in set(paths) if paths.count(path) > 1)
+    if duplicates:
+        raise EvidenceError(f"Step 8e verifier registry contains duplicates: {duplicates}")
+    return paths
+
+
+def _validate_external_verifier_links(script: str) -> list[str]:
+    configured = sorted(_configured_plugin_verifiers(script))
+    registered = sorted(path for path, _function_name, _mode in EXTERNAL_EVIDENCE_AUDITS.values())
+    if configured != registered:
+        raise EvidenceError(f"Step 8e verifier registry drift: configured={configured} registered={registered}")
+    return configured
+
+
 RUNTIME_ARTIFACT_NEEDLES: dict[str, tuple[str, ...]] = {
     "PATCH-NPM-DEPENDENCY-HYGIENE": (
         "npm audit fix",
@@ -820,12 +974,17 @@ def audit_runtime_artifacts() -> None:
         missing = [needle for needle in needles if needle not in script]
         if missing:
             raise EvidenceError(f"{patch_id}: executable evidence missing {missing}")
-    for patch_id, (evidence_path, _function_name, _minimum_mode) in EXTERNAL_EVIDENCE_AUDITS.items():
+    for patch_id, (
+        evidence_path,
+        _function_name,
+        _minimum_mode,
+    ) in EXTERNAL_EVIDENCE_AUDITS.items():
         verifier = ROOT / evidence_path
         if not verifier.is_file():
             raise EvidenceError(f"{patch_id}: verifier is missing: {evidence_path}")
         if not verifier.stat().st_mode & 0o111:
             raise EvidenceError(f"{patch_id}: verifier is not executable: {evidence_path}")
+    _validate_external_verifier_links(script)
     if not BUNDLE.is_file():
         raise EvidenceError("replay bundle is missing")
 
@@ -849,6 +1008,54 @@ def _run_unittest_probe(module: str, label: str) -> dict[str, object]:
     if match is None or int(match.group(1)) <= 0:
         raise EvidenceError(f"{label} reported no executed tests")
     return {"tests": int(match.group(1))}
+
+
+def _run_strict_pytest_probe(
+    label: str,
+    *node_ids: str,
+    timeout: int = 180,
+) -> dict[str, object]:
+    """Run a pytest probe and require every collected case to pass cleanly."""
+    if not node_ids:
+        raise EvidenceError(f"{label} has no pytest nodes")
+    with tempfile.TemporaryDirectory(prefix="hermes-patch-probe-") as temp_raw:
+        junit = Path(temp_raw) / "results.xml"
+        result = _run(
+            [
+                str(INNER / "venv/bin/python"),
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "-o",
+                "xfail_strict=true",
+                f"--junitxml={junit}",
+                *node_ids,
+            ],
+            cwd=INNER,
+            env=_hermetic_test_env(),
+            timeout=timeout,
+        )
+        if result.returncode:
+            raise EvidenceError(f"{label} failed: {result.stdout[-1500:]}{result.stderr[-1500:]}")
+        try:
+            root = ET.parse(junit).getroot()
+        except (ET.ParseError, OSError) as exc:
+            raise EvidenceError(f"{label} JUnit report is unreadable: {exc}") from exc
+        cases = list(root.iter("testcase"))
+        if not cases:
+            raise EvidenceError(f"{label} reported no executed test cases")
+        nonpassing = [
+            str(case.attrib.get("name") or "<unnamed>")
+            for case in cases
+            if any(case.find(tag) is not None for tag in ("failure", "error", "skipped"))
+        ]
+        if nonpassing:
+            raise EvidenceError(f"{label} contains non-passing outcomes: {nonpassing}")
+        if re.search(r"\b\d+\s+xpassed\b", result.stdout):
+            raise EvidenceError(f"{label} contains xpassed outcomes")
+        return {"passed": len(cases), "nodes": list(node_ids)}
 
 
 def audit_patch_gate_self_test() -> dict[str, object]:
@@ -876,15 +1083,32 @@ def audit_gateway_restart_cleanup() -> dict[str, object]:
 
 
 def audit_sandbox_verifier() -> dict[str, object]:
-    verifier = ROOT / "plugins" / "sandbox" / "verify.sh"
+    verifier_rel = EXTERNAL_EVIDENCE_AUDITS["PATCH-FEISHU-GROUP-SANDBOX"][0]
+    verifier = ROOT / verifier_rel
     result = _run(["bash", str(verifier)], timeout=300)
     if result.returncode:
         raise EvidenceError(f"sandbox verifier failed: {result.stdout[-2000:]}{result.stderr[-2000:]}")
     combined = f"{result.stdout}\n{result.stderr}"
-    match = re.search(r"(\d+) passed", combined)
-    if match is None or int(match.group(1)) <= 0:
-        raise EvidenceError("sandbox verifier did not report an executed pytest count")
-    return {"passed": int(match.group(1))}
+    matches = re.findall(
+        r"^PATCH_VERIFY_RESULT sandbox passed=(\d+) skipped=(\d+) failed=(\d+) errors=(\d+)$",
+        combined,
+        re.MULTILINE,
+    )
+    if len(matches) != 1:
+        raise EvidenceError("sandbox verifier did not report exactly one machine-readable result")
+    passed, skipped, failed, errors = (int(value) for value in matches[0])
+    if passed <= 0 or skipped or failed or errors:
+        raise EvidenceError(
+            "sandbox verifier did not execute a clean regression set: "
+            f"passed={passed} skipped={skipped} failed={failed} errors={errors}"
+        )
+    return {
+        "verifier": verifier_rel,
+        "passed": passed,
+        "skipped": skipped,
+        "failed": failed,
+        "errors": errors,
+    }
 
 
 def audit_socks_dependency() -> None:
@@ -1028,46 +1252,23 @@ def audit_skills_mirror() -> None:
                 raise EvidenceError(f"isolated Skills mirror did not preserve runtime state: {rel}")
 
 
-def audit_fts5_build() -> None:
-    result = _run(
-        [
-            str(INNER / "venv/bin/python"),
-            "-m",
-            "pytest",
-            "-q",
-            "tests/test_fts_cjk_bigram.py",
-        ],
-        cwd=INNER,
-        timeout=180,
+def audit_fts5_build() -> dict[str, object]:
+    return _run_strict_pytest_probe(
+        "FTS5 CJK regression",
+        "tests/test_fts_cjk_bigram.py",
     )
-    if result.returncode:
-        raise EvidenceError(f"FTS5 CJK regression failed: {result.stdout[-1000:]}{result.stderr[-1000:]}")
 
 
-def _run_archived_pytest(*node_ids: str) -> None:
-    result = _run(
-        [
-            str(INNER / "venv/bin/python"),
-            "-m",
-            "pytest",
-            "-q",
-            "-p",
-            "no:cacheprovider",
-            *node_ids,
-        ],
-        cwd=INNER,
-        timeout=180,
-    )
-    if result.returncode:
-        raise EvidenceError(f"archived PATCH regression failed: {result.stdout[-1500:]}{result.stderr[-1500:]}")
+def _run_archived_pytest(*node_ids: str) -> dict[str, object]:
+    return _run_strict_pytest_probe("archived PATCH regression", *node_ids)
 
 
-def audit_archived_launchd_wrapper_supervisor() -> None:
-    _run_archived_pytest("tests/hermes_cli/test_gateway_external_supervisor.py")
+def audit_archived_launchd_wrapper_supervisor() -> dict[str, object]:
+    return _run_archived_pytest("tests/hermes_cli/test_gateway_external_supervisor.py")
 
 
-def audit_archived_compaction_lifecycle_silence() -> None:
-    _run_archived_pytest(
+def audit_archived_compaction_lifecycle_silence() -> dict[str, object]:
+    return _run_archived_pytest(
         "tests/gateway/test_telegram_noise_filter.py::test_all_routine_compression_statuses_suppressed_from_source_constants",
         "tests/gateway/test_compression_progress_notices.py::test_compaction_completion_notice_respects_progress_notices_gate",
         "tests/gateway/test_compression_progress_notices.py::test_progress_regex_covers_every_routine_sample",
@@ -1126,7 +1327,7 @@ for provider in ("vertex-fallback", "vertex2", "vertex-secondary"):
         raise EvidenceError(f"retired Vertex fallback still resolves: {result.stderr[-1000:]}")
 
 
-def audit_archived_gemini_custom_native_base() -> None:
+def audit_archived_gemini_custom_native_base() -> dict[str, object]:
     """Prove the private-base overlay stays retired while native Gemini still works."""
     config = (ROOT / "config.yaml").read_text(encoding="utf-8")
     env_keys = _env_key_names(ROOT / ".env") | _env_key_names(ROOT / ".env.example")
@@ -1144,20 +1345,20 @@ def audit_archived_gemini_custom_native_base() -> None:
         encoding="utf-8"
     ):
         raise EvidenceError("retired provider-aware custom Gemini helper returned")
-    _run_archived_pytest(
+    return _run_archived_pytest(
         "tests/agent/test_gemini_native_adapter.py::test_native_client_uses_x_goog_api_key_and_native_models_endpoint",
         "tests/hermes_cli/test_gemini_provider.py::TestGeminiAgentInit::test_gemini_resolve_provider_client_uses_native_client",
     )
 
 
-def audit_archived_lazy_activation() -> None:
-    _run_archived_pytest(
+def audit_archived_lazy_activation() -> dict[str, object]:
+    return _run_archived_pytest(
         "tests/tools/test_lazy_deps.py::TestActiveFeatures::test_shared_dependency_does_not_activate_feature"
     )
 
 
-def audit_archived_doctor_enabled_toolsets() -> None:
-    _run_archived_pytest(
+def audit_archived_doctor_enabled_toolsets() -> dict[str, object]:
+    return _run_archived_pytest(
         "tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilitySummary::test_missing_api_key_summary_ignores_disabled_toolsets"
     )
 
@@ -1173,14 +1374,14 @@ def audit_archived_zsh_completion_syntax() -> None:
         raise EvidenceError("zsh completion output no longer satisfies the archived syntax invariant")
 
 
-def audit_archived_dashboard_build_cache() -> None:
-    _run_archived_pytest(
+def audit_archived_dashboard_build_cache() -> dict[str, object]:
+    return _run_archived_pytest(
         "tests/hermes_cli/test_web_ui_build.py::TestWebUIBuildNeeded::test_mtime_only_change_is_not_stale"
     )
 
 
-def audit_archived_gemini_thought_signature() -> None:
-    _run_archived_pytest(
+def audit_archived_gemini_thought_signature() -> dict[str, object]:
+    return _run_archived_pytest(
         "tests/agent/transports/test_types.py::TestToolCallBackwardCompat::test_extra_content_getattr_pattern"
     )
 
@@ -1299,14 +1500,22 @@ def audit_bundle() -> None:
 
 def audit_current_tests(
     active: dict[str, str],
-) -> tuple[dict[str, int], dict[str, list[str]], dict[str, list[str]]]:
+) -> tuple[dict[str, object], dict[str, list[str]], dict[str, list[str]]]:
     test_files = _patch_test_inventory()[0]
+    support_files = _patch_test_support_files()
+    support_consumers = _patch_test_support_consumers(support_files, test_files)
     managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
     collected_nodes = _collect_patch_nodes(test_files)
     resolved = _resolve_active_patch_nodes(active, collected_nodes, managed_files)
     executed_owned_files = _run_active_patch_nodes(active, resolved)
     return (
-        {"files": len(test_files), "collected": len(collected_nodes)},
+        {
+            "files": len(test_files),
+            "collected": len(collected_nodes),
+            "support_files": len(support_files),
+            "support_file_paths": support_files,
+            "support_file_consumers": support_consumers,
+        },
         resolved,
         executed_owned_files,
     )
@@ -1335,6 +1544,14 @@ def _evidence_records(
             raise EvidenceError("PATCHES current upgrade range does not resolve in the inner repository")
         old_sha = old_result.stdout.strip()
         new_sha = new_result.stdout.strip()
+        if old_sha == new_sha:
+            raise EvidenceError("PATCHES current upgrade range is empty")
+        ancestor = _run(
+            ["git", "merge-base", "--is-ancestor", old_sha, new_sha],
+            cwd=INNER,
+        )
+        if ancestor.returncode:
+            raise EvidenceError("PATCHES current upgrade range is not an ancestor-to-descendant range")
         changed = _run(["git", "diff", "--name-only", f"{old_sha}..{new_sha}"], cwd=INNER)
         if changed.returncode:
             raise EvidenceError(f"could not compute PATCH upstream overlap: {changed.stderr.strip()}")
@@ -1342,9 +1559,23 @@ def _evidence_records(
         upgrade_range = {"old_sha": old_sha, "new_sha": new_sha}
     managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
 
-    def ownership(block: str) -> tuple[list[str], list[str]]:
+    def ownership(
+        patch_id: str,
+        block: str,
+        *,
+        lifecycle: str,
+    ) -> tuple[list[str], list[str], list[str]]:
         owned = _owned_managed_files(block, managed_files)
-        return owned, sorted(set(owned) & changed_paths)
+        declared_patterns = _declared_file_patterns(block)
+        include_upstream = patch_id not in RUNTIME_EVIDENCE and patch_id not in EXTERNAL_EVIDENCE_AUDITS
+        if lifecycle == "archived" and "工程外" in _files(block):
+            include_upstream = False
+        overlap = _declared_upstream_overlap(
+            block,
+            changed_paths,
+            include=include_upstream,
+        )
+        return owned, overlap, declared_patterns
 
     probe_specs = _registered_probe_specs(active, archived)
     unknown_results = set(probe_results) - set(probe_specs)
@@ -1373,11 +1604,16 @@ def _evidence_records(
 
     records: list[dict[str, object]] = []
     for patch_id, block in active.items():
-        owned_files, overlap = ownership(block)
+        owned_files, overlap, declared_patterns = ownership(
+            patch_id,
+            block,
+            lifecycle="active",
+        )
         common = {
             "id": patch_id,
             "lifecycle": "active",
             "owned_files": owned_files,
+            "declared_file_patterns": declared_patterns,
             "upstream_overlap": overlap,
             "absorption_condition_present": "**上游吸收判断**" in block,
         }
@@ -1419,12 +1655,17 @@ def _evidence_records(
                 }
             )
     for patch_id, block in archived.items():
-        owned_files, overlap = ownership(block)
+        owned_files, overlap, declared_patterns = ownership(
+            patch_id,
+            block,
+            lifecycle="archived",
+        )
         records.append(
             {
                 "id": patch_id,
                 "lifecycle": "archived",
                 "owned_files": owned_files,
+                "declared_file_patterns": declared_patterns,
                 "upstream_overlap": overlap,
                 "absorption_condition_present": "**上游吸收判断**" in block,
                 "evidence_type": "archive_behavior_or_retirement_audit",
@@ -1452,6 +1693,13 @@ def main() -> int:
     )
     args = parser.parse_args()
     mode = "quick" if args.quick else "full"
+    report_path = Path(args.report_json) if args.report_json and args.report_json != "-" else None
+    if report_path is not None:
+        try:
+            report_path.unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"patch-evidence self-test FAILED: could not clear stale report: {exc}", file=sys.stderr)
+            return 1
     try:
         active, archived = audit_registry()
         audit_gate_links(active, archived)
@@ -1459,38 +1707,53 @@ def main() -> int:
         probe_results = _run_registered_patch_audits(active, archived, mode=mode)
         npm_probe = probe_results.get("PATCH-NPM-DEPENDENCY-HYGIENE", [])
         npm = npm_probe[0].get("details", {}) if npm_probe else {"status": "deferred_full"}
-        tests = {"files": 0, "collected": 0}
+        tests: dict[str, object] = {
+            "files": 0,
+            "collected": 0,
+            "support_files": 0,
+            "support_file_paths": [],
+            "support_file_consumers": {},
+        }
         resolved: dict[str, list[str]] = {}
         executed_owned_files: dict[str, list[str]] = {}
         if not args.quick:
             tests, resolved, executed_owned_files = audit_current_tests(active)
+        report = {
+            "status": "ok",
+            "mode": mode,
+            "execution_scope": "per_patch_process" if mode == "full" else "deferred_full",
+            "active": len(active),
+            "archived": len(archived),
+            **tests,
+            "npm": npm,
+            "probes": {
+                "registered": len(_registered_probe_specs(active, archived)),
+                "executed": sum(len(results) for results in probe_results.values()),
+                "deferred": len(_registered_probe_specs(active, archived))
+                - sum(len(results) for results in probe_results.values()),
+            },
+            "module_import_evidence": {
+                patch_id: list(paths) for patch_id, paths in sorted(MODULE_IMPORT_EVIDENCE.items())
+            },
+            "patches": _evidence_records(
+                active,
+                archived,
+                resolved,
+                mode=mode,
+                probe_results=probe_results,
+                executed_owned_files=executed_owned_files,
+            ),
+        }
     except (EvidenceError, subprocess.SubprocessError, OSError) as exc:
+        report = {"status": "failed", "mode": mode, "error": str(exc)}
+        if args.report_json:
+            payload = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+            if args.report_json == "-":
+                sys.stdout.write(payload)
+            else:
+                report_path.write_text(payload, encoding="utf-8")
         print(f"patch-evidence self-test FAILED: {exc}", file=sys.stderr)
         return 1
-    report = {
-        "status": "ok",
-        "mode": mode,
-        "execution_scope": "per_patch_process" if mode == "full" else "deferred_full",
-        "active": len(active),
-        "archived": len(archived),
-        **tests,
-        "npm": npm,
-        "probes": {
-            "registered": len(_registered_probe_specs(active, archived)),
-            "executed": sum(len(results) for results in probe_results.values()),
-            "deferred": len(_registered_probe_specs(active, archived))
-            - sum(len(results) for results in probe_results.values()),
-        },
-        "module_import_evidence": {patch_id: list(paths) for patch_id, paths in sorted(MODULE_IMPORT_EVIDENCE.items())},
-        "patches": _evidence_records(
-            active,
-            archived,
-            resolved,
-            mode=mode,
-            probe_results=probe_results,
-            executed_owned_files=executed_owned_files,
-        ),
-    }
     if args.report_json:
         payload = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         if args.report_json == "-":

@@ -46,6 +46,21 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
             self.assertEqual(evidence.main(), 0)
         registered.assert_called_once_with({}, {}, mode="quick")
 
+    def test_failed_evidence_run_replaces_stale_success_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_raw:
+            report = Path(temp_raw) / "report.json"
+            report.write_text('{"status":"ok"}\n', encoding="utf-8")
+            with (
+                patch.object(sys, "argv", ["test_patch_evidence.py", "--report-json", str(report)]),
+                patch.object(
+                    evidence,
+                    "audit_registry",
+                    side_effect=evidence.EvidenceError("synthetic failure"),
+                ),
+            ):
+                self.assertEqual(evidence.main(), 1)
+            self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["status"], "failed")
+
     def test_runtime_patch_without_registered_probe_is_rejected(self) -> None:
         patch_id = "PATCH-TEST-RUNTIME"
         active = {patch_id: patch_block("runtime contract")}
@@ -194,7 +209,10 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
             {"lifecycle": "active", "evidence_type": "pytest_node"},
             {"lifecycle": "active", "evidence_type": "runtime_contract"},
             {"lifecycle": "active", "evidence_type": "external_verifier"},
-            {"lifecycle": "archived", "evidence_type": "archive_behavior_or_retirement_audit"},
+            {
+                "lifecycle": "archived",
+                "evidence_type": "archive_behavior_or_retirement_audit",
+            },
         ]
         patches = "当前共 3 个语义补丁。1 个工程内补丁"
         readme = "维护 3 个按职责命名的活跃语义补丁：1 个工程内补丁"
@@ -229,6 +247,32 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                 canonical,
                 records,
                 "final **2 files / 6 passed / 0 failed / 1 skipped**",
+                summary,
+            )
+
+    def test_documented_sandbox_count_must_match_clean_verifier_result(self) -> None:
+        summary = "sandbox/identity-sync **60 passed**"
+        self.assertEqual(
+            final_audit._validate_documented_sandbox_count(60, summary, summary),
+            60,
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "sandbox regression count drift"):
+            final_audit._validate_documented_sandbox_count(
+                59,
+                summary,
+                summary,
+            )
+
+    def test_documented_test_support_count_must_match_evidence(self) -> None:
+        summary = "另有 2 个 test support modules 做独立校验"
+        self.assertEqual(
+            final_audit._validate_documented_support_count(2, summary, summary),
+            2,
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "support count drift"):
+            final_audit._validate_documented_support_count(
+                1,
+                summary,
                 summary,
             )
 
@@ -271,7 +315,11 @@ _ARCHIVED_ONE_OK=false
     def test_final_repository_status_allows_only_unstaged_package_lock(self) -> None:
         self.assertEqual(
             final_audit._validate_inner_status(
-                [" M agent/feature.py", "?? tests/test_feature.py", " M package-lock.json"],
+                [
+                    " M agent/feature.py",
+                    "?? tests/test_feature.py",
+                    " M package-lock.json",
+                ],
                 ["agent/feature.py", "tests/test_feature.py"],
             ),
             ["package-lock.json"],
@@ -315,6 +363,83 @@ _ARCHIVED_ONE_OK=false
                 ["tests/test_a.py", "tests/test_b.py"],
             )
 
+    def test_explicit_evidence_node_binds_path_class_and_function(self) -> None:
+        active = {
+            "PATCH-TEST-CONTRACT": (
+                "| **文件** | `tests/test_a.py`, `tests/test_b.py` |\n\n"
+                + patch_block("tests/test_a.py::TestContract::test_contract")
+            )
+        }
+        with self.assertRaisesRegex(evidence.EvidenceError, "explicit evidence node was not collected"):
+            evidence._resolve_active_patch_nodes(
+                active,
+                ["tests/test_b.py::TestContract::test_contract"],
+                ["tests/test_a.py", "tests/test_b.py"],
+            )
+
+    def test_every_patch_test_file_must_collect_at_least_one_node(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["pytest", "--collect-only"],
+            0,
+            "tests/test_a.py::test_a\n\n1 test collected\n",
+            "",
+        )
+        with (
+            patch.object(evidence.subprocess, "run", return_value=completed),
+            self.assertRaisesRegex(evidence.EvidenceError, "zero_collected=.*tests/test_b.py"),
+        ):
+            evidence._collect_patch_nodes({"tests/test_a.py", "tests/test_b.py"})
+
+    def test_patch_test_support_files_are_validated_but_not_counted_as_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_raw:
+            inner = Path(temp_raw)
+            (inner / "tests/gateway").mkdir(parents=True)
+            (inner / "tests/conftest.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (inner / "tests/gateway/feishu_helpers.py").write_text("VALUE = 2\n", encoding="utf-8")
+            (inner / "tests/gateway/test_real.py").write_text(
+                "from tests.gateway.feishu_helpers import VALUE\n\ndef test_real():\n    assert VALUE == 2\n",
+                encoding="utf-8",
+            )
+            managed = subprocess.CompletedProcess(
+                ["bash"],
+                0,
+                "tests/conftest.py\ntests/gateway/feishu_helpers.py\ntests/test_real.py\n",
+                "",
+            )
+            with (
+                patch.object(evidence, "INNER", inner),
+                patch.object(evidence, "_run", return_value=managed),
+            ):
+                self.assertEqual(
+                    evidence._patch_test_support_files(),
+                    ["tests/conftest.py", "tests/gateway/feishu_helpers.py"],
+                )
+                self.assertEqual(
+                    evidence._patch_test_support_consumers(
+                        ["tests/conftest.py", "tests/gateway/feishu_helpers.py"],
+                        {"tests/gateway/test_real.py"},
+                    ),
+                    {
+                        "tests/conftest.py": ["tests/gateway/test_real.py"],
+                        "tests/gateway/feishu_helpers.py": ["tests/gateway/test_real.py"],
+                    },
+                )
+
+    def test_unused_patch_test_support_file_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_raw:
+            inner = Path(temp_raw)
+            (inner / "tests").mkdir()
+            (inner / "tests/helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (inner / "tests/test_real.py").write_text("def test_real():\n    assert True\n", encoding="utf-8")
+            with (
+                patch.object(evidence, "INNER", inner),
+                self.assertRaisesRegex(evidence.EvidenceError, "no collected test consumers"),
+            ):
+                evidence._patch_test_support_consumers(
+                    ["tests/helper.py"],
+                    {"tests/test_real.py"},
+                )
+
     def test_active_patches_cannot_borrow_the_same_evidence_node(self) -> None:
         active = {
             "PATCH-TEST-FIRST": patch_block("test_contract").replace("PATCH-TEST-CONTRACT", "PATCH-TEST-FIRST"),
@@ -349,6 +474,37 @@ _ARCHIVED_ONE_OK=false
             ),
             ["tests/agent/feature.py"],
         )
+
+    def test_archived_overlap_uses_declared_paths_not_current_managed_files(
+        self,
+    ) -> None:
+        block = "| **文件** | 上游 `agent/retired.py`, `tests/test_retired.py` |\n"
+        self.assertEqual(
+            evidence._declared_upstream_overlap(
+                block,
+                {"agent/retired.py", "agent/unrelated.py"},
+                include=True,
+            ),
+            ["agent/retired.py"],
+        )
+
+    def test_step8e_verifier_registry_must_match_external_patch_registry(self) -> None:
+        script = 'PLUGIN_VERIFIERS=("${HERMES_HOME}/plugins/other/verify.sh")\n'
+        with (
+            patch.dict(
+                evidence.EXTERNAL_EVIDENCE_AUDITS,
+                {
+                    "PATCH-TEST-EXTERNAL": (
+                        "plugins/sandbox/verify.sh",
+                        "audit_sandbox_verifier",
+                        "full",
+                    )
+                },
+                clear=True,
+            ),
+            self.assertRaisesRegex(evidence.EvidenceError, "Step 8e verifier registry drift"),
+        ):
+            evidence._validate_external_verifier_links(script)
 
     def test_active_engineering_patch_must_own_a_managed_path(self) -> None:
         active = {"PATCH-TEST-CONTRACT": ("| **文件** | `tests/test_missing.py` |\n\n" + patch_block("test_contract"))}
@@ -412,6 +568,7 @@ fi
         payload = {
             "kind": "hermes-gateway",
             "pid": 42,
+            "start_time": 1234,
             "argv": ["python", "-m", "hermes_cli.main", "gateway", "run"],
             "gateway_state": "running",
             "code_sha": head,
@@ -420,6 +577,7 @@ fi
             final_audit._validate_gateway_state_payload(
                 payload,
                 gateway_pid=42,
+                gateway_start_time=1234,
                 expected_sha=head,
             )["state_file_pid"],
             42,
@@ -428,13 +586,99 @@ fi
             final_audit._validate_gateway_state_payload(
                 {**payload, "argv": ["python", "-m", "pytest"]},
                 gateway_pid=42,
+                gateway_start_time=1234,
                 expected_sha=head,
             )
         with self.assertRaisesRegex(final_audit.FinalAuditError, "not live Gateway PID"):
             final_audit._validate_gateway_state_payload(
                 {**payload, "pid": 41},
                 gateway_pid=42,
+                gateway_start_time=1234,
                 expected_sha=head,
+            )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "start fingerprint"):
+            final_audit._validate_gateway_state_payload(
+                {**payload, "start_time": 9999},
+                gateway_pid=42,
+                gateway_start_time=1234,
+                expected_sha=head,
+            )
+
+    def test_strict_pytest_probe_rejects_skipped_outcome(self) -> None:
+        def fake_run(argv, **_kwargs):
+            junit_arg = next(value for value in argv if value.startswith("--junitxml="))
+            Path(junit_arg.split("=", 1)[1]).write_text(
+                '<testsuite tests="1" skipped="1"><testcase name="test_contract">'
+                '<skipped message="not covered" /></testcase></testsuite>',
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(argv, 0, "1 skipped", "")
+
+        with (
+            patch.object(evidence, "_run", side_effect=fake_run),
+            self.assertRaisesRegex(evidence.EvidenceError, "non-passing outcomes"),
+        ):
+            evidence._run_strict_pytest_probe(
+                "archive regression",
+                "tests/test_contract.py::test_contract",
+            )
+
+    def test_evidence_registry_requires_exact_ids_and_lifecycles(self) -> None:
+        patches = (
+            patch_block("test_contract")
+            + "\n## Archive\n"
+            + patch_block("test_archive").replace(
+                "PATCH-TEST-CONTRACT",
+                "PATCH-TEST-ARCHIVE",
+            )
+        )
+        records = [
+            {"id": "PATCH-TEST-CONTRACT", "lifecycle": "active"},
+            {"id": "PATCH-TEST-ARCHIVE", "lifecycle": "archived"},
+        ]
+        self.assertEqual(
+            final_audit._validate_evidence_registry(records, patches),
+            {"active": 1, "archived": 1},
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "registry differs"):
+            final_audit._validate_evidence_registry(
+                [
+                    {"id": "PATCH-TEST-CONTRACT", "lifecycle": "active"},
+                    {"id": "PATCH-UNKNOWN", "lifecycle": "archived"},
+                ],
+                patches,
+            )
+
+    def test_sandbox_result_requires_clean_machine_receipt(self) -> None:
+        clean = {
+            "verifier": "plugins/sandbox/verify.sh",
+            "passed": 60,
+            "skipped": 0,
+            "failed": 0,
+            "errors": 0,
+        }
+        self.assertEqual(
+            final_audit._validate_sandbox_result(clean, label="test"),
+            clean,
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "non-passing"):
+            final_audit._validate_sandbox_result(
+                {**clean, "passed": 59, "skipped": 1},
+                label="test",
+            )
+
+    def test_outer_workspace_fingerprint_must_remain_stable(self) -> None:
+        snapshot = {
+            "digest": "abc",
+            "status_bytes": 0,
+            "tracked_diff_bytes": 0,
+            "untracked_files": 0,
+        }
+        final_audit._validate_outer_workspace_stability(snapshot, dict(snapshot))
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "changed tracked"):
+            final_audit._validate_outer_workspace_stability(
+                snapshot,
+                {**snapshot, "digest": "def"},
             )
 
     def test_post_test_bundle_reverification_is_fail_closed(self) -> None:
@@ -538,7 +782,9 @@ fi
             {"PATCH-TEST-CONTRACT": ["agent/feature.py", "agent/helper.py"]},
         )
 
-    def test_module_import_coverage_requires_an_explicit_patch_file_exception(self) -> None:
+    def test_module_import_coverage_requires_an_explicit_patch_file_exception(
+        self,
+    ) -> None:
         node = "tests/test_feature.py::test_feature"
         block = "| **文件** | `agent/feature.py`, `tests/test_feature.py` |\n\n" + patch_block("test_feature")
         active = {"PATCH-TEST-CONTRACT": block}

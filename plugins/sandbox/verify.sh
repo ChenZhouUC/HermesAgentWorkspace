@@ -38,6 +38,15 @@ PEOPLE_TEST="${HERMES_HOME}/scripts/test_pull_feishu_people.py"
 VENV_PYTHON="${HERMES_AGENT}/venv/bin/python"
 
 fail=0
+_SANDBOX_JUNIT=""
+
+cleanup_verify_tmp() {
+    if [[ -n "${_SANDBOX_JUNIT}" ]]; then
+        rm -f -- "${_SANDBOX_JUNIT}"
+    fi
+}
+
+trap cleanup_verify_tmp EXIT
 
 echo "=== sandbox plugin compatibility check ==="
 
@@ -652,11 +661,55 @@ fi
 
 # 6. Behavioral regression suite (HARD). Pin cwd to HERMES_HOME so the user
 # plugin namespace resolves even when hermes-update.sh was launched elsewhere.
-if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TEST}" ]] &&
-    (cd "${HERMES_HOME}" && "${VENV_PYTHON}" -m pytest -q "${PLUGIN_TEST}" "${PEOPLE_TEST}"); then
-    echo "OK   sandbox and Feishu identity-sync regression tests passed"
+# A zero pytest exit alone is insufficient: skipped/xfail-only coverage also
+# exits zero. Emit one machine-readable receipt only after every JUnit case
+# passed cleanly, so Step 8e and the final PATCH evidence consume the same fact.
+if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TEST}" ]]; then
+    _SANDBOX_JUNIT=$(mktemp -t hermes-sandbox-junit.XXXXXX)
+    _SANDBOX_PYTEST_OUT=$(
+        cd "${HERMES_HOME}" &&
+            "${VENV_PYTHON}" -m pytest -q -p no:cacheprovider -o xfail_strict=true \
+                --junitxml="${_SANDBOX_JUNIT}" "${PLUGIN_TEST}" "${PEOPLE_TEST}" 2>&1
+    )
+    _SANDBOX_PYTEST_RC=$?
+    echo "${_SANDBOX_PYTEST_OUT}"
+    if [[ ${_SANDBOX_PYTEST_RC} -eq 0 ]]; then
+        _SANDBOX_COUNTS=$(
+            "${VENV_PYTHON}" - "${_SANDBOX_JUNIT}" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+cases = list(root.iter("testcase"))
+if not cases:
+    raise SystemExit("sandbox verifier JUnit contained no test cases")
+counts = {
+    tag: sum(case.find(tag) is not None for case in cases)
+    for tag in ("skipped", "failure", "error")
+}
+if any(counts.values()):
+    raise SystemExit(f"sandbox verifier JUnit contains non-passing outcomes: {counts}")
+print(f"{len(cases)} 0 0 0")
+PY
+        )
+        _SANDBOX_COUNTS_RC=$?
+        if [[ ${_SANDBOX_COUNTS_RC} -eq 0 ]]; then
+            read -r _SANDBOX_PASSED _SANDBOX_SKIPPED _SANDBOX_FAILED _SANDBOX_ERRORS <<<"${_SANDBOX_COUNTS}"
+            printf 'PATCH_VERIFY_RESULT sandbox passed=%s skipped=%s failed=%s errors=%s\n' \
+                "${_SANDBOX_PASSED}" "${_SANDBOX_SKIPPED}" "${_SANDBOX_FAILED}" "${_SANDBOX_ERRORS}"
+            echo "OK   sandbox and Feishu identity-sync regression tests passed"
+        else
+            echo "FAIL sandbox or Feishu identity-sync JUnit outcomes were incomplete"
+            fail=1
+        fi
+    else
+        echo "FAIL sandbox or Feishu identity-sync regression tests failed"
+        fail=1
+    fi
+    rm -f -- "${_SANDBOX_JUNIT}"
+    _SANDBOX_JUNIT=""
 else
-    echo "FAIL sandbox or Feishu identity-sync regression tests failed"
+    echo "FAIL sandbox or Feishu identity-sync regression inputs are unavailable"
     fail=1
 fi
 
