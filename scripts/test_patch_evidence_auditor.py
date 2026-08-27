@@ -7,10 +7,11 @@ import unittest
 from contextlib import ExitStack
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import final_upgrade_audit as final_audit
 import test_patch_evidence as evidence
 from final_upgrade_audit import _current_week_readme_rows, _markdown_table_summary
 
@@ -27,25 +28,104 @@ def patch_block(validation: str) -> str:
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
     def test_quick_mode_defers_bundle_parity_until_full_audit(self) -> None:
-        audits = (
-            "audit_gate_links",
-            "audit_runtime_artifacts",
-            "audit_socks_dependency",
-            "audit_openclaw_token_migration",
-            "audit_skills_mirror",
-            "audit_fts5_build",
-            "audit_archived_regressions",
-        )
         with ExitStack() as stack:
             stack.enter_context(patch.object(sys, "argv", ["test_patch_evidence.py", "--quick"]))
             stack.enter_context(patch.object(evidence, "audit_registry", return_value=({}, {})))
-            stack.enter_context(patch.object(evidence, "audit_npm_dependency_hygiene", return_value={}))
-            bundle = stack.enter_context(patch.object(evidence, "audit_bundle"))
+            stack.enter_context(patch.object(evidence, "audit_gate_links"))
+            stack.enter_context(patch.object(evidence, "audit_runtime_artifacts"))
+            registered = stack.enter_context(patch.object(evidence, "_run_registered_patch_audits", return_value={}))
+            stack.enter_context(patch.object(evidence, "_registered_probe_specs", return_value={}))
             stack.enter_context(patch.object(evidence, "_evidence_records", return_value=[]))
-            for name in audits:
-                stack.enter_context(patch.object(evidence, name))
             self.assertEqual(evidence.main(), 0)
-        bundle.assert_not_called()
+        registered.assert_called_once_with({}, {}, mode="quick")
+
+    def test_runtime_patch_without_registered_probe_is_rejected(self) -> None:
+        patch_id = "PATCH-TEST-RUNTIME"
+        active = {patch_id: patch_block("runtime contract")}
+        with (
+            patch.dict(evidence.RUNTIME_EVIDENCE, {patch_id: ("runtime contract",)}, clear=True),
+            patch.dict(evidence.RUNTIME_EVIDENCE_AUDITS, {}, clear=True),
+            patch.dict(evidence.RUNTIME_ARTIFACT_NEEDLES, {patch_id: ("artifact",)}, clear=True),
+            patch.dict(evidence.DEDICATED_EVIDENCE_AUDITS, {}, clear=True),
+            patch.dict(evidence.EXTERNAL_EVIDENCE_AUDITS, {}, clear=True),
+            patch.dict(evidence.ARCHIVED_EVIDENCE_AUDITS, {}, clear=True),
+            self.assertRaisesRegex(evidence.EvidenceError, "runtime PATCH evidence mappings drift"),
+        ):
+            evidence._audit_registered_probe_contract(active, {})
+
+    def test_registered_probe_is_executed_once_and_recorded(self) -> None:
+        patch_id = "PATCH-TEST-RUNTIME"
+        active = {patch_id: patch_block("runtime contract")}
+        probe = Mock(return_value={"proof": "fresh"})
+        with (
+            patch.dict(evidence.RUNTIME_EVIDENCE, {patch_id: ("runtime contract",)}, clear=True),
+            patch.dict(
+                evidence.RUNTIME_EVIDENCE_AUDITS,
+                {patch_id: ("audit_synthetic_runtime", "quick")},
+                clear=True,
+            ),
+            patch.dict(evidence.RUNTIME_ARTIFACT_NEEDLES, {patch_id: ("artifact",)}, clear=True),
+            patch.dict(evidence.DEDICATED_EVIDENCE_AUDITS, {}, clear=True),
+            patch.dict(evidence.EXTERNAL_EVIDENCE_AUDITS, {}, clear=True),
+            patch.dict(evidence.ARCHIVED_EVIDENCE_AUDITS, {}, clear=True),
+            patch.object(evidence, "audit_synthetic_runtime", probe, create=True),
+        ):
+            result = evidence._run_registered_patch_audits(active, {}, mode="full")
+        probe.assert_called_once_with()
+        self.assertEqual(
+            result,
+            {
+                patch_id: [
+                    {
+                        "probe": "audit_synthetic_runtime",
+                        "status": "passed",
+                        "details": {"proof": "fresh"},
+                    }
+                ]
+            },
+        )
+
+    def test_full_report_cannot_promote_an_unexecuted_probe(self) -> None:
+        text = evidence.PATCHES.read_text(encoding="utf-8")
+        active = evidence._blocks(text, archive=False)
+        archived = evidence._blocks(text, archive=True)
+        with self.assertRaisesRegex(evidence.EvidenceError, "was not executed exactly once"):
+            evidence._evidence_records(
+                active,
+                archived,
+                {},
+                mode="full",
+                probe_results={},
+            )
+
+    def test_final_canonical_suite_disables_flake_retries(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["run_tests.sh"],
+            0,
+            "=== Summary: 1 files, 2 tests passed, 0 failed (100% complete) in 1.0s (1 workers) ===\n",
+            "",
+        )
+        with patch.object(final_audit, "_run", return_value=completed) as run:
+            final_audit._run_canonical_patch_tests(["tests/test_contract.py"])
+        argv = run.call_args.args[1]
+        self.assertIn(
+            ["--file-retries", "0"],
+            [argv[index : index + 2] for index in range(len(argv) - 1)],
+        )
+
+    def test_final_canonical_suite_rejects_flaky_green_output(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["run_tests.sh"],
+            0,
+            "=== Summary: 1 files, 2 tests passed, 0 failed (100% complete) in 1.0s (1 workers) ===\n"
+            "=== ⚠ 1 FLAKY file (failed once, passed on retry — fix these) ===\n",
+            "",
+        )
+        with (
+            patch.object(final_audit, "_run", return_value=completed),
+            self.assertRaisesRegex(final_audit.FinalAuditError, "pass-on-retry flake"),
+        ):
+            final_audit._run_canonical_patch_tests(["tests/test_contract.py"])
 
     def test_readme_summary_length_ignores_prettier_table_padding(self) -> None:
         row = "| v1.2.3 | 2026-08-23 | semantic summary" + (" " * 500) + " |"

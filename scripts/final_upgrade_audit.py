@@ -2,10 +2,11 @@
 """Run the single authoritative Hermes post-upgrade audit.
 
 This entrypoint intentionally runs after the last reconcile. It executes the
-canonical patched-file test suite, per-PATCH evidence matrix, archive probes,
-runtime plugin verifier, documentation/schema checks, replay closure, and the
-final recoverable cleanup. Output is one JSON object suitable for the final
-report or a post-commit verification step.
+canonical patched-file test suite with retries disabled, per-PATCH evidence
+matrix with fresh registered probe receipts, documentation/schema checks,
+replay closure, runtime plugin verification, and the final recoverable cleanup.
+Output is one JSON object suitable for the final report or a post-commit
+verification step.
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ EVIDENCE = ROOT / "scripts/test_patch_evidence.py"
 CLEANUP = ROOT / "scripts/cleanup_transient_artifacts.py"
 CLEANUP_POLICY = ROOT / "scripts/cleanup_policy.json"
 WIKI_LINT = ROOT / "scripts/wiki_lint.py"
-SANDBOX_VERIFY = ROOT / "plugins/sandbox/verify.sh"
 
 
 class FinalAuditError(RuntimeError):
@@ -69,10 +69,15 @@ def _patched_tests() -> list[str]:
 def _run_canonical_patch_tests(test_files: list[str]) -> dict[str, int]:
     result = _run(
         "canonical-patch-tests",
-        [str(INNER / "scripts/run_tests.sh"), *test_files],
+        [str(INNER / "scripts/run_tests.sh"), "--file-retries", "0", *test_files],
         cwd=INNER,
         timeout=900,
     )
+    if re.search(r"(?:^|\n).*FLAKY", result.stdout):
+        raise FinalAuditError(
+            "canonical-patch-tests",
+            "canonical runner reported a pass-on-retry flake",
+        )
     match = re.search(
         r"=== Summary: (\d+) files, (\d+) tests passed, (\d+) failed(?:, (\d+) skipped)?",
         result.stdout,
@@ -353,21 +358,6 @@ def main() -> int:
             raise FinalAuditError("transaction-status", f"unfinished update transaction: {transaction}")
         _run("bash-syntax", ["bash", "-n", str(UPDATE)])
         _run("patch-gates", ["bash", str(UPDATE), "--self-test-patch-gates"])
-        _run(
-            "transaction-and-fetch-self-tests",
-            ["bash", str(UPDATE), "--self-test-patch-evidence"],
-            timeout=300,
-        )
-        _run(
-            "outer-audit-tests",
-            [
-                sys.executable,
-                "-m",
-                "unittest",
-                "scripts.test_cleanup_transient_artifacts",
-                "scripts.test_patch_evidence_auditor",
-            ],
-        )
 
         patched_files = _patched_files()
         test_files = _patched_tests()
@@ -381,28 +371,42 @@ def main() -> int:
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
             if evidence.get("status") != "ok" or evidence.get("mode") != "full":
                 raise FinalAuditError("patch-evidence-full", "evidence report is not status=ok/mode=full")
-            patch_records = evidence.get("patches", [])
-            patch_ids = [record.get("id") for record in patch_records]
-            if len(patch_ids) != len(set(patch_ids)) or any(
-                record.get("status") not in {"passed", "contract_passed"} for record in patch_records
+            probe_summary = evidence.get("probes", {})
+            if (
+                probe_summary.get("registered", 0) <= 0
+                or probe_summary.get("registered") != probe_summary.get("executed")
+                or probe_summary.get("deferred") != 0
             ):
                 raise FinalAuditError(
                     "patch-evidence-full",
-                    "per-PATCH report has duplicates or non-passing outcomes",
+                    f"registered PATCH probes did not fully execute: {probe_summary}",
+                )
+            patch_records = evidence.get("patches", [])
+            patch_ids = [record.get("id") for record in patch_records]
+            if len(patch_ids) != len(set(patch_ids)) or any(
+                record.get("status") != "passed" for record in patch_records
+            ):
+                raise FinalAuditError(
+                    "patch-evidence-full",
+                    "per-PATCH report has duplicates, deferred contracts, or non-passing outcomes",
+                )
+            sandbox_record = next(
+                (record for record in patch_records if record.get("id") == "PATCH-FEISHU-GROUP-SANDBOX"),
+                None,
+            )
+            sandbox_probes = sandbox_record.get("probe_results", []) if sandbox_record else []
+            sandbox_details = sandbox_probes[0].get("details", {}) if len(sandbox_probes) == 1 else {}
+            sandbox_passed = sandbox_details.get("passed")
+            if not isinstance(sandbox_passed, int) or sandbox_passed <= 0:
+                raise FinalAuditError(
+                    "patch-evidence-full",
+                    "sandbox PATCH lacks an executed verifier result",
                 )
 
         canonical_tests = _run_canonical_patch_tests(test_files)
         wiki = json.loads(_run("wiki-lint", [sys.executable, str(WIKI_LINT), "--json"]).stdout)
         if any(wiki.values()):
             raise FinalAuditError("wiki-lint", "wiki lint JSON contains issues")
-        sandbox = _run("sandbox-verifier", ["bash", str(SANDBOX_VERIFY)], timeout=300)
-        sandbox_tests = re.search(r"(\d+) passed", sandbox.stdout)
-        if not sandbox_tests:
-            raise FinalAuditError("sandbox-verifier", "sandbox pytest count missing")
-        for record in evidence["patches"]:
-            if record.get("status") == "contract_passed":
-                record["status"] = "passed"
-                record["final_audit_runtime_evidence"] = True
 
         report.update(
             {
@@ -412,7 +416,7 @@ def main() -> int:
                 "transaction": "none",
                 "patch_evidence": evidence,
                 "canonical_patch_tests": canonical_tests,
-                "sandbox": {"passed": int(sandbox_tests.group(1))},
+                "sandbox": {"passed": sandbox_passed},
                 "wiki_lint": {"checks_with_issues": 0},
                 "derived": _derived_checks(patched_files, evidence),
                 "runtime": _gateway_runtime(),

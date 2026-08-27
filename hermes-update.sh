@@ -47,6 +47,7 @@
 #   bash ~/.hermes/hermes-update.sh --print-patched-tests
 #   bash ~/.hermes/hermes-update.sh --final-audit --json
 #   bash ~/.hermes/hermes-update.sh --self-test-transaction
+#   bash ~/.hermes/hermes-update.sh --self-test-fetch-retry
 #   bash ~/.hermes/hermes-update.sh --self-test-patch-gates
 
 # This file is an executable workflow, not a function library. Reject both
@@ -788,8 +789,6 @@ EOF
 }
 
 _self_test_patch_evidence() {
-    (_self_test_transaction) || return 1
-    (_self_test_fetch_retry) || return 1
     local _audit_py
     _audit_py=$(cleanup_python) || return 1
     "${_audit_py}" "${HERMES_HOME}/scripts/test_patch_evidence.py" --quick
@@ -1068,6 +1067,10 @@ case "${1:-}" in
     _self_test_transaction
     exit 0
     ;;
+--self-test-fetch-retry)
+    _self_test_fetch_retry
+    exit 0
+    ;;
 --self-test-patch-gates)
     _self_test_patch_gate_coverage
     exit $?
@@ -1091,7 +1094,7 @@ case "${1:-}" in
     exec "${_audit_python}" "${HERMES_HOME}/scripts/final_upgrade_audit.py" "$@"
     ;;
 *)
-    printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction|--self-test-patch-gates|--self-test-patch-evidence|--final-audit [--json] [--require-clean-outer]]\n' "$0" >&2
+    printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction|--self-test-fetch-retry|--self-test-patch-gates|--self-test-patch-evidence|--final-audit [--json] [--require-clean-outer]]\n' "$0" >&2
     exit 2
     ;;
 esac

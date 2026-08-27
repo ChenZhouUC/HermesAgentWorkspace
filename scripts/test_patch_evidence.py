@@ -6,10 +6,10 @@ sentinel.  A PATCH is accepted only when its lifecycle is registered, its
 validation section names a real regression boundary, and the corresponding
 current artifact/test entry exists on disk. Full mode also profiles each
 evidence node and requires source-owning PATCHes to execute every declared
-Python production file. Runtime PATCHes use their
-operator-level evidence (transaction, replay, cleanup, mirror, npm or
-verifier checks) instead of pretending that a source grep is a behavioral
-test.
+Python production file. Runtime, dedicated, archive, and external-verifier
+PATCHes are executed from one probe registry and must leave a fresh per-PATCH
+receipt; prose tokens or an unconditional contract status cannot turn them
+green.
 """
 
 from __future__ import annotations
@@ -147,6 +147,23 @@ RUNTIME_EVIDENCE: dict[str, tuple[str, ...]] = {
 }
 
 
+# Every non-pytest PATCH must name the callable that proves it in this exact
+# invocation.  Keeping this separate from the prose needles above is
+# deliberate: audit_registry() checks the key sets are identical, then
+# _run_registered_patch_audits() drives execution from this table.  A new
+# runtime PATCH therefore cannot acquire a green report by being added to the
+# classification table while its actual probe is forgotten in main().
+RUNTIME_EVIDENCE_AUDITS: dict[str, tuple[str, str]] = {
+    "PATCH-NPM-DEPENDENCY-HYGIENE": ("audit_npm_dependency_hygiene", "quick"),
+    "PATCH-REPLAY-BUNDLE-FULL-INDEX": ("audit_bundle", "full"),
+    "PATCH-UPDATE-GATE-EXIT-STATUS": ("audit_patch_gate_self_test", "quick"),
+    "PATCH-GATEWAY-RESTART-CLEANUP": ("audit_gateway_restart_cleanup", "quick"),
+    "PATCH-UPDATE-GIT-FETCH-RETRY": ("audit_fetch_retry_self_test", "quick"),
+    "PATCH-UPDATE-TRANSACTION-PIN": ("audit_transaction_self_test", "quick"),
+    "PATCH-SKILLS-MIRROR-METADATA": ("audit_skills_mirror", "quick"),
+}
+
+
 DEDICATED_EVIDENCE_AUDITS: dict[str, tuple[str, str]] = {
     "PATCH-FEISHU-SOCKS-DEPENDENCY": (
         "scripts/test_patch_evidence.py",
@@ -159,6 +176,15 @@ DEDICATED_EVIDENCE_AUDITS: dict[str, tuple[str, str]] = {
     "PATCH-FTS5-CJK-DARWIN": (
         "scripts/test_patch_evidence.py",
         "audit_fts5_build",
+    ),
+}
+
+
+EXTERNAL_EVIDENCE_AUDITS: dict[str, tuple[str, str, str]] = {
+    "PATCH-FEISHU-GROUP-SANDBOX": (
+        "plugins/sandbox/verify.sh",
+        "audit_sandbox_verifier",
+        "full",
     ),
 }
 
@@ -177,6 +203,7 @@ ARCHIVED_EVIDENCE_AUDITS: dict[str, str] = {
 
 
 REQUIRED_PATCH_SECTIONS = ("问题", "修复", "验证", "上游吸收判断")
+MODE_RANK = {"quick": 0, "full": 1}
 
 
 def _audit_section_shape(patch_id: str, block: str) -> None:
@@ -189,6 +216,91 @@ def _audit_section_shape(patch_id: str, block: str) -> None:
         raise EvidenceError(
             f"{patch_id}: PATCH definition must contain exactly one 问题/修复/验证/上游吸收判断 section; got {invalid}"
         )
+
+
+def _resolve_audit_function(function_name: str):
+    function = globals().get(function_name)
+    if not callable(function):
+        raise EvidenceError(f"registered PATCH evidence audit is missing or not callable: {function_name}")
+    return function
+
+
+def _audit_registered_probe_contract(active: dict[str, str], archived: dict[str, str]) -> None:
+    active_ids = set(active)
+    runtime_ids = set(RUNTIME_EVIDENCE)
+    runtime_audit_ids = set(RUNTIME_EVIDENCE_AUDITS)
+    runtime_artifact_ids = set(RUNTIME_ARTIFACT_NEEDLES)
+    dedicated_ids = set(DEDICATED_EVIDENCE_AUDITS)
+    external_ids = set(EXTERNAL_EVIDENCE_AUDITS)
+    classified = runtime_ids | dedicated_ids | external_ids
+    overlaps = {
+        patch_id
+        for patch_id in classified
+        if sum(patch_id in group for group in (runtime_ids, dedicated_ids, external_ids)) > 1
+    }
+    if overlaps:
+        raise EvidenceError(f"active PATCH evidence classifications overlap: {sorted(overlaps)}")
+    if runtime_ids != runtime_audit_ids or runtime_ids != runtime_artifact_ids:
+        raise EvidenceError(
+            "runtime PATCH evidence mappings drift: "
+            f"contracts_only={sorted(runtime_ids - runtime_audit_ids)}, "
+            f"audits_only={sorted(runtime_audit_ids - runtime_ids)}, "
+            f"artifact_only={sorted(runtime_artifact_ids - runtime_ids)}, "
+            f"missing_artifacts={sorted(runtime_ids - runtime_artifact_ids)}"
+        )
+    unknown_active = classified - active_ids
+    if unknown_active:
+        raise EvidenceError(f"non-pytest evidence maps unknown active PATCH IDs: {sorted(unknown_active)}")
+    if set(ARCHIVED_EVIDENCE_AUDITS) != set(archived):
+        raise EvidenceError(
+            "archive PATCH evidence mapping drift: "
+            f"missing={sorted(set(archived) - set(ARCHIVED_EVIDENCE_AUDITS))}, "
+            f"unknown={sorted(set(ARCHIVED_EVIDENCE_AUDITS) - set(archived))}"
+        )
+
+    registered_functions = {function_name for function_name, _minimum_mode in RUNTIME_EVIDENCE_AUDITS.values()}
+    registered_functions.update(function_name for _path, function_name in DEDICATED_EVIDENCE_AUDITS.values())
+    registered_functions.update(
+        function_name for _path, function_name, _minimum_mode in EXTERNAL_EVIDENCE_AUDITS.values()
+    )
+    registered_functions.update(ARCHIVED_EVIDENCE_AUDITS.values())
+    for function_name in sorted(registered_functions):
+        _resolve_audit_function(function_name)
+
+
+def _registered_probe_specs(active: dict[str, str], archived: dict[str, str]) -> dict[str, tuple[str, str]]:
+    _audit_registered_probe_contract(active, archived)
+    specs: dict[str, tuple[str, str]] = dict(RUNTIME_EVIDENCE_AUDITS)
+    specs.update(
+        {patch_id: (function_name, "quick") for patch_id, (_path, function_name) in DEDICATED_EVIDENCE_AUDITS.items()}
+    )
+    specs.update(
+        {
+            patch_id: (function_name, minimum_mode)
+            for patch_id, (_path, function_name, minimum_mode) in EXTERNAL_EVIDENCE_AUDITS.items()
+        }
+    )
+    specs.update({patch_id: (function_name, "quick") for patch_id, function_name in ARCHIVED_EVIDENCE_AUDITS.items()})
+    return specs
+
+
+def _run_registered_patch_audits(
+    active: dict[str, str], archived: dict[str, str], *, mode: str
+) -> dict[str, list[dict[str, object]]]:
+    if mode not in MODE_RANK:
+        raise EvidenceError(f"unknown PATCH evidence mode: {mode}")
+    results: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for patch_id, (function_name, minimum_mode) in _registered_probe_specs(active, archived).items():
+        if minimum_mode not in MODE_RANK:
+            raise EvidenceError(f"{patch_id}: unknown minimum evidence mode: {minimum_mode}")
+        if MODE_RANK[mode] < MODE_RANK[minimum_mode]:
+            continue
+        details = _resolve_audit_function(function_name)()
+        result: dict[str, object] = {"probe": function_name, "status": "passed"}
+        if details is not None:
+            result["details"] = details
+        results[patch_id].append(result)
+    return dict(results)
 
 
 def _patch_test_inventory() -> tuple[set[str], set[str]]:
@@ -248,7 +360,7 @@ def _resolve_active_patch_nodes(active: dict[str, str], collected_nodes: list[st
 
     resolved: dict[str, list[str]] = {}
     for patch_id, block in active.items():
-        if patch_id == "PATCH-FEISHU-GROUP-SANDBOX" or patch_id in RUNTIME_EVIDENCE:
+        if patch_id in EXTERNAL_EVIDENCE_AUDITS or patch_id in RUNTIME_EVIDENCE:
             continue
         if patch_id in DEDICATED_EVIDENCE_AUDITS:
             continue
@@ -469,6 +581,7 @@ def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
         raise EvidenceError("PATCH registry is missing active or archive definitions")
     for patch_id, block in {**active, **archived}.items():
         _audit_section_shape(patch_id, block)
+    _audit_registered_probe_contract(active, archived)
     for patch_id, block in archived.items():
         validation = _validation(block)
         function_name = ARCHIVED_EVIDENCE_AUDITS.get(patch_id)
@@ -476,19 +589,18 @@ def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
             raise EvidenceError(f"{patch_id}: archive definition has no dedicated evidence audit")
         if "scripts/test_patch_evidence.py" not in validation or function_name not in validation:
             raise EvidenceError(f"{patch_id}: validation must bind scripts/test_patch_evidence.py::{function_name}")
-        evidence_source = Path(__file__).read_text(encoding="utf-8")
-        if not re.search(rf"^def {re.escape(function_name)}\(", evidence_source, re.MULTILINE):
-            raise EvidenceError(f"{patch_id}: archived evidence function is missing: {function_name}")
-        if len(re.findall(rf"\b{re.escape(function_name)}\(\)", evidence_source)) < 2:
-            raise EvidenceError(f"{patch_id}: archived evidence function is not called: {function_name}")
     for patch_id, block in active.items():
         validation = _validation(block)
         files = _files(block)
         if not validation.strip():
             raise EvidenceError(f"{patch_id}: empty validation section")
-        if patch_id == "PATCH-FEISHU-GROUP-SANDBOX":
-            if "plugins/sandbox/verify.sh" not in validation and "verifier" not in validation:
-                raise EvidenceError(f"{patch_id}: missing verifier evidence")
+        external = EXTERNAL_EVIDENCE_AUDITS.get(patch_id)
+        if external is not None:
+            evidence_path, function_name, _minimum_mode = external
+            if evidence_path not in validation and "verifier" not in validation:
+                raise EvidenceError(f"{patch_id}: missing external verifier evidence")
+            if function_name not in validation:
+                raise EvidenceError(f"{patch_id}: validation must bind {function_name}")
             continue
         if patch_id in RUNTIME_EVIDENCE:
             missing = [needle for needle in RUNTIME_EVIDENCE[patch_id] if needle not in validation]
@@ -498,13 +610,8 @@ def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
         dedicated = DEDICATED_EVIDENCE_AUDITS.get(patch_id)
         if dedicated is not None:
             evidence_path, function_name = dedicated
-            if evidence_path not in validation:
-                raise EvidenceError(f"{patch_id}: validation omits dedicated evidence path {evidence_path}")
-            evidence_source = Path(__file__).read_text(encoding="utf-8")
-            if not re.search(rf"^def {re.escape(function_name)}\(", evidence_source, re.MULTILINE):
-                raise EvidenceError(f"{patch_id}: dedicated evidence function is missing: {function_name}")
-            if len(re.findall(rf"\b{re.escape(function_name)}\(\)", evidence_source)) < 2:
-                raise EvidenceError(f"{patch_id}: dedicated evidence function is not called: {function_name}")
+            if evidence_path not in validation or function_name not in validation:
+                raise EvidenceError(f"{patch_id}: validation must bind {evidence_path}::{function_name}")
             continue
 
         tokens = _test_tokens(validation)
@@ -538,7 +645,7 @@ def audit_gate_links(active: dict[str, str], archived: dict[str, str]) -> None:
     declared_active_gates = set(re.findall(r"^(_[A-Z0-9_]+_PATCH_OK)=false$", gate_region, re.MULTILINE))
     mapped_gates: dict[str, str] = {}
     for patch_id in active:
-        if patch_id == "PATCH-FEISHU-GROUP-SANDBOX":
+        if patch_id in EXTERNAL_EVIDENCE_AUDITS:
             continue
         if patch_id in RUNTIME_EVIDENCE:
             continue
@@ -573,55 +680,116 @@ def audit_gate_links(active: dict[str, str], archived: dict[str, str]) -> None:
     # the registry's validation section remains the durable evidence instead.
 
 
+RUNTIME_ARTIFACT_NEEDLES: dict[str, tuple[str, ...]] = {
+    "PATCH-NPM-DEPENDENCY-HYGIENE": (
+        "npm audit fix",
+        "npm audit --json",
+        "do not use --force",
+    ),
+    "PATCH-REPLAY-BUNDLE-FULL-INDEX": (
+        "--full-index",
+        "_bundle_matches_patched_files",
+        "git apply --check --reverse",
+    ),
+    "PATCH-UPDATE-GATE-EXIT-STATUS": (
+        "FINAL_RC=1",
+        "_self_test_patch_gate_coverage",
+        "_GW_OLD_PID",
+    ),
+    "PATCH-GATEWAY-RESTART-CLEANUP": (
+        "cleanup_transient_artifacts.py",
+        "--fail-on-review",
+        "gateway restart",
+    ),
+    "PATCH-UPDATE-GIT-FETCH-RETRY": (
+        "_max_attempts=3",
+        "Transient GitHub fetch failure",
+        "Authentication failed",
+    ),
+    "PATCH-UPDATE-TRANSACTION-PIN": (
+        "_self_test_transaction",
+        "TRANSACTION_TARGET_REF",
+        "chmod 600",
+    ),
+    "PATCH-SKILLS-MIRROR-METADATA": (
+        "rsync -a --delete",
+        "_SKILLS_RUNTIME_EXCLUDES",
+        "FINAL_RC=1",
+    ),
+}
+
+
 def audit_runtime_artifacts() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
-    required = {
-        "PATCH-NPM-DEPENDENCY-HYGIENE": (
-            "npm audit fix",
-            "npm audit --json",
-            "do not use --force",
-        ),
-        "PATCH-REPLAY-BUNDLE-FULL-INDEX": (
-            "--full-index",
-            "_bundle_matches_patched_files",
-            "git apply --check --reverse",
-        ),
-        "PATCH-UPDATE-GATE-EXIT-STATUS": (
-            "FINAL_RC=1",
-            "_self_test_patch_gate_coverage",
-            "_GW_OLD_PID",
-        ),
-        "PATCH-GATEWAY-RESTART-CLEANUP": (
-            "cleanup_transient_artifacts.py",
-            "--fail-on-review",
-            "gateway restart",
-        ),
-        "PATCH-UPDATE-GIT-FETCH-RETRY": (
-            "_max_attempts=3",
-            "Transient GitHub fetch failure",
-            "Authentication failed",
-        ),
-        "PATCH-UPDATE-TRANSACTION-PIN": (
-            "_self_test_transaction",
-            "TRANSACTION_TARGET_REF",
-            "chmod 600",
-        ),
-        "PATCH-SKILLS-MIRROR-METADATA": (
-            "rsync -a --delete",
-            "_SKILLS_RUNTIME_EXCLUDES",
-            "FINAL_RC=1",
-        ),
-    }
-    for patch_id, needles in required.items():
+    for patch_id, needles in RUNTIME_ARTIFACT_NEEDLES.items():
         missing = [needle for needle in needles if needle not in script]
         if missing:
             raise EvidenceError(f"{patch_id}: executable evidence missing {missing}")
-    if not (ROOT / "plugins/sandbox/verify.sh").is_file():
-        raise EvidenceError("PATCH-FEISHU-GROUP-SANDBOX: verifier is missing")
-    if not (ROOT / "plugins/sandbox/verify.sh").stat().st_mode & 0o111:
-        raise EvidenceError("PATCH-FEISHU-GROUP-SANDBOX: verifier is not executable")
+    for patch_id, (evidence_path, _function_name, _minimum_mode) in EXTERNAL_EVIDENCE_AUDITS.items():
+        verifier = ROOT / evidence_path
+        if not verifier.is_file():
+            raise EvidenceError(f"{patch_id}: verifier is missing: {evidence_path}")
+        if not verifier.stat().st_mode & 0o111:
+            raise EvidenceError(f"{patch_id}: verifier is not executable: {evidence_path}")
     if not BUNDLE.is_file():
         raise EvidenceError("replay bundle is missing")
+
+
+def _run_update_self_test(option: str, expected: str) -> dict[str, object]:
+    result = _run(["bash", str(SCRIPT), option], timeout=300)
+    if result.returncode:
+        raise EvidenceError(f"{option} failed: {result.stdout[-1000:]}{result.stderr[-1000:]}")
+    combined = f"{result.stdout}\n{result.stderr}"
+    if expected not in combined:
+        raise EvidenceError(f"{option} did not emit its success sentinel: {expected}")
+    return {"command": option, "sentinel": expected}
+
+
+def _run_unittest_probe(module: str, label: str) -> dict[str, object]:
+    result = _run([sys.executable, "-m", "unittest", module], timeout=300)
+    if result.returncode:
+        raise EvidenceError(f"{label} failed: {result.stdout[-1500:]}{result.stderr[-1500:]}")
+    combined = f"{result.stdout}\n{result.stderr}"
+    match = re.search(r"Ran (\d+) tests?", combined)
+    if match is None or int(match.group(1)) <= 0:
+        raise EvidenceError(f"{label} reported no executed tests")
+    return {"tests": int(match.group(1))}
+
+
+def audit_patch_gate_self_test() -> dict[str, object]:
+    result = _run_update_self_test("--self-test-patch-gates", "patch-gate self-test OK")
+    result["auditor_tests"] = _run_unittest_probe(
+        "scripts.test_patch_evidence_auditor",
+        "PATCH evidence auditor regression",
+    )["tests"]
+    return result
+
+
+def audit_fetch_retry_self_test() -> dict[str, object]:
+    return _run_update_self_test("--self-test-fetch-retry", "fetch-retry self-test OK")
+
+
+def audit_transaction_self_test() -> dict[str, object]:
+    return _run_update_self_test("--self-test-transaction", "transaction-state self-test OK")
+
+
+def audit_gateway_restart_cleanup() -> dict[str, object]:
+    return _run_unittest_probe(
+        "scripts.test_cleanup_transient_artifacts",
+        "gateway cleanup regression",
+    )
+
+
+def audit_sandbox_verifier() -> dict[str, object]:
+    verifier = ROOT / "plugins" / "sandbox" / "verify.sh"
+    result = _run(["bash", str(verifier)], timeout=300)
+    if result.returncode:
+        raise EvidenceError(f"sandbox verifier failed: {result.stdout[-2000:]}{result.stderr[-2000:]}")
+    combined = f"{result.stdout}\n{result.stderr}"
+    match = re.search(r"(\d+) passed", combined)
+    if match is None or int(match.group(1)) <= 0:
+        raise EvidenceError("sandbox verifier did not report an executed pytest count")
+    return {"passed": int(match.group(1))}
 
 
 def audit_socks_dependency() -> None:
@@ -963,18 +1131,6 @@ assert kwargs["acp_command"] == "copilot"
         raise EvidenceError(f"archived delegate ACP routing regression failed: {result.stderr[-1500:]}")
 
 
-def audit_archived_regressions() -> None:
-    audit_archived_launchd_wrapper_supervisor()
-    audit_archived_vertex_fallback()
-    audit_archived_gemini_custom_native_base()
-    audit_archived_lazy_activation()
-    audit_archived_doctor_enabled_toolsets()
-    audit_archived_zsh_completion_syntax()
-    audit_archived_dashboard_build_cache()
-    audit_archived_gemini_thought_signature()
-    audit_archived_delegate_acp_routing()
-
-
 def audit_bundle() -> None:
     import os
     import tempfile
@@ -1048,6 +1204,7 @@ def _evidence_records(
     resolved: dict[str, list[str]],
     *,
     mode: str,
+    probe_results: dict[str, list[dict[str, object]]],
     executed_owned_files: dict[str, list[str]] | None = None,
 ) -> list[dict[str, object]]:
     range_match = re.search(
@@ -1069,6 +1226,31 @@ def _evidence_records(
         owned = _owned_managed_files(block, managed_files)
         return owned, sorted(set(owned) & changed_paths)
 
+    probe_specs = _registered_probe_specs(active, archived)
+    unknown_results = set(probe_results) - set(probe_specs)
+    if unknown_results:
+        raise EvidenceError(f"PATCH evidence produced results for unknown probes: {sorted(unknown_results)}")
+
+    def probe_fields(patch_id: str) -> dict[str, object]:
+        function_name, minimum_mode = probe_specs[patch_id]
+        executed = probe_results.get(patch_id, [])
+        executed_names = [str(result.get("probe") or "") for result in executed]
+        eligible = MODE_RANK[mode] >= MODE_RANK[minimum_mode]
+        if eligible and executed_names != [function_name]:
+            raise EvidenceError(
+                f"{patch_id}: registered probe was not executed exactly once in {mode} mode: "
+                f"expected={[function_name]}, actual={executed_names}"
+            )
+        if not eligible and executed:
+            raise EvidenceError(f"{patch_id}: full-only probe unexpectedly ran in quick mode")
+        if any(result.get("status") != "passed" for result in executed):
+            raise EvidenceError(f"{patch_id}: registered probe did not report passed")
+        return {
+            "status": "passed" if mode == "full" else ("checked_quick" if eligible else "deferred_full"),
+            "evidence": [function_name],
+            "probe_results": executed,
+        }
+
     records: list[dict[str, object]] = []
     for patch_id, block in active.items():
         owned_files, overlap = ownership(block)
@@ -1079,13 +1261,14 @@ def _evidence_records(
             "upstream_overlap": overlap,
             "absorption_condition_present": "**上游吸收判断**" in block,
         }
-        if patch_id == "PATCH-FEISHU-GROUP-SANDBOX":
+        if patch_id in EXTERNAL_EVIDENCE_AUDITS:
+            evidence_path, _function_name, _minimum_mode = EXTERNAL_EVIDENCE_AUDITS[patch_id]
             records.append(
                 {
                     **common,
                     "evidence_type": "external_verifier",
-                    "status": "contract_passed",
-                    "evidence": ["plugins/sandbox/verify.sh"],
+                    "evidence_path": evidence_path,
+                    **probe_fields(patch_id),
                 }
             )
         elif patch_id in RUNTIME_EVIDENCE:
@@ -1093,8 +1276,8 @@ def _evidence_records(
                 {
                     **common,
                     "evidence_type": "runtime_contract",
-                    "status": "contract_passed",
-                    "evidence": list(RUNTIME_EVIDENCE[patch_id]),
+                    "contract": list(RUNTIME_EVIDENCE[patch_id]),
+                    **probe_fields(patch_id),
                 }
             )
         elif patch_id in DEDICATED_EVIDENCE_AUDITS:
@@ -1102,8 +1285,7 @@ def _evidence_records(
                 {
                     **common,
                     "evidence_type": "dedicated_audit",
-                    "status": "passed",
-                    "evidence": [DEDICATED_EVIDENCE_AUDITS[patch_id][1]],
+                    **probe_fields(patch_id),
                 }
             )
         else:
@@ -1126,8 +1308,7 @@ def _evidence_records(
                 "upstream_overlap": overlap,
                 "absorption_condition_present": "**上游吸收判断**" in block,
                 "evidence_type": "archive_behavior_or_retirement_audit",
-                "status": "passed",
-                "evidence": [ARCHIVED_EVIDENCE_AUDITS[patch_id]],
+                **probe_fields(patch_id),
             }
         )
     if upgrade_range is not None:
@@ -1150,31 +1331,22 @@ def main() -> int:
         help="Write the per-PATCH evidence matrix to this path, or '-' for stdout.",
     )
     args = parser.parse_args()
+    mode = "quick" if args.quick else "full"
     try:
         active, archived = audit_registry()
         audit_gate_links(active, archived)
         audit_runtime_artifacts()
-        audit_socks_dependency()
-        audit_openclaw_token_migration()
-        npm = audit_npm_dependency_hygiene()
-        audit_skills_mirror()
-        audit_fts5_build()
-        audit_archived_regressions()
+        probe_results = _run_registered_patch_audits(active, archived, mode=mode)
+        npm_probe = probe_results.get("PATCH-NPM-DEPENDENCY-HYGIENE", [])
+        npm = npm_probe[0].get("details", {}) if npm_probe else {"status": "deferred_full"}
         tests = {"files": 0, "collected": 0}
         resolved: dict[str, list[str]] = {}
         executed_owned_files: dict[str, list[str]] = {}
         if not args.quick:
-            # Preflight quick mode runs before Step 2 captures a manually
-            # resolved post-upgrade overlay into the canonical bundle.  Bundle
-            # parity is therefore a terminal/full invariant, not a pre-mutation
-            # structural one; checking it here would make the documented
-            # conflict-recovery path impossible to re-enter.
-            audit_bundle()
             tests, resolved, executed_owned_files = audit_current_tests(active)
     except (EvidenceError, subprocess.SubprocessError, OSError) as exc:
         print(f"patch-evidence self-test FAILED: {exc}", file=sys.stderr)
         return 1
-    mode = "quick" if args.quick else "full"
     report = {
         "status": "ok",
         "mode": mode,
@@ -1182,11 +1354,18 @@ def main() -> int:
         "archived": len(archived),
         **tests,
         "npm": npm,
+        "probes": {
+            "registered": len(_registered_probe_specs(active, archived)),
+            "executed": sum(len(results) for results in probe_results.values()),
+            "deferred": len(_registered_probe_specs(active, archived))
+            - sum(len(results) for results in probe_results.values()),
+        },
         "patches": _evidence_records(
             active,
             archived,
             resolved,
             mode=mode,
+            probe_results=probe_results,
             executed_owned_files=executed_owned_files,
         ),
     }
