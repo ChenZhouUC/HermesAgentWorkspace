@@ -17417,13 +17417,64 @@ index 0000000000000000000000000000000000000000..af1ed49fcdc4971ab80100976219ced1
 +        "mcp_task_status",
 +    )
 diff --git a/tests/tools/test_mcp_tool.py b/tests/tools/test_mcp_tool.py
-index 5f05b0fc343287584e93081e4dc69ecab26ba04f..e76a93b51e7c8787d68aadbdd88a64dc98dcc246 100644
+index 5f05b0fc343287584e93081e4dc69ecab26ba04f..8526e839b54fc2e17db7cdb628294571cbc47530 100644
 --- a/tests/tools/test_mcp_tool.py
 +++ b/tests/tools/test_mcp_tool.py
-@@ -576,6 +576,38 @@ class TestToolHandler:
+@@ -62,6 +62,24 @@ def _make_mock_server(name, session=None, tools=None):
+     return server
+ 
+ 
++class TestStdioChildLiveness:
++    def test_stdio_children_dead_is_false_when_any_child_is_alive(self):
++        server = _make_mock_server("test_srv")
++        server._config = {"command": "demo-mcp"}
++        server._stdio_child_pids = {101, 202}
++
++        with patch("psutil.pid_exists", side_effect=lambda pid: pid == 202):
++            assert server._stdio_children_dead() is False
++
++    def test_stdio_children_dead_is_true_when_all_children_exited(self):
++        server = _make_mock_server("test_srv")
++        server._config = {"command": "demo-mcp"}
++        server._stdio_child_pids = {101, 202}
++
++        with patch("psutil.pid_exists", return_value=False):
++            assert server._stdio_children_dead() is True
++
++
+ class TestFilterMCPChildren:
+     def test_filters_gateway_children_by_argv_marker(self, monkeypatch):
+         """Non-MCP children start with an interpreter/binary, not the marker."""
+@@ -576,6 +594,64 @@ class TestToolHandler:
          finally:
              _servers.pop("test_srv", None)
  
++    def test_live_stdio_child_does_not_fast_fail_tool_call(self):
++        from tools.mcp_tool import _make_tool_handler, _servers
++
++        mock_session = MagicMock()
++        mock_session.call_tool = AsyncMock(
++            return_value=_make_call_result("alive", is_error=False)
++        )
++        server = _make_mock_server("test_srv", session=mock_session)
++        server._config = {"command": "demo-mcp"}
++        server._stdio_child_pids = {12345}
++        _servers["test_srv"] = server
++
++        try:
++            handler = _make_tool_handler("test_srv", "greet", 120)
++            with (
++                patch("psutil.pid_exists", return_value=True),
++                self._patch_mcp_loop(),
++            ):
++                result = json.loads(handler({"name": "world"}))
++            assert result["result"] == "alive"
++            mock_session.call_tool.assert_called_once_with(
++                "greet", arguments={"name": "world"}
++            )
++        finally:
++            _servers.pop("test_srv", None)
++
 +    def test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine(self):
 +        from tools.mcp_tool import _make_tool_handler, _servers
 +
@@ -17459,7 +17510,7 @@ index 5f05b0fc343287584e93081e4dc69ecab26ba04f..e76a93b51e7c8787d68aadbdd88a64dc
  
      def test_recycled_stdio_server_reconnects_lazily_on_tool_call(self):
          from tools.mcp_tool import _make_tool_handler, _servers
-@@ -1605,16 +1637,19 @@ class TestConfigurableTimeouts:
+@@ -1605,16 +1681,19 @@ class TestConfigurableTimeouts:
  class TestUtilitySchemas:
      """Tests for _build_utility_schemas() and the schema format of utility tools."""
  
@@ -17481,7 +17532,7 @@ index 5f05b0fc343287584e93081e4dc69ecab26ba04f..e76a93b51e7c8787d68aadbdd88a64dc
  
      def test_read_resource_schema_requires_uri(self):
          from tools.mcp_tool import _build_utility_schemas
-@@ -2959,7 +2994,7 @@ class TestRedirectHeaderStripper:
+@@ -2959,7 +3038,7 @@ class TestRedirectHeaderStripper:
          )
          return response, next_request
  
@@ -17490,7 +17541,7 @@ index 5f05b0fc343287584e93081e4dc69ecab26ba04f..e76a93b51e7c8787d68aadbdd88a64dc
          import httpx
  
          from tools.mcp_tool import _make_redirect_header_stripper
-@@ -2968,10 +3003,17 @@ class TestRedirectHeaderStripper:
+@@ -2968,10 +3047,17 @@ class TestRedirectHeaderStripper:
              httpx.URL("https://origin.example.test/mcp")
          )
          response, next_request = self._make_response(
@@ -18529,7 +18580,7 @@ index 0000000000000000000000000000000000000000..fd9fc64b595469e21d0f9d5697e47e9a
 +        )
 +        return await _task_request_once(session, method, corrected)
 diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py
-index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf7142f582 100644
+index c1c80e5adb18a42cfa9ee942789da9872f290174..200269b883484053501de95d0b1114139470fe4c 100644
 --- a/tools/mcp_tool.py
 +++ b/tools/mcp_tool.py
 @@ -1680,6 +1680,10 @@ def _make_redirect_header_stripper(
@@ -18543,7 +18594,20 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
                  if strict:
                      for _name in configured_header_names:
                          while _name in response.next_request.headers:
-@@ -3749,11 +3753,26 @@ class MCPServerTask:
+@@ -2999,10 +3003,8 @@ class MCPServerTask:
+             # os.kill probe below only runs when psutil is unavailable.
+             import psutil
+ 
+-            if not psutil.pid_exists(pid):
+-                continue  # this one is dead
+-            return True  # alive (signal permission irrelevant for liveness)
+-            return False  # at least one child alive
++            if psutil.pid_exists(pid):
++                return False  # at least one child is still alive
+         return True
+ 
+     async def _watch_stdio_children(self) -> None:
+@@ -3749,11 +3751,26 @@ class MCPServerTask:
                  configured_header_names=_configured_header_names,
              )
  
@@ -18571,7 +18635,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
              }
              if headers:
                  client_kwargs["headers"] = headers
-@@ -6132,6 +6151,9 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -6132,6 +6149,9 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                  # it and detect the gateway platform / session for routing.
                  server._pending_call_context = contextvars.copy_context()
                  try:
@@ -18581,7 +18645,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
                      # Fast-fail (#81995): a stdio subprocess that is already
                      # dead must not own this call slot — fail immediately
                      # instead of waiting out the full tool timeout on a
-@@ -6149,21 +6171,31 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -6149,21 +6169,31 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                              f"exited; failing the call fast instead of "
                              f"waiting {float(tool_timeout):.0f}s"
                          )
@@ -18620,7 +18684,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
                              else _call_coro
                          )
                      else:
-@@ -6172,7 +6204,7 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -6172,7 +6202,7 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                          # the call immediately instead of riding out the full
                          # tool timeout.
                          rpc_task = asyncio.ensure_future(_call_coro)
@@ -18629,7 +18693,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
                          try:
                              done, _pending = await asyncio.wait(
                                  {rpc_task, watch_task},
-@@ -6186,7 +6218,7 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -6186,7 +6216,7 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                                      f"instead of waiting "
                                      f"{float(tool_timeout):.0f}s"
                                  )
@@ -18638,7 +18702,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
                          finally:
                              watch_task.cancel()
                              if not rpc_task.done():
-@@ -6194,6 +6226,11 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -6194,6 +6224,11 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                              await asyncio.gather(
                                  rpc_task, watch_task, return_exceptions=True
                              )
@@ -18650,7 +18714,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
                  finally:
                      server._pending_call_context = None
              # The RPC round-trip completed — the session is demonstrably
-@@ -6202,6 +6239,8 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -6202,6 +6237,8 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
              _mark_proven = getattr(server, "_mark_session_proven", None)
              if _mark_proven is not None:
                  _mark_proven()
@@ -18659,7 +18723,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
              # MCP CallToolResult has .content (list of content blocks) and
              # .is_error (.isError before mcp 2.0)
              if mcp_field(result, "is_error", "isError", False):
-@@ -6622,6 +6661,47 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
+@@ -6622,6 +6659,47 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
      return _handler
  
  
@@ -18707,7 +18771,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
  def _make_check_fn(server_name: str):
      """Return a check function that verifies the MCP connection is alive."""
  
-@@ -6853,7 +6933,7 @@ def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
+@@ -6853,7 +6931,7 @@ def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
  
  
  def _build_utility_schemas(server_name: str) -> List[dict]:
@@ -18716,7 +18780,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
  
      Returns a list of (schema, handler_factory_name) tuples encoded as dicts
      with keys: schema, handler_key.
-@@ -6921,6 +7001,73 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
+@@ -6921,6 +6999,73 @@ def _build_utility_schemas(server_name: str) -> List[dict]:
              },
              "handler_key": "get_prompt",
          },
@@ -18790,7 +18854,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
      ]
  
  
-@@ -7039,6 +7186,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -7039,6 +7184,7 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
      tools_filter = config.get("tools") or {}
      resources_enabled = _parse_boolish(tools_filter.get("resources"), default=True)
      prompts_enabled = _parse_boolish(tools_filter.get("prompts"), default=True)
@@ -18798,7 +18862,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
  
      # ``initialize_result.capabilities`` is the source of truth: its sub-objects
      # (``resources``, ``prompts``) are non-None iff the server advertises that
-@@ -7049,6 +7197,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -7049,6 +7195,9 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
      init_result = getattr(server, "initialize_result", None)
      if init_result is not None:
          advertised_caps = getattr(init_result, "capabilities", None)
@@ -18808,7 +18872,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
  
      selected: List[dict] = []
      for entry in _build_utility_schemas(server_name):
-@@ -7059,6 +7210,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
+@@ -7059,6 +7208,16 @@ def _select_utility_schemas(server_name: str, server: MCPServerTask, config: dic
          if handler_key in {"list_prompts", "get_prompt"} and not prompts_enabled:
              logger.debug("MCP server '%s': skipping utility '%s' (prompts disabled)", server_name, handler_key)
              continue
@@ -18825,7 +18889,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
  
          # Preferred gate: check the server's advertised capabilities. Skip
          # if the capability is explicitly not advertised.
-@@ -7201,6 +7362,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
+@@ -7201,6 +7360,15 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
          "read_resource": _make_read_resource_handler,
          "list_prompts": _make_list_prompts_handler,
          "get_prompt": _make_get_prompt_handler,
@@ -18841,7 +18905,7 @@ index c1c80e5adb18a42cfa9ee942789da9872f290174..363142accc95a7ed508b6d42b35143bf
      }
      for entry in _select_utility_schemas(name, server, config):
          schema = entry["schema"]
-@@ -7489,6 +7659,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
+@@ -7489,6 +7657,15 @@ def _register_from_cache_sync(name: str, config: dict, entry: dict) -> List[str]
          "read_resource": _make_read_resource_handler,
          "list_prompts": _make_list_prompts_handler,
          "get_prompt": _make_get_prompt_handler,

@@ -3125,17 +3125,23 @@ else
 fi
 
 # PATCH-MCP-STDIO-WATCHER-LIFECYCLE: the stdio liveness watcher must be
-# materialized exactly once per RPC. Calling the async factory once for an
-# isawaitable() probe and again for scheduling leaks the first coroutine.
+# materialized exactly once per RPC, and live child PIDs must never satisfy the
+# "all children dead" predicate. Both defects otherwise fast-fail healthy MCP
+# calls or leak an un-awaited watcher coroutine.
 if [[ -f "${VENV_PY}" && -f "${MCP_TOOL_PY}" && -f "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" ]]; then
     if grep -q '_watch_coro = (' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'watch_task = asyncio.ensure_future(_watch_coro)' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
+        grep -q 'test_stdio_children_dead_is_false_when_any_child_is_alive' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
+        grep -q 'test_live_stdio_child_does_not_fast_fail_tool_call' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
         "${VENV_PY}" -m pytest -q -p no:cacheprovider -W error::RuntimeWarning \
             tests/tools/test_mcp_tool.py::TestToolHandler::test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine \
+            tests/tools/test_mcp_tool.py::TestStdioChildLiveness::test_stdio_children_dead_is_false_when_any_child_is_alive \
+            tests/tools/test_mcp_tool.py::TestStdioChildLiveness::test_stdio_children_dead_is_true_when_all_children_exited \
+            tests/tools/test_mcp_tool.py::TestToolHandler::test_live_stdio_child_does_not_fast_fail_tool_call \
             >/dev/null 2>&1; then
-        ok "PATCH-MCP-STDIO-WATCHER-LIFECYCLE active: one awaited child watcher per MCP RPC"
+        ok "PATCH-MCP-STDIO-WATCHER-LIFECYCLE active: live children stay connected and each RPC owns one awaited watcher"
         _MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK=true
     else
         warn "PATCH-MCP-STDIO-WATCHER-LIFECYCLE inactive or partial"
