@@ -4,7 +4,9 @@
 This is intentionally a repository-level audit rather than another source
 sentinel.  A PATCH is accepted only when its lifecycle is registered, its
 validation section names a real regression boundary, and the corresponding
-current artifact/test entry exists on disk.  Runtime PATCHes use their
+current artifact/test entry exists on disk. Full mode also profiles each
+evidence node and requires source-owning PATCHes to execute at least one of
+their declared production files. Runtime PATCHes use their
 operator-level evidence (transaction, replay, cleanup, mirror, npm or
 verifier checks) instead of pretending that a source grep is a behavioral
 test.
@@ -20,6 +22,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
@@ -84,6 +87,29 @@ def _validation(block: str) -> str:
 def _files(block: str) -> str:
     match = re.search(r"\*\*文件\*\*\s*\|\s*(.+)", block)
     return match.group(1) if match else ""
+
+
+def _expand_braces(pattern: str) -> set[str]:
+    match = re.search(r"\{([^{}]+)\}", pattern)
+    if not match:
+        return {pattern}
+    expanded: set[str] = set()
+    for choice in match.group(1).split(","):
+        replaced = f"{pattern[: match.start()]}{choice.strip()}{pattern[match.end() :]}"
+        expanded.update(_expand_braces(replaced))
+    return expanded
+
+
+def _owned_managed_files(block: str, managed_files: list[str]) -> list[str]:
+    files_text = _files(block)
+    patterns: set[str] = set()
+    for token in re.findall(r"`([^`]+)`", files_text):
+        patterns.update(_expand_braces(token))
+    return sorted(
+        path
+        for path in managed_files
+        if path in files_text or any(fnmatch.fnmatch(path, pattern.replace("...", "*")) for pattern in patterns)
+    )
 
 
 def _test_tokens(validation: str) -> set[str]:
@@ -257,12 +283,98 @@ def _resolve_active_patch_nodes(active: dict[str, str], collected_nodes: list[st
     return resolved
 
 
-def _run_active_patch_nodes(resolved: dict[str, list[str]]) -> None:
+def _validate_patch_trace_hits(
+    active: dict[str, str],
+    resolved: dict[str, list[str]],
+    traced_files: dict[str, set[str]],
+    managed_files: list[str],
+) -> dict[str, list[str]]:
+    """Require each source-owning PATCH's tests to execute owned production code."""
+    hits: dict[str, list[str]] = {}
+    missing: list[str] = []
+    for patch_id, nodes in resolved.items():
+        owned = _owned_managed_files(active[patch_id], managed_files)
+        production = [path for path in owned if not path.startswith(("tests/", "website/"))]
+        if not production:
+            # Test-only portability/hermeticity PATCHes have no production
+            # implementation file to trace; their exclusive, clean pytest node
+            # remains the relevant behavioral evidence.
+            hits[patch_id] = []
+            continue
+        executed: set[str] = set()
+        for node in nodes:
+            executed.update(traced_files.get(node, set()))
+        patch_hits = sorted(set(production) & executed)
+        hits[patch_id] = patch_hits
+        if not patch_hits:
+            missing.append(f"{patch_id} (owned production={production}, evidence={nodes})")
+    if missing:
+        raise EvidenceError(
+            "active PATCH evidence passed without executing owned production code: " + "; ".join(missing)
+        )
+    return hits
+
+
+def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str]]) -> dict[str, list[str]]:
     unique_nodes = sorted({node for nodes in resolved.values() for node in nodes})
     if not unique_nodes:
         raise EvidenceError("active engineering PATCH evidence resolved to no pytest nodes")
     with tempfile.TemporaryDirectory(prefix="hermes-active-patch-evidence-") as temp_raw:
-        junit = Path(temp_raw) / "active-patch-evidence.xml"
+        temp = Path(temp_raw)
+        junit = temp / "active-patch-evidence.xml"
+        trace_json = temp / "active-patch-trace.json"
+        plugin = temp / "patch_trace_plugin.py"
+        plugin.write_text(
+            textwrap.dedent(
+                r"""
+                import json
+                import os
+                import sys
+                import threading
+                from pathlib import Path
+
+                ROOT = Path(os.environ["HERMES_PATCH_TRACE_ROOT"]).resolve()
+                OUT = Path(os.environ["HERMES_PATCH_TRACE_OUT"])
+                _current = None
+                _seen = {}
+
+                def _profile(frame, event, arg):
+                    if event != "call" or _current is None:
+                        return
+                    try:
+                        rel = Path(frame.f_code.co_filename).resolve().relative_to(ROOT).as_posix()
+                    except Exception:
+                        return
+                    if rel.startswith(("tests/", "venv/", ".hermes-runtime/")):
+                        return
+                    _seen.setdefault(_current, set()).add(rel)
+
+                def pytest_runtest_setup(item):
+                    global _current
+                    _current = item.nodeid
+                    sys.setprofile(_profile)
+                    threading.setprofile(_profile)
+
+                def pytest_runtest_teardown(item, nextitem):
+                    global _current
+                    sys.setprofile(None)
+                    threading.setprofile(None)
+                    _current = None
+
+                def pytest_sessionfinish(session, exitstatus):
+                    OUT.write_text(
+                        json.dumps({key: sorted(value) for key, value in _seen.items()}),
+                        encoding="utf-8",
+                    )
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        env = _hermetic_test_env()
+        env["PYTHONPATH"] = os.pathsep.join(part for part in (str(temp), str(INNER), env.get("PYTHONPATH", "")) if part)
+        env["HERMES_PATCH_TRACE_ROOT"] = str(INNER)
+        env["HERMES_PATCH_TRACE_OUT"] = str(trace_json)
         result = subprocess.run(
             [
                 str(INNER / "venv/bin/python"),
@@ -271,16 +383,18 @@ def _run_active_patch_nodes(resolved: dict[str, list[str]]) -> None:
                 "-q",
                 "-p",
                 "no:cacheprovider",
+                "-p",
+                "patch_trace_plugin",
                 "-o",
                 "junit_family=xunit2",
                 f"--junitxml={junit}",
                 *unique_nodes,
             ],
             cwd=INNER,
-            env=_hermetic_test_env(),
+            env=env,
             text=True,
             capture_output=True,
-            timeout=300,
+            timeout=600,
             check=False,
         )
         if result.returncode:
@@ -306,6 +420,20 @@ def _run_active_patch_nodes(resolved: dict[str, list[str]]) -> None:
                 for case in matched:
                     if any(case.find(tag) is not None for tag in ("failure", "error", "skipped")):
                         raise EvidenceError(f"{patch_id}: evidence node did not pass cleanly: {node}")
+        try:
+            raw_trace = json.loads(trace_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise EvidenceError(f"active PATCH execution trace is unreadable: {exc}") from exc
+        traced_files: dict[str, set[str]] = defaultdict(set)
+        for node, files in raw_trace.items():
+            traced_files[_base_node_id(node)].update(str(path) for path in files)
+        managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
+        return _validate_patch_trace_hits(
+            active,
+            resolved,
+            traced_files,
+            managed_files,
+        )
 
 
 def audit_registry() -> tuple[dict[str, str], dict[str, str]]:
@@ -883,12 +1011,16 @@ def audit_bundle() -> None:
 
 def audit_current_tests(
     active: dict[str, str],
-) -> tuple[dict[str, int], dict[str, list[str]]]:
+) -> tuple[dict[str, int], dict[str, list[str]], dict[str, list[str]]]:
     test_files = _patch_test_inventory()[0]
     collected_nodes = _collect_patch_nodes(test_files)
     resolved = _resolve_active_patch_nodes(active, collected_nodes)
-    _run_active_patch_nodes(resolved)
-    return {"files": len(test_files), "collected": len(collected_nodes)}, resolved
+    executed_owned_files = _run_active_patch_nodes(active, resolved)
+    return (
+        {"files": len(test_files), "collected": len(collected_nodes)},
+        resolved,
+        executed_owned_files,
+    )
 
 
 def _evidence_records(
@@ -897,6 +1029,7 @@ def _evidence_records(
     resolved: dict[str, list[str]],
     *,
     mode: str,
+    executed_owned_files: dict[str, list[str]] | None = None,
 ) -> list[dict[str, object]]:
     range_match = re.search(
         r"\*\*最近一次升级.*?`([0-9a-f]{7,40})`\s*→\s*`([0-9a-f]{7,40})`",
@@ -913,26 +1046,8 @@ def _evidence_records(
         upgrade_range = {"old_sha": old_sha, "new_sha": new_sha}
     managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
 
-    def expand_braces(pattern: str) -> set[str]:
-        match = re.search(r"\{([^{}]+)\}", pattern)
-        if not match:
-            return {pattern}
-        expanded: set[str] = set()
-        for choice in match.group(1).split(","):
-            replaced = f"{pattern[: match.start()]}{choice.strip()}{pattern[match.end() :]}"
-            expanded.update(expand_braces(replaced))
-        return expanded
-
     def ownership(block: str) -> tuple[list[str], list[str]]:
-        files_text = _files(block)
-        patterns: set[str] = set()
-        for token in re.findall(r"`([^`]+)`", files_text):
-            patterns.update(expand_braces(token))
-        owned = sorted(
-            path
-            for path in managed_files
-            if path in files_text or any(fnmatch.fnmatch(path, pattern.replace("...", "*")) for pattern in patterns)
-        )
+        owned = _owned_managed_files(block, managed_files)
         return owned, sorted(set(owned) & changed_paths)
 
     records: list[dict[str, object]] = []
@@ -979,6 +1094,7 @@ def _evidence_records(
                     "evidence_type": "pytest_node",
                     "status": "passed" if mode == "full" else "not_run_quick",
                     "evidence": resolved.get(patch_id, []),
+                    "executed_owned_files": (executed_owned_files or {}).get(patch_id, []),
                 }
             )
     for patch_id, block in archived.items():
@@ -1027,6 +1143,7 @@ def main() -> int:
         audit_archived_regressions()
         tests = {"files": 0, "collected": 0}
         resolved: dict[str, list[str]] = {}
+        executed_owned_files: dict[str, list[str]] = {}
         if not args.quick:
             # Preflight quick mode runs before Step 2 captures a manually
             # resolved post-upgrade overlay into the canonical bundle.  Bundle
@@ -1034,7 +1151,7 @@ def main() -> int:
             # structural one; checking it here would make the documented
             # conflict-recovery path impossible to re-enter.
             audit_bundle()
-            tests, resolved = audit_current_tests(active)
+            tests, resolved, executed_owned_files = audit_current_tests(active)
     except (EvidenceError, subprocess.SubprocessError, OSError) as exc:
         print(f"patch-evidence self-test FAILED: {exc}", file=sys.stderr)
         return 1
@@ -1046,7 +1163,13 @@ def main() -> int:
         "archived": len(archived),
         **tests,
         "npm": npm,
-        "patches": _evidence_records(active, archived, resolved, mode=mode),
+        "patches": _evidence_records(
+            active,
+            archived,
+            resolved,
+            mode=mode,
+            executed_owned_files=executed_owned_files,
+        ),
     }
     if args.report_json:
         payload = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

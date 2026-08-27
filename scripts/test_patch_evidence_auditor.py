@@ -98,6 +98,28 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                 ["tests/test_contract.py::TestContract::test_contract"],
             )
 
+    def test_patch_trace_requires_owned_production_execution(self) -> None:
+        block = "| **文件** | `agent/feature.py`, `tests/test_feature.py` |\n\n" + patch_block("test_feature")
+        active = {"PATCH-TEST-CONTRACT": block}
+        resolved = {"PATCH-TEST-CONTRACT": ["tests/test_feature.py::TestFeature::test_feature"]}
+        managed = ["agent/feature.py", "tests/test_feature.py"]
+        with self.assertRaisesRegex(evidence.EvidenceError, "without executing owned production code"):
+            evidence._validate_patch_trace_hits(
+                active,
+                resolved,
+                {"tests/test_feature.py::TestFeature::test_feature": {"agent/unrelated.py"}},
+                managed,
+            )
+        self.assertEqual(
+            evidence._validate_patch_trace_hits(
+                active,
+                resolved,
+                {"tests/test_feature.py::TestFeature::test_feature": {"agent/feature.py"}},
+                managed,
+            ),
+            {"PATCH-TEST-CONTRACT": ["agent/feature.py"]},
+        )
+
     def test_dotenv_inventory_reads_names_without_exposing_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_raw:
             path = Path(temp_raw) / ".env"
@@ -125,7 +147,8 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
             self.assertRaises(evidence.EvidenceError),
         ):
             evidence._run_active_patch_nodes(
-                {"PATCH-TEST-CONTRACT": ["tests/test_contract.py::TestContract::test_contract"]}
+                {"PATCH-TEST-CONTRACT": patch_block("test_contract")},
+                {"PATCH-TEST-CONTRACT": ["tests/test_contract.py::TestContract::test_contract"]},
             )
 
     def test_vertex_retirement_audit_does_not_require_a_specific_replacement_provider(
