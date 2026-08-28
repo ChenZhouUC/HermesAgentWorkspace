@@ -1810,8 +1810,8 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
         top, bottom = _titles(fig, ax, request)
         try:
             fig.tight_layout(rect=(0.025, bottom, 0.98, top))
-        except Exception:
-            pass  # noqa: BLE001,S110
+        except (RuntimeError, ValueError):
+            pass
         day = time.strftime("%Y-%m-%d", time.gmtime())
         output_dir = (workspace / "charts" / day).resolve(strict=False)
         if not output_dir.is_relative_to(workspace):
