@@ -739,7 +739,7 @@ hermes gateway restart             # 重启 gateway 加载插件
 
 **位置**：`plugins/sandbox/`（`plugin.yaml` + `__init__.py` + `config.yaml`）
 
-**作用**：bot 同一个 Feishu 应用账号同时服务多个会话时，按 `chat_id` + `chat_type` 区分工具权限——配置中列出的 owner DM 拥有完整工具集，其他 Feishu DM 只能调用基础安全白名单；Feishu 群聊/频道额外拥有只读知识工具、按群隔离的临时文件工具，以及受控的飞书文档脚本入口。HyperTeX MCP 使用一条窄策略：owner DM 直接可用；群聊同时命中 `trusted_feishu_chat_ids_for_group_hypertex` 与 `trusted_feishu_user_ids_for_group_hypertex` 才能调用。创建/迭代任务固定使用 `hermes` Contributor，新建 case 固定 `freestyle` 类型；RuntimeAgent 刻意不固定——模型传入的 `agent` 会被删除，交由 HyperTeX 按 owner 账号的 Agentic 权重抽取（create）或沿用 case 原 Agent（iterate），本轮飞书附件经私有目录暂存后自动注入，不把宿主缓存路径暴露给模型；未开通群或非可信成员即使能看见工具说明也会在调用期被拒绝。非 Feishu 来源（CLI/TUI、cron 调度器、内部事件）一律放行不拦截。
+**作用**：bot 同一个 Feishu 应用账号同时服务多个会话时，按 `chat_id` + `chat_type` 区分工具权限——配置中列出的 owner DM 拥有完整工具集，其他 Feishu DM 只能调用基础安全白名单；Feishu 群聊/频道额外拥有只读知识工具、按群隔离的临时文件工具、受控的飞书文档脚本入口，以及按群显式启用的沙箱图片生成入口。HyperTeX MCP 使用一条窄策略：owner DM 直接可用；群聊同时命中 `trusted_feishu_chat_ids_for_group_hypertex` 与 `trusted_feishu_user_ids_for_group_hypertex` 才能调用。创建/迭代任务固定使用 `hermes` Contributor，新建 case 固定 `freestyle` 类型；RuntimeAgent 刻意不固定——模型传入的 `agent` 会被删除，交由 HyperTeX 按 owner 账号的 Agentic 权重抽取（create）或沿用 case 原 Agent（iterate），本轮飞书附件经私有目录暂存后自动注入，不把宿主缓存路径暴露给模型；未开通群或非可信成员即使能看见工具说明也会在调用期被拒绝。非 Feishu 来源（CLI/TUI、cron 调度器、内部事件）一律放行不拦截。
 
 **为什么需要它**：hermes 原生 platform enum 只提供 `feishu`，同一个 Feishu bot 下所有 chat 原本共享一份工具列表。若把 bot 拉进群或被别人加为联系人，对方可以直接让 bot 调 `terminal` / `read_file` 等危险工具。`allowed_chats` 白名单虽然能限制响应范围，但代价是其他会话完全得不到响应；要在"允许其他人聊天/搜索/问图"和"禁止其他人碰系统"之间取折衷，原生配置做不到。本地 `PATCH-FEISHU-GROUP-SCOPE` 让真实 Gateway consumer 按 chat type 选择 `feishu` / `feishu_group` namespace，本插件再通过官方 `pre_gateway_dispatch` + `pre_tool_call` + `post_tool_call` 钩子做调用期纵深裁剪与本轮临时文件授权。
 
@@ -748,11 +748,12 @@ hermes gateway restart             # 重启 gateway 加载插件
 - `pre_gateway_dispatch` 把入站消息的 `(platform, chat_id, chat_type, user_id)`、原始 Feishu `sender_id` 中可用的 `open_id/user_id/union_id` 精确集合、当前附件缓存路径，以及**当前消息/明确引用消息**中的飞书资源 token 写入 `contextvars.ContextVar`，asyncio 会自动把该 context 传到所有后续 `await` / `create_task` 子任务里。授信判断对三种 ID 做集合交集，不使用显示名；`SessionSource.user_id` 因 contact scope 从 open_id 翻转成 tenant user_id 时不会误撤权。历史回填 `channel_context` 不授予资源访问，避免后来的参与者复用旧群消息里的链接。
 - `pre_tool_call` 读取 ContextVar：若 `platform != "feishu"` 直接放行；若 `chat_id` 在 owner 白名单里，普通工具直接放行，HyperTeX 的 4 个原始工具与协商生成的标准 Tasks utilities 则先固定边界：创建/迭代调用固定 Contributor / `freestyle` 和本轮附件，但主动删除模型传入的 `agent`；create 因此按 `hermes` 账号 Agentic 权重抽取，iterate 则沿用 case 已记录的 Agent。后续状态查询使用 `mcp__hypertex__tasks_get`。每个入站 turn 最多放行一次 HyperTeX 调用：创建后同轮轮询、查询失败后同轮重试、list/get_case fallback 都在调用 MCP 前被拦截，避免本地 transport 异常占住主会话。群聊优先应用群专用 allowlist，不继承 outsider-DM 的 `vision_analyze` / `image_generate` 放行；HyperTeX 全工具面虽加入 `feishu_group`，调用期仍要求当前 `chat_id` 和 `user_id` 分别命中两个 HyperTeX allowlist。MCP/delete 执行授信名单独立于 `feishu.assistant_user_ids`，新增维护者不会顺带获得群聊 @人触发 Hermes 的 admission 语义。其他私聊才使用基础安全 allowlist。配置解析失败时对 Feishu fail closed。
 - `post_tool_call` 只观察群聊 `web_extract`：长网页被截断并写入 `cache/web` 时，仅把**本群本轮刚产生的精确缓存文件**临时加入可读集合；不开放整个 cache，新消息到来即撤销，其他群不能复用。
-- 群聊放行 `skills_list` / `skill_view` 只打开“读 skill”通路；实际可读 skill 仍由 `skills.platform_allowed.feishu_group` 限制。当前配置允许 `llm-wiki`、`feishu-docs` 与 `excel-processing`，不开放 `skill_manage`。放行的 skill 里若带 `scripts/`，群聊也只能「读」不能「跑」——群聊没有 `terminal` / `process`，`feishu_doc_manage` 只映射 `feishu_doc_scripts_root` 下的固定 action。
+- 群聊放行 `skills_list` / `skill_view` 只打开“读 skill”通路；实际可读 skill 仍由 `skills.platform_allowed.feishu_group` 限制。当前配置允许 `llm-wiki`、`feishu-docs`、`excel-processing`、`image-generation` 与 `chart-generation`，不开放 `skill_manage`。skill 内脚本不能由群聊直接执行；结构化工具只调用管理员固定配置的脚本入口。
 - `read_file` / `search_files` 只允许 `~/.hermes/wiki` 和当前群自己的工作区；`search_files` 省略 path 时安全重写到 wiki 根。`~/.hermes/tmp/group-workspaces/<chat-id-hash>/` 按群隔离，其他群工作区、`tmp/nightly_report`、全局 `cache`、`skills`、`my-skills` 均不能通过文件工具访问；唯一例外是上条本轮 web_extract 精确文件授权。
-- 群聊不拥有 `terminal` / `process` / `write_file` / `patch` / `vision_analyze` / `image_generate`；图片、音频、视频和扫描 PDF 由 Gateway 入站 native/sidecar 链路自动处理。`group_cache` 用结构化参数完成当前群工作区内的读写、移动和删除；`feishu_doc_manage` 把固定 action 映射到管理员逐项批准的既有脚本。群成员可直接 create 文档，append/rebuild 时必须在当前消息/引用中附目标文档链接；delete 同时要求目标链接和 `trusted_feishu_user_ids_for_group_mutations` 授信。hook 与 handler 双层校验。
-- `group_cache` / `feishu_doc_manage` 属于 Feishu group 的 deferred plugin tools；它们必须能通过 `tool_search` / `tool_describe` 被发现和描述，不能依赖模型猜 schema。`tool_search` / `tool_describe` 是只读工具目录桥，群聊显式放行；`tool_call` 会先按当前 `feishu_group` toolset 解包成底层工具再进 sandbox hook。`plugins/sandbox/verify.sh` 会用真实 `feishu_group` toolset 和 sandbox hook 锁住这一点，所以灰度群和其他群保持同一工具面。
-- 既有脚本用 argv + `shell=False` 启动；macOS `sandbox-exec` profile 由插件生成并由子进程继承，整个进程树只允许写当前群工作区。若进程沙箱不可用，脚本工具 fail closed。工作区文件作为数据使用，永不作为脚本执行；stdout/stderr 回传前会脱敏 Bearer token、Feishu app secret 与 tenant token，上传 helper 也不会把含凭据的 curl argv 串进 traceback。
+- 群聊不拥有 `terminal` / `process` / `write_file` / `patch` / `vision_analyze` / 原生 `image_generate`。`group_cache` 用结构化参数完成当前群工作区内的数据读写；`feishu_doc_manage` 映射固定文档 action；`group_image_generate` 使用可替换的私有后端执行 catalog → 上传引用图 → image job → 轮询 → 下载链路。当前通过 `trusted_feishu_chat_ids_for_group_image_generation: ['*']` 向所有已准入及未来加入的飞书群开放，每个入站 turn 最多调用一次；各群仍写入独立的哈希工作区。主会话默认使用同一协议的 `secure_image_generate`，后端替换不改变 skill 或业务侧调用方式。
+- `group_chart_generate` 只接受 Hermes 已从文本/XLSX/CSV 提取出的 `labels + series`，内部生成受限 Vega-Lite spec；不接受原始 workbook 路径、任意 spec、URL、JavaScript 或输出路径。渲染器是独立固定版本的 `vl-convert-python` venv，进程沙箱明确禁止网络，PNG 仍落到当前群哈希工作区并通过 `MEDIA:` 发送。主会话对应 `secure_chart_generate`。
+- `group_cache` / `feishu_doc_manage` / `group_image_generate` / `group_chart_generate` 属于 Feishu group 的 deferred plugin tools；它们必须能通过 `tool_search` / `tool_describe` 被发现和描述，不能依赖模型猜 schema。私有 `secure_*` 工具注册到主会话已有的 `image_gen` toolset。`tool_search` / `tool_describe` 是只读工具目录桥，群聊显式放行；`tool_call` 会先按当前 `feishu_group` toolset 解包成底层工具再进 sandbox hook。`plugins/sandbox/verify.sh` 会用真实 toolset 和 sandbox hook 锁住这一点，所以开通群和其他群仍有独立的调用期边界。
+- 既有脚本用 argv + `shell=False` 启动；macOS `sandbox-exec` profile 由插件生成并由子进程继承，整个进程树只允许写当前会话工作区。图片生成工具不接受 shell、脚本路径、API 地址、模型名或输出目录参数，只把当前 turn 的图片复制进工作区，并仅向固定 helper 注入专用图片生成密钥及必要网络环境；不会把 Hermes、飞书或其他模型供应商密钥传给子进程。若进程沙箱不可用，脚本工具 fail closed；stdout/stderr 回传前还会做密钥脱敏。
 - 不用 `threading.local`（asyncio 多协程同线程会串），不用 `set_thread_tool_whitelist`（同样问题），坚持 ContextVar。
 
 **配置**（`plugins/sandbox/config.yaml`）：
@@ -782,6 +783,12 @@ allowed_tools_for_outsider_groups:
   - search_files
   - group_cache
   - feishu_doc_manage
+  - group_image_generate
+  - group_chart_generate
+trusted_feishu_chat_ids_for_group_image_generation:
+  - "*" # 所有通过飞书群准入规则的群
+trusted_feishu_chat_ids_for_group_chart_generation:
+  - "*" # 所有通过飞书群准入规则的群
 trusted_feishu_user_ids_for_group_mutations:
   - ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx # 允许在群聊删除飞书文档的维护者 user_id
 allowed_read_roots_for_outsider_groups:
@@ -795,9 +802,37 @@ allowed_feishu_script_actions_for_outsider_groups:
   - read_url
   - download_file
 feishu_doc_scripts_root: ~/.hermes/my-skills/productivity/feishu-docs/scripts
+group_image_generation_script: ~/.hermes/my-skills/creative/image-generation/scripts/generate_image.py
+private_image_workspace_root: ~/.hermes/tmp/image-generation
+chart_generation_script: ~/.hermes/my-skills/creative/chart-generation/scripts/render_chart.py
+chart_python_executable: ~/.hermes/lib/chart-renderer/venv/bin/python
+private_chart_workspace_root: ~/.hermes/tmp/chart-generation
 python_executable: ~/.hermes/hermes-agent/venv/bin/python
 group_max_download_bytes: 50000000
+group_image_generation_timeout_seconds: 900
+group_image_max_input_bytes: 25000000
+group_image_max_output_bytes: 10000000
+group_image_max_inputs: 4
+chart_generation_timeout_seconds: 60
+chart_max_output_bytes: 10000000
 require_process_sandbox: true
+```
+
+图表 renderer 使用独立、固定版本的运行环境，不污染 Hermes 主 venv：
+
+```bash
+uv venv ~/.hermes/lib/chart-renderer/venv \
+  --python ~/.hermes/hermes-agent/venv/bin/python
+uv pip install \
+  --python ~/.hermes/lib/chart-renderer/venv/bin/python \
+  -r ~/.hermes/my-skills/creative/chart-generation/requirements.txt
+```
+
+图片生成的 key 与 Base URL 作为同一套凭据，必须成对放在同一个 profile 的 `~/.hermes/.env`（文件权限保持 `0600`）。不要把其中任何一个放入 skill、`config.yaml` 或群消息：
+
+```dotenv
+HERMES_IMAGE_GENERATION_API_KEY=...
+HERMES_IMAGE_GENERATION_BASE_URL=https://your-private-image-service.example
 ```
 
 `known_plugin_toolsets` 还需把 `sandbox_group` 标记为 `cli` / `feishu` / `feishu_group` 已知；只有 `platform_toolsets.feishu_group` 显式列出它，避免该插件工具集作为“新插件默认开启”出现在 CLI 或飞书私聊。
@@ -1113,12 +1148,12 @@ skills:
     - ~/.hermes/my-skills
 ```
 
-当前共有 19 个 local skills；以 `hermes skills list` 和 `my-skills/*/*/SKILL.md` 为权威来源：
+当前共有 21 个 local skills；以 `hermes skills list` 和 `my-skills/*/*/SKILL.md` 为权威来源：
 
 | 分类                 | 当前 local skills                                                                                                                                                         |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | autonomous-ai-agents | `custom-skill-governance`, `hermes-agent-meta-ops`                                                                                                                        |
-| creative             | `character-voices`, `vector-graphics`                                                                                                                                     |
+| creative             | `character-voices`, `chart-generation`, `image-generation`, `vector-graphics`                                                                                             |
 | database             | `postgres-manager`                                                                                                                                                        |
 | devops               | `network-diagnostics`, `system-hardware-diagnostics`                                                                                                                      |
 | media                | `video-analysis`                                                                                                                                                          |

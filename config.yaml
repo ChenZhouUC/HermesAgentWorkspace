@@ -409,6 +409,8 @@ skills:
       - llm-wiki
       - feishu-docs
       - excel-processing
+      - image-generation
+      - chart-generation
 curator:
   enabled: true
   interval_hours: 168
@@ -603,10 +605,13 @@ platform_toolsets:
 known_plugin_toolsets:
   cli:
     - sandbox_group
+    - image_gen
   feishu:
     - sandbox_group
+    - image_gen
   feishu_group:
     - sandbox_group
+    - image_gen
 platform_toolset_options:
   feishu_group:
     recover_platform_tools: false

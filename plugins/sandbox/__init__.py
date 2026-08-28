@@ -6,6 +6,8 @@ Feishu DMs get a small safe allowlist. Feishu groups additionally get:
 * read-only wiki and skill access;
 * a per-group data workspace under ``~/.hermes/tmp/group-workspaces``;
 * exact, structured entry points to pre-installed Feishu document scripts.
+* a narrow image-generation entry point executed inside that workspace's
+  process sandbox.
 
 Groups never receive the generic terminal or write-file tools. Trusted script
 execution uses argv (never a shell) and, on macOS, ``sandbox-exec`` restricts
@@ -13,13 +15,11 @@ the whole process tree to writes inside that group's workspace.
 
 The owner DM and trusted group testers also have a narrow HyperTeX bridge: MCP
 calls are pinned to the ``hermes`` Contributor and, for a new case, the
-``freestyle`` case type. The RuntimeAgent is deliberately *not* pinned — a
-model-supplied ``agent`` is stripped so HyperTeX applies its own policy: a create
-draws from the owner account's Agentic weights, and an iterate keeps the Agent
-the case was produced with. Pinning one here would bypass the weights and silently
-switch an iterating case's Agent. Files attached to the current Feishu turn are copied
-into a private stable staging directory and injected into create/iterate calls
-without exposing cache paths to the model.
+``freestyle`` case type. Execution routing is server-owned and non-observable;
+the sandbox discards model-supplied routing hints instead of forwarding or
+describing them. Files attached to the current Feishu turn are copied into a
+private stable staging directory and injected into create/iterate calls without
+exposing cache paths to the model.
 """
 
 from __future__ import annotations
@@ -72,6 +72,12 @@ _current_hypertex_staged_paths: contextvars.ContextVar[Tuple[str, ...]] = contex
 _current_hypertex_call_count: contextvars.ContextVar[int] = contextvars.ContextVar(
     "sandbox_current_hypertex_call_count", default=0
 )
+_current_image_generation_call_count: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "sandbox_current_image_generation_call_count", default=0
+)
+_current_chart_generation_call_count: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "sandbox_current_chart_generation_call_count", default=0
+)
 
 
 _CONFIG_LOADED = False
@@ -81,10 +87,17 @@ _GROUP_ALLOWED_TOOLS: FrozenSet[str] = frozenset()
 _GROUP_MUTATION_USER_IDS: FrozenSet[str] = frozenset()
 _GROUP_HYPERTEX_CHAT_IDS: FrozenSet[str] = frozenset()
 _GROUP_HYPERTEX_USER_IDS: FrozenSet[str] = frozenset()
+_GROUP_IMAGE_CHAT_IDS: FrozenSet[str] = frozenset()
+_GROUP_CHART_CHAT_IDS: FrozenSet[str] = frozenset()
 _GROUP_ALLOWED_READ_ROOTS: Tuple[Path, ...] = tuple()
 _GROUP_WORKSPACE_ROOT: Optional[Path] = None
+_PRIVATE_IMAGE_WORKSPACE_ROOT: Optional[Path] = None
+_PRIVATE_CHART_WORKSPACE_ROOT: Optional[Path] = None
 _GROUP_ALLOWED_SCRIPT_ACTIONS: FrozenSet[str] = frozenset()
 _FEISHU_DOC_SCRIPTS_ROOT: Optional[Path] = None
+_GROUP_IMAGE_SCRIPT: Optional[Path] = None
+_GROUP_CHART_SCRIPT: Optional[Path] = None
+_CHART_PYTHON_EXECUTABLE: Optional[Path] = None
 _PYTHON_EXECUTABLE: Optional[Path] = None
 _HYPERTEX_ASSET_STAGING_ROOT: Optional[Path] = None
 _SCRIPT_TIMEOUT_SECONDS = 300
@@ -92,6 +105,12 @@ _GROUP_MAX_DOWNLOAD_BYTES = 50_000_000
 _HYPERTEX_MAX_ASSET_BYTES = 50_000_000
 _HYPERTEX_MAX_ASSETS_PER_TURN = 6
 _HYPERTEX_ASSET_STAGING_TTL_SECONDS = 86_400
+_GROUP_IMAGE_TIMEOUT_SECONDS = 900
+_GROUP_IMAGE_MAX_INPUT_BYTES = 25_000_000
+_GROUP_IMAGE_MAX_OUTPUT_BYTES = 10_000_000
+_GROUP_IMAGE_MAX_INPUTS = 4
+_GROUP_CHART_TIMEOUT_SECONDS = 60
+_GROUP_CHART_MAX_OUTPUT_BYTES = 10_000_000
 _REQUIRE_PROCESS_SANDBOX = True
 
 _BLOCK_MESSAGE = "This tool is not available in this chat."
@@ -106,31 +125,32 @@ _READ_PATH_TOOLS: FrozenSet[str] = frozenset({"read_file", "search_files"})
 _GROUP_CHAT_TYPES: FrozenSet[str] = frozenset({"group", "channel", "forum", "thread"})
 _WORKSPACE_TOOL = "group_cache"
 _SCRIPT_TOOL = "feishu_doc_manage"
-_HYPERTEX_CASE_TYPES_TOOL = "mcp__hypertex__hypertex_list_case_types"
-_HYPERTEX_LIST_TOOL = "mcp__hypertex__hypertex_list_cases"
+_IMAGE_TOOL = "group_image_generate"
+_PRIVATE_IMAGE_TOOL = "secure_image_generate"
+_CHART_TOOL = "group_chart_generate"
+_PRIVATE_CHART_TOOL = "secure_chart_generate"
 _HYPERTEX_CREATE_TOOL = "mcp__hypertex__hypertex_create_case"
 _HYPERTEX_ITERATE_TOOL = "mcp__hypertex__hypertex_iterate_case"
 _HYPERTEX_TASK_TOOL = "mcp__hypertex__tasks_get"
-_HYPERTEX_CANCEL_TOOL = "mcp__hypertex__tasks_cancel"
-_HYPERTEX_UPDATE_TOOL = "mcp__hypertex__tasks_update"
-_HYPERTEX_CASE_TOOL = "mcp__hypertex__hypertex_get_case"
 _HYPERTEX_TOOLS = frozenset(
     {
-        _HYPERTEX_CASE_TYPES_TOOL,
-        _HYPERTEX_LIST_TOOL,
         _HYPERTEX_CREATE_TOOL,
         _HYPERTEX_ITERATE_TOOL,
         _HYPERTEX_TASK_TOOL,
-        _HYPERTEX_CANCEL_TOOL,
-        _HYPERTEX_UPDATE_TOOL,
-        _HYPERTEX_CASE_TOOL,
     }
+)
+_HYPERTEX_PRIVATE_ROUTING_KEYS = frozenset(
+    {"agent", "agent_key", "agent_name", "executor", "execution_backend", "model", "provider", "routing"}
 )
 _HYPERTEX_USERNAME = "hermes"
 _HYPERTEX_CASE_TYPE = "freestyle"
 _HYPERTEX_ONE_CALL_MESSAGE = "本轮已经调用过 HyperTeX。请直接根据已有结果回复用户；状态查询或重试请等待用户下一条消息。"
 _HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE = "HyperTeX 目前未在本群启用。"
 _HYPERTEX_GROUP_BLOCK_MESSAGE = "HyperTeX 群聊内测目前仅对受信任的维护者开放。"
+_GROUP_IMAGE_CHAT_BLOCK_MESSAGE = "图片生成目前未在本群启用。"
+_GROUP_IMAGE_ONE_CALL_MESSAGE = "本轮已经生成过图片。若需调整，请在下一条消息中继续。"
+_GROUP_CHART_CHAT_BLOCK_MESSAGE = "图表生成目前未在本群启用。"
+_GROUP_CHART_ONE_CALL_MESSAGE = "本轮已经生成过图表。若需调整，请在下一条消息中继续。"
 _MAX_FILE_CONTENT_BYTES = 1_000_000
 _MAX_TOOL_OUTPUT_CHARS = 100_000
 _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
@@ -148,7 +168,7 @@ _EPHEMERAL_READ_PATHS_LOCK = threading.Lock()
 _BEARER_OUTPUT_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _SECRET_OUTPUT_RE = re.compile(
     r"""(?ix)
-    (\b(?:FEISHU_APP_ID|FEISHU_APP_SECRET|tenant_access_token)\b
+    (\b(?:FEISHU_APP_ID|FEISHU_APP_SECRET|HERMES_IMAGE_GENERATION_API_KEY|tenant_access_token)\b
     ["']?\s*[:=]\s*["']?)
     [^\s,"']+
     """
@@ -214,6 +234,116 @@ FEISHU_DOC_MANAGE_SCHEMA = {
         },
         "required": ["action"],
     },
+}
+
+
+GROUP_IMAGE_GENERATE_SCHEMA = {
+    "name": _IMAGE_TOOL,
+    "description": (
+        "Generate or edit one raster image through the operator-configured image service. "
+        "Runs in this Feishu group's process sandbox, stores output in the group's isolated workspace, "
+        "and can use only images attached to the current message or explicit reply."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "description": "Detailed visual generation or editing instruction.",
+            },
+            "resolution": {
+                "type": "string",
+                "description": "Optional requested resolution such as 1K, 2K, or 4K.",
+            },
+            "aspect_ratio": {
+                "type": "string",
+                "description": "Optional requested aspect ratio such as 1:1, 16:9, or 9:16.",
+            },
+            "use_attached_images": {
+                "type": "boolean",
+                "default": True,
+                "description": (
+                    "Use image attachments from the current message or explicit reply as edit/reference inputs."
+                ),
+            },
+        },
+        "required": ["prompt"],
+    },
+}
+
+PRIVATE_IMAGE_GENERATE_SCHEMA = {
+    **GROUP_IMAGE_GENERATE_SCHEMA,
+    "name": _PRIVATE_IMAGE_TOOL,
+    "description": (
+        "Generate or edit one raster image through the operator-configured image service. "
+        "Runs in a dedicated process sandbox and returns a media directive for delivery."
+    ),
+}
+
+
+GROUP_CHART_GENERATE_SCHEMA = {
+    "name": _CHART_TOOL,
+    "description": (
+        "Render a deterministic PNG chart from numeric values already present in the conversation. "
+        "Runs without network access inside this Feishu group's isolated workspace."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "title": {"type": "string", "description": "Concise chart title."},
+            "subtitle": {"type": "string", "description": "Optional scope, date range, or unit note."},
+            "chart_type": {
+                "type": "string",
+                "enum": ["auto", "line", "bar", "stacked_bar", "horizontal_bar", "pie", "area", "scatter"],
+                "default": "auto",
+            },
+            "labels": {
+                "type": "array",
+                "maxItems": 240,
+                "items": {"type": ["string", "number"]},
+                "description": "Ordered category or time labels.",
+            },
+            "series": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "name": {"type": "string"},
+                        "values": {
+                            "type": "array",
+                            "maxItems": 240,
+                            "items": {"type": ["number", "string", "null"]},
+                        },
+                    },
+                    "required": ["name", "values"],
+                },
+                "description": "Numeric series aligned one-to-one with labels.",
+            },
+            "x_values": {
+                "type": "array",
+                "maxItems": 240,
+                "items": {"type": ["number", "string"]},
+                "description": "Optional numeric X coordinates for scatter charts, aligned with labels.",
+            },
+            "x_label": {"type": "string"},
+            "y_label": {"type": "string"},
+            "show_values": {"type": "boolean", "default": False},
+        },
+        "required": ["title", "labels", "series"],
+    },
+}
+
+PRIVATE_CHART_GENERATE_SCHEMA = {
+    **GROUP_CHART_GENERATE_SCHEMA,
+    "name": _PRIVATE_CHART_TOOL,
+    "description": (
+        "Render a deterministic PNG chart from numeric values already present in the conversation. "
+        "Runs without network access inside a dedicated private workspace."
+    ),
 }
 
 
@@ -439,19 +569,19 @@ def _prepare_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str, Any]
                 "action": "block",
                 "message": "附件未能安全暂存给 HyperTeX，请重新发送附件后再试。",
             }
-        # HyperTeX owns Agent selection. A new case with no Agent uses the
-        # owner's configured weights; an iteration with no Agent keeps the
-        # case's current Agent. Strip model-supplied overrides so both paths
-        # follow the account/case policy instead of one Hermes-selected key.
-        args.pop("agent", None)
+        # Execution routing belongs to HyperTeX and is intentionally absent
+        # from the MCP contract. Drop defensive caller-side hints so old or
+        # hallucinated arguments cannot turn private routing into a public API.
+        for key in list(args):
+            normalized = str(key).strip().lower().replace("-", "_")
+            if "agent" in normalized or normalized in _HYPERTEX_PRIVATE_ROUTING_KEYS:
+                args.pop(key, None)
         if tool_name == _HYPERTEX_CREATE_TOOL:
             args["owner_username"] = _HYPERTEX_USERNAME
             args["type"] = _HYPERTEX_CASE_TYPE
         else:
             args["username"] = _HYPERTEX_USERNAME
         args["asset_paths"] = list(staged_paths)
-    elif tool_name in {_HYPERTEX_LIST_TOOL, _HYPERTEX_CASE_TOOL}:
-        args["username"] = _HYPERTEX_USERNAME
     return None
 
 
@@ -474,6 +604,10 @@ def _require_group_context() -> str:
     if not _CONFIG_LOADED or not _is_group_context():
         raise PermissionError(_GROUP_CONTEXT_MESSAGE)
     return str(_current_chat_id.get())
+
+
+def _group_image_chat_allowed(chat_id: str) -> bool:
+    return "*" in _GROUP_IMAGE_CHAT_IDS or chat_id in _GROUP_IMAGE_CHAT_IDS
 
 
 def _workspace_for_chat(chat_id: str, *, create: bool = True) -> Path:
@@ -688,6 +822,439 @@ def _handle_group_cache(args: Dict[str, Any], **_kwargs: Any) -> str:
         return _json_result(success=True, deleted=_relative_workspace_path(path, workspace))
 
     raise ValueError(f"unsupported action: {action!r}")
+
+
+def _image_extension_from_magic(path: Path) -> Optional[str]:
+    try:
+        with path.open("rb") as handle:
+            prefix = handle.read(12)
+    except OSError:
+        return None
+    if prefix.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if prefix.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _stage_current_image_inputs(workspace: Path) -> tuple[list[str], Optional[Path]]:
+    """Copy only this turn's image attachments into the current group workspace."""
+    sources: list[Path] = []
+    for raw in _current_media_paths.get():
+        if len(sources) >= _GROUP_IMAGE_MAX_INPUTS:
+            break
+        try:
+            source = Path(raw).expanduser()
+            if source.is_symlink():
+                continue
+            source = source.resolve(strict=True)
+            if not source.is_file() or source.stat().st_size > _GROUP_IMAGE_MAX_INPUT_BYTES:
+                continue
+            extension = _image_extension_from_magic(source)
+            if extension is None:
+                continue
+            sources.append(source)
+        except OSError:
+            continue
+
+    if not sources:
+        return [], None
+
+    staging_parent = workspace / ".image-inputs"
+    staging_parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    staging = Path(tempfile.mkdtemp(prefix="turn-", dir=staging_parent)).resolve(strict=True)
+    if not _path_within(staging, workspace):
+        raise RuntimeError("invalid image staging directory")
+
+    relative_paths: list[str] = []
+    for index, source in enumerate(sources, start=1):
+        extension = _image_extension_from_magic(source)
+        if extension is None:
+            continue
+        target = staging / f"input-{index}{extension}"
+        shutil.copyfile(source, target)
+        target.chmod(0o600)
+        relative_paths.append(_relative_workspace_path(target, workspace))
+    return relative_paths, staging
+
+
+def _group_image_secret(name: str, default: str = "") -> str:
+    """Read one profile-scoped secret without falling across multiplex profiles."""
+    try:
+        from agent.secret_scope import get_secret
+    except ImportError:
+        value = os.environ.get(name, default)
+    else:
+        try:
+            value = get_secret(name, default)
+        except Exception:
+            value = default
+    return str(value or "").strip()
+
+
+def _group_image_subprocess_env(workspace: Path) -> tuple[Dict[str, str], str]:
+    api_key = _group_image_secret("HERMES_IMAGE_GENERATION_API_KEY")
+    base_url = _group_image_secret("HERMES_IMAGE_GENERATION_BASE_URL")
+    if not api_key or not base_url:
+        raise RuntimeError("图片生成凭据尚未完整配置，请联系管理员。")
+    env: Dict[str, str] = {
+        "IMAGE_GENERATION_API_KEY": api_key,
+        "IMAGE_GENERATION_API_BASE_URL": base_url,
+        "HERMES_GROUP_WORKSPACE": str(workspace),
+        "HERMES_GROUP_IMAGE_JOB_TIMEOUT": str(_GROUP_IMAGE_TIMEOUT_SECONDS),
+        "HERMES_GROUP_IMAGE_MAX_INPUT_BYTES": str(_GROUP_IMAGE_MAX_INPUT_BYTES),
+        "HERMES_GROUP_IMAGE_MAX_OUTPUT_BYTES": str(_GROUP_IMAGE_MAX_OUTPUT_BYTES),
+        "HERMES_GROUP_IMAGE_MAX_INPUTS": str(_GROUP_IMAGE_MAX_INPUTS),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TMPDIR": str(workspace),
+    }
+    for name in (
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "TZ",
+        "SSL_CERT_FILE",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+    ):
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    return env, api_key
+
+
+def _run_group_image_script(payload: Dict[str, Any], workspace: Path) -> subprocess.CompletedProcess[str]:
+    if _PYTHON_EXECUTABLE is None or not _PYTHON_EXECUTABLE.is_file():
+        raise RuntimeError("configured Python interpreter is missing")
+    if _GROUP_IMAGE_SCRIPT is None or not _GROUP_IMAGE_SCRIPT.is_file():
+        raise RuntimeError("configured group image generation script is missing")
+    command = [str(_PYTHON_EXECUTABLE), str(_GROUP_IMAGE_SCRIPT)]
+    if _REQUIRE_PROCESS_SANDBOX:
+        sandbox_exec = Path("/usr/bin/sandbox-exec")
+        if not sandbox_exec.is_file():
+            raise RuntimeError("required process sandbox is unavailable; refusing image generation")
+        command = [str(sandbox_exec), "-p", _seatbelt_profile(workspace), *command]
+
+    env, _api_key = _group_image_subprocess_env(workspace)
+    return subprocess.run(
+        command,
+        cwd=str(workspace),
+        env=env,
+        input=json.dumps(payload, ensure_ascii=False),
+        text=True,
+        capture_output=True,
+        timeout=_GROUP_IMAGE_TIMEOUT_SECONDS + 30,
+        check=False,
+    )
+
+
+def _private_image_workspace() -> Path:
+    if _PRIVATE_IMAGE_WORKSPACE_ROOT is None:
+        raise RuntimeError("private image workspace root is not configured")
+    root = _PRIVATE_IMAGE_WORKSPACE_ROOT.resolve(strict=False)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    platform = str(_current_platform.get() or "main")
+    chat_id = str(_current_chat_id.get() or "local")
+    digest = hashlib.sha256(f"{platform}:{chat_id}".encode("utf-8")).hexdigest()[:24]
+    workspace = (root / digest).resolve(strict=False)
+    if not _path_within(workspace, root):
+        raise RuntimeError("invalid private image workspace")
+    workspace.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return workspace
+
+
+def _execute_image_generation(args: Dict[str, Any], workspace: Path, *, scope_label: str) -> str:
+    if not isinstance(args, dict):
+        raise ValueError("image generation arguments must be an object")
+
+    prompt = str(args.get("prompt") or "").strip()
+    if not prompt:
+        raise ValueError("prompt is required")
+    if len(prompt) > 4000:
+        raise ValueError("prompt exceeds 4000 characters")
+
+    payload: Dict[str, Any] = {"prompt": prompt}
+    for name, limit in (("resolution", 32), ("aspect_ratio", 32)):
+        value = args.get(name)
+        if value is None:
+            continue
+        value = str(value).strip()
+        if not value or len(value) > limit or any(char in value for char in "\r\n\x00"):
+            raise ValueError(f"invalid {name}")
+        payload[name] = value
+
+    staged_paths: list[str] = []
+    staging_dir: Optional[Path] = None
+    if args.get("use_attached_images", True) is not False:
+        staged_paths, staging_dir = _stage_current_image_inputs(workspace)
+    if staged_paths:
+        payload["image_paths"] = staged_paths
+
+    actor = str(_current_user_id.get() or "unknown")
+    logger.info(
+        "sandbox: image generation start scope=%s actor=%s inputs=%s",
+        scope_label,
+        actor,
+        len(staged_paths),
+    )
+    try:
+        try:
+            result = _run_group_image_script(payload, workspace)
+        except Exception as exc:
+            logger.warning(
+                "sandbox: image generation process failed scope=%s actor=%s detail=%s",
+                scope_label,
+                actor,
+                _redact_tool_output(str(exc))[:2000],
+            )
+            return _json_result(
+                success=False,
+                error="图片生成服务暂时不可用，请稍后重试或联系管理员。",
+            )
+    finally:
+        if staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+    stdout = _redact_tool_output(result.stdout[-_MAX_TOOL_OUTPUT_CHARS:])
+    stderr = _redact_tool_output(result.stderr[-_MAX_TOOL_OUTPUT_CHARS:])
+    api_key = _group_image_secret("HERMES_IMAGE_GENERATION_API_KEY")
+    if api_key:
+        stdout = stdout.replace(api_key, "[REDACTED]")
+        stderr = stderr.replace(api_key, "[REDACTED]")
+    try:
+        response = json.loads(stdout)
+    except json.JSONDecodeError:
+        response = {
+            "success": False,
+            "error": "image generator returned invalid JSON",
+        }
+    if not isinstance(response, dict):
+        response = {"success": False, "error": "image generator returned an invalid result"}
+    if result.returncode != 0 or not response.get("success"):
+        logger.warning(
+            "sandbox: image generation failed scope=%s actor=%s returncode=%s detail=%s",
+            scope_label,
+            actor,
+            result.returncode,
+            str(response.get("error") or stderr or "unknown")[:2000],
+        )
+        return _json_result(
+            success=False,
+            error="图片生成服务暂时不可用，请稍后重试或联系管理员。",
+        )
+
+    output = _workspace_path(workspace, response.get("image"))
+    if output.is_symlink() or not output.is_file():
+        raise RuntimeError("image generator did not create a regular workspace file")
+    if output.stat().st_size > _GROUP_IMAGE_MAX_OUTPUT_BYTES:
+        raise RuntimeError("generated image exceeds the configured output limit")
+    if _image_extension_from_magic(output) is None:
+        raise RuntimeError("generated output is not a supported raster image")
+
+    logger.info(
+        "sandbox: image generation end scope=%s actor=%s backend_model=%s size=%s",
+        scope_label,
+        actor,
+        response.get("model"),
+        output.stat().st_size,
+    )
+    return _json_result(
+        success=True,
+        size_bytes=output.stat().st_size,
+        workspace_path=_relative_workspace_path(output, workspace),
+        media_directive=f"MEDIA:{output}",
+        instruction="Include media_directive verbatim on its own line in the final response.",
+    )
+
+
+def _handle_group_image_generate(args: Dict[str, Any], **_kwargs: Any) -> str:
+    chat_id = _require_group_context()
+    if not _group_image_chat_allowed(chat_id):
+        raise PermissionError(_GROUP_IMAGE_CHAT_BLOCK_MESSAGE)
+    return _execute_image_generation(
+        args,
+        _workspace_for_chat(chat_id),
+        scope_label=f"feishu-group:{_workspace_id(chat_id)}",
+    )
+
+
+def _handle_private_image_generate(args: Dict[str, Any], **_kwargs: Any) -> str:
+    if _current_platform.get() == "feishu":
+        chat_id = str(_current_chat_id.get() or "")
+        if chat_id not in _OWNER_CHAT_IDS or _current_chat_type.get() in _GROUP_CHAT_TYPES:
+            raise PermissionError(_BLOCK_MESSAGE)
+    return _execute_image_generation(
+        args,
+        _private_image_workspace(),
+        scope_label="private",
+    )
+
+
+def _private_chart_workspace() -> Path:
+    if _PRIVATE_CHART_WORKSPACE_ROOT is None:
+        raise RuntimeError("private chart workspace root is not configured")
+    root = _PRIVATE_CHART_WORKSPACE_ROOT.resolve(strict=False)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    platform = str(_current_platform.get() or "main")
+    chat_id = str(_current_chat_id.get() or "local")
+    digest = hashlib.sha256(f"{platform}:{chat_id}".encode()).hexdigest()[:24]
+    workspace = (root / digest).resolve(strict=False)
+    if not _path_within(workspace, root):
+        raise RuntimeError("invalid private chart workspace")
+    workspace.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return workspace
+
+
+def _chart_seatbelt_profile(workspace: Path) -> str:
+    quoted = _seatbelt_quote(workspace)
+    return (
+        "(version 1)\n"
+        "(allow default)\n"
+        "(deny network*)\n"
+        f'(deny file-write* (require-not (subpath "{quoted}")))\n'
+        f'(deny process-exec (subpath "{quoted}"))\n'
+    )
+
+
+def _run_chart_script(payload: Dict[str, Any], workspace: Path) -> subprocess.CompletedProcess[str]:
+    if _CHART_PYTHON_EXECUTABLE is None or not _CHART_PYTHON_EXECUTABLE.is_file():
+        raise RuntimeError("configured chart Python interpreter is missing")
+    if _GROUP_CHART_SCRIPT is None or not _GROUP_CHART_SCRIPT.is_file():
+        raise RuntimeError("configured chart generation script is missing")
+    command = [str(_CHART_PYTHON_EXECUTABLE), str(_GROUP_CHART_SCRIPT)]
+    if _REQUIRE_PROCESS_SANDBOX:
+        sandbox_exec = Path("/usr/bin/sandbox-exec")
+        if not sandbox_exec.is_file():
+            raise RuntimeError("required process sandbox is unavailable; refusing chart generation")
+        command = [str(sandbox_exec), "-p", _chart_seatbelt_profile(workspace), *command]
+    env: Dict[str, str] = {
+        "HERMES_CHART_WORKSPACE": str(workspace),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TMPDIR": str(workspace),
+    }
+    for name in ("PATH", "LANG", "LC_ALL", "TZ"):
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    return subprocess.run(
+        command,
+        cwd=str(workspace),
+        env=env,
+        input=json.dumps(payload, ensure_ascii=False),
+        text=True,
+        capture_output=True,
+        timeout=_GROUP_CHART_TIMEOUT_SECONDS,
+        check=False,
+    )
+
+
+def _execute_chart_generation(args: Dict[str, Any], workspace: Path, *, scope_label: str) -> str:
+    if not isinstance(args, dict):
+        raise ValueError("chart generation arguments must be an object")
+    payload: Dict[str, Any] = {}
+    for key in (
+        "title",
+        "subtitle",
+        "chart_type",
+        "labels",
+        "series",
+        "x_values",
+        "x_label",
+        "y_label",
+        "show_values",
+    ):
+        if key in args and args[key] is not None:
+            payload[key] = args[key]
+    if not str(payload.get("title") or "").strip():
+        raise ValueError("title is required")
+    if not isinstance(payload.get("labels"), list) or not isinstance(payload.get("series"), list):
+        raise ValueError("labels and series are required")
+
+    actor = str(_current_user_id.get() or "unknown")
+    logger.info("sandbox: chart generation start scope=%s actor=%s", scope_label, actor)
+    try:
+        result = _run_chart_script(payload, workspace)
+    except Exception as exc:
+        logger.warning(
+            "sandbox: chart generation process failed scope=%s actor=%s detail=%s",
+            scope_label,
+            actor,
+            _redact_tool_output(str(exc))[:2000],
+        )
+        return _json_result(success=False, error="图表生成暂时不可用，请稍后重试或联系管理员。")
+
+    stdout = _redact_tool_output(result.stdout[-_MAX_TOOL_OUTPUT_CHARS:])
+    stderr = _redact_tool_output(result.stderr[-_MAX_TOOL_OUTPUT_CHARS:])
+    try:
+        response = json.loads(stdout)
+    except json.JSONDecodeError:
+        response = {"success": False, "error": "chart renderer returned invalid JSON"}
+    if not isinstance(response, dict):
+        response = {"success": False, "error": "chart renderer returned an invalid result"}
+    if result.returncode != 0 or not response.get("success"):
+        error = str(response.get("error") or stderr or "图表生成失败。")[:1000]
+        logger.warning(
+            "sandbox: chart generation failed scope=%s actor=%s returncode=%s detail=%s",
+            scope_label,
+            actor,
+            result.returncode,
+            error,
+        )
+        return _json_result(success=False, error=error)
+
+    output = _workspace_path(workspace, response.get("chart"))
+    if output.is_symlink() or not output.is_file():
+        raise RuntimeError("chart renderer did not create a regular workspace file")
+    if output.stat().st_size > _GROUP_CHART_MAX_OUTPUT_BYTES:
+        raise RuntimeError("generated chart exceeds the configured output limit")
+    if _image_extension_from_magic(output) != ".png":
+        raise RuntimeError("generated chart is not a PNG image")
+    logger.info(
+        "sandbox: chart generation end scope=%s actor=%s type=%s size=%s",
+        scope_label,
+        actor,
+        response.get("chart_type"),
+        output.stat().st_size,
+    )
+    return _json_result(
+        success=True,
+        chart_type=response.get("chart_type"),
+        labels=response.get("labels"),
+        series=response.get("series"),
+        size_bytes=output.stat().st_size,
+        workspace_path=_relative_workspace_path(output, workspace),
+        media_directive=f"MEDIA:{output}",
+        instruction="Include media_directive verbatim on its own line in the final response.",
+    )
+
+
+def _group_chart_chat_allowed(chat_id: str) -> bool:
+    return "*" in _GROUP_CHART_CHAT_IDS or chat_id in _GROUP_CHART_CHAT_IDS
+
+
+def _handle_group_chart_generate(args: Dict[str, Any], **_kwargs: Any) -> str:
+    chat_id = _require_group_context()
+    if not _group_chart_chat_allowed(chat_id):
+        raise PermissionError(_GROUP_CHART_CHAT_BLOCK_MESSAGE)
+    return _execute_chart_generation(
+        args,
+        _workspace_for_chat(chat_id),
+        scope_label=f"feishu-group:{_workspace_id(chat_id)}",
+    )
+
+
+def _handle_private_chart_generate(args: Dict[str, Any], **_kwargs: Any) -> str:
+    if _current_platform.get() == "feishu":
+        chat_id = str(_current_chat_id.get() or "")
+        if chat_id not in _OWNER_CHAT_IDS or _current_chat_type.get() in _GROUP_CHAT_TYPES:
+            raise PermissionError(_BLOCK_MESSAGE)
+    return _execute_chart_generation(args, _private_chart_workspace(), scope_label="private")
 
 
 def _doc_token(value: Any) -> str:
@@ -940,14 +1507,47 @@ def _group_tools_available() -> bool:
     )
 
 
+def _group_image_available() -> bool:
+    return bool(
+        _CONFIG_LOADED
+        and _GROUP_WORKSPACE_ROOT
+        and _PRIVATE_IMAGE_WORKSPACE_ROOT
+        and _GROUP_IMAGE_SCRIPT
+        and _GROUP_IMAGE_SCRIPT.is_file()
+        and _PYTHON_EXECUTABLE
+        and _PYTHON_EXECUTABLE.is_file()
+        and (not _REQUIRE_PROCESS_SANDBOX or Path("/usr/bin/sandbox-exec").is_file())
+    )
+
+
+def _chart_tools_available() -> bool:
+    return bool(
+        _CONFIG_LOADED
+        and _GROUP_WORKSPACE_ROOT
+        and _PRIVATE_CHART_WORKSPACE_ROOT
+        and _GROUP_CHART_SCRIPT
+        and _GROUP_CHART_SCRIPT.is_file()
+        and _CHART_PYTHON_EXECUTABLE
+        and _CHART_PYTHON_EXECUTABLE.is_file()
+        and (not _REQUIRE_PROCESS_SANDBOX or Path("/usr/bin/sandbox-exec").is_file())
+    )
+
+
 def _load_config() -> bool:
     global _CONFIG_LOADED, _OWNER_CHAT_IDS, _ALLOWED_TOOLS, _GROUP_ALLOWED_TOOLS
     global _GROUP_MUTATION_USER_IDS, _GROUP_HYPERTEX_CHAT_IDS, _GROUP_HYPERTEX_USER_IDS
-    global _GROUP_ALLOWED_READ_ROOTS, _GROUP_WORKSPACE_ROOT, _GROUP_ALLOWED_SCRIPT_ACTIONS
+    global _GROUP_IMAGE_CHAT_IDS, _GROUP_IMAGE_SCRIPT
+    global _GROUP_CHART_CHAT_IDS, _GROUP_CHART_SCRIPT, _CHART_PYTHON_EXECUTABLE
+    global _GROUP_ALLOWED_READ_ROOTS, _GROUP_WORKSPACE_ROOT, _PRIVATE_IMAGE_WORKSPACE_ROOT
+    global _PRIVATE_CHART_WORKSPACE_ROOT
+    global _GROUP_ALLOWED_SCRIPT_ACTIONS
     global _FEISHU_DOC_SCRIPTS_ROOT, _PYTHON_EXECUTABLE, _SCRIPT_TIMEOUT_SECONDS
     global _GROUP_MAX_DOWNLOAD_BYTES, _HYPERTEX_ASSET_STAGING_ROOT
     global _HYPERTEX_MAX_ASSET_BYTES, _HYPERTEX_MAX_ASSETS_PER_TURN
     global _HYPERTEX_ASSET_STAGING_TTL_SECONDS
+    global _GROUP_IMAGE_TIMEOUT_SECONDS, _GROUP_IMAGE_MAX_INPUT_BYTES
+    global _GROUP_IMAGE_MAX_OUTPUT_BYTES, _GROUP_IMAGE_MAX_INPUTS
+    global _GROUP_CHART_TIMEOUT_SECONDS, _GROUP_CHART_MAX_OUTPUT_BYTES
     global _REQUIRE_PROCESS_SANDBOX, _BLOCK_MESSAGE, _READ_ROOT_BLOCK_MESSAGE
     global _RESOURCE_BLOCK_MESSAGE, _MUTATION_TRUST_BLOCK_MESSAGE
     global _MUTATION_REFERENCE_BLOCK_MESSAGE
@@ -974,15 +1574,26 @@ def _load_config() -> bool:
         return False
 
     workspace_value = data.get("group_workspace_root")
+    private_image_workspace_value = data.get("private_image_workspace_root")
+    private_chart_workspace_value = data.get("private_chart_workspace_root")
     scripts_value = data.get("feishu_doc_scripts_root")
     python_value = data.get("python_executable")
+    chart_python_value = data.get("chart_python_executable")
     hypertex_staging_value = data.get("hypertex_asset_staging_root")
     if not all(
         isinstance(value, str) and value.strip()
-        for value in (workspace_value, scripts_value, python_value, hypertex_staging_value)
+        for value in (
+            workspace_value,
+            private_image_workspace_value,
+            private_chart_workspace_value,
+            scripts_value,
+            python_value,
+            chart_python_value,
+            hypertex_staging_value,
+        )
     ):
         logger.error(
-            "sandbox: workspace, scripts root, Python executable, and HyperTeX staging root must be configured"
+            "sandbox: workspace roots, scripts root, Python executable, and HyperTeX staging root must be configured"
         )
         return False
 
@@ -997,11 +1608,26 @@ def _load_config() -> bool:
     _GROUP_MUTATION_USER_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_user_ids_for_group_mutations")))
     _GROUP_HYPERTEX_CHAT_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_chat_ids_for_group_hypertex")))
     _GROUP_HYPERTEX_USER_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_user_ids_for_group_hypertex")))
+    _GROUP_IMAGE_CHAT_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_chat_ids_for_group_image_generation")))
+    _GROUP_CHART_CHAT_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_chat_ids_for_group_chart_generation")))
     _GROUP_ALLOWED_READ_ROOTS = _coerce_paths(data.get("allowed_read_roots_for_outsider_groups"))
     _GROUP_WORKSPACE_ROOT = _expand_path(workspace_value)
+    _PRIVATE_IMAGE_WORKSPACE_ROOT = _expand_path(private_image_workspace_value)
+    _PRIVATE_CHART_WORKSPACE_ROOT = _expand_path(private_chart_workspace_value)
     _GROUP_ALLOWED_SCRIPT_ACTIONS = actions
     _FEISHU_DOC_SCRIPTS_ROOT = _expand_path(scripts_value)
+    image_script_value = data.get("group_image_generation_script")
+    _GROUP_IMAGE_SCRIPT = (
+        _expand_path(image_script_value) if isinstance(image_script_value, str) and image_script_value.strip() else None
+    )
+    chart_script_value = data.get("chart_generation_script")
+    _GROUP_CHART_SCRIPT = (
+        _expand_path(chart_script_value) if isinstance(chart_script_value, str) and chart_script_value.strip() else None
+    )
     _PYTHON_EXECUTABLE = _expand_path(python_value)
+    # Preserve the venv entrypoint path. Path.resolve() follows ``bin/python``
+    # to the base interpreter and loses the venv's site-packages.
+    _CHART_PYTHON_EXECUTABLE = Path(os.path.abspath(os.path.expanduser(str(chart_python_value))))
     _HYPERTEX_ASSET_STAGING_ROOT = _expand_path(hypertex_staging_value)
     _REQUIRE_PROCESS_SANDBOX = bool(data.get("require_process_sandbox", True))
     try:
@@ -1022,6 +1648,30 @@ def _load_config() -> bool:
             3_600,
             min(604_800, int(data.get("hypertex_asset_staging_ttl_seconds", 86_400))),
         )
+        _GROUP_IMAGE_TIMEOUT_SECONDS = max(
+            30,
+            min(1_200, int(data.get("group_image_generation_timeout_seconds", 900))),
+        )
+        _GROUP_IMAGE_MAX_INPUT_BYTES = max(
+            1_000_000,
+            min(100_000_000, int(data.get("group_image_max_input_bytes", 25_000_000))),
+        )
+        _GROUP_IMAGE_MAX_OUTPUT_BYTES = max(
+            1_000_000,
+            min(20_000_000, int(data.get("group_image_max_output_bytes", 10_000_000))),
+        )
+        _GROUP_IMAGE_MAX_INPUTS = max(
+            1,
+            min(8, int(data.get("group_image_max_inputs", 4))),
+        )
+        _GROUP_CHART_TIMEOUT_SECONDS = max(
+            5,
+            min(300, int(data.get("chart_generation_timeout_seconds", 60))),
+        )
+        _GROUP_CHART_MAX_OUTPUT_BYTES = max(
+            1_000_000,
+            min(20_000_000, int(data.get("chart_max_output_bytes", 10_000_000))),
+        )
     except (TypeError, ValueError):
         logger.error("sandbox: script, download, and HyperTeX staging limits must be integers")
         return False
@@ -1036,6 +1686,15 @@ def _load_config() -> bool:
         if not (_FEISHU_DOC_SCRIPTS_ROOT / _FEISHU_SCRIPT_FILES[action]).is_file():
             logger.error("sandbox: configured script action %s is missing its script", action)
             return False
+    if _GROUP_IMAGE_CHAT_IDS and (_GROUP_IMAGE_SCRIPT is None or not _GROUP_IMAGE_SCRIPT.is_file()):
+        logger.error("sandbox: group image generation is enabled but its fixed script is missing")
+    if _GROUP_CHART_CHAT_IDS and (
+        _GROUP_CHART_SCRIPT is None
+        or not _GROUP_CHART_SCRIPT.is_file()
+        or _CHART_PYTHON_EXECUTABLE is None
+        or not _CHART_PYTHON_EXECUTABLE.is_file()
+    ):
+        logger.error("sandbox: group chart generation is enabled but its renderer is missing")
 
     message = data.get("block_message")
     read_message = data.get("read_root_block_message")
@@ -1073,6 +1732,8 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
         _current_media_paths.set(tuple())
         _current_hypertex_staged_paths.set(tuple())
         _current_hypertex_call_count.set(0)
+        _current_image_generation_call_count.set(0)
+        _current_chart_generation_call_count.set(0)
         return None
     source = event.source
     _clear_ephemeral_read_paths(getattr(source, "chat_id", None))
@@ -1088,6 +1749,8 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
     )
     _current_hypertex_staged_paths.set(tuple())
     _current_hypertex_call_count.set(0)
+    _current_image_generation_call_count.set(0)
+    _current_chart_generation_call_count.set(0)
     return None
 
 
@@ -1135,6 +1798,20 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
                 )
                 return {"action": "block", "message": _HYPERTEX_GROUP_BLOCK_MESSAGE}
             return _prepare_hypertex_call(tool_name, args)
+        if tool_name == _IMAGE_TOOL:
+            if not _group_image_chat_allowed(chat_id):
+                return {"action": "block", "message": _GROUP_IMAGE_CHAT_BLOCK_MESSAGE}
+            if _current_image_generation_call_count.get() >= 1:
+                return {"action": "block", "message": _GROUP_IMAGE_ONE_CALL_MESSAGE}
+            _current_image_generation_call_count.set(1)
+            return None
+        if tool_name == _CHART_TOOL:
+            if not _group_chart_chat_allowed(chat_id):
+                return {"action": "block", "message": _GROUP_CHART_CHAT_BLOCK_MESSAGE}
+            if _current_chart_generation_call_count.get() >= 1:
+                return {"action": "block", "message": _GROUP_CHART_ONE_CALL_MESSAGE}
+            _current_chart_generation_call_count.set(1)
+            return None
         if tool_name in _READ_PATH_TOOLS:
             if (
                 tool_name == "search_files"
@@ -1182,13 +1859,46 @@ def register(ctx: Any) -> None:
         check_fn=_group_tools_available,
         description="Run exact operator-approved Feishu document scripts under a process sandbox.",
     )
+    ctx.register_tool(
+        name=_IMAGE_TOOL,
+        toolset="sandbox_group",
+        schema=GROUP_IMAGE_GENERATE_SCHEMA,
+        handler=_handle_group_image_generate,
+        check_fn=_group_image_available,
+        description="Generate or edit an image inside an allowlisted Feishu group sandbox.",
+    )
+    ctx.register_tool(
+        name=_PRIVATE_IMAGE_TOOL,
+        toolset="image_gen",
+        schema=PRIVATE_IMAGE_GENERATE_SCHEMA,
+        handler=_handle_private_image_generate,
+        check_fn=_group_image_available,
+        description="Generate or edit an image inside a dedicated private workspace sandbox.",
+    )
+    ctx.register_tool(
+        name=_CHART_TOOL,
+        toolset="sandbox_group",
+        schema=GROUP_CHART_GENERATE_SCHEMA,
+        handler=_handle_group_chart_generate,
+        check_fn=_chart_tools_available,
+        description="Render a chart inside an allowlisted Feishu group sandbox.",
+    )
+    ctx.register_tool(
+        name=_PRIVATE_CHART_TOOL,
+        toolset="image_gen",
+        schema=PRIVATE_CHART_GENERATE_SCHEMA,
+        handler=_handle_private_chart_generate,
+        check_fn=_chart_tools_available,
+        description="Render a chart inside a dedicated private workspace sandbox.",
+    )
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     logger.info(
         "sandbox: registered (pid=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
         "workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, hypertex_chats=%s, "
-        "hypertex_users=%s, hypertex_agent_policy=%s, process_sandbox=%s)",
+        "hypertex_users=%s, hypertex_routing_policy=%s, image_chats=%s, image_script=%s, "
+        "chart_chats=%s, chart_script=%s, process_sandbox=%s)",
         os.getpid(),
         loaded,
         sorted(_OWNER_CHAT_IDS),
@@ -1200,6 +1910,10 @@ def register(ctx: Any) -> None:
         _TRUST_REQUIRED_SCRIPT_ACTIONS == frozenset({"delete"}),
         sorted(_GROUP_HYPERTEX_CHAT_IDS),
         sorted(_GROUP_HYPERTEX_USER_IDS),
-        "weighted-create/sticky-iterate",
+        "server-owned/non-observable",
+        sorted(_GROUP_IMAGE_CHAT_IDS),
+        _GROUP_IMAGE_SCRIPT,
+        sorted(_GROUP_CHART_CHAT_IDS),
+        _GROUP_CHART_SCRIPT,
         _REQUIRE_PROCESS_SANDBOX,
     )

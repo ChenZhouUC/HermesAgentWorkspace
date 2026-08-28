@@ -8,7 +8,14 @@ from types import SimpleNamespace
 
 import pytest
 
-import plugins.sandbox as sandbox
+_SANDBOX_SPEC = importlib.util.spec_from_file_location(
+    "hermes_user_sandbox_plugin",
+    Path(__file__).with_name("__init__.py"),
+)
+assert _SANDBOX_SPEC is not None and _SANDBOX_SPEC.loader is not None
+sandbox = importlib.util.module_from_spec(_SANDBOX_SPEC)
+sys.modules[_SANDBOX_SPEC.name] = sandbox
+_SANDBOX_SPEC.loader.exec_module(sandbox)
 
 
 @pytest.fixture
@@ -16,7 +23,15 @@ def group_config(tmp_path, monkeypatch):
     workspace_root = (tmp_path / "tmp" / "group-workspaces").resolve()
     hypertex_staging_root = (tmp_path / "tmp" / "hypertex-assets").resolve()
     scripts_root = (tmp_path / "my-skills" / "feishu-docs" / "scripts").resolve()
+    image_script = (tmp_path / "my-skills" / "image-generation" / "scripts" / "generate_image.py").resolve()
+    chart_script = (tmp_path / "my-skills" / "chart-generation" / "scripts" / "render_chart.py").resolve()
+    private_image_workspace_root = (tmp_path / "tmp" / "image-generation").resolve()
+    private_chart_workspace_root = (tmp_path / "tmp" / "chart-generation").resolve()
     scripts_root.mkdir(parents=True)
+    image_script.parent.mkdir(parents=True)
+    chart_script.parent.mkdir(parents=True)
+    image_script.write_text("print('{}')\n", encoding="utf-8")
+    chart_script.write_text("print('{}')\n", encoding="utf-8")
     for filename in sandbox._FEISHU_SCRIPT_FILES.values():
         (scripts_root / filename).write_text("print('ok')\n", encoding="utf-8")
 
@@ -44,14 +59,11 @@ def group_config(tmp_path, monkeypatch):
                 "search_files",
                 "group_cache",
                 "feishu_doc_manage",
-                sandbox._HYPERTEX_CASE_TYPES_TOOL,
-                sandbox._HYPERTEX_LIST_TOOL,
+                sandbox._IMAGE_TOOL,
+                sandbox._CHART_TOOL,
                 sandbox._HYPERTEX_CREATE_TOOL,
                 sandbox._HYPERTEX_ITERATE_TOOL,
-                sandbox._HYPERTEX_CASE_TOOL,
                 sandbox._HYPERTEX_TASK_TOOL,
-                sandbox._HYPERTEX_CANCEL_TOOL,
-                sandbox._HYPERTEX_UPDATE_TOOL,
             }
         ),
     )
@@ -70,10 +82,14 @@ def group_config(tmp_path, monkeypatch):
         "_GROUP_HYPERTEX_USER_IDS",
         frozenset({"trusted-user"}),
     )
+    monkeypatch.setattr(sandbox, "_GROUP_IMAGE_CHAT_IDS", frozenset({"*"}))
+    monkeypatch.setattr(sandbox, "_GROUP_CHART_CHAT_IDS", frozenset({"*"}))
     wiki_root = (tmp_path / "wiki").resolve()
     wiki_root.mkdir()
     monkeypatch.setattr(sandbox, "_GROUP_ALLOWED_READ_ROOTS", (wiki_root,))
     monkeypatch.setattr(sandbox, "_GROUP_WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr(sandbox, "_PRIVATE_IMAGE_WORKSPACE_ROOT", private_image_workspace_root)
+    monkeypatch.setattr(sandbox, "_PRIVATE_CHART_WORKSPACE_ROOT", private_chart_workspace_root)
     monkeypatch.setattr(sandbox, "_HYPERTEX_ASSET_STAGING_ROOT", hypertex_staging_root)
     monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSET_BYTES", 50_000_000)
     monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSETS_PER_TURN", 6)
@@ -84,9 +100,18 @@ def group_config(tmp_path, monkeypatch):
         frozenset(sandbox._FEISHU_SCRIPT_FILES),
     )
     monkeypatch.setattr(sandbox, "_FEISHU_DOC_SCRIPTS_ROOT", scripts_root)
+    monkeypatch.setattr(sandbox, "_GROUP_IMAGE_SCRIPT", image_script)
+    monkeypatch.setattr(sandbox, "_GROUP_CHART_SCRIPT", chart_script)
+    monkeypatch.setattr(sandbox, "_CHART_PYTHON_EXECUTABLE", Path(sys.executable).resolve())
     monkeypatch.setattr(sandbox, "_PYTHON_EXECUTABLE", Path(sys.executable).resolve())
     monkeypatch.setattr(sandbox, "_REQUIRE_PROCESS_SANDBOX", True)
     monkeypatch.setattr(sandbox, "_SCRIPT_TIMEOUT_SECONDS", 30)
+    monkeypatch.setattr(sandbox, "_GROUP_IMAGE_TIMEOUT_SECONDS", 30)
+    monkeypatch.setattr(sandbox, "_GROUP_IMAGE_MAX_INPUT_BYTES", 1_000_000)
+    monkeypatch.setattr(sandbox, "_GROUP_IMAGE_MAX_OUTPUT_BYTES", 1_000_000)
+    monkeypatch.setattr(sandbox, "_GROUP_IMAGE_MAX_INPUTS", 4)
+    monkeypatch.setattr(sandbox, "_GROUP_CHART_TIMEOUT_SECONDS", 30)
+    monkeypatch.setattr(sandbox, "_GROUP_CHART_MAX_OUTPUT_BYTES", 1_000_000)
     monkeypatch.setattr(sandbox, "_EPHEMERAL_READ_PATHS_BY_CHAT", {})
     sandbox._current_platform.set("feishu")
     sandbox._current_chat_id.set("group-one")
@@ -97,10 +122,16 @@ def group_config(tmp_path, monkeypatch):
     sandbox._current_media_paths.set(tuple())
     sandbox._current_hypertex_staged_paths.set(tuple())
     sandbox._current_hypertex_call_count.set(0)
+    sandbox._current_image_generation_call_count.set(0)
+    sandbox._current_chart_generation_call_count.set(0)
     return {
         "workspace_root": workspace_root,
+        "private_image_workspace_root": private_image_workspace_root,
+        "private_chart_workspace_root": private_chart_workspace_root,
         "hypertex_staging_root": hypertex_staging_root,
         "scripts_root": scripts_root,
+        "image_script": image_script,
+        "chart_script": chart_script,
         "wiki_root": wiki_root,
     }
 
@@ -460,7 +491,7 @@ def test_owner_dm_keeps_full_access(group_config):
     assert sandbox._on_pre_tool_call(tool_name="terminal", args={"command": "echo ok"}) is None
 
 
-def test_owner_dm_hypertex_create_uses_owner_weights_and_stages_current_attachments(group_config, tmp_path):
+def test_owner_dm_hypertex_create_uses_server_routing_and_stages_current_attachments(group_config, tmp_path):
     first_dir = tmp_path / "first"
     second_dir = tmp_path / "second"
     first_dir.mkdir()
@@ -486,13 +517,18 @@ def test_owner_dm_hypertex_create_uses_owner_weights_and_stages_current_attachme
         "prompt": "做一份演示文稿",
         "owner_username": "chenzhou",
         "agent": "qwen",
+        "agent_name": "qwen",
+        "model": "private-model",
+        "provider": "private-provider",
+        "executor": "private-executor",
+        "routing": "caller-selected",
         "type": "brochure",
         "asset_paths": ["/etc/passwd"],
     }
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
     assert args["owner_username"] == "hermes"
-    assert "agent" not in args
+    assert not set(args).intersection(sandbox._HYPERTEX_PRIVATE_ROUTING_KEYS)
     assert args["type"] == "freestyle"
     staged = [Path(path) for path in args["asset_paths"]]
     assert [path.name for path in staged] == ["Report.pdf", "Report-2.pdf"]
@@ -500,34 +536,15 @@ def test_owner_dm_hypertex_create_uses_owner_weights_and_stages_current_attachme
     assert all(path.is_relative_to(group_config["hypertex_staging_root"]) for path in staged)
 
 
-def test_owner_dm_hypertex_reads_are_pinned_to_contributor(group_config):
+def test_owner_dm_hypertex_task_query_keeps_public_arguments(group_config):
     sandbox._current_chat_id.set("owner-dm")
     sandbox._current_chat_type.set("private")
-    for tool_name in (
-        sandbox._HYPERTEX_LIST_TOOL,
-        sandbox._HYPERTEX_CASE_TOOL,
-    ):
-        sandbox._current_hypertex_call_count.set(0)
-        args = {"username": "chenzhou"}
-        assert sandbox._on_pre_tool_call(tool_name=tool_name, args=args) is None
-        assert args["username"] == "hermes"
-
-    sandbox._current_hypertex_call_count.set(0)
     task_args = {"task_id": "2"}
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_TASK_TOOL, args=task_args) is None
     assert task_args == {"task_id": "2"}
 
 
-def test_owner_dm_hypertex_case_types_keeps_empty_read_arguments(group_config):
-    sandbox._current_chat_id.set("owner-dm")
-    sandbox._current_chat_type.set("private")
-    args = {}
-
-    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CASE_TYPES_TOOL, args=args) is None
-    assert args == {}
-
-
-def test_owner_dm_hypertex_iterate_keeps_case_agent_and_stages_current_attachments(group_config, tmp_path):
+def test_owner_dm_hypertex_iterate_uses_server_routing_and_stages_current_attachments(group_config, tmp_path):
     attachment = tmp_path / "doc_aaaaaaaaaaaa_Update.pptx"
     attachment.write_bytes(b"pptx")
     source = SimpleNamespace(
@@ -544,12 +561,16 @@ def test_owner_dm_hypertex_iterate_keeps_case_agent_and_stages_current_attachmen
         "prompt": "更新内容",
         "username": "chenzhou",
         "agent": "qwen",
+        "agent_key": "qwen",
+        "model": "private-model",
+        "provider": "private-provider",
+        "execution_backend": "private-backend",
         "asset_paths": ["/etc/passwd"],
     }
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_ITERATE_TOOL, args=args) is None
     assert args["username"] == "hermes"
-    assert "agent" not in args
+    assert not set(args).intersection(sandbox._HYPERTEX_PRIVATE_ROUTING_KEYS)
     assert len(args["asset_paths"]) == 1
     assert Path(args["asset_paths"][0]).name == "Update.pptx"
 
@@ -598,7 +619,7 @@ def test_new_owner_dm_turn_drops_previous_hypertex_attachments(group_config, tmp
     assert second_args["asset_paths"] == []
 
 
-def test_trusted_group_hypertex_create_uses_owner_weights_and_stages_current_attachments(group_config, tmp_path):
+def test_trusted_group_hypertex_create_uses_server_routing_and_stages_current_attachments(group_config, tmp_path):
     attachment = tmp_path / "doc_aaaaaaaaaaaa_Group.pdf"
     attachment.write_bytes(b"pdf")
     source = SimpleNamespace(
@@ -614,13 +635,15 @@ def test_trusted_group_hypertex_create_uses_owner_weights_and_stages_current_att
         "prompt": "做一份演示文稿",
         "owner_username": "someone-else",
         "agent": "qwen",
+        "model": "private-model",
+        "provider": "private-provider",
         "type": "brochure",
         "asset_paths": ["/etc/passwd"],
     }
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
     assert args["owner_username"] == "hermes"
-    assert "agent" not in args
+    assert not set(args).intersection(sandbox._HYPERTEX_PRIVATE_ROUTING_KEYS)
     assert args["type"] == "freestyle"
     assert len(args["asset_paths"]) == 1
     assert Path(args["asset_paths"][0]).name == "Group.pdf"
@@ -672,8 +695,8 @@ def test_group_hypertex_is_limited_to_trusted_testers(group_config):
     sandbox._current_user_ids.set(frozenset({"untrusted-user"}))
 
     for tool_name, args in (
-        (sandbox._HYPERTEX_CASE_TYPES_TOOL, {}),
-        (sandbox._HYPERTEX_LIST_TOOL, {"username": "hermes"}),
+        (sandbox._HYPERTEX_CREATE_TOOL, {"prompt": "create"}),
+        (sandbox._HYPERTEX_TASK_TOOL, {"task_id": "task-1"}),
     ):
         assert sandbox._on_pre_tool_call(tool_name=tool_name, args=args) == {
             "action": "block",
@@ -718,8 +741,8 @@ def test_group_authorization_matches_open_id_from_real_feishu_sender_shape(group
     assert sandbox._current_actor_ids() == frozenset({open_id, tenant_user_id, union_id})
     assert (
         sandbox._on_pre_tool_call(
-            tool_name=sandbox._HYPERTEX_LIST_TOOL,
-            args={"username": "someone-else"},
+            tool_name=sandbox._HYPERTEX_TASK_TOOL,
+            args={"task_id": "task-1"},
         )
         is None
     )
@@ -739,8 +762,8 @@ def test_group_hypertex_is_limited_to_enabled_chats_even_for_trusted_testers(gro
     sandbox._current_chat_id.set("group-two")
 
     assert sandbox._on_pre_tool_call(
-        tool_name=sandbox._HYPERTEX_LIST_TOOL,
-        args={"username": "hermes"},
+        tool_name=sandbox._HYPERTEX_TASK_TOOL,
+        args={"task_id": "task-1"},
     ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE}
 
 
@@ -752,12 +775,12 @@ def test_trusted_group_hypertex_allows_one_call_per_inbound_turn(group_config):
         user_id="trusted-user",
     )
     sandbox._on_pre_gateway_dispatch(SimpleNamespace(source=source, text="query", reply_to_text="", media_urls=[]))
-    list_args = {"username": "someone-else"}
-    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_LIST_TOOL, args=list_args) is None
-    assert list_args == {"username": "hermes"}
+    task_args = {"task_id": "task-1"}
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_TASK_TOOL, args=task_args) is None
+    assert task_args == {"task_id": "task-1"}
     assert sandbox._on_pre_tool_call(
-        tool_name=sandbox._HYPERTEX_TASK_TOOL,
-        args={"task_id": "7"},
+        tool_name=sandbox._HYPERTEX_CREATE_TOOL,
+        args={"prompt": "create"},
     ) == {"action": "block", "message": sandbox._HYPERTEX_ONE_CALL_MESSAGE}
 
 
@@ -770,6 +793,338 @@ def test_outsider_dm_keeps_safe_base_allowlist(group_config):
         "action": "block",
         "message": sandbox._BLOCK_MESSAGE,
     }
+
+
+def test_group_image_generation_is_enabled_for_all_groups_and_once_per_turn(group_config):
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name=sandbox._IMAGE_TOOL,
+            args={"prompt": "a blue pipeline diagram"},
+        )
+        is None
+    )
+    assert sandbox._on_pre_tool_call(
+        tool_name=sandbox._IMAGE_TOOL,
+        args={"prompt": "try again"},
+    ) == {"action": "block", "message": sandbox._GROUP_IMAGE_ONE_CALL_MESSAGE}
+
+    sandbox._current_chat_id.set("group-two")
+    sandbox._current_image_generation_call_count.set(0)
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name=sandbox._IMAGE_TOOL,
+            args={"prompt": "enabled in another group"},
+        )
+        is None
+    )
+
+
+def test_group_image_chat_allowlist_still_supports_exact_ids(group_config, monkeypatch):
+    monkeypatch.setattr(sandbox, "_GROUP_IMAGE_CHAT_IDS", frozenset({"group-one"}))
+    assert sandbox._group_image_chat_allowed("group-one") is True
+    assert sandbox._group_image_chat_allowed("group-two") is False
+
+
+def test_group_chart_generation_is_enabled_for_all_groups_and_once_per_turn(group_config):
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name=sandbox._CHART_TOOL,
+            args={"title": "Trend", "labels": ["A"], "series": [{"name": "Value", "values": [1]}]},
+        )
+        is None
+    )
+    assert sandbox._on_pre_tool_call(
+        tool_name=sandbox._CHART_TOOL,
+        args={"title": "Again", "labels": ["A"], "series": [{"name": "Value", "values": [2]}]},
+    ) == {"action": "block", "message": sandbox._GROUP_CHART_ONE_CALL_MESSAGE}
+
+    sandbox._current_chat_id.set("group-two")
+    sandbox._current_chart_generation_call_count.set(0)
+    assert sandbox._group_chart_chat_allowed("group-two") is True
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name=sandbox._CHART_TOOL,
+            args={"title": "Other", "labels": ["A"], "series": [{"name": "Value", "values": [3]}]},
+        )
+        is None
+    )
+
+
+def test_chart_tool_schema_exposes_only_constrained_data_fields():
+    properties = sandbox.GROUP_CHART_GENERATE_SCHEMA["parameters"]["properties"]
+    assert sandbox.GROUP_CHART_GENERATE_SCHEMA["parameters"]["additionalProperties"] is False
+    for forbidden in ("spec", "url", "path", "output_path", "command", "script", "javascript"):
+        assert forbidden not in properties
+    assert {"title", "labels", "series"}.issubset(properties)
+
+
+def test_group_chart_tool_returns_workspace_media_directive(group_config, monkeypatch):
+    captured = {}
+
+    def fake_run(payload, workspace):
+        captured["payload"] = payload
+        captured["workspace"] = workspace
+        output = workspace / "charts" / "result.png"
+        output.parent.mkdir(parents=True)
+        output.write_bytes(b"\x89PNG\r\n\x1a\nchart")
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "success": True,
+                    "chart": "charts/result.png",
+                    "chart_type": "bar",
+                    "labels": 3,
+                    "series": 1,
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(sandbox, "_run_chart_script", fake_run)
+    result = _result(
+        sandbox._handle_group_chart_generate(
+            {
+                "title": "Revenue",
+                "chart_type": "bar",
+                "labels": ["Q1", "Q2", "Q3"],
+                "series": [{"name": "Revenue", "values": [10, 20, 30]}],
+            }
+        )
+    )
+
+    workspace = sandbox._workspace_for_chat("group-one")
+    assert result["success"] is True
+    assert result["chart_type"] == "bar"
+    assert result["media_directive"] == f"MEDIA:{workspace / 'charts/result.png'}"
+    assert captured["payload"]["series"][0]["values"] == [10, 20, 30]
+
+
+def test_chart_runner_denies_network_and_forwards_no_secrets(group_config, monkeypatch):
+    workspace = sandbox._workspace_for_chat("group-one")
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, '{"success": false}', "")
+
+    monkeypatch.setenv("HERMES_IMAGE_GENERATION_API_KEY", "must-not-cross")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "must-not-cross")
+    monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
+    sandbox._run_chart_script(
+        {"title": "Test", "labels": ["A"], "series": [{"name": "V", "values": [1]}]},
+        workspace,
+    )
+
+    profile = captured["command"][2]
+    assert "(deny network*)" in profile
+    assert str(workspace) in profile
+    assert captured["command"][-2:] == [
+        str(sandbox._CHART_PYTHON_EXECUTABLE),
+        str(group_config["chart_script"]),
+    ]
+    assert captured["env"]["HERMES_CHART_WORKSPACE"] == str(workspace)
+    assert "HERMES_IMAGE_GENERATION_API_KEY" not in captured["env"]
+    assert "FEISHU_APP_SECRET" not in captured["env"]
+
+
+def test_private_chart_tool_uses_dedicated_workspace(group_config, monkeypatch):
+    sandbox._current_chat_id.set("owner-dm")
+    sandbox._current_chat_type.set("private")
+    captured = {}
+
+    def fake_run(_payload, workspace):
+        captured["workspace"] = workspace
+        output = workspace / "charts" / "private.png"
+        output.parent.mkdir(parents=True)
+        output.write_bytes(b"\x89PNG\r\n\x1a\nchart")
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {"success": True, "chart": "charts/private.png", "chart_type": "line", "labels": 2, "series": 1}
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(sandbox, "_run_chart_script", fake_run)
+    result = _result(
+        sandbox._handle_private_chart_generate(
+            {"title": "Trend", "labels": ["A", "B"], "series": [{"name": "V", "values": [1, 2]}]}
+        )
+    )
+    assert result["success"] is True
+    assert captured["workspace"].is_relative_to(group_config["private_chart_workspace_root"])
+
+
+def test_group_image_tool_uses_only_current_turn_images_and_returns_media_directive(
+    group_config, tmp_path, monkeypatch
+):
+    image = tmp_path / "incoming.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage-bytes")
+    sandbox._current_media_paths.set((str(image), "/etc/passwd"))
+    captured = {}
+
+    def fake_run(payload, workspace):
+        captured["payload"] = payload
+        staged = workspace / payload["image_paths"][0]
+        assert staged.is_file()
+        assert staged.read_bytes() == image.read_bytes()
+        output = workspace / "generated-images" / "result.png"
+        output.parent.mkdir(parents=True)
+        output.write_bytes(b"\x89PNG\r\n\x1a\nresult")
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "success": True,
+                    "image": "generated-images/result.png",
+                    "model": "gpt-image-2",
+                    "mode": "quality",
+                    "generation_id": "gen-1",
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(sandbox, "_run_group_image_script", fake_run)
+    result = _result(
+        sandbox._handle_group_image_generate(
+            {
+                "prompt": "keep the layout and recolor it blue",
+                "aspect_ratio": "16:9",
+                "use_attached_images": True,
+            }
+        )
+    )
+
+    workspace = sandbox._workspace_for_chat("group-one")
+    assert result["success"] is True
+    assert result["workspace_path"] == "generated-images/result.png"
+    assert result["media_directive"] == f"MEDIA:{workspace / 'generated-images/result.png'}"
+    assert len(captured["payload"]["image_paths"]) == 1
+    assert not any((workspace / ".image-inputs").glob("turn-*"))
+
+
+def test_group_image_tool_schema_exposes_no_path_command_or_secret_arguments():
+    properties = sandbox.GROUP_IMAGE_GENERATE_SCHEMA["parameters"]["properties"]
+    assert sandbox.GROUP_IMAGE_GENERATE_SCHEMA["parameters"]["additionalProperties"] is False
+    assert "output_path" not in properties
+    assert "image_paths" not in properties
+    assert "command" not in properties
+    assert "api_key" not in properties
+    assert "base_url" not in properties
+    assert "model" not in properties
+    assert "mode" not in properties
+
+
+def test_group_image_runner_uses_process_sandbox_and_minimal_secret_env(group_config, monkeypatch):
+    workspace = sandbox._workspace_for_chat("group-one")
+    captured = {}
+
+    def fake_secret(name, default=""):
+        return {
+            "HERMES_IMAGE_GENERATION_API_KEY": "image-service-secret",
+            "HERMES_IMAGE_GENERATION_BASE_URL": "https://image-service.example",
+        }.get(name, default)
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, '{"success": false}', "")
+
+    monkeypatch.setattr(sandbox, "_group_image_secret", fake_secret)
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-cross-boundary")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "must-not-cross-boundary")
+    monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
+    sandbox._run_group_image_script({"prompt": "test"}, workspace)
+
+    assert captured["command"][:2] == ["/usr/bin/sandbox-exec", "-p"]
+    assert captured["command"][-2:] == [
+        str(sandbox._PYTHON_EXECUTABLE),
+        str(group_config["image_script"]),
+    ]
+    assert captured["cwd"] == str(workspace)
+    assert captured["env"]["IMAGE_GENERATION_API_KEY"] == "image-service-secret"
+    assert captured["env"]["IMAGE_GENERATION_API_BASE_URL"] == "https://image-service.example"
+    assert captured["env"]["HERMES_GROUP_WORKSPACE"] == str(workspace)
+    assert "OPENAI_API_KEY" not in captured["env"]
+    assert "FEISHU_APP_SECRET" not in captured["env"]
+    assert captured["input"] == '{"prompt": "test"}'
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"HERMES_IMAGE_GENERATION_API_KEY": "key-only"},
+        {"HERMES_IMAGE_GENERATION_BASE_URL": "https://image-service.example"},
+        {},
+    ],
+)
+def test_group_image_runner_requires_key_and_base_url_as_a_pair(group_config, monkeypatch, values):
+    workspace = sandbox._workspace_for_chat("group-one")
+    monkeypatch.setattr(
+        sandbox,
+        "_group_image_secret",
+        lambda name, default="": values.get(name, default),
+    )
+    with pytest.raises(RuntimeError, match="凭据尚未完整配置"):
+        sandbox._group_image_subprocess_env(workspace)
+
+
+def test_group_image_output_redacts_exact_api_key(group_config, monkeypatch):
+    secret = "secret-value-that-must-not-leak"
+    monkeypatch.setattr(sandbox, "_group_image_secret", lambda name, default="": secret)
+    monkeypatch.setattr(
+        sandbox,
+        "_run_group_image_script",
+        lambda _payload, _workspace: subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout=json.dumps({"success": False, "error": f"request failed with {secret}"}),
+            stderr=f"HERMES_IMAGE_GENERATION_API_KEY={secret}",
+        ),
+    )
+
+    result = sandbox._handle_group_image_generate({"prompt": "test"})
+    assert secret not in result
+    assert "图片生成服务暂时不可用" in result
+
+
+def test_private_image_tool_uses_dedicated_workspace(group_config, monkeypatch):
+    sandbox._current_chat_id.set("owner-dm")
+    sandbox._current_chat_type.set("private")
+    captured = {}
+
+    def fake_run(payload, workspace):
+        captured["payload"] = payload
+        captured["workspace"] = workspace
+        output = workspace / "generated-images" / "private.png"
+        output.parent.mkdir(parents=True)
+        output.write_bytes(b"\x89PNG\r\n\x1a\nprivate")
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"success": True, "image": "generated-images/private.png"}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(sandbox, "_run_group_image_script", fake_run)
+    result = _result(sandbox._handle_private_image_generate({"prompt": "private image"}))
+
+    assert result["success"] is True
+    assert captured["workspace"].is_relative_to(group_config["private_image_workspace_root"])
+    assert result["media_directive"].startswith(f"MEDIA:{captured['workspace']}")
+
+
+def test_private_image_tool_rejects_non_owner_feishu_dm(group_config):
+    sandbox._current_chat_id.set("outsider-dm")
+    sandbox._current_chat_type.set("private")
+    with pytest.raises(PermissionError):
+        sandbox._handle_private_image_generate({"prompt": "not allowed"})
 
 
 def test_script_tool_schema_has_no_command_script_path_or_raw_argv():
@@ -938,9 +1293,189 @@ def test_process_sandbox_allows_workspace_write_and_denies_external_write(group_
     assert not outside.exists()
 
 
+def _load_group_image_script_module():
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "my-skills"
+        / "creative"
+        / "image-generation"
+        / "scripts"
+        / "generate_image.py"
+    )
+    spec = importlib.util.spec_from_file_location("sandbox_test_group_image_generate", script)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_group_image_script_confines_inputs_and_outputs_to_workspace(tmp_path, monkeypatch):
+    module = _load_group_image_script_module()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("HERMES_GROUP_WORKSPACE", str(workspace))
+
+    source = workspace / "input.png"
+    source.write_bytes(b"\x89PNG\r\n\x1a\nsource")
+    assert module._workspace_input(workspace, "input.png") == source
+    with pytest.raises(module.MediaError):
+        module._workspace_input(workspace, "../outside.png")
+    with pytest.raises(module.MediaError):
+        module._workspace_input(workspace, "/etc/passwd")
+
+    output = module._write_output(
+        workspace,
+        b"\x89PNG\r\n\x1a\nresult",
+        "png",
+    )
+    assert output.is_relative_to(workspace)
+    assert output.parent.parent.name == "generated-images"
+    assert output.name.startswith("image-")
+
+
+def test_group_image_script_uses_quality_fallback_and_cleans_uploaded_assets(tmp_path, monkeypatch):
+    module = _load_group_image_script_module()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("HERMES_GROUP_WORKSPACE", str(workspace))
+    monkeypatch.setenv("IMAGE_GENERATION_API_KEY", "secret")
+    monkeypatch.setenv("IMAGE_GENERATION_API_BASE_URL", "https://image-service.example")
+    monkeypatch.setattr(
+        module,
+        "_catalog",
+        lambda _key, _base: [
+            {"kind": "image", "public_model": "gpt-image-2", "default_mode": "quality"},
+            {"kind": "image", "public_model": "nano-banana-pro", "default_mode": "standard"},
+        ],
+    )
+
+    attempts = []
+
+    def fake_submit(payload, _key, _base):
+        attempts.append(payload["model"])
+        if payload["model"] == "gpt-image-2":
+            raise module.MediaError("first model unavailable")
+        return "generation-2"
+
+    monkeypatch.setattr(module, "_submit_job", fake_submit)
+    monkeypatch.setattr(module, "_poll_job", lambda *_args: ("https://cdn.example/result.png", "completed"))
+    monkeypatch.setattr(
+        module,
+        "_download_output",
+        lambda *_args: (b"\x89PNG\r\n\x1a\nresult", "png", "image/png"),
+    )
+
+    result = module.generate({"prompt": "a safe test image", "aspect_ratio": "1:1"})
+
+    assert attempts == ["gpt-image-2", "nano-banana-pro"]
+    assert result["success"] is True
+    assert result["model"] == "nano-banana-pro"
+    assert result["fallback_failures"] == ["gpt-image-2: first model unavailable"]
+    assert (workspace / result["image"]).read_bytes().startswith(b"\x89PNG")
+
+
+def test_group_image_script_scrubs_key_from_api_errors(monkeypatch):
+    module = _load_group_image_script_module()
+    secret = "never-print-this-key"
+    rendered = module._scrub(f"Authorization: Bearer {secret}; key={secret}", secret)
+    assert secret not in rendered
+    assert rendered.count("[REDACTED]") >= 1
+
+
+def test_chart_renderer_generates_png_from_structured_values(tmp_path):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "my-skills"
+        / "creative"
+        / "chart-generation"
+        / "scripts"
+        / "render_chart.py"
+    )
+    python = Path(__file__).resolve().parents[2] / "lib" / "chart-renderer" / "venv" / "bin" / "python"
+    workspace = tmp_path / "chart-workspace"
+    workspace.mkdir()
+    env = {
+        "HERMES_CHART_WORKSPACE": str(workspace),
+        "PATH": str(Path(python).parent),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TMPDIR": str(workspace),
+    }
+    request = {
+        "title": "季度收入",
+        "subtitle": "单位：万元",
+        "chart_type": "bar",
+        "labels": ["Q1", "Q2", "Q3", "Q4"],
+        "series": [
+            {"name": "华东", "values": [120, 160, 180, 230]},
+            {"name": "华北", "values": [90, 130, 150, 170]},
+        ],
+        "x_label": "季度",
+        "y_label": "收入",
+        "show_values": True,
+    }
+    completed = subprocess.run(
+        [str(python), str(script)],
+        input=json.dumps(request, ensure_ascii=False),
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=30,
+        check=False,
+    )
+    result = json.loads(completed.stdout)
+    assert completed.returncode == 0, completed.stderr or result
+    assert result["success"] is True
+    output = workspace / result["chart"]
+    assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert result["chart_type"] == "bar"
+    assert result["labels"] == 4
+    assert result["series"] == 2
+
+
+def test_chart_renderer_rejects_misaligned_series(tmp_path):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "my-skills"
+        / "creative"
+        / "chart-generation"
+        / "scripts"
+        / "render_chart.py"
+    )
+    python = Path(__file__).resolve().parents[2] / "lib" / "chart-renderer" / "venv" / "bin" / "python"
+    workspace = tmp_path / "chart-workspace"
+    workspace.mkdir()
+    completed = subprocess.run(
+        [str(python), str(script)],
+        input=json.dumps(
+            {
+                "title": "Invalid",
+                "labels": ["A", "B"],
+                "series": [{"name": "Value", "values": [1]}],
+            }
+        ),
+        text=True,
+        capture_output=True,
+        env={"HERMES_CHART_WORKSPACE": str(workspace), "PATH": str(Path(python).parent)},
+        timeout=30,
+        check=False,
+    )
+    result = json.loads(completed.stdout)
+    assert completed.returncode == 1
+    assert result["success"] is False
+    assert "same number of values" in result["error"]
+
+
 def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
     assert sandbox._load_config() is True
     assert sandbox._OWNER_CHAT_IDS
+    assert sandbox._GROUP_IMAGE_CHAT_IDS
+    assert sandbox._GROUP_IMAGE_SCRIPT is not None
+    assert sandbox._GROUP_IMAGE_SCRIPT.is_file()
+    assert sandbox._GROUP_CHART_CHAT_IDS == frozenset({"*"})
+    assert sandbox._GROUP_CHART_SCRIPT is not None
+    assert sandbox._GROUP_CHART_SCRIPT.is_file()
+    assert sandbox._CHART_PYTHON_EXECUTABLE is not None
+    assert sandbox._CHART_PYTHON_EXECUTABLE.is_file()
     calls = {"tools": [], "hooks": []}
 
     class Context:
@@ -952,8 +1487,15 @@ def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
 
     sandbox.register(Context())
 
-    assert {item["name"] for item in calls["tools"]} == {"group_cache", "feishu_doc_manage"}
-    assert {item["toolset"] for item in calls["tools"]} == {"sandbox_group"}
+    assert {item["name"] for item in calls["tools"]} == {
+        "group_cache",
+        "feishu_doc_manage",
+        "group_image_generate",
+        "secure_image_generate",
+        "group_chart_generate",
+        "secure_chart_generate",
+    }
+    assert {item["toolset"] for item in calls["tools"]} == {"sandbox_group", "image_gen"}
     assert {name for name, _callback in calls["hooks"]} == {
         "pre_gateway_dispatch",
         "pre_tool_call",

@@ -134,6 +134,7 @@ assert (root.get("platform_toolset_options") or {}).get("feishu_group", {}).get(
 ) is False
 for platform in ("cli", "feishu", "feishu_group"):
     assert "sandbox_group" in set((root.get("known_plugin_toolsets") or {}).get(platform) or [])
+    assert "image_gen" in set((root.get("known_plugin_toolsets") or {}).get(platform) or [])
 
 # Group-readable skills are an explicit, verified allowlist — never inferred.
 # excel-processing (2026-08-12) is read-only knowledge: its scripts/ cannot be
@@ -144,6 +145,8 @@ assert (root.get("skills") or {}).get("platform_allowed", {}).get("feishu_group"
     "llm-wiki",
     "feishu-docs",
     "excel-processing",
+    "image-generation",
+    "chart-generation",
 ]
 assert (root.get("approvals") or {}).get("mode") == "manual"
 assert root.get("command_allowlist") == []
@@ -152,11 +155,8 @@ hypertex_mcp = (root.get("mcp_servers") or {}).get("hypertex") or {}
 assert int(hypertex_mcp.get("timeout") or 0) == 30
 assert int(hypertex_mcp.get("idle_timeout_seconds") or 0) == 60
 assert set(((hypertex_mcp.get("tools") or {}).get("include") or [])) == {
-    "hypertex_list_case_types",
-    "hypertex_list_cases",
     "hypertex_create_case",
     "hypertex_iterate_case",
-    "hypertex_get_case",
 }
 feishu = root.get("feishu") or {}
 assert feishu.get("default_group_policy") == "open"
@@ -194,19 +194,15 @@ assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "search_files",
     "group_cache",
     "feishu_doc_manage",
-    "mcp__hypertex__hypertex_list_case_types",
-    "mcp__hypertex__hypertex_list_cases",
+    "group_image_generate",
+    "group_chart_generate",
     "mcp__hypertex__hypertex_create_case",
     "mcp__hypertex__hypertex_iterate_case",
-    "mcp__hypertex__hypertex_get_case",
     "mcp__hypertex__tasks_get",
-    "mcp__hypertex__tasks_cancel",
-    "mcp__hypertex__tasks_update",
 }
-# Case-type discovery is read-only in HyperTeX but can reveal owner engine
-# configuration. Keep it inside the same trusted chat + trusted actor gate and
-# one-call-per-turn budget as the existing case reads; never expose it as an
-# unrestricted group utility.
+# HyperTeX's Feishu contract is intentionally limited to submit, revise, and
+# exact task lookup. Case discovery and task mutation stay outside the sandbox
+# allowlist even when the MCP client registers protocol-level task utilities.
 # ROSTER: open_id only. Tenant-scoped short IDs must not reappear in any
 # allowlist — they are unrecoverable from people.yaml and never delivered by
 # this app, so they were dead weight that made adding a member guesswork.
@@ -254,6 +250,12 @@ assert mutation_users < hypertex_users, \
 assert (hypertex_users - mutation_users) == expected_hypertex_users - {
     "ou_33eeacfbd0c0559b7b734f83503719ab"
 }, "only the owner may hold Feishu document deletion"
+assert set(plugin.get("trusted_feishu_chat_ids_for_group_image_generation") or []) == {
+    "*",
+}, "group image generation must use an explicit all-groups wildcard"
+assert set(plugin.get("trusted_feishu_chat_ids_for_group_chart_generation") or []) == {
+    "*",
+}, "group chart generation must use an explicit all-groups wildcard"
 assert plugin.get("allowed_read_roots_for_outsider_groups") == ["~/.hermes/wiki"]
 assert plugin.get("group_workspace_root") == "~/.hermes/tmp/group-workspaces"
 assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []) == {
@@ -265,11 +267,31 @@ assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []
     "download_file",
 }
 assert plugin.get("require_process_sandbox") is True
+assert plugin.get("group_image_generation_script") == (
+    "~/.hermes/my-skills/creative/image-generation/scripts/generate_image.py"
+)
+assert plugin.get("private_image_workspace_root") == "~/.hermes/tmp/image-generation"
+assert plugin.get("chart_generation_script") == (
+    "~/.hermes/my-skills/creative/chart-generation/scripts/render_chart.py"
+)
+assert plugin.get("chart_python_executable") == "~/.hermes/lib/chart-renderer/venv/bin/python"
+assert plugin.get("private_chart_workspace_root") == "~/.hermes/tmp/chart-generation"
+assert "image_generation_api_base_url" not in plugin, \
+    "image key/base URL must stay paired in the profile .env"
+assert int(plugin.get("group_image_generation_timeout_seconds") or 0) == 900
+assert int(plugin.get("group_image_max_input_bytes") or 0) == 25000000
+assert int(plugin.get("group_image_max_output_bytes") or 0) == 10000000
+assert int(plugin.get("group_image_max_inputs") or 0) == 4
+assert int(plugin.get("chart_generation_timeout_seconds") or 0) == 60
+assert int(plugin.get("chart_max_output_bytes") or 0) == 10000000
 assert plugin.get("mutation_trust_block_message") == "群聊中的飞书文档删除仅允许受信任的维护者执行。"
 assert plugin.get("mutation_reference_block_message") == "追加、重建或删除飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
 
 scripts_root = Path(plugin["feishu_doc_scripts_root"]).expanduser().resolve()
 python_executable = Path(plugin["python_executable"]).expanduser().resolve()
+image_script = Path(plugin["group_image_generation_script"]).expanduser().resolve()
+chart_script = Path(plugin["chart_generation_script"]).expanduser().resolve()
+chart_python = Path(plugin["chart_python_executable"]).expanduser().absolute()
 expected_scripts = {
     "create_new_doc_from_md.py",
     "append_md_to_doc.py",
@@ -284,6 +306,18 @@ expected_scripts = {
     "read_docx_to_markdown.py",
 }
 assert python_executable.is_file(), f"configured Python is missing: {python_executable}"
+assert image_script.is_file(), f"configured group image script is missing: {image_script}"
+assert chart_script.is_file(), f"configured chart script is missing: {chart_script}"
+assert chart_python.is_file(), f"configured chart Python is missing: {chart_python}"
+chart_version = __import__("subprocess").check_output(
+    [
+        str(chart_python),
+        "-c",
+        "import importlib.metadata as m; print(m.version('vl-convert-python'))",
+    ],
+    text=True,
+).strip()
+assert chart_version == "1.9.0.post1", f"unexpected vl-convert-python version: {chart_version}"
 missing_scripts = sorted(name for name in expected_scripts if not (scripts_root / name).is_file())
 assert not missing_scripts, f"configured Feishu scripts are missing: {missing_scripts}"
 
@@ -361,20 +395,30 @@ assert {
     "execute_code",
     "skill_manage",
 }.issubset(owner_tools)
+assert "secure_image_generate" in owner_tools
+assert "secure_chart_generate" in owner_tools
 
 assert "sandbox_group" in group_toolsets
 assert "hypertex" in group_toolsets
-assert {"clarify", "web_search", "web_extract", "group_cache", "feishu_doc_manage", "read_file", "search_files"}.issubset(group_tools)
 assert {
-    "mcp__hypertex__hypertex_list_case_types",
-    "mcp__hypertex__hypertex_list_cases",
+    "clarify",
+    "web_search",
+    "web_extract",
+    "group_cache",
+    "feishu_doc_manage",
+    "group_image_generate",
+    "group_chart_generate",
+    "read_file",
+    "search_files",
+}.issubset(group_tools)
+hypertex_group_tools = {name for name in group_tools if name.startswith("mcp__hypertex__")}
+assert hypertex_group_tools == {
     "mcp__hypertex__hypertex_create_case",
     "mcp__hypertex__hypertex_iterate_case",
-    "mcp__hypertex__hypertex_get_case",
     "mcp__hypertex__tasks_get",
     "mcp__hypertex__tasks_cancel",
     "mcp__hypertex__tasks_update",
-}.issubset(group_tools)
+}
 assert not {
     "terminal",
     "process",
@@ -383,7 +427,12 @@ assert not {
     "execute_code",
     "skill_manage",
 }.intersection(group_tools)
-assert not {"vision_analyze", "image_generate"}.intersection(group_tools)
+assert not {
+    "vision_analyze",
+    "image_generate",
+    "secure_image_generate",
+    "secure_chart_generate",
+}.intersection(group_tools)
 
 # The gray-test group and all Feishu groups share this same platform scope:
 # sandbox tools must be discoverable/describable through the deferred-tool
@@ -394,17 +443,23 @@ group_defs = get_tool_definitions(
     skip_tool_search_assembly=True,
 )
 search_payload = tool_search.dispatch_tool_search(
-    {"queries": ["group cache feishu doc hypertex presentation"]},
+    {"queries": ["group cache feishu doc hypertex presentation image chart generation"]},
     current_tool_defs=group_defs,
 )
 assert "group_cache" in search_payload
 assert "feishu_doc_manage" in search_payload
-assert "mcp__hypertex__hypertex_iterate_case" in search_payload
+assert "group_image_generate" in search_payload
+assert "group_chart_generate" in search_payload
 hypertex_create_payload = tool_search.dispatch_tool_search(
     {"queries": ["create case"]},
     current_tool_defs=group_defs,
 )
 assert "mcp__hypertex__hypertex_create_case" in hypertex_create_payload
+hypertex_iterate_payload = tool_search.dispatch_tool_search(
+    {"queries": ["iterate case"]},
+    current_tool_defs=group_defs,
+)
+assert "mcp__hypertex__hypertex_iterate_case" in hypertex_iterate_payload
 describe_group = tool_search.dispatch_tool_describe(
     {"names": ["group_cache"]},
     current_tool_defs=group_defs,
@@ -413,8 +468,18 @@ describe_doc = tool_search.dispatch_tool_describe(
     {"names": ["feishu_doc_manage"]},
     current_tool_defs=group_defs,
 )
+describe_image = tool_search.dispatch_tool_describe(
+    {"names": ["group_image_generate"]},
+    current_tool_defs=group_defs,
+)
+describe_chart = tool_search.dispatch_tool_describe(
+    {"names": ["group_chart_generate"]},
+    current_tool_defs=group_defs,
+)
 assert "group_cache" in (json.loads(describe_group).get("tools") or {})
 assert "feishu_doc_manage" in (json.loads(describe_doc).get("tools") or {})
+assert "group_image_generate" in (json.loads(describe_image).get("tools") or {})
+assert "group_chart_generate" in (json.loads(describe_chart).get("tools") or {})
 
 # Also pass through the actual sandbox pre_tool_call hook. The dispatch checks
 # above alone can be green while Feishu groups still block the bridge tools.
@@ -424,10 +489,16 @@ sandbox._current_chat_id.set(next(iter(sandbox._OWNER_CHAT_IDS)))
 sandbox._current_chat_type.set("private")
 sandbox._current_media_paths.set(tuple())
 sandbox._current_hypertex_call_count.set(0)
+sandbox._current_image_generation_call_count.set(0)
+sandbox._current_chart_generation_call_count.set(0)
 owner_hypertex_args = {
     "prompt": "verify",
     "owner_username": "chenzhou",
     "agent": "qwen",
+    "model": "private-model",
+    "provider": "private-provider",
+    "executor": "private-executor",
+    "routing": "caller-selected",
     "type": "brochure",
     "asset_paths": ["/etc/passwd"],
 }
@@ -460,6 +531,10 @@ owner_iterate_args = {
     "prompt": "revise",
     "username": "someone-else",
     "agent": "qwen",
+    "agent_key": "qwen",
+    "model": "private-model",
+    "provider": "private-provider",
+    "execution_backend": "private-backend",
     "asset_paths": ["/etc/passwd"],
 }
 assert sandbox._on_pre_tool_call(
@@ -506,8 +581,8 @@ assert sandbox._on_pre_tool_call(tool_name="terminal", args={"command": "id"}) =
     "message": sandbox._BLOCK_MESSAGE,
 }
 assert sandbox._on_pre_tool_call(
-    tool_name=sandbox._HYPERTEX_LIST_TOOL,
-    args={"username": "hermes"},
+    tool_name=sandbox._HYPERTEX_TASK_TOOL,
+    args={"task_id": "task-verify"},
 ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_BLOCK_MESSAGE}
 
 trusted_open_id = next(iter(sandbox._GROUP_HYPERTEX_USER_IDS))
@@ -539,21 +614,42 @@ assert sandbox._current_actor_ids() == frozenset({
     "tenant_verify_user",
     "union_verify_user",
 })
-group_hypertex_args = {"username": "someone-else"}
+group_hypertex_args = {"task_id": "task-verify"}
 assert sandbox._on_pre_tool_call(
-    tool_name=sandbox._HYPERTEX_LIST_TOOL,
+    tool_name=sandbox._HYPERTEX_TASK_TOOL,
     args=group_hypertex_args,
 ) is None
-assert group_hypertex_args == {"username": "hermes"}
+assert group_hypertex_args == {"task_id": "task-verify"}
 
 sandbox._current_chat_id.set("oc_verify_disabled_group")
 sandbox._current_hypertex_call_count.set(0)
 assert sandbox._on_pre_tool_call(
-    tool_name=sandbox._HYPERTEX_LIST_TOOL,
-    args={"username": "hermes"},
+    tool_name=sandbox._HYPERTEX_TASK_TOOL,
+    args={"task_id": "task-verify"},
 ) == {"action": "block", "message": sandbox._HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE}
 sandbox._current_user_id.set("ou_untrusted_verify")
 sandbox._current_user_ids.set(frozenset({"ou_untrusted_verify"}))
+
+sandbox._current_chat_id.set("oc_verify_any_group")
+sandbox._current_image_generation_call_count.set(0)
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._IMAGE_TOOL,
+    args={"prompt": "verify group image boundary"},
+) is None
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._IMAGE_TOOL,
+    args={"prompt": "second call"},
+) == {"action": "block", "message": sandbox._GROUP_IMAGE_ONE_CALL_MESSAGE}
+sandbox._current_chat_id.set("oc_verify_any_group")
+sandbox._current_chart_generation_call_count.set(0)
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._CHART_TOOL,
+    args={"title": "verify", "labels": ["A"], "series": [{"name": "V", "values": [1]}]},
+) is None
+assert sandbox._on_pre_tool_call(
+    tool_name=sandbox._CHART_TOOL,
+    args={"title": "again", "labels": ["A"], "series": [{"name": "V", "values": [2]}]},
+) == {"action": "block", "message": sandbox._GROUP_CHART_ONE_CALL_MESSAGE}
 
 # Exercise the real deferred bridge: tool_call unwraps to the scoped
 # underlying tool, then the sandbox hook sees the real name. Out-of-scope tools
@@ -775,12 +871,18 @@ PY
         echo "${current_reg}" | grep -q 'tool_describe' &&
         echo "${current_reg}" | grep -q 'group_cache' &&
         echo "${current_reg}" | grep -q 'feishu_doc_manage' &&
-        echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_list_case_types' &&
+        echo "${current_reg}" | grep -q 'group_image_generate' &&
+        echo "${current_reg}" | grep -q 'group_chart_generate' &&
         echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_create_case' &&
+        echo "${current_reg}" | grep -q 'mcp__hypertex__tasks_get' &&
         echo "${current_reg}" | grep -q 'doc_delete_only=True' &&
-        echo "${current_reg}" | grep -q 'hypertex_agent_policy=weighted-create/sticky-iterate' &&
+        echo "${current_reg}" | grep -q 'hypertex_routing_policy=server-owned/non-observable' &&
         echo "${current_reg}" | grep -q 'hypertex_chats=' &&
         echo "${current_reg}" | grep -q 'hypertex_users=' &&
+        echo "${current_reg}" | grep -q 'image_chats=' &&
+        echo "${current_reg}" | grep -q 'image_script=' &&
+        echo "${current_reg}" | grep -q 'chart_chats=' &&
+        echo "${current_reg}" | grep -q 'chart_script=' &&
         [[ "${runtime_trust_ok}" == true ]]; then
         # Strip the date+level prefix for readability.
         msg="${current_reg##*INFO }"
