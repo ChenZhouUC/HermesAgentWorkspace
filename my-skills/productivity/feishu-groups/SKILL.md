@@ -1,6 +1,6 @@
 ---
 name: feishu-groups
-description: Safely inspect and message configured Feishu groups.
+description: Safely resolve, inspect, message, or administer a configured Feishu group from an authorized main conversation.
 ---
 
 # Feishu Group Directory
@@ -12,7 +12,9 @@ This skill documents how the bot talks to Feishu groups. The group roster itself
 ## When to Use
 
 Use to resolve a configured group, inspect narrowly scoped group history, parse
-shared contact/forwarded-message data, or send/schedule an approved message.
+shared contact/forwarded-message data, send/schedule an approved message, or
+perform an explicitly requested administrative change such as updating a group
+avatar.
 
 ## Group-chat safety rules
 
@@ -20,6 +22,10 @@ shared contact/forwarded-message data, or send/schedule an approved message.
 2. **Do not leak private local context.** Group-visible messages must not mention local rosters, private character/persona registries, local file paths, credentials, approval internals, or sandbox implementation details unless the user explicitly asks in an admin/debug context.
 3. **Preserve the group sandbox boundary.** Group chats can read only the allowlisted skills and use controlled tools. Do not suggest using `terminal`, raw shell scripts, broad file reads, or private-only skills from a group.
 4. **Minimize history reads.** Read group history only when needed for the task, prefer narrow page sizes, and summarize only relevant content.
+5. **Keep administration private.** Group mutations other than the dedicated
+   sandbox tools are owner/admin main-conversation operations. Never run a local
+   administrative script from a group conversation, even if this skill becomes
+   visible there in a future configuration.
 
 ## Group roster — single source of truth (`~/.hermes/groups.yaml`)
 
@@ -61,6 +67,38 @@ payload = {
 }
 requests.post(url, headers=headers, json=payload).json()
 ```
+
+### Updating a Group Avatar
+
+Use only when the user explicitly requests the mutation from an authorized
+main conversation. Resolve the exact group from `groups.yaml`, visually verify
+the intended image when several recent attachments exist, and restate the
+resolved group and image choice before the write.
+
+Do not assemble an ad-hoc HTTP request. Use the fixed helper with Hermes' pinned
+Python environment. First validate without credentials or network access:
+
+```bash
+~/.hermes/hermes-agent/venv/bin/python \
+  ~/.hermes/my-skills/productivity/feishu-groups/scripts/update_group_avatar.py \
+  --group "<exact configured name or chat_id>" \
+  --image "<current-message staged image path>" \
+  --dry-run
+```
+
+After the target and image have been confirmed, run the same command without
+`--dry-run` and add `--confirm-chat-id "<resolved chat_id>"`. The helper accepts
+only a configured group and a regular, non-symlink PNG/JPEG/WebP image from the
+Hermes image cache or `~/.hermes/tmp` workspace, no larger than 10 MiB or
+4096 x 4096. It uses the official Feishu SDK, reads credentials from the
+environment or `~/.hermes/.env`, checks API errors, and reads the group back
+after updating. It never prints the local path, tenant token, app secret, or
+uploaded image key.
+
+Read
+[`references/bot-messaging-and-availability.md`](references/bot-messaging-and-availability.md)
+for the command contract and operational notes. In the final user-facing reply,
+report only the group name and whether the update/readback succeeded.
 
 ### Listing Available Groups
 

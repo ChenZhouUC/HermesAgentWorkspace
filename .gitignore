@@ -97,6 +97,7 @@ singularity_snapshots.json
 auth.json
 
 # ── 运行时缓存 ──────────────────────────────────────────────────
+/.curator_backups/
 __pycache__/
 *.pyc
 *.pyo

@@ -23,6 +23,44 @@ payload = {
 res = requests.post(url, headers=headers, json=payload).json()
 ```
 
+## Updating a Group Avatar
+
+Avatar changes are explicit owner/admin operations. They are not a capability
+of the Feishu group-chat sandbox. Use the fixed helper rather than writing an
+ad-hoc upload/update request:
+
+```bash
+PYTHON=~/.hermes/hermes-agent/venv/bin/python
+SCRIPT=~/.hermes/my-skills/productivity/feishu-groups/scripts/update_group_avatar.py
+
+"$PYTHON" "$SCRIPT" \
+  --group "<exact configured name or chat_id>" \
+  --image "<current-message staged image path>" \
+  --dry-run
+
+"$PYTHON" "$SCRIPT" \
+  --group "<exact configured name or chat_id>" \
+  --image "<current-message staged image path>" \
+  --confirm-chat-id "<resolved chat_id>"
+```
+
+The dry run resolves the target exclusively through `~/.hermes/groups.yaml`
+and validates the image without loading credentials or using the network. The
+mutating form additionally requires the exact configured chat ID, checks the
+remote group name before upload, uploads with `image_type=avatar`, updates only
+the `avatar` field, and performs a readback.
+
+Accepted inputs are single-frame PNG, JPEG, or WebP files up to 10 MiB and
+4096 x 4096. The resolved image must remain below the Hermes image cache,
+legacy image cache, or `~/.hermes/tmp`; symlinks and arbitrary host paths are
+rejected. The app must have the Feishu permissions required to upload images,
+read the target chat, and edit its avatar.
+
+The helper intentionally does not print the image key, local path, app
+credentials, tenant token, or raw SDK response. If the group name in Feishu no
+longer matches `groups.yaml`, update the roster and repeat the dry run instead
+of overriding the safety check.
+
 ## Direct Messaging Limitations
 
 ### Error: `230013 - Bot has NO availability to this user`
