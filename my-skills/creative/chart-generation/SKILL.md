@@ -5,10 +5,12 @@ description: Turn extracted values into accurate shareable charts.
 
 # Chart Generation Skill
 
-Create deterministic PNG charts from numbers already present in the current
+Create deterministic PNG charts from data already present in the current
 conversation. Hermes normally extracts XLSX/CSV content before this skill is
 loaded, so charting starts from those extracted values rather than reopening
-the original spreadsheet.
+the original spreadsheet. The renderer uses Matplotlib for business templates
+and Seaborn for relational, distribution, categorical, regression, matrix, and
+multi-panel statistical charts.
 
 ## When to Use
 
@@ -27,12 +29,18 @@ the separate `image-generation` skill.
 
 ## Prepare the Data
 
-Convert the relevant source rows into:
+For ordinary business charts, convert the relevant source rows into:
 
 - `labels`: ordered category or time labels.
 - `series`: one or more `{name, values}` objects aligned one-to-one with the
   labels.
 - `x_values`: optional numeric X coordinates for a scatter plot.
+
+For advanced Seaborn charts, use inline long-form `records` and identify fields
+with `x_field`, `y_field`, `hue_field`, `style_field`, `size_field`, or
+`weight_field`. Heatmaps may instead use `matrix`, `row_labels`, and
+`column_labels`. Records and matrices must come from conversation-visible data;
+never add file paths or URLs.
 
 Do not invent missing values. Preserve source order unless the user requests a
 ranking. If the selected columns or units are ambiguous, ask one concise
@@ -52,8 +60,21 @@ than silently transforming the data.
 - `pie`: one positive series with preferably no more than eight categories.
 - `scatter`: relationships; pass numeric `x_values` when available.
 - `auto`: line for longer sequences, otherwise bar.
+- `hist`, `kde`, `ecdf`, `rug`: distributions.
+- `count`, `point`, `box`, `violin`, `boxen`, `strip`, `swarm`: categorical
+  and sample-distribution views.
+- `regression`, `residual`: fitted relationships and residual diagnostics.
+- `heatmap`, `clustermap`: numeric matrices and correlation-style views.
+- `joint`, `pair`: multi-variable exploratory views.
+- `donut`, `waterfall`, `lollipop`: common business presentation templates.
 
 Avoid pie charts for negative values, many categories, or close comparisons.
+For the full chart/parameter routing table, read
+[`references/options.md`](references/options.md).
+
+Canvas dimensions are selected automatically from the chart family and data
+shape. Layout presets only bias the result; all exported PNGs stay between a
+`2:1` landscape ratio and a `1:2` portrait ratio.
 
 ## Procedure
 
@@ -67,8 +88,9 @@ Avoid pie charts for negative values, many categories, or close comparisons.
 
 ## Accuracy and Safety
 
-- The tools accept only constrained chart fields, never arbitrary Vega-Lite
-  specifications, URLs, JavaScript, output paths, or renderer arguments.
+- The tools accept only constrained business/statistical fields, never arbitrary
+  Matplotlib/Seaborn kwargs, plotting specifications, Python code, URLs, or
+  output paths.
 - All chart data is embedded inline; the renderer runs without network access.
 - Generated files stay in the current conversation's isolated workspace.
 - Keep visible prose short and do not expose the local file path separately.

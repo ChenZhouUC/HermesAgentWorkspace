@@ -285,29 +285,60 @@ PRIVATE_IMAGE_GENERATE_SCHEMA = {
 GROUP_CHART_GENERATE_SCHEMA = {
     "name": _CHART_TOOL,
     "description": (
-        "Render a deterministic PNG chart from numeric values already present in the conversation. "
-        "Runs without network access inside this Feishu group's isolated workspace."
+        "Render a deterministic PNG chart from conversation-visible data. "
+        "Choose business/statistical presets; the sandboxed adapter owns all "
+        "Matplotlib and Seaborn implementation details."
     ),
     "parameters": {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "title": {"type": "string", "description": "Concise chart title."},
-            "subtitle": {"type": "string", "description": "Optional scope, date range, or unit note."},
+            "subtitle": {"type": "string", "description": "Optional scope or date-range summary."},
+            "note": {"type": "string", "description": "Optional methodology/source note below the chart."},
             "chart_type": {
                 "type": "string",
-                "enum": ["auto", "line", "bar", "stacked_bar", "horizontal_bar", "pie", "area", "scatter"],
+                "enum": [
+                    "auto",
+                    "line",
+                    "scatter",
+                    "bar",
+                    "stacked_bar",
+                    "horizontal_bar",
+                    "area",
+                    "pie",
+                    "donut",
+                    "waterfall",
+                    "lollipop",
+                    "hist",
+                    "kde",
+                    "ecdf",
+                    "rug",
+                    "count",
+                    "point",
+                    "box",
+                    "violin",
+                    "boxen",
+                    "strip",
+                    "swarm",
+                    "regression",
+                    "residual",
+                    "heatmap",
+                    "clustermap",
+                    "joint",
+                    "pair",
+                ],
                 "default": "auto",
             },
             "labels": {
                 "type": "array",
-                "maxItems": 240,
+                "maxItems": 500,
                 "items": {"type": ["string", "number"]},
-                "description": "Ordered category or time labels.",
+                "description": "Ordered labels or categorical observations.",
             },
             "series": {
                 "type": "array",
-                "maxItems": 10,
+                "maxItems": 12,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
@@ -315,28 +346,196 @@ GROUP_CHART_GENERATE_SCHEMA = {
                         "name": {"type": "string"},
                         "values": {
                             "type": "array",
-                            "maxItems": 240,
+                            "maxItems": 500,
                             "items": {"type": ["number", "string", "null"]},
                         },
                     },
                     "required": ["name", "values"],
                 },
-                "description": "Numeric series aligned one-to-one with labels.",
+                "description": "Series aligned with labels; distribution plots treat each series as samples.",
             },
             "x_values": {
                 "type": "array",
-                "maxItems": 240,
+                "maxItems": 500,
                 "items": {"type": ["number", "string"]},
-                "description": "Optional numeric X coordinates for scatter charts, aligned with labels.",
+                "description": "Optional numeric X coordinates aligned with labels.",
             },
+            "records": {
+                "type": "array",
+                "maxItems": 2000,
+                "items": {
+                    "type": "object",
+                    "maxProperties": 20,
+                    "additionalProperties": {"type": ["string", "number", "boolean", "null"]},
+                },
+                "description": "Optional long-form records for advanced Seaborn charts and facets.",
+            },
+            "x_field": {"type": "string"},
+            "y_field": {"type": "string"},
+            "value_field": {"type": "string"},
+            "hue_field": {"type": "string"},
+            "style_field": {"type": "string"},
+            "size_field": {"type": "string"},
+            "weight_field": {"type": "string"},
+            "matrix": {
+                "type": "array",
+                "maxItems": 120,
+                "items": {
+                    "type": "array",
+                    "maxItems": 120,
+                    "items": {"type": ["number", "string"]},
+                },
+            },
+            "row_labels": {"type": "array", "maxItems": 120, "items": {"type": ["string", "number"]}},
+            "column_labels": {"type": "array", "maxItems": 120, "items": {"type": ["string", "number"]}},
+            "variables": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
             "x_label": {"type": "string"},
             "y_label": {"type": "string"},
-            "show_values": {"type": "boolean", "default": False},
+            "unit": {"type": "string"},
+            "value_format": {
+                "type": "string",
+                "enum": [
+                    "auto",
+                    "integer",
+                    "decimal",
+                    "compact",
+                    "percent",
+                    "currency_cny",
+                    "currency_usd",
+                    "currency_eur",
+                ],
+                "default": "auto",
+            },
+            "decimals": {"type": "integer", "minimum": 0, "maximum": 4, "default": 1},
+            "percent_scale": {"type": "string", "enum": ["ratio", "value"], "default": "ratio"},
+            "style_preset": {
+                "type": "string",
+                "enum": ["hidalgo", "finance", "report", "presentation", "minimal", "statistical"],
+                "default": "hidalgo",
+                "description": "Visual preset controlling background, grid, spines, fonts, and defaults.",
+            },
+            "palette_preset": {
+                "type": "string",
+                "enum": [
+                    "auto",
+                    "business",
+                    "finance",
+                    "muted",
+                    "pastel",
+                    "colorblind",
+                    "blue",
+                    "green",
+                    "warm",
+                    "cool",
+                    "diverging",
+                ],
+                "default": "auto",
+            },
+            "layout_preset": {
+                "type": "string",
+                "enum": ["auto", "compact", "standard", "wide", "tall", "square"],
+                "default": "auto",
+            },
+            "detail_preset": {
+                "type": "string",
+                "enum": ["overview", "balanced", "detailed", "smooth"],
+                "default": "balanced",
+                "description": "Controls bins, KDE grids, contour levels, bootstrap work, and mark density.",
+            },
+            "aggregation_preset": {
+                "type": "string",
+                "enum": ["mean", "median", "sum", "min", "max", "count"],
+                "default": "mean",
+            },
+            "uncertainty_preset": {
+                "type": "string",
+                "enum": ["none", "sd", "se", "ci90", "ci95", "pi90", "pi95"],
+                "default": "none",
+            },
+            "distribution_preset": {
+                "type": "string",
+                "enum": [
+                    "count",
+                    "density",
+                    "probability",
+                    "percent",
+                    "comparison",
+                    "stacked",
+                    "filled",
+                    "cumulative",
+                    "discrete",
+                ],
+                "default": "count",
+            },
+            "categorical_preset": {
+                "type": "string",
+                "enum": ["summary", "median", "raw", "compact", "detailed"],
+                "default": "summary",
+            },
+            "regression_preset": {
+                "type": "string",
+                "enum": ["linear", "robust", "lowess", "quadratic", "cubic", "logistic"],
+                "default": "linear",
+            },
+            "matrix_preset": {
+                "type": "string",
+                "enum": [
+                    "standard",
+                    "annotated",
+                    "diverging",
+                    "clustered",
+                    "row_normalized",
+                    "column_normalized",
+                ],
+                "default": "standard",
+            },
+            "annotation_preset": {
+                "type": "string",
+                "enum": ["auto", "none", "values", "percent", "compact"],
+                "default": "auto",
+            },
+            "sort": {"type": "string", "enum": ["none", "ascending", "descending"], "default": "none"},
+            "category_order": {"type": "array", "maxItems": 500, "items": {"type": ["string", "number"]}},
+            "highlight_label": {"type": "string"},
+            "legend": {"type": "string", "enum": ["auto", "show", "hide"], "default": "auto"},
+            "legend_position": {"type": "string", "enum": ["top", "right", "bottom", "best"], "default": "top"},
+            "orientation": {"type": "string", "enum": ["vertical", "horizontal"]},
+            "x_scale": {"type": "string", "enum": ["linear", "log", "symlog"], "default": "linear"},
+            "y_scale": {"type": "string", "enum": ["linear", "log", "symlog"], "default": "linear"},
+            "x_min": {"type": "number"},
+            "x_max": {"type": "number"},
+            "y_min": {"type": "number"},
+            "y_max": {"type": "number"},
+            "reference_lines": {
+                "type": "array",
+                "maxItems": 6,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "axis": {"type": "string", "enum": ["x", "y"]},
+                        "value": {"type": "number"},
+                        "label": {"type": "string"},
+                        "style": {"type": "string", "enum": ["-", "--", ":", "-."]},
+                        "color": {"type": "string"},
+                    },
+                    "required": ["value"],
+                },
+            },
+            "facet_row": {"type": "string"},
+            "facet_col": {"type": "string"},
+            "col_wrap": {"type": "integer", "minimum": 1, "maximum": 8},
+            "share_x": {"type": "boolean", "default": True},
+            "share_y": {"type": "boolean", "default": True},
+            "joint_kind": {"type": "string", "enum": ["scatter", "kde", "hist", "hex", "reg", "resid"]},
+            "pair_kind": {"type": "string", "enum": ["scatter", "kde", "hist", "reg"]},
+            "diag_kind": {"type": "string", "enum": ["auto", "hist", "kde"]},
+            "corner": {"type": "boolean", "default": False},
+            "quality": {"type": "string", "enum": ["standard", "high", "print"], "default": "standard"},
         },
-        "required": ["title", "labels", "series"],
+        "required": ["title"],
     },
 }
-
 PRIVATE_CHART_GENERATE_SCHEMA = {
     **GROUP_CHART_GENERATE_SCHEMA,
     "name": _PRIVATE_CHART_TOOL,
@@ -1135,6 +1334,9 @@ def _run_chart_script(payload: Dict[str, Any], workspace: Path) -> subprocess.Co
         command = [str(sandbox_exec), "-p", _chart_seatbelt_profile(workspace), *command]
     env: Dict[str, str] = {
         "HERMES_CHART_WORKSPACE": str(workspace),
+        "MPLBACKEND": "Agg",
+        "MPLCONFIGDIR": str(workspace / ".matplotlib"),
+        "XDG_CACHE_HOME": str(workspace / ".cache"),
         "PYTHONDONTWRITEBYTECODE": "1",
         "TMPDIR": str(workspace),
     }
@@ -1157,24 +1359,13 @@ def _run_chart_script(payload: Dict[str, Any], workspace: Path) -> subprocess.Co
 def _execute_chart_generation(args: Dict[str, Any], workspace: Path, *, scope_label: str) -> str:
     if not isinstance(args, dict):
         raise ValueError("chart generation arguments must be an object")
-    payload: Dict[str, Any] = {}
-    for key in (
-        "title",
-        "subtitle",
-        "chart_type",
-        "labels",
-        "series",
-        "x_values",
-        "x_label",
-        "y_label",
-        "show_values",
-    ):
-        if key in args and args[key] is not None:
-            payload[key] = args[key]
+    allowed = set(GROUP_CHART_GENERATE_SCHEMA["parameters"]["properties"])
+    payload: Dict[str, Any] = {key: value for key, value in args.items() if key in allowed and value is not None}
     if not str(payload.get("title") or "").strip():
         raise ValueError("title is required")
-    if not isinstance(payload.get("labels"), list) or not isinstance(payload.get("series"), list):
-        raise ValueError("labels and series are required")
+    payload.setdefault("chart_type", "auto")
+    if not any(key in payload for key in ("series", "records", "matrix", "labels")):
+        raise ValueError("provide labels/series, records, or matrix data")
 
     actor = str(_current_user_id.get() or "unknown")
     logger.info("sandbox: chart generation start scope=%s actor=%s", scope_label, actor)

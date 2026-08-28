@@ -1,5 +1,6 @@
-import json
 import importlib.util
+import json
+import struct
 import subprocess
 import sys
 import traceback
@@ -853,9 +854,38 @@ def test_group_chart_generation_is_enabled_for_all_groups_and_once_per_turn(grou
 def test_chart_tool_schema_exposes_only_constrained_data_fields():
     properties = sandbox.GROUP_CHART_GENERATE_SCHEMA["parameters"]["properties"]
     assert sandbox.GROUP_CHART_GENERATE_SCHEMA["parameters"]["additionalProperties"] is False
-    for forbidden in ("spec", "url", "path", "output_path", "command", "script", "javascript"):
+    for forbidden in (
+        "spec",
+        "url",
+        "path",
+        "output_path",
+        "command",
+        "script",
+        "javascript",
+        "bins",
+        "bw_adjust",
+        "gridsize",
+        "line_width",
+        "marker_size",
+        "n_boot",
+        "cmap",
+        "linewidths",
+    ):
         assert forbidden not in properties
     assert {"title", "labels", "series"}.issubset(properties)
+    assert {
+        "style_preset",
+        "palette_preset",
+        "layout_preset",
+        "detail_preset",
+        "aggregation_preset",
+        "uncertainty_preset",
+        "distribution_preset",
+        "categorical_preset",
+        "regression_preset",
+        "matrix_preset",
+        "annotation_preset",
+    }.issubset(properties)
 
 
 def test_group_chart_tool_returns_workspace_media_directive(group_config, monkeypatch):
@@ -926,6 +956,9 @@ def test_chart_runner_denies_network_and_forwards_no_secrets(group_config, monke
         str(group_config["chart_script"]),
     ]
     assert captured["env"]["HERMES_CHART_WORKSPACE"] == str(workspace)
+    assert captured["env"]["MPLBACKEND"] == "Agg"
+    assert captured["env"]["MPLCONFIGDIR"].startswith(str(workspace))
+    assert captured["env"]["XDG_CACHE_HOME"].startswith(str(workspace))
     assert "HERMES_IMAGE_GENERATION_API_KEY" not in captured["env"]
     assert "FEISHU_APP_SECRET" not in captured["env"]
 
@@ -1411,7 +1444,10 @@ def test_chart_renderer_generates_png_from_structured_values(tmp_path):
         ],
         "x_label": "季度",
         "y_label": "收入",
-        "show_values": True,
+        "style_preset": "hidalgo",
+        "palette_preset": "business",
+        "annotation_preset": "values",
+        "layout_preset": "standard",
     }
     completed = subprocess.run(
         [str(python), str(script)],
@@ -1427,9 +1463,151 @@ def test_chart_renderer_generates_png_from_structured_values(tmp_path):
     assert result["success"] is True
     output = workspace / result["chart"]
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    width, height = struct.unpack(">II", output.read_bytes()[16:24])
+    assert 0.5 <= width / height <= 2.0
     assert result["chart_type"] == "bar"
     assert result["labels"] == 4
     assert result["series"] == 2
+
+
+@pytest.mark.parametrize(
+    "chart_request",
+    [
+        {
+            "title": "Long ranking",
+            "chart_type": "horizontal_bar",
+            "labels": [f"Category {index}" for index in range(30)],
+            "series": [{"name": "Value", "values": list(range(30))}],
+            "layout_preset": "auto",
+        },
+        {
+            "title": "Wide comparison",
+            "chart_type": "bar",
+            "labels": [f"Q{index}" for index in range(24)],
+            "series": [{"name": "Value", "values": list(range(24))}],
+            "layout_preset": "wide",
+        },
+        {
+            "title": "Tall matrix",
+            "chart_type": "heatmap",
+            "matrix": [[row + column for column in range(4)] for row in range(24)],
+            "layout_preset": "auto",
+        },
+    ],
+)
+def test_chart_renderer_bounds_dynamic_aspect_ratio(tmp_path, chart_request):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "my-skills"
+        / "creative"
+        / "chart-generation"
+        / "scripts"
+        / "render_chart.py"
+    )
+    python = Path(__file__).resolve().parents[2] / "lib" / "chart-renderer" / "venv" / "bin" / "python"
+    workspace = tmp_path / "chart-workspace"
+    workspace.mkdir()
+    completed = subprocess.run(
+        [str(python), str(script)],
+        input=json.dumps(chart_request),
+        text=True,
+        capture_output=True,
+        env={
+            "HERMES_CHART_WORKSPACE": str(workspace),
+            "MPLCONFIGDIR": str(workspace / ".matplotlib"),
+            "XDG_CACHE_HOME": str(workspace / ".cache"),
+            "MPLBACKEND": "Agg",
+            "PATH": str(Path(python).parent),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "TMPDIR": str(workspace),
+        },
+        timeout=30,
+        check=False,
+    )
+    result = json.loads(completed.stdout)
+    assert completed.returncode == 0, completed.stderr or result
+    output = workspace / result["chart"]
+    width, height = struct.unpack(">II", output.read_bytes()[16:24])
+    assert 0.5 <= width / height <= 2.0
+
+
+@pytest.mark.parametrize(
+    "chart_request",
+    [
+        {
+            "title": "Distribution",
+            "chart_type": "hist",
+            "labels": [str(index) for index in range(12)],
+            "series": [{"name": "Sample", "values": [1, 2, 2, 3, 3, 3, 4, 5, 5, 6, 7, 8]}],
+            "style_preset": "statistical",
+            "distribution_preset": "density",
+            "detail_preset": "detailed",
+        },
+        {
+            "title": "Category Distribution",
+            "chart_type": "violin",
+            "labels": [str(index) for index in range(10)],
+            "series": [
+                {"name": "Control", "values": [1, 2, 1.5, 2.1, 2.4, 1.8, 2.2, 1.7, 2.5, 1.9]},
+                {"name": "Treatment", "values": [2, 3, 2.5, 3.1, 3.4, 2.8, 3.2, 2.7, 3.5, 2.9]},
+            ],
+            "categorical_preset": "detailed",
+        },
+        {
+            "title": "Robust Fit",
+            "chart_type": "regression",
+            "records": [
+                {"x": value, "y": value * 1.5 + value % 3, "group": "A" if value < 6 else "B"} for value in range(12)
+            ],
+            "x_field": "x",
+            "y_field": "y",
+            "hue_field": "group",
+            "regression_preset": "robust",
+        },
+        {
+            "title": "Correlation",
+            "chart_type": "heatmap",
+            "matrix": [[1, 0.3, -0.2], [0.3, 1, 0.6], [-0.2, 0.6, 1]],
+            "row_labels": ["A", "B", "C"],
+            "column_labels": ["A", "B", "C"],
+            "matrix_preset": "diverging",
+        },
+    ],
+)
+def test_chart_renderer_presets_cover_common_statistical_families(tmp_path, chart_request):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "my-skills"
+        / "creative"
+        / "chart-generation"
+        / "scripts"
+        / "render_chart.py"
+    )
+    python = Path(__file__).resolve().parents[2] / "lib" / "chart-renderer" / "venv" / "bin" / "python"
+    workspace = tmp_path / "chart-workspace"
+    workspace.mkdir()
+    env = {
+        "HERMES_CHART_WORKSPACE": str(workspace),
+        "MPLCONFIGDIR": str(workspace / ".matplotlib"),
+        "XDG_CACHE_HOME": str(workspace / ".cache"),
+        "MPLBACKEND": "Agg",
+        "PATH": str(Path(python).parent),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TMPDIR": str(workspace),
+    }
+    completed = subprocess.run(
+        [str(python), str(script)],
+        input=json.dumps(chart_request, ensure_ascii=False),
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=30,
+        check=False,
+    )
+    result = json.loads(completed.stdout)
+    assert completed.returncode == 0, completed.stderr or result
+    assert result["success"] is True
+    assert (workspace / result["chart"]).read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
 def test_chart_renderer_rejects_misaligned_series(tmp_path):

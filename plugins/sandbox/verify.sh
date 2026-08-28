@@ -309,15 +309,19 @@ assert python_executable.is_file(), f"configured Python is missing: {python_exec
 assert image_script.is_file(), f"configured group image script is missing: {image_script}"
 assert chart_script.is_file(), f"configured chart script is missing: {chart_script}"
 assert chart_python.is_file(), f"configured chart Python is missing: {chart_python}"
-chart_version = __import__("subprocess").check_output(
+chart_versions = __import__("subprocess").check_output(
     [
         str(chart_python),
         "-c",
-        "import importlib.metadata as m; print(m.version('vl-convert-python'))",
+        "import importlib.metadata as m; "
+        "print(m.version('matplotlib'), m.version('seaborn'), m.version('fonttools'), m.version('pandas'), "
+        "m.version('numpy'), m.version('scipy'), m.version('statsmodels'))",
     ],
     text=True,
 ).strip()
-assert chart_version == "1.9.0.post1", f"unexpected vl-convert-python version: {chart_version}"
+assert chart_versions == "3.10.6 0.13.2 4.63.0 2.3.2 2.3.2 1.16.1 0.15.0", (
+    f"unexpected chart renderer versions: {chart_versions}"
+)
 missing_scripts = sorted(name for name in expected_scripts if not (scripts_root / name).is_file())
 assert not missing_scripts, f"configured Feishu scripts are missing: {missing_scripts}"
 
