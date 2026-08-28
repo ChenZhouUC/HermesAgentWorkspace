@@ -2,6 +2,8 @@
 
 > **用法**：在 Claude Code 会话中说一句 `阅读 ~/.hermes/hermes-update.md 按计划做`，agent 即按本 playbook 一条龙完成"升级内层官方源码 checkout + 回贴本地 patch + 依赖自愈 + 补丁回归修到全绿 + 对齐外层监管记录/文档 + playbook 自身增补/清理/修订自审"，中途不打断、不追问，**收尾零遗留**。
 >
+> 若用户说“本轮做一次深度 PATCH/toolchain 审计”“审计 PATCH 假绿”或同义表述，视为启用下文 **深度 toolchain 审计模式**：agent 无需用户重述历史背景，直接从 Git、PATCH 注册表、bundle、执行脚本、测试与运行态重建上下文；除非同一句同时明确要求更新 upstream，否则不得 fetch/pull，只审计当前 checkout。该请求同时授权在既有安全边界内修复发现的审计链缺口、补负向回归并同步 playbook；引入新依赖、扩大权限/外部副作用或 push 仍需单独授权。
+>
 > **权威来源分工**：`hermes-update.sh` 是升级执行与回放 gate 的权威，`patches/PATCHES.md` 是语义 PATCH 注册表的权威，`patches/local-patches.diff` 是工程内补丁的唯一物理回放包。三者必须闭环一致；本 playbook 用**发现规则 + 决策规则**驱动，不复制一份会过期的补丁清单。
 
 ---
@@ -424,6 +426,41 @@ Step 6 报告前，以本轮实际执行为镜，把本 playbook（含摩擦表�
 4. **验收自问**：换一个没有会话记忆的 AI，面对任意后继 upstream，仅从当前磁盘状态和本文件出发，能否重建本轮全部判断（含本轮新增的判定规则）？任何"必须靠本次会话记忆才能答对"的知识点，都必须补写进对应权威文件后本步骤才算通过。
 5. **结果入报告**：Step 6 报告必须单列本步骤结论——增补、清理、修订各做了什么/为何，任一类为空时写明"审计后无该类变更"及依据；该结论缺失视为升级未完成。
 
+##### 深度 toolchain 审计：触发、周期与收敛边界
+
+每轮升级都必须执行上面的常规自审，但**常规自审不等于每轮都要修改 toolchain**。只有满足以下任一条件时，agent 才自动升级为深度审计；不满足时应明确记录“本轮未触发深度审计”，不得为了显示有工作量而继续叠加同义 gate：
+
+1. **事故触发**：任一真实回归、漏补丁、越权、状态污染或运行态旧代码发生在当时已报告绿色之后；这类 post-green 事故一律视为 assurance failure，而不仅是业务代码 bug。
+2. **审计基础设施变更**：本轮修改或上游重构涉及 `hermes-update.sh`、canonical test runner、pytest/conftest 隔离、PATCH evidence/final-audit、cleanup、Gateway/process identity、Step 8e verifier，或新增一种 PATCH/evidence/gate 类型。
+3. **覆盖异常**：测试文件数、collect/passed/skipped/xfail、probe/gate/PATCH 数量、bundle 路径数异常下降或变化无法由本轮 diff 完整解释；出现 retry 后转绿、零 collect、deferred、重复/未知回执、手工豁免或新的 allowlist/exception。
+4. **执行链出现人工补洞**：升级需要跳过既定步骤、临时改命令、手工拼接多段“绿灯”、从旧 JSON/日志取证，或出现 playbook 未描述的恢复路径。
+5. **用户显式触发**：用户要求“深度 PATCH/toolchain 审计”“PATCH 假绿审计”“审计升级链路”或同义任务时，无论周期是否到期都执行。
+6. **周期触发**：没有事故和结构变化时，自最近一次成功深度审计起，每累计 **4 次不同 upstream SHA 的成功升级**或经过 **90 天**（先到者）执行一次。每轮 Step 1 从下方游标和 `git log -p -- patches/.local-patches.base` 重建计数；同一 SHA 的 reconcile、文档修订和重复验证不计为新升级。游标缺失、格式损坏、对应 commit 不可达或无法可靠计数时 fail-safe 视为到期。
+
+深度审计按固定威胁模型执行，避免无边界漫游：
+
+1. **枚举完整性**：从 PATCH 定义出发，核对 active/archive/runtime/external 分类、owned paths、测试/support files、gate、probe、verifier 和报告记录是否一一闭合；同时从执行入口反向查找无 PATCH owner 的 gate/probe/verifier。
+2. **真实执行与归属**：检查 node path/class/function 精确绑定、逐 PATCH 进程隔离、每个 runnable 文件真实 collect、support module 有消费者、Archive/dedicated probe 拒绝 skip/xfail/xpass/零执行，且同一结果不能跨 PATCH 复用。
+3. **聚合与时序**：检查失败退出码能否穿过 shell/管道/重试到达最终状态；最终报告必须来自本轮，canonical/evidence 数量闭合，并在最后测试之后复核 bundle、sandbox、工作树和 Gateway 进程身份。
+4. **负向 fault injection**：每个新发现的假绿类别先在临时文件/临时 Git 仓库或 mock 边界构造“旧实现会绿”的最小失败样本，再修执行链并保留该负例。不得在真实用户数据、生产会话或远端仓库上做破坏性注入。
+5. **独立性检查**：避免 producer、consumer、测试 fixture 和 gate 复制同一常量后共同漂移；优先让测试穿过真实 public boundary。不能自动化的外部 canary 必须记录原因、最小人工证据和退场条件。
+6. **复杂度约束**：新增 gate 必须对应一个具体失效模型，具备确定输入、唯一失败信号、负向回归、可接受耗时和退场条件；能加强或替换已有检查时不平行叠加。不得仅因“还能想到更多检查”延长审计。
+
+一次深度审计在同时满足以下条件后即收敛并停止：所有发现均完成“失败复现 → 最小修复 → 负向回归 → 权威文档落盘”；P0/P1 无遗留，P2/P3 已说明影响面和退场条件；最后一次 `--reconcile` 晚于全部执行链修改；pre-commit 与 post-commit final-audit 均通过；没有下一轮必须依赖本次会话记忆才能知道的步骤。**没有发现新缺口是合法且优先的结果**，不要求为了刷新游标而改动实现。
+
+深度审计成功后更新下方持久化游标；普通升级不得改动 `last_deep_audit_*`。如果深度审计与一次 upstream 更新合并执行，游标记录该固定 `TARGET_SHA`；如果只审计当前 checkout，则记录当前内层 HEAD。
+
+```yaml
+toolchain_audit_state:
+  schema_version: 1
+  last_deep_audit_date: 2026-08-28
+  last_deep_audit_upstream_sha: 8966b0a70029cb226e35c49f91d0c2208ab1d8c4
+  last_deep_audit_outer_commit: f55d723
+  trigger: explicit-plus-post-green-history
+```
+
+深度审计报告除 Step 6 常规内容外，还必须列出：触发原因；检查过的失效类别；新增负例与 toolchain 改动；明确未改动的类别；剩余不可机械证明的风险；更新后的审计游标。若因触发条件自动进入深度审计，agent 在开始时告知用户即可，不为既有范围内的只读检查和修复逐项追问。
+
 清理与修订的机械下界由下面的 playbook-hygiene 断言块保证（在 `~/.hermes` 下运行，每轮必跑、任一失败先修再收尾）；它只能抓"引用已不存在的事物"这类硬失效，语义级的过时判断仍靠上面 1–4 条人工审计。断言口径与被校验文本共演进——新增引用形态时同步扩展本块：
 
 ```bash
@@ -495,6 +532,7 @@ JSON 必须为 `status=ok`、`mode=full`，包含逐 PATCH `patches[]` 明细和
 - Gateway / Doctor 现状（异常项展开，正常项一行带过）；安全插件需报告 verifier 对照的当前 PID，以及 owner 主会话与群聊实际 toolset 是否仍满足边界
 - 持久化演进接管性：报告活跃 PATCH 的未吸收 / 部分吸收 / 完全吸收判定及相应状态变化；列出本轮新发现的冲突、摩擦或规则缺口分别落盘到哪个权威文件，如没有新增经验也明确写“无”。确认不存在下一轮升级必需、但只保留在本次会话或临时日志中的恢复知识
 - Step 5c playbook 自审结论：增补 / 清理 / 修订三类各做了什么及依据，任一类为空写明"审计后无该类变更"；playbook-hygiene 断言块运行结果
+- 深度 toolchain 审计决策：本轮由事故/结构变化/覆盖异常/人工补洞/用户/周期中的哪一项触发，或为何未触发；若执行则报告负向 fault injection、修复、剩余风险与更新后的 `toolchain_audit_state`
 - Step 5d final-audit JSON 的 run time、target SHA、逐 PATCH 通过数、canonical suite、Gateway 双 PID、cleanup 终态与失败项（正常时明确 `failed_step` 不存在）
 - 工作树里哪些是“升级相关”、哪些是“用户先前在编辑的其他东西”，提示后者保持不动；明确说明内层受管 modified files 是预期 patch overlay，外层 bundle 才是待提交记录
 - 若 Step 2/3 中发现脚本侧的新兼容性问题，单列一节描述给用户决策
