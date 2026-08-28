@@ -2719,6 +2719,9 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q '_PEOPLE_SOURCE_LITERALS' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'test_address_is_public_and_usable_for_reply' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_private_profile_redactor_keeps_public_fields' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_short_private_values_require_ascii_token_boundaries' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_private_values_never_rewrite_media_paths' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q '_TECHNICAL_PATH_RUN_RE' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'test_private_profile_redactor_leaves_dm_text_untouched' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_unlisted_fields_are_internal_and_identity_values_are_redacted' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_people_file_remains_owner_editable_while_removing_other_access' "${SESSION_TEST_PY}" 2>/dev/null &&
