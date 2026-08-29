@@ -41,10 +41,17 @@ execution mechanism.
    must remain invisible to participants. Set `use_attached_images=true` when
    the current message or its explicit reply contains images that should be
    edited or used as references.
-3. On success, copy the returned `media_directive` verbatim onto its own line in
-   the final answer. This causes the Feishu adapter to upload the generated file
-   as a native image message.
-4. Keep visible prose short. Do not expose the filesystem path separately; the
+3. If the user explicitly asked to insert the result into a referenced Feishu
+   document, follow the `feishu-docs` placement and permission rules. In a
+   Feishu group, call `feishu_doc_manage` with `action="insert_image"` or
+   `action="set_cover"` and pass the returned relative `workspace_path` as
+   `image_path`. In the owner/main conversation, use the fixed
+   `manage_doc_image.py` script with the generated file path from the tool
+   result; do not expose that host path to the user.
+4. Otherwise, or when the user also asked for a chat copy, copy the returned
+   `media_directive` verbatim onto its own line in the final answer. This causes
+   the Feishu adapter to upload the generated file as a native image message.
+5. Keep visible prose short. Do not expose the filesystem path separately; the
    `MEDIA:` directive is removed before the message is displayed.
 
 ## Quick Reference
@@ -88,6 +95,7 @@ from the current Feishu turn into this group's isolated workspace.
 ## Verification
 
 A successful result contains `success: true`, a relative `workspace_path`, and
-a `media_directive`. The final Feishu response must include that directive
-outside code fences. Do not claim delivery succeeded merely because generation
-succeeded; the Gateway performs and logs the subsequent native-image upload.
+a `media_directive`. Use the relative path only as structured input to the
+document tool. Include the directive outside code fences when delivering a chat
+copy, but omit it for document-only requests. Do not claim either destination
+succeeded until its corresponding Gateway or document operation succeeds.

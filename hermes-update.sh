@@ -23,6 +23,8 @@
 #   9. Health verification         (hermes doctor + gateway status)
 #   Final audit (explicit mode)     (--final-audit: full PATCH matrix, canonical tests,
 #                                    docs/runtime checks, and final cleanup JSON)
+#   Pytest integrity                (PATCH evidence, plugin verifiers, and final audit
+#                                    treat PytestUnhandledThreadExceptionWarning as failure)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
 #    - If hermes update adds/removes steps, review whether steps 5–9 are still needed
@@ -74,7 +76,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.6 / main 8966b0a70029cb226e35c49f91d0c2208ab1d8c4, `hermes completion zsh` already emits the
+# As of v0.20.6 / main e387cbc0aa0fc89560bc14438762c7722663db05, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -2816,6 +2818,7 @@ if [[ -f "${GATEWAY_RUN_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TE
         grep -q 'def _extract_html_file' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'class TestCommonDocumentExtraction' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_native_overlap_formats_remain_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_native_pdf_remains_extractable_when_anydoc_is_unavailable' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_anydoc_only_formats_not_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_extract_inbound_html_without_terminal_access' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_text_note_mentions_included_content_without_path' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
@@ -3525,7 +3528,8 @@ fi
 #
 # Currently active plugins:
 #   - PATCH-FEISHU-GROUP-SANDBOX
-#     sandbox (per-chat Feishu capability boundary; see README § 用户插件)
+#     sandbox (per-chat Feishu capability boundary, including generated/attached
+#     document images and covers; see README § 用户插件)
 #
 # Add new plugins here by appending another conditional block.
 PLUGIN_VERIFIERS=("${HERMES_HOME}/plugins/sandbox/verify.sh")

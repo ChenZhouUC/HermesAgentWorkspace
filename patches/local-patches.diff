@@ -1,8 +1,8 @@
 diff --git a/agent/chat_completion_helpers.py b/agent/chat_completion_helpers.py
-index e63e28f3bd342f932c7c4bedd73a247bf38b92c4..c2626dd513aafc2be55a9491dd551060f6b847a0 100644
+index 033699ebbe08bba38fccdbc5363a9a21c2f14ec5..d5dd556b4117f21ea3e75476c6501eb64c0f7825 100644
 --- a/agent/chat_completion_helpers.py
 +++ b/agent/chat_completion_helpers.py
-@@ -1861,11 +1861,14 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
+@@ -1865,11 +1865,14 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
          _bt = agent._get_transport()
          region = getattr(agent, "_bedrock_region", None) or "us-east-1"
          guardrail = getattr(agent, "_bedrock_guardrail_config", None)
@@ -18,17 +18,17 @@ index e63e28f3bd342f932c7c4bedd73a247bf38b92c4..c2626dd513aafc2be55a9491dd551060
              region=region,
              guardrail_config=guardrail,
          )
-@@ -1878,6 +1881,9 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
+@@ -1882,6 +1885,9 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
  
      if agent.api_mode == "codex_responses":
          _ct = agent._get_transport()
 +        _ephemeral_out = getattr(agent, "_ephemeral_max_output_tokens", None)
 +        if _ephemeral_out is not None:
 +            agent._ephemeral_max_output_tokens = None  # consume immediately
-         is_github_responses = (
-             base_url_host_matches(agent.base_url, "models.github.ai")
-             or base_url_host_matches(agent.base_url, "githubcopilot.com")
-@@ -1943,7 +1949,7 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
+         from agent.codex_responses_adapter import classify_responses_route
+ 
+         is_codex_backend, is_xai_responses, is_github_responses = (
+@@ -1940,7 +1946,7 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
              session_id=getattr(agent, "session_id", None),
              cache_scope_id=_cache_scope_id,
              base_url=agent.base_url,
@@ -37,7 +37,7 @@ index e63e28f3bd342f932c7c4bedd73a247bf38b92c4..c2626dd513aafc2be55a9491dd551060
              timeout=agent._resolved_api_call_timeout(),
              request_overrides=agent.request_overrides,
              provider=getattr(agent, "provider", None),
-@@ -2459,6 +2465,21 @@ def _fallback_reason_text(reason: "FailoverReason | None") -> str:
+@@ -2456,6 +2462,21 @@ def _fallback_reason_text(reason: "FailoverReason | None") -> str:
      return str(value or reason or "provider failure").replace("_", " ")
  
  
@@ -59,7 +59,7 @@ index e63e28f3bd342f932c7c4bedd73a247bf38b92c4..c2626dd513aafc2be55a9491dd551060
  def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool:
      """Switch to the next fallback model/provider in the chain.
  
-@@ -2849,9 +2870,12 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
+@@ -2846,9 +2867,12 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
          # answering, so "what model are you?" doesn't report the primary.
          rewrite_prompt_model_identity(agent, fb_model, fb_provider)
  
@@ -76,10 +76,10 @@ index e63e28f3bd342f932c7c4bedd73a247bf38b92c4..c2626dd513aafc2be55a9491dd551060
          # The buffered switch is surfaced on terminal failure. A successful
          # fallback clears retry chatter, so retain every switch as a durable
 diff --git a/agent/conversation_loop.py b/agent/conversation_loop.py
-index f6f36d1903e97d6e3d5ea1ad3e381bb42aa55068..63f7c1721946938b4ffed5621e691a7e2a2168f2 100644
+index ceb7ce16aa5a1c10af86fc77b06b25f803f6f23d..bb2a6ecb3dcec6dac996d045e2f40a0a9e7c7c1e 100644
 --- a/agent/conversation_loop.py
 +++ b/agent/conversation_loop.py
-@@ -1206,6 +1206,25 @@ def _get_continuation_prompt(is_partial_stub: bool, dropped_tools: Optional[List
+@@ -1210,6 +1210,25 @@ def _get_continuation_prompt(is_partial_stub: bool, dropped_tools: Optional[List
          return _LENGTH_CONTINUATION_OUTPUT_LIMIT
  
  
@@ -105,7 +105,7 @@ index f6f36d1903e97d6e3d5ea1ad3e381bb42aa55068..63f7c1721946938b4ffed5621e691a7e
  # Continuation nudge for Codex/Responses turns that came back with only
  # internal reasoning (no visible content, no tool calls).  When the interim
  # assistant message also carries no encrypted reasoning items and no
-@@ -4036,13 +4055,9 @@ def run_conversation(
+@@ -4068,13 +4087,9 @@ def run_conversation(
                                  # network stall doesn't need a bigger budget, but
                                  # a genuine output-cap truncation does, and the
                                  # boost is harmless for the stall case.
@@ -122,7 +122,7 @@ index f6f36d1903e97d6e3d5ea1ad3e381bb42aa55068..63f7c1721946938b4ffed5621e691a7e
                                  # Don't append the broken response to messages;
                                  # just re-run the same API call from the current
                                  # message state, giving the model another chance.
-@@ -7194,8 +7209,28 @@ def run_conversation(
+@@ -7251,8 +7266,28 @@ def run_conversation(
                              force=True,
                          )
                          agent._invalid_json_retries = 0
@@ -152,7 +152,7 @@ index f6f36d1903e97d6e3d5ea1ad3e381bb42aa55068..63f7c1721946938b4ffed5621e691a7e
                          # Same tool-tail close as interrupt / invalid-tool
                          # exhaustion — this path never reaches finalize_turn.
                          close_interrupted_tool_sequence(messages, _final_response)
-@@ -7490,6 +7525,14 @@ def run_conversation(
+@@ -7547,6 +7582,14 @@ def run_conversation(
                                  pass
                      break
  
@@ -168,10 +168,10 @@ index f6f36d1903e97d6e3d5ea1ad3e381bb42aa55068..63f7c1721946938b4ffed5621e691a7e
                  # execution so a single truncation doesn't poison the
                  # entire conversation.
 diff --git a/agent/image_routing.py b/agent/image_routing.py
-index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91abd3023a 100644
+index 3412efe585de87f2cd03582707006bcd8e7056ea..dccdb98dd7b55a4ae42ca5e5c85bac6b1ed23e3b 100644
 --- a/agent/image_routing.py
 +++ b/agent/image_routing.py
-@@ -435,6 +435,49 @@ def _should_probe_ollama_vision(
+@@ -436,6 +436,49 @@ def _should_probe_ollama_vision(
          return False
  
  
@@ -221,7 +221,7 @@ index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91
  def _coerce_mode(raw: Any) -> str:
      """Normalize a config value into one of the valid modes."""
      if not isinstance(raw, str):
-@@ -533,6 +576,10 @@ def _lookup_supports_vision(
+@@ -535,6 +578,10 @@ def _lookup_supports_vision(
      if caps is not None:
          return bool(caps.supports_vision)
  
@@ -232,7 +232,7 @@ index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91
      base_url = _resolve_inference_base_url(cfg, provider)
      if not base_url and (provider or "").strip().lower() == "ollama":
          base_url = "http://localhost:11434/v1"
-@@ -608,6 +655,204 @@ def decide_image_input_mode(
+@@ -614,6 +661,204 @@ def decide_image_input_mode(
      return "text"
  
  
@@ -437,7 +437,7 @@ index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91
  # Image size handling is REACTIVE rather than proactive: we attempt native
  # attachment at full size regardless of provider, and rely on
  # ``run_agent._try_shrink_image_parts_in_messages`` to shrink + retry if
-@@ -827,15 +1072,276 @@ def _file_to_data_url(path: Path) -> Optional[str]:
+@@ -833,15 +1078,276 @@ def _file_to_data_url(path: Path) -> Optional[str]:
      return f"data:{mime};base64,{b64}"
  
  
@@ -715,7 +715,7 @@ index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
         {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
         ...]
-@@ -844,17 +1350,9 @@ def build_native_content_parts(
+@@ -850,17 +1356,9 @@ def build_native_content_parts(
      Remote URLs (``http(s)://``) are passed through verbatim — the provider
      fetches them server-side. The model still sees the pixels either way.
  
@@ -736,7 +736,7 @@ index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91
  
      Images are attached at their native size. If a provider rejects the
      request because an image is too large (e.g. Anthropic's 5 MB per-image
-@@ -869,6 +1367,7 @@ def build_native_content_parts(
+@@ -875,6 +1373,7 @@ def build_native_content_parts(
      image_parts: List[Dict[str, Any]] = []
      attached_paths: List[str] = []
      attached_urls: List[str] = []
@@ -744,7 +744,7 @@ index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91
  
      for raw_path in image_paths:
          p = Path(raw_path)
-@@ -885,6 +1384,27 @@ def build_native_content_parts(
+@@ -891,6 +1390,27 @@ def build_native_content_parts(
          })
          attached_paths.append(str(raw_path))
  
@@ -772,7 +772,7 @@ index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91
      for url in image_urls or []:
          url = (url or "").strip()
          if not url:
-@@ -899,11 +1419,23 @@ def build_native_content_parts(
+@@ -905,11 +1425,23 @@ def build_native_content_parts(
  
      # If at least one image attached, build a single text part that combines
      # the user's caption (or a neutral default) with one hint per image.
@@ -800,7 +800,7 @@ index a7f5c5c9f55b6cfa82bb5ab753aa952551c14f14..c9e6ca012a7ccd25803afe48e850db91
          combined_text = f"{base_text}\n\n" + "\n".join(hint_lines)
          parts: List[Dict[str, Any]] = [{"type": "text", "text": combined_text}]
          parts.extend(image_parts)
-@@ -918,6 +1450,15 @@ def build_native_content_parts(
+@@ -924,6 +1456,15 @@ def build_native_content_parts(
  
  __all__ = [
      "decide_image_input_mode",
@@ -1071,7 +1071,7 @@ index fca9201eb69db9f4a617726ee2d3cc1748e2811b..45b3bedbdc1143a2ad41e2d38d31be1b
  
  # Reverse mapping: models.dev id → Hermes ids (built lazily; many-to-one,
 diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
-index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bbb586b8ea 100644
+index 0ef0449a890c0310498da08ae8842561563911cb..f4dd1a3c5dfa9e45f59a3e8eeccc0a04c880a770 100644
 --- a/agent/prompt_builder.py
 +++ b/agent/prompt_builder.py
 @@ -32,7 +32,12 @@ from agent.skill_utils import (
@@ -1087,7 +1087,7 @@ index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bb
      iter_skill_index_files,
      org_id_of_path,
      parse_frontmatter,
-@@ -1722,7 +1727,11 @@ def _skill_should_show(
+@@ -1713,7 +1718,11 @@ def _skill_should_show(
  
  def _current_session_platform_hint() -> str:
      """Return the active platform without importing the gateway package on CLI startup."""
@@ -1100,7 +1100,7 @@ index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bb
      if platform:
          return platform
  
-@@ -1731,7 +1740,11 @@ def _current_session_platform_hint() -> str:
+@@ -1722,7 +1731,11 @@ def _current_session_platform_hint() -> str:
      if get_session_env is None:
          return ""
      try:
@@ -1113,7 +1113,7 @@ index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bb
      except Exception:
          return ""
  
-@@ -1776,7 +1789,7 @@ def build_skills_system_prompt(
+@@ -1767,7 +1780,7 @@ def build_skills_system_prompt(
          skills_dir = get_skills_dir()
          _home_token = None
      try:
@@ -1122,7 +1122,7 @@ index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bb
          # Trusted project-local dirs (./.hermes/skills, ./.agents/skills at
          # the git root) — highest-precedence tier, scanned before local.
          # Resolved once here; cwd and trust are stable for the session, so
-@@ -1812,7 +1825,9 @@ def _build_skills_system_prompt_inner(
+@@ -1803,7 +1816,9 @@ def _build_skills_system_prompt_inner(
      # produce distinct cache entries (gateway serves multiple platforms).
      _platform_hint = _current_session_platform_hint()
      disabled = get_disabled_skill_names(_platform_hint or None)
@@ -1132,7 +1132,7 @@ index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bb
      cache_key = (
          str(skills_dir),
          tuple(str(d) for d in external_dirs),
-@@ -1821,6 +1836,8 @@ def _build_skills_system_prompt_inner(
+@@ -1812,6 +1827,8 @@ def _build_skills_system_prompt_inner(
          tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
          _platform_hint,
          tuple(sorted(disabled)),
@@ -1141,7 +1141,7 @@ index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bb
          tuple(sorted(compact_categories or ())),
      )
      with _SKILLS_PROMPT_CACHE_LOCK:
-@@ -1846,10 +1863,14 @@ def _build_skills_system_prompt_inner(
+@@ -1837,10 +1854,14 @@ def _build_skills_system_prompt_inner(
                  continue
              skill_name = entry.get("skill_name") or ""
              frontmatter_name = entry.get("frontmatter_name") or skill_name
@@ -1157,7 +1157,7 @@ index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bb
                  continue
              if not _skill_should_show(
                  entry.get("conditions") or {},
-@@ -1871,7 +1892,11 @@ def _build_skills_system_prompt_inner(
+@@ -1862,7 +1883,11 @@ def _build_skills_system_prompt_inner(
              if not is_compatible:
                  continue
              skill_name = entry["skill_name"]
@@ -1170,7 +1170,7 @@ index 55b1f4fd8744024e7230ccff9cb66ac55a6a723f..2adefb780b945aed90a2de8ad3f4a9bb
                  continue
              if not _skill_should_show(
                  extract_skill_conditions(frontmatter),
-@@ -2001,7 +2026,9 @@ def _build_skills_system_prompt_inner(
+@@ -1992,7 +2017,9 @@ def _build_skills_system_prompt_inner(
                  frontmatter_name = entry["frontmatter_name"]
                  if frontmatter_name in seen_skill_names:
                      continue
@@ -1590,7 +1590,7 @@ index 0c893ab4652b7573b723686f1ea78e2b9cedc59b..c0906ecfe4f723afc74e26fbf1094aad
                  continue
              if not skill_matches_platform(frontmatter):
 diff --git a/agent/tool_executor.py b/agent/tool_executor.py
-index 5ed51b42f8936a918349935ff995b39ce7df1174..56b59cc630892b064b98e76e33dc1c5d24399448 100644
+index 5ee9da84442fb910ed10c34c0b08cf0bb9fb817c..031afa6f88fa42493f457a5a3f01e24571b34ffd 100644
 --- a/agent/tool_executor.py
 +++ b/agent/tool_executor.py
 @@ -1848,6 +1848,9 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
@@ -1603,7 +1603,7 @@ index 5ed51b42f8936a918349935ff995b39ce7df1174..56b59cc630892b064b98e76e33dc1c5d
          messages.append(tool_message)
          risk_metadata = tool_message.get("_tool_output_risk")
          if not _flush_session_db_after_tool_progress(
-@@ -2763,6 +2766,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
+@@ -2766,6 +2769,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
              tool_call_id,
              effect_disposition="unknown" if _execution_timed_out else None,
          )
@@ -1614,10 +1614,10 @@ index 5ed51b42f8936a918349935ff995b39ce7df1174..56b59cc630892b064b98e76e33dc1c5d
          risk_metadata = tool_message.get("_tool_output_risk")
          if not _flush_session_db_after_tool_progress(
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index bec0f9a82b0a821e7f4444f87ed21db5213330be..57050c1f58902c30d72e7c056e410dbcedc49dac 100644
+index f8a191ceeccda545abf996eeacf76074b166c33c..0c5358aad0b10cf934ff415e0c55812a858ae238 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
-@@ -250,6 +250,42 @@ def _model_consumes_thought_signature(model: Any) -> bool:
+@@ -271,6 +271,42 @@ def _model_consumes_thought_signature(model: Any) -> bool:
      return "gemini" in m or "gemma" in m
  
  
@@ -1660,7 +1660,7 @@ index bec0f9a82b0a821e7f4444f87ed21db5213330be..57050c1f58902c30d72e7c056e410dbc
  class ChatCompletionsTransport(ProviderTransport):
      """Transport for api_mode='chat_completions'.
  
-@@ -278,6 +314,10 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -299,6 +335,10 @@ class ChatCompletionsTransport(ProviderTransport):
            It must be kept for Gemini targets (replay required) and dropped for
            everyone else, including non-Gemini models that inherited stale
            Gemini ``extra_content`` earlier in a mixed-provider session.
@@ -1671,7 +1671,7 @@ index bec0f9a82b0a821e7f4444f87ed21db5213330be..57050c1f58902c30d72e7c056e410dbc
          - ``tool_name`` on tool-result messages — written by
            ``make_tool_result_message()`` for the SQLite FTS index, but not
            part of the Chat Completions schema. Strict providers (Fireworks,
-@@ -296,9 +336,10 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -317,9 +357,10 @@ class ChatCompletionsTransport(ProviderTransport):
            ``Extra inputs are not permitted, field: 'messages[N]._empty_recovery_synthetic'``,
            which then poisons every subsequent request in the session.
          """
@@ -1683,7 +1683,7 @@ index bec0f9a82b0a821e7f4444f87ed21db5213330be..57050c1f58902c30d72e7c056e410dbc
          needs_sanitize = False
          for msg in messages:
              if not isinstance(msg, dict):
-@@ -342,6 +383,10 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -363,6 +404,10 @@ class ChatCompletionsTransport(ProviderTransport):
                          "call_id" in tc
                          or "response_item_id" in tc
                          or (strip_extra_content and "extra_content" in tc)
@@ -1694,7 +1694,7 @@ index bec0f9a82b0a821e7f4444f87ed21db5213330be..57050c1f58902c30d72e7c056e410dbc
                      ):
                          needs_sanitize = True
                          break
-@@ -422,6 +467,10 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -443,6 +488,10 @@ class ChatCompletionsTransport(ProviderTransport):
                              "call_id" in tc
                              or "response_item_id" in tc
                              or (strip_extra_content and "extra_content" in tc)
@@ -1705,7 +1705,7 @@ index bec0f9a82b0a821e7f4444f87ed21db5213330be..57050c1f58902c30d72e7c056e410dbc
                          )
                          if should_copy_tc:
                              if copied_tool_calls is None:
-@@ -431,6 +480,21 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -452,6 +501,21 @@ class ChatCompletionsTransport(ProviderTransport):
                              copied_tc.pop("response_item_id", None)
                              if strip_extra_content:
                                  copied_tc.pop("extra_content", None)
@@ -1830,10 +1830,10 @@ index 656a30d69cea8f0bc9a17a31595cfb05659f1890..2c813bd3e1a5294e945f35c8bc5593f0
 +            return 0
      return value
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index 94c4f8a3dc175dd3684281f8303951bc7b24d48b..e41526e1dd127347ca093f1eebedb88a70f01e00 100644
+index d05c5265e7cda61b8c2b62375b8edcd8b4b7b0e4..c1fe5ba400742ac36498a1ffe427799ad1b02d01 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -1862,6 +1862,8 @@ def _log_safe_path(path: str) -> str:
+@@ -1907,6 +1907,8 @@ def _log_safe_path(path: str) -> str:
  
  SUPPORTED_DOCUMENT_TYPES = {
      ".pdf": "application/pdf",
@@ -1842,7 +1842,7 @@ index 94c4f8a3dc175dd3684281f8303951bc7b24d48b..e41526e1dd127347ca093f1eebedb88a
      ".md": "text/markdown",
      ".txt": "text/plain",
      ".csv": "text/csv",
-@@ -1880,6 +1882,8 @@ SUPPORTED_DOCUMENT_TYPES = {
+@@ -1925,6 +1927,8 @@ SUPPORTED_DOCUMENT_TYPES = {
      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
      ".ppt": "application/vnd.ms-powerpoint",
      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -1852,7 +1852,7 @@ index 94c4f8a3dc175dd3684281f8303951bc7b24d48b..e41526e1dd127347ca093f1eebedb88a
      ".py": "text/plain",
      ".sh": "text/plain",
 diff --git a/gateway/run.py b/gateway/run.py
-index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e48afa2dd 100644
+index 8ce292a54804c2a322a713425f5a01a859464ae7..dee4b281214019bd84b967f9aca5b0728f008417 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
 @@ -114,6 +114,36 @@ _USER_BOUNDARY_END_REASONS = (
@@ -1906,7 +1906,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
      r"|stream\s+(?:drop|drop\s+mid\s+tool-call).+retry\s+\d"
      r"|stale\s+connections\s+from\s+a\s+previous\s+provider\s+issue"
      rf"|{re.escape(COMPACTION_DONE_STATUS)}"
-@@ -1771,6 +1808,7 @@ from agent.replay_cleanup import (  # noqa: E402
+@@ -1779,6 +1816,7 @@ from agent.replay_cleanup import (  # noqa: E402
      strip_interrupted_tool_tails,
      strip_dangling_tool_call_tail,
      strip_stale_dangerous_confirmations,
@@ -1914,7 +1914,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  )
  
  
-@@ -2654,6 +2692,7 @@ from gateway.session import (
+@@ -2744,6 +2782,7 @@ from gateway.session import (
      build_session_key,
      is_shared_multi_user_session,
      neutralize_untrusted_inline_text,
@@ -1922,7 +1922,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  )
  from gateway.delivery import (
      DeliveryRouter,
-@@ -3149,45 +3188,118 @@ def _build_media_placeholder(event) -> str:
+@@ -3239,45 +3278,118 @@ def _build_media_placeholder(event) -> str:
      """
      parts = []
      media_urls = getattr(event, "media_urls", None) or []
@@ -2063,7 +2063,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  def _format_duration(seconds: float) -> str:
      total = int(round(seconds))
      if total < 0:
-@@ -3631,6 +3743,52 @@ def _platform_config_key(platform: "Platform") -> str:
+@@ -3721,6 +3833,52 @@ def _platform_config_key(platform: "Platform") -> str:
      return "cli" if platform == Platform.LOCAL else platform.value
  
  
@@ -2116,7 +2116,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  def _teams_pipeline_plugin_enabled() -> bool:
      """Return True when the standalone Teams pipeline plugin is enabled."""
      config = _load_gateway_config()
-@@ -5446,6 +5604,13 @@ class TurnRunner:
+@@ -5536,6 +5694,13 @@ class TurnRunner:
          # reads it via ``streaming_tts_consumer_holder[0]`` for delta
          # callback wiring.
          _stts_consumer_ref = ctx.streaming_tts_consumer_holder[0]
@@ -2130,7 +2130,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
          _scfg = getattr(getattr(self._runner, 'config', None), 'streaming', None)
          if _scfg is None:
              from gateway.config import StreamingConfig
-@@ -5490,6 +5655,12 @@ class TurnRunner:
+@@ -5580,6 +5745,12 @@ class TurnRunner:
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=ctx.event_message_id,
                          run_still_current=ctx._run_still_current,
@@ -2143,7 +2143,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                      )
                      if _want_stream_deltas:
                          def _stream_delta_cb(text: str) -> None:
-@@ -5497,7 +5668,7 @@ class TurnRunner:
+@@ -5587,7 +5758,7 @@ class TurnRunner:
                                  _stream_consumer.on_delta(text)
                                  # Tee to the streaming-TTS consumer (#60671).
                                  if _stts_consumer_ref is not None:
@@ -2152,7 +2152,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                      ctx.stream_consumer_holder[0] = _stream_consumer
              except Exception as _sc_err:
                  logger.debug("Could not set up stream consumer: %s", _sc_err)
-@@ -5508,12 +5679,16 @@ class TurnRunner:
+@@ -5598,12 +5769,16 @@ class TurnRunner:
          if _stream_delta_cb is None and _stts_consumer_ref is not None:
              def _stream_delta_cb(text: str) -> None:
                  if ctx._run_still_current():
@@ -2171,7 +2171,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              if _stream_consumer is not None:
                  if already_streamed:
                      _stream_consumer.on_segment_break()
-@@ -6201,7 +6376,22 @@ class TurnRunner:
+@@ -6291,7 +6466,22 @@ class TurnRunner:
                  agent_history = strip_stale_dangerous_confirmations(
                      _selected, now=time.time()
                  )
@@ -2195,7 +2195,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
          # Collect MEDIA paths already in history so we can exclude them
          # from the current turn's extraction. This is compression-safe:
          # even if the message list shrinks, we know which paths are old.
-@@ -6484,26 +6674,53 @@ class TurnRunner:
+@@ -6574,26 +6764,53 @@ class TurnRunner:
              # content list. Consume-and-clear so subsequent turns on the same
              # runner instance don't re-attach stale images.
              _native_imgs = self._runner._consume_pending_native_image_paths(ctx.session_key)
@@ -2254,7 +2254,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                          _img_exc,
                      )
                      _run_message = ctx.message
-@@ -6728,6 +6945,10 @@ class TurnRunner:
+@@ -6818,6 +7035,10 @@ class TurnRunner:
              final_response = _sanitize_gateway_final_response(ctx.source.platform, final_response)
              if not final_response:
                  final_response = f"⚠️ {result['error']}" if result.get("error") else ""
@@ -2265,7 +2265,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              return {
                  "final_response": final_response,
                  "messages": result.get("messages", []),
-@@ -10650,7 +10871,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10740,7 +10961,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return True  # interrupt sent (if not queue), ack already delivered recently
  
          from gateway.display_config import resolve_display_setting
@@ -2274,7 +2274,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  
          # In steer mode the user's text has already been injected into the
          # active run. Some mobile chat setups want that steering to be silent,
-@@ -10682,7 +10903,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -10772,7 +10993,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          busy_ack_detail_enabled = bool(
              resolve_display_setting(
                  _load_gateway_config(),
@@ -2283,7 +2283,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                  "busy_ack_detail",
                  True,
              )
-@@ -18795,6 +19016,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19086,6 +19307,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          # Reset only this session's per-call buffer; other sessions may be
          # concurrently preparing multimodal turns on the same runner.
          self._consume_pending_native_image_paths(session_key)
@@ -2293,7 +2293,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  
          _is_shared_multi_user = is_shared_multi_user_session(
              source,
-@@ -18878,39 +19102,83 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19169,39 +19393,83 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      )
                  else:
                      logger.info(
@@ -2400,7 +2400,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                  # Echo each successful transcript back to the user immediately
                  # when configured. Lets users verify STT quality in real-time,
                  # while allowing quiet STT for users who only want the agent to
-@@ -18941,52 +19209,129 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19232,52 +19500,129 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # language. The hardcoded send has therefore been removed.
  
          if audio_file_paths:
@@ -2560,7 +2560,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                  # document mixed into a PHOTO/VOICE message (whole-message type
                  # != DOCUMENT) still reach the agent as a readable cached file,
                  # instead of being silently dropped because the message-level
-@@ -19008,22 +19353,105 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19299,22 +19644,105 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                              mtype = guessed
                          else:
                              mtype = "application/octet-stream"
@@ -2681,7 +2681,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  
          # Discord: surface the triggering message id per-turn on the user
          # message rather than in the cached system prompt. message_id changes
-@@ -19051,7 +19479,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19342,7 +19770,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              # is referencing. History can contain the same or similar text
              # multiple times, and without an explicit pointer the agent has to
              # guess (or answer for both subjects). Token overhead is minimal.
@@ -2697,7 +2697,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              if getattr(event, "reply_to_is_own_message", False):
                  message_text = (
                      f'[Replying to your previous message: "{reply_snippet}"]\n\n'
-@@ -19212,6 +19647,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19503,6 +19938,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          state.persistent.native_image_paths = []
          return paths
  
@@ -2710,7 +2710,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
      def _cache_session_source(self, session_key: str, source) -> None:
          if not session_key or source is None:
              return
-@@ -19673,6 +20114,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -19964,6 +20405,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          try:
              _pcfg = _load_gateway_config()
              _redact_pii = bool((_pcfg.get("privacy") or {}).get("redact_pii", False))
@@ -2728,7 +2728,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
          except Exception:
              pass
  
-@@ -20976,6 +21428,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21430,6 +21882,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      agent_result, response, history_len=len(history),
                  )
                  response = _sanitize_gateway_final_response(source.platform, response)
@@ -2740,7 +2740,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  
              # Ordering contract: the agent thread already updated the contextvar
              # in conversation_compression.py; propagate to SessionEntry + _save().
-@@ -21017,7 +21474,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21471,7 +21928,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              try:
                  _show_reasoning_effective = _resolve_gateway_display_bool(
                      _load_gateway_config(),
@@ -2749,7 +2749,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                      "show_reasoning",
                      default=bool(getattr(self, "_show_reasoning", False)),
                      platform=source.platform,
-@@ -21047,7 +21504,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21501,7 +21958,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          from gateway.display_config import resolve_display_setting
                          _reasoning_style = resolve_display_setting(
                              _load_gateway_config(),
@@ -2758,7 +2758,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                              "reasoning_style",
                              "code",
                          )
-@@ -21078,7 +21535,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -21532,7 +21989,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  from gateway.runtime_footer import build_footer_line as _bfl
                  _footer_line = _bfl(
                      user_config=_load_gateway_config(),
@@ -2767,7 +2767,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                      model=agent_result.get("model"),
                      context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                      context_length=agent_result.get("context_length") or None,
-@@ -23159,7 +23616,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23614,7 +24071,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  )
                  return
  
@@ -2776,7 +2776,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  
              enabled_toolsets = self._resolve_enabled_toolsets_for_source(
                  user_config, source, platform_key
-@@ -23250,6 +23707,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23705,6 +24162,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      result.get("messages", []),
                  )
  
@@ -2788,7 +2788,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              # Extract media files from the response
              if response:
                  media_files, response = adapter.extract_media(response)
-@@ -23257,8 +23719,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23712,8 +24174,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  media_files = BasePlatformAdapter.filter_media_delivery_paths(media_files)
                  images, text_content = adapter.extract_images(response)
  
@@ -2800,7 +2800,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  
                  if text_content:
                      await adapter.send(
-@@ -23276,6 +23739,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23731,6 +24194,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                  # Send extracted images
                  for image_url, alt_text in (images or []):
                      try:
@@ -2809,7 +2809,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                          await adapter.send_image(
                              chat_id=source.chat_id,
                              image_url=image_url,
-@@ -23323,19 +23788,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -23779,19 +24244,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      except Exception:
                          pass
              else:
@@ -2834,7 +2834,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                      metadata=_thread_metadata,
                  )
              except Exception:
-@@ -25135,6 +25602,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25591,6 +26058,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          _async_delivery = getattr(_adapter, "supports_async_delivery", True)
          return set_session_vars(
              platform=context.source.platform.value,
@@ -2845,7 +2845,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              chat_id=context.source.chat_id,
              chat_type=(
                  str(context.source.chat_type) if context.source.chat_type else ""
-@@ -25214,11 +25685,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25670,11 +26141,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          user_config: Optional[dict] = None,
          provider: Optional[str] = None,
          model: Optional[str] = None,
@@ -2861,7 +2861,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
          agent/image_routing.py for the full decision table.
  
          Gateway sessions can have /model overrides that live outside
-@@ -25228,7 +25701,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25684,7 +26157,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          only the persisted default model.
          """
          try:
@@ -2870,7 +2870,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              from agent.auxiliary_client import _read_main_model, _read_main_provider
              from hermes_cli.config import load_config
  
-@@ -25269,6 +25742,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25725,6 +26198,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              if not resolved_model:
                  resolved_model = _read_main_model()
  
@@ -2886,7 +2886,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              return decide_image_input_mode(
                  resolved_provider,
                  resolved_model,
-@@ -25288,10 +25770,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25744,10 +26226,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          Auto-analyze user-attached images with the vision tool and prepend
          the descriptions to the message text.
  
@@ -2899,7 +2899,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
  
          Args:
              user_text:   The user's original caption / message text.
-@@ -25324,22 +25804,25 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25780,22 +26260,25 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      description = result.get("analysis", "")
                      description = sanitize_context(description)
                      enriched_parts.append(
@@ -2934,7 +2934,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                  )
  
          # Combine: vision descriptions first, then the user's original text
-@@ -25350,6 +25833,156 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25806,6 +26289,156 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return prefix
          return user_text
  
@@ -3091,7 +3091,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
      async def _enrich_message_with_transcription(
          self,
          user_text: str,
-@@ -25377,14 +26010,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25833,14 +26466,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
          if not getattr(self.config, "stt_enabled", True):
              notes = []
              for path in audio_paths:
@@ -3113,7 +3113,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              if not notes:
                  return user_text, []
              prefix = "\n\n".join(notes)
-@@ -25463,21 +26099,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -25919,21 +26555,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                      # logged for operator diagnosis but kept out of the
                      # LLM-visible prompt.
                      logger.info("Voice transcription failed for %s: %s", path, error)
@@ -3145,7 +3145,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                  )
  
          if enriched_parts:
-@@ -27627,6 +28263,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -28083,6 +28719,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              str(src.user_id or ""),
              str(getattr(src, "profile", None) or ""),
              bool(context.shared_multi_user_session),
@@ -3153,7 +3153,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
              discord_ids,
              discord_tools,
              slack_tools,
-@@ -28401,7 +29038,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -28857,7 +29494,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              from gateway.config import StreamingConfig
              _scfg = StreamingConfig()
  
@@ -3162,7 +3162,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
          user_config = _load_gateway_config()
          from gateway.display_config import resolve_display_setting
          _plat_streaming = resolve_display_setting(
-@@ -28434,6 +29071,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -28890,6 +29527,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                          on_before_finalize=_pause_typing_before_finalize,
                          initial_reply_to_id=event_message_id,
                          run_still_current=_run_still_current,
@@ -3175,7 +3175,7 @@ index fe57a98f7af48e811e42661527f30d00e2935549..5d7c211734432f3e87c6d73f5522206e
                      )
              except Exception as _sc_err:
                  logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
-@@ -28810,7 +29453,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+@@ -29266,7 +29909,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
              return self._is_session_run_current(session_key, run_generation)
          
          user_config = _load_gateway_config()
@@ -3888,7 +3888,7 @@ index 9a6a8c42260748748887d3ffb054be2276e1becc..44f740f1077da982d0677acae71d9f14
          _SESSION_CHAT_ID,
          _SESSION_CHAT_TYPE,
 diff --git a/gateway/slash_commands.py b/gateway/slash_commands.py
-index bb7d451cd4af0f316b2eb1baa1f97b06ef876f04..3ab3f1fc739810fa14f0beb4fbd0e037082757d4 100644
+index 88078335f7a7fb912a9f969140da072de3730233..5d8b795159db6c9711bf090076fdddda68a0bb58 100644
 --- a/gateway/slash_commands.py
 +++ b/gateway/slash_commands.py
 @@ -1764,8 +1764,11 @@ class GatewaySlashCommandsMixin:
@@ -4217,10 +4217,10 @@ index e021b7919c803a2770b0a0294d52dc035c8d54d3..e10544252f09f59b5734d11747f26cca
                      metadata=self._metadata_for_send(
                          final=finalize,
 diff --git a/hermes_cli/config_defaults.py b/hermes_cli/config_defaults.py
-index 10776127332a1b094a4bcc9cd7c6df114e4e6c97..9b4870c4a352a844de2ddcdb6b6222ee24c1d245 100644
+index ebc3825bad009e4e3a2508284d3ba868dbebf97b..4ea5b21e08da559f49ac5eec3cd36518b4c204b1 100644
 --- a/hermes_cli/config_defaults.py
 +++ b/hermes_cli/config_defaults.py
-@@ -2169,9 +2169,14 @@ DEFAULT_CONFIG = {
+@@ -2194,9 +2194,14 @@ DEFAULT_CONFIG = {
      },
  
      # Skills — external skill directories for sharing skills across tools/agents.
@@ -4238,7 +4238,7 @@ index 10776127332a1b094a4bcc9cd7c6df114e4e6c97..9b4870c4a352a844de2ddcdb6b6222ee
          # Project-local skill discovery: when a session starts inside a git
          # checkout, ``<root>/.hermes/skills/`` and ``<root>/.agents/skills/``
 diff --git a/hermes_cli/doctor.py b/hermes_cli/doctor.py
-index ba831dd3781cb72ca47ff5e567a01f7aa01c082c..015f73fb387b4cec5768298a0390bb88194faf89 100644
+index dec9f8801a489f4c2dfff3c90ad6d1f6d86bb88c..db0c8becf5cdc2c8dfb9484be6fc04237da728bd 100644
 --- a/hermes_cli/doctor.py
 +++ b/hermes_cli/doctor.py
 @@ -67,6 +67,17 @@ _PROVIDER_ENV_HINTS = (
@@ -4270,7 +4270,7 @@ index ba831dd3781cb72ca47ff5e567a01f7aa01c082c..015f73fb387b4cec5768298a0390bb88
              if not _key_vars:
                  continue
              _models_url = (
-@@ -1555,6 +1570,10 @@ def run_doctor(args):
+@@ -1533,6 +1548,10 @@ def run_doctor(args):
                  _custom_provider_aliases = None
                  _normalize_catalog_provider = None
                  _resolve_provider_full = None
@@ -4281,7 +4281,7 @@ index ba831dd3781cb72ca47ff5e567a01f7aa01c082c..015f73fb387b4cec5768298a0390bb88
  
              custom_providers = []
              if _compatible_custom_providers is not None:
-@@ -1581,8 +1600,20 @@ def run_doctor(args):
+@@ -1559,8 +1578,20 @@ def run_doctor(args):
                          _custom_provider_aliases(name, provider_key)
                      )
  
@@ -4302,7 +4302,7 @@ index ba831dd3781cb72ca47ff5e567a01f7aa01c082c..015f73fb387b4cec5768298a0390bb88
              if _normalize_catalog_provider is not None:
                  for known_provider in known_providers:
                      try:
-@@ -1602,16 +1633,18 @@ def run_doctor(args):
+@@ -1580,16 +1611,18 @@ def run_doctor(args):
                  except Exception:
                      runtime_provider = provider
  
@@ -4324,7 +4324,7 @@ index ba831dd3781cb72ca47ff5e567a01f7aa01c082c..015f73fb387b4cec5768298a0390bb88
  
              if provider and provider != "auto":
                  if catalog_provider is None or (
-@@ -1634,8 +1667,11 @@ def run_doctor(args):
+@@ -1612,8 +1645,11 @@ def run_doctor(args):
              # Vendor/model slugs are valid on aggregator-style providers and on any custom
              # provider — bare "custom" or a named "custom:<name>" that fronts an OpenAI-compatible
              # aggregator (e.g. custom:hpc-ai serving deepseek/deepseek-v4-flash) requires the prefix.
@@ -4338,7 +4338,7 @@ index ba831dd3781cb72ca47ff5e567a01f7aa01c082c..015f73fb387b4cec5768298a0390bb88
              providers_accepting_vendor_slugs = {
                  "openrouter",
                  "auto",
-@@ -1654,16 +1690,18 @@ def run_doctor(args):
+@@ -1632,16 +1668,18 @@ def run_doctor(args):
                  # is exclusively ``vendor/model`` slugs (Qwen/Qwen3.5-…,
                  # meta-llama/Llama-3-…, anthropic/claude-opus-4-7, …).
                  "deepinfra",
@@ -4431,7 +4431,7 @@ index f926c6ed4e514e44442983d97477443912966249..3813eb1c111c5fbb625d8877290ae709
      # Load .op.env AFTER .env so that .env values win, but the bootstrap
      # token (OP_SERVICE_ACCOUNT_TOKEN) becomes available for
 diff --git a/hermes_cli/model_switch.py b/hermes_cli/model_switch.py
-index 959e0ce8cd7cd9da3117b539bbf106972b074fe3..ef7d5ceabd960f3531f6fd94fed01a34457c8f57 100644
+index d4689df874087803dd23573531abc5d905ccecaf..e530d442d23cbdc722d968b8d29d9c37ea6b46bd 100644
 --- a/hermes_cli/model_switch.py
 +++ b/hermes_cli/model_switch.py
 @@ -775,6 +775,144 @@ def resolve_persist_behavior(
@@ -4845,7 +4845,7 @@ index a63aa2b68c27652c17a30b5e300664781a53933c..bf928bc7aa39b12bc46bd6949649b8c8
      env_vars=(),  # OAuth2 via service account / ADC — not a static key env var
      base_url="https://aiplatform.googleapis.com",  # real base_url computed at runtime
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33c4ab1414 100644
+index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..23155e8edeacfbaf6a280460fb376cb339331c64 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -60,6 +60,7 @@ import os
@@ -5370,7 +5370,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
      def _reset_batch_buffers(self) -> None:
          self._pending_text_batches.clear()
          self._pending_text_batch_counts.clear()
-@@ -2448,11 +2789,15 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2469,11 +2810,15 @@ class FeishuAdapter(BasePlatformAdapter):
  
              data = getattr(response, "data", None)
              raw_chat_type = str(getattr(data, "chat_type", "") or "").strip().lower()
@@ -5386,7 +5386,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
              }
              self._chat_info_cache[chat_id] = info
              return dict(info)
-@@ -3332,30 +3677,170 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3353,30 +3698,170 @@ class FeishuAdapter(BasePlatformAdapter):
          is_bot: bool = False,
      ) -> None:
          text, inbound_type, media_urls, media_types, mentions = await self._extract_message_content(message)
@@ -5570,7 +5570,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
  
          sender_primary = (
              getattr(sender_id, "open_id", None)
-@@ -3375,13 +3860,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3396,13 +3881,11 @@ class FeishuAdapter(BasePlatformAdapter):
              len(media_urls),
          )
  
@@ -5585,7 +5585,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
              user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
-@@ -3401,7 +3884,678 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3422,7 +3905,678 @@ class FeishuAdapter(BasePlatformAdapter):
              channel_prompt=self._resolve_channel_prompt(chat_id, thread_id or None),
              timestamp=datetime.now(),
          )
@@ -6264,7 +6264,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
  
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
-@@ -3438,6 +4592,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3459,6 +4613,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -6274,7 +6274,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3746,7 +4903,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3767,7 +4924,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -6286,7 +6286,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3865,9 +5025,43 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3886,9 +5046,43 @@ class FeishuAdapter(BasePlatformAdapter):
              message_id=message_id,
              normalized=normalized,
          )
@@ -6330,7 +6330,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
          if (
              inbound_type in {MessageType.DOCUMENT, MessageType.AUDIO, MessageType.VIDEO, MessageType.PHOTO}
              and len(media_urls) == 1
-@@ -3879,6 +5073,108 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3900,6 +5094,108 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -6439,7 +6439,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
      async def _download_feishu_message_resources(
          self,
          *,
-@@ -3941,6 +5237,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3962,6 +5258,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return MessageType.VOICE
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -6448,7 +6448,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -4068,6 +5366,77 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4089,6 +5387,77 @@ class FeishuAdapter(BasePlatformAdapter):
                  )
          return "", ""
  
@@ -6526,7 +6526,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
      # =========================================================================
      # Static helpers — extension / media-type guessing
      # =========================================================================
-@@ -4298,11 +5667,28 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4319,11 +5688,28 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -6557,7 +6557,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
                  self._message_text_cache.popitem(last=False)
-@@ -4354,6 +5740,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4375,6 +5761,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -6569,7 +6569,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4369,7 +5760,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4390,7 +5781,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -6578,7 +6578,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4390,8 +5781,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4411,8 +5802,8 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -6589,7 +6589,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
          return None
  
      def _require_mention_for(self, chat_id: str) -> bool:
-@@ -4489,6 +5880,167 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4510,6 +5901,167 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -6757,7 +6757,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4611,6 +6163,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4632,6 +6184,7 @@ class FeishuAdapter(BasePlatformAdapter):
          self._seen_message_ids = {k: valid[k] for k in sorted_ids}
  
      def _persist_seen_message_ids(self) -> None:
@@ -6765,7 +6765,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
          try:
              self._dedup_state_path.parent.mkdir(parents=True, exist_ok=True)
              recent = self._seen_message_order[-self._dedup_cache_size:]
-@@ -4620,21 +6173,57 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4641,21 +6194,57 @@ class FeishuAdapter(BasePlatformAdapter):
          except OSError:
              logger.warning("[Feishu] Failed to persist dedup state to %s", self._dedup_state_path, exc_info=True)
  
@@ -6827,7 +6827,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
  
      # =========================================================================
      # Outbound payload construction and send pipeline
-@@ -4824,9 +6413,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4845,9 +6434,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -6843,7 +6843,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4837,34 +6430,25 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4858,34 +6451,25 @@ class FeishuAdapter(BasePlatformAdapter):
              request = self._build_reply_message_request(effective_reply_to, body)
              return await self._run_blocking(self._client.im.v1.message.reply, request)
  
@@ -6897,7 +6897,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -4954,6 +6538,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4975,6 +6559,7 @@ class FeishuAdapter(BasePlatformAdapter):
              # See https://github.com/NousResearch/hermes-agent/issues/50656
              extra_ua_tags=["channel"],
          )
@@ -6905,7 +6905,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
          self._ws_future = loop.run_in_executor(
              None,
              _run_official_feishu_ws_client,
-@@ -4961,6 +6546,21 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4982,6 +6567,21 @@ class FeishuAdapter(BasePlatformAdapter):
              self,
          )
  
@@ -6927,7 +6927,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
      async def _connect_webhook(self) -> None:
          if not FEISHU_WEBHOOK_AVAILABLE:
              raise RuntimeError("aiohttp not installed; webhook mode unavailable")
-@@ -5084,6 +6684,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -5105,6 +6705,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -6962,7 +6962,7 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
      @staticmethod
      def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
          if GetMessageResourceRequest is not None:
-@@ -5892,7 +7520,7 @@ def register(ctx) -> None:
+@@ -5913,7 +7541,7 @@ def register(ctx) -> None:
          allow_all_env="FEISHU_ALLOW_ALL_USERS",
          cron_deliver_env_var="FEISHU_HOME_CHANNEL",
          standalone_sender_fn=_standalone_send,
@@ -6972,10 +6972,10 @@ index 42a70e79fb5ec553174c84d3c3d9106118901dd1..2e04b3a68c7e9c94cfc0a15bf8c64c33
          allow_update_command=True,
      )
 diff --git a/pyproject.toml b/pyproject.toml
-index 94ab59f90dc3af01e00708d48e8685335cac1a15..8c2d1373058fa5b5f7868e4efda57426255429c3 100644
+index a3f22c96389d268a4131a6a5f7166ab13a58e703..6fe43e5a400cfe1181a3740897c6a1f7b4789f55 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -309,7 +309,7 @@ termux-all = [
+@@ -319,7 +319,7 @@ termux-all = [
    "hermes-agent[pty]",
  ]
  dingtalk = ["dingtalk-stream==0.24.3", "alibabacloud-dingtalk==2.2.42", "qrcode==7.4.2"]
@@ -6985,7 +6985,7 @@ index 94ab59f90dc3af01e00708d48e8685335cac1a15..8c2d1373058fa5b5f7868e4efda57426
    # Required by the google-workspace skill (Gmail, Calendar, Drive, Contacts,
    # Sheets, Docs).  Declared here so dev environments (`uv sync --extra google`)
 diff --git a/tests/agent/test_image_routing.py b/tests/agent/test_image_routing.py
-index 7e8c19c5e8d6c9745c44b8c7418431e2cac216af..f5c1f8018c541381dc0f6f9389aaf33b9433ee9e 100644
+index f545909e1fa56570177b17c467da6332efef8f1a..681f875d8b68ff584cb91b4e6f597f6af17f78f8 100644
 --- a/tests/agent/test_image_routing.py
 +++ b/tests/agent/test_image_routing.py
 @@ -11,12 +11,21 @@ from agent.image_routing import (
@@ -7010,7 +7010,7 @@ index 7e8c19c5e8d6c9745c44b8c7418431e2cac216af..f5c1f8018c541381dc0f6f9389aaf33b
  )
  
  
-@@ -81,6 +90,100 @@ class TestDecideImageInputMode:
+@@ -95,6 +104,100 @@ class TestDecideImageInputMode:
  
  
  
@@ -7111,7 +7111,7 @@ index 7e8c19c5e8d6c9745c44b8c7418431e2cac216af..f5c1f8018c541381dc0f6f9389aaf33b
  
  # ─── _coerce_capability_bool ─────────────────────────────────────────────────
  
-@@ -221,6 +324,62 @@ class TestShouldProbeOllamaVision:
+@@ -235,6 +338,62 @@ class TestShouldProbeOllamaVision:
              )
          assert result is True
          mock_detect.assert_called_once_with("http://127.0.0.1:11434/v1", api_key="")
@@ -7174,7 +7174,7 @@ index 7e8c19c5e8d6c9745c44b8c7418431e2cac216af..f5c1f8018c541381dc0f6f9389aaf33b
  
  
  # ─── decide_image_input_mode with auto + override ────────────────────────────
-@@ -260,27 +419,22 @@ class TestBuildNativeContentParts:
+@@ -274,27 +433,22 @@ class TestBuildNativeContentParts:
          assert skipped == []
          assert len(parts) == 2
          assert parts[0]["type"] == "text"
@@ -7209,7 +7209,7 @@ index 7e8c19c5e8d6c9745c44b8c7418431e2cac216af..f5c1f8018c541381dc0f6f9389aaf33b
          # User caption is preserved verbatim ahead of the hint.
          assert text_part["text"].startswith("attach this")
  
-@@ -294,11 +448,11 @@ class TestBuildNativeContentParts:
+@@ -308,11 +462,11 @@ class TestBuildNativeContentParts:
          assert skipped == []
          image_parts = [p for p in parts if p.get("type") == "image_url"]
          assert len(image_parts) == 2
@@ -7225,7 +7225,7 @@ index 7e8c19c5e8d6c9745c44b8c7418431e2cac216af..f5c1f8018c541381dc0f6f9389aaf33b
  
  
  
-@@ -405,7 +559,8 @@ class TestBuildNativeContentPartsURLs:
+@@ -419,7 +573,8 @@ class TestBuildNativeContentPartsURLs:
          assert skipped == []
          assert len(parts) == 2
          assert parts[0]["type"] == "text"
@@ -7235,7 +7235,7 @@ index 7e8c19c5e8d6c9745c44b8c7418431e2cac216af..f5c1f8018c541381dc0f6f9389aaf33b
          assert parts[0]["text"].startswith("what is this?")
          assert parts[1] == {
              "type": "image_url",
-@@ -427,8 +582,10 @@ class TestBuildNativeContentPartsURLs:
+@@ -441,8 +596,10 @@ class TestBuildNativeContentPartsURLs:
          assert image_parts[0]["image_url"]["url"].startswith("data:image/png;base64,")
          assert image_parts[1]["image_url"]["url"] == "https://example.com/remote.jpg"
          text = parts[0]["text"]
@@ -7248,7 +7248,7 @@ index 7e8c19c5e8d6c9745c44b8c7418431e2cac216af..f5c1f8018c541381dc0f6f9389aaf33b
  
  
  
-@@ -651,3 +808,329 @@ class TestProbeApiKeyForwarding:
+@@ -665,3 +822,329 @@ class TestProbeApiKeyForwarding:
          ) as detect:
              _lookup_supports_vision("custom", "llava", {"model": {"api_key": key}})
          assert detect.call_args.kwargs.get("api_key") == key
@@ -7687,7 +7687,7 @@ index afed30a40731e3593dd1f10db1255a7d93256d92..438f159478848fe023283c7c7f0ac5fe
 +    history = [{"role": "assistant", "content": "orphan"}]
 +    assert apply_history_retention(history, now=1e9, max_messages=1) == history
 diff --git a/tests/agent/transports/test_chat_completions.py b/tests/agent/transports/test_chat_completions.py
-index 059322ff411e51498d68cf534614caa6f7de4f4a..3f195f888f71b9a0c325279df807ab15acfcd979 100644
+index 52422557a09aa181d97d6d940e2aeb62818cf189..9841fa80235b7979495ff05d2da15847082d20d0 100644
 --- a/tests/agent/transports/test_chat_completions.py
 +++ b/tests/agent/transports/test_chat_completions.py
 @@ -117,6 +117,86 @@ class TestChatCompletionsBasic:
@@ -16524,10 +16524,24 @@ index eaffe66d320a0c58c231ae2762834e59fd0ce2bf..989b15845667029924f0644291b11c03
          agent = _make_agent(
              fallback_model=[
 diff --git a/tests/run_agent/test_run_agent.py b/tests/run_agent/test_run_agent.py
-index 1e7b7d0f5ab9feb2cbc5199b2bd5468e93f17aa7..a2a209f012aad0515a6bf79d96c62c942bb796a4 100644
+index af6207c68310828137286d9045f5ddd642ca8511..933046f956f9ac9294b1d1d9ea7166419036e96a 100644
 --- a/tests/run_agent/test_run_agent.py
 +++ b/tests/run_agent/test_run_agent.py
-@@ -1402,6 +1402,41 @@ class TestBuildApiKwargs:
+@@ -147,6 +147,13 @@ def test_direct_session_db_flushes_share_marker_claim(agent):
+                 self.rows.append(m["content"])
+             return list(range(1, len(messages) + 1))
+ 
++        def flush_token_counts(self):
++            # Newer SessionDB persistence drains queued accounting after the
++            # message write. Keep this concurrency fake behaviorally complete
++            # so a background AttributeError cannot be reported as a passing
++            # thread test.
++            return None
++
+     db = _BarrierDB()
+     agent._session_db = db
+     agent._session_db_created = True
+@@ -1402,6 +1409,41 @@ class TestBuildApiKwargs:
          assert kwargs["messages"] is messages
          assert kwargs["timeout"] == 1800.0
  
@@ -16569,7 +16583,7 @@ index 1e7b7d0f5ab9feb2cbc5199b2bd5468e93f17aa7..a2a209f012aad0515a6bf79d96c62c94
      def test_explicit_request_local_tools_reach_native_transport(self, agent, monkeypatch):
          from agent.prompt_caching import build_prompt_cache_plan
  
-@@ -4514,8 +4549,8 @@ class TestRunConversation:
+@@ -4514,8 +4556,8 @@ class TestRunConversation:
          assert result["final_response"] == "Done!"
  
  
@@ -16580,7 +16594,7 @@ index 1e7b7d0f5ab9feb2cbc5199b2bd5468e93f17aa7..a2a209f012aad0515a6bf79d96c62c94
          self._setup_agent(agent)
          agent.valid_tool_names.add("write_file")
          good_tc = _mock_tool_call(
-@@ -4534,7 +4569,14 @@ class TestRunConversation:
+@@ -4534,7 +4576,14 @@ class TestRunConversation:
          bad_resp = _mock_response(
              content="", finish_reason="tool_calls", tool_calls=[bad_tc],
          )
@@ -16596,7 +16610,7 @@ index 1e7b7d0f5ab9feb2cbc5199b2bd5468e93f17aa7..a2a209f012aad0515a6bf79d96c62c94
  
          with (
              patch("run_agent.handle_function_call", return_value='{"success":true}'),
-@@ -4545,9 +4587,10 @@ class TestRunConversation:
+@@ -4545,9 +4594,10 @@ class TestRunConversation:
              result = agent.run_conversation("write then truncate")
  
          assert result.get("partial") is True
@@ -16609,7 +16623,7 @@ index 1e7b7d0f5ab9feb2cbc5199b2bd5468e93f17aa7..a2a209f012aad0515a6bf79d96c62c94
  
  
 diff --git a/tests/run_agent/test_tool_call_incremental_persistence.py b/tests/run_agent/test_tool_call_incremental_persistence.py
-index 20a2c2de9dc557a9c03f5056d8efa0e1eefd04fa..ab6ef93414daf546fe97741b6c160f263274ff92 100644
+index 24f7a4202a6e1685f1807b68a08a274a20856664..64acb92b345990f56ca6cad24f9838169d3bd5a0 100644
 --- a/tests/run_agent/test_tool_call_incremental_persistence.py
 +++ b/tests/run_agent/test_tool_call_incremental_persistence.py
 @@ -23,6 +23,7 @@ makes the corresponding assertion fail.
@@ -17744,7 +17758,7 @@ index af5d6a19bd7aeac23cf1d2137e87684abd8db440..3cb2a6353a310da4215110e8cfa68c90
  class TestLegacyFallback:
      """When ``initialize_result`` is missing (older test fixtures or code
 diff --git a/tests/tools/test_read_extract.py b/tests/tools/test_read_extract.py
-index de2069c8cd2dda3dd1bcedb3e1c3632621ec3064..1a63706595351639c72b939ef41ac1ff187e79b4 100644
+index de2069c8cd2dda3dd1bcedb3e1c3632621ec3064..5cf00fb765966f1af70666532ae537620ebff427 100644
 --- a/tests/tools/test_read_extract.py
 +++ b/tests/tools/test_read_extract.py
 @@ -2,10 +2,9 @@
@@ -17933,6 +17947,48 @@ index de2069c8cd2dda3dd1bcedb3e1c3632621ec3064..1a63706595351639c72b939ef41ac1ff
  # ---------------------------------------------------------------------------
  # Notebooks (.ipynb) — #10733
  # ---------------------------------------------------------------------------
+@@ -626,7 +739,7 @@ class TestReadFileToolIntegration(unittest.TestCase):
+         rex._anydoc_module = _FakeAnydoc()
+         rex.MAX_ANYDOC_BYTES = 10
+         try:
+-            p = os.path.join(self.tmp, "big.pdf")
++            p = os.path.join(self.tmp, "big.rtf")
+             with open(p, "wb") as fh:
+                 fh.write(b"x" * 11)
+             res = json.loads(read_file_tool(p))
+@@ -638,25 +751,25 @@ class TestReadFileToolIntegration(unittest.TestCase):
+             rex.MAX_ANYDOC_BYTES = saved_cap
+             rex._anydoc_module = saved_module
+ 
+-    def test_unavailable_converter_falls_back_to_raw_read(self):
++    def test_native_pdf_remains_extractable_when_anydoc_is_unavailable(self):
+         import time
+ 
+         import tools.read_extract as rex
+ 
+         saved_module = rex._anydoc_module
+         saved_failed_at = rex._anydoc_failed_at
+-        # Simulate "converter unavailable and in cooldown": _anydoc() returns
+-        # None, the .pdf is not treated as extractable, and read_file keeps
+-        # its historical raw-read fallthrough (no extraction error surfaced).
++        # Upstream now bundles anydoc, but the local native PDF path remains
++        # authoritative and must not regress to raw binary reads if that
++        # optional converter is unavailable or cooling down.
+         rex._anydoc_module = None
+         rex._anydoc_failed_at = time.monotonic()
+         try:
+             p = os.path.join(self.tmp, "doc.pdf")
+-            with open(p, "wb") as fh:
+-                fh.write(b"%PDF-1.4 fake")
++            _write_text_pdf(p, "Native PDF without anydoc")
+             res = json.loads(read_file_tool(p))
+             self.assertNotIn("error", res)
+-            self.assertIn("%PDF-1.4 fake", res.get("content", ""))
++            self.assertTrue(res.get("extracted_document"))
++            self.assertIn("Native PDF without anydoc", res.get("content", ""))
+         finally:
+             rex._anydoc_module = saved_module
+             rex._anydoc_failed_at = saved_failed_at
 @@ -805,6 +918,22 @@ class TestPdfCoverageNote(unittest.TestCase):
          self.assertEqual(self._note_with_counts(None), "")
          self.assertEqual(self._note_with_counts([0]), "")  # single page
@@ -17957,7 +18013,7 @@ index de2069c8cd2dda3dd1bcedb3e1c3632621ec3064..1a63706595351639c72b939ef41ac1ff
          from tools.read_extract import _page_ranges
          self.assertEqual(_page_ranges([2, 3, 4, 7, 9, 10]), "2-4, 7, 9-10")
 diff --git a/tests/tools/test_skill_manager_tool.py b/tests/tools/test_skill_manager_tool.py
-index 10e64ea16883eb1dc380feedceb637f747006dc0..01f6fbe1bd9d4287084dadfee5e286db6a316ba7 100644
+index 30a27610211fcf52ae281e124ad5d5246aedc36f..5a672e22d938e86b10abc42f830e1228429234f0 100644
 --- a/tests/tools/test_skill_manager_tool.py
 +++ b/tests/tools/test_skill_manager_tool.py
 @@ -30,10 +30,12 @@ from agent.skill_utils import (
@@ -18013,7 +18069,7 @@ index 10e64ea16883eb1dc380feedceb637f747006dc0..01f6fbe1bd9d4287084dadfee5e286db
      def test_create_duplicate_blocked(self, tmp_path):
          with _skill_dir(tmp_path):
              _create_skill("my-skill", VALID_SKILL_CONTENT)
-@@ -272,6 +304,39 @@ class TestDeleteSkill:
+@@ -294,6 +326,39 @@ class TestDeleteSkill:
          assert "cannot equal" in result["error"]
          assert (tmp_path / "narrow").exists()
  
@@ -18225,7 +18281,7 @@ index 0035111630229dbe22ceb0aec7dbc698a5d74f42..475371b9b84cc7e2421bfa773f283078
          """Non-local terminal backends must not read local host video paths.
  
 diff --git a/tools/approval.py b/tools/approval.py
-index 7464e8d47b0a68d63fd2789cc960b87004299097..00be439e6b13595c232d96c18acb66d504aeefdc 100644
+index 298cfe48209e2e5ba1f32f516261cc46e516e074..b1e2fde840566fcd1e20f154f15b16569a93bdf6 100644
 --- a/tools/approval.py
 +++ b/tools/approval.py
 @@ -290,6 +290,59 @@ def _is_single_query_approval_context() -> bool:
@@ -18309,7 +18365,7 @@ index 7464e8d47b0a68d63fd2789cc960b87004299097..00be439e6b13595c232d96c18acb66d5
          return False
  
      target = os.path.realpath(operand)
-@@ -4023,6 +4085,16 @@ def check_dangerous_command(command: str, env_type: str,
+@@ -4040,6 +4102,16 @@ def check_dangerous_command(command: str, env_type: str,
                         deny_pattern, command[:200])
          return _user_deny_block_result(deny_pattern)
  
@@ -18326,7 +18382,7 @@ index 7464e8d47b0a68d63fd2789cc960b87004299097..00be439e6b13595c232d96c18acb66d5
      # --yolo: bypass all approval prompts. Gateway /yolo is session-scoped;
      # CLI --yolo remains process-scoped via the env var for local use.
      if _YOLO_MODE_FROZEN or is_current_session_yolo_enabled():
-@@ -4672,6 +4744,18 @@ def check_all_command_guards(command: str, env_type: str,
+@@ -4689,6 +4761,18 @@ def check_all_command_guards(command: str, env_type: str,
                         deny_pattern, command[:200])
          return _user_deny_block_result(deny_pattern)
  
@@ -18345,7 +18401,7 @@ index 7464e8d47b0a68d63fd2789cc960b87004299097..00be439e6b13595c232d96c18acb66d5
      # --yolo or approvals.mode=off: bypass all approval prompts.
      # Gateway /yolo is session-scoped; CLI --yolo remains process-scoped.
      approval_mode = _get_approval_mode()
-@@ -4896,7 +4980,10 @@ def check_all_command_guards(command: str, env_type: str,
+@@ -4913,7 +4997,10 @@ def check_all_command_guards(command: str, env_type: str,
          rule_id = findings[0].get("rule_id", "unknown") if findings else "unknown"
          tirith_key = f"tirith:{rule_id}"
          tirith_desc = _format_tirith_description(tirith_result)
@@ -18357,7 +18413,7 @@ index 7464e8d47b0a68d63fd2789cc960b87004299097..00be439e6b13595c232d96c18acb66d5
              warnings.append((tirith_key, tirith_desc, True))
  
      if is_dangerous:
-@@ -4911,8 +4998,11 @@ def check_all_command_guards(command: str, env_type: str,
+@@ -4928,8 +5015,11 @@ def check_all_command_guards(command: str, env_type: str,
      # When approvals.mode=smart, ask the aux LLM before prompting the user.
      # Inspired by OpenAI Codex's Smart Approvals guardian subagent
      # (openai/codex#13860).
@@ -18370,7 +18426,7 @@ index 7464e8d47b0a68d63fd2789cc960b87004299097..00be439e6b13595c232d96c18acb66d5
          combined_desc_for_llm = "; ".join(desc for _, desc, _ in warnings)
          observer_payload = _prepare_smart_approval_observer(
              command=command,
-@@ -5037,6 +5127,9 @@ def check_all_command_guards(command: str, env_type: str,
+@@ -5054,6 +5144,9 @@ def check_all_command_guards(command: str, env_type: str,
      # input() flow.  The agent never sees "approval_required"; it either
      # gets the command output (approved) or a definitive "BLOCKED" message.
      if is_gateway or is_ask:
@@ -18380,7 +18436,7 @@ index 7464e8d47b0a68d63fd2789cc960b87004299097..00be439e6b13595c232d96c18acb66d5
          notify_cb = None
          with _lock:
              notify_cb = _gateway_notify_cbs.get(session_key)
-@@ -5378,6 +5471,13 @@ def check_execute_code_guard(code: str, env_type: str,
+@@ -5395,6 +5488,13 @@ def check_execute_code_guard(code: str, env_type: str,
          return {"approved": True, "message": None}
  
      session_key = get_current_session_key()
@@ -18467,7 +18523,7 @@ index 6d2aad8fc6c7fda99a7d5b41d2e6eda3c9668000..9fdf4348a0c995e0cd3876e13f93e7af
      try:
          from lark_oapi import AccessTokenType
 diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 05ff08d72effe2e50b053f8d7334f731ad4712ee..83885c71bbf364a260a6dd06a94548c4d45777f4 100644
+index 64d4f2ec3128fda37557d2d1622b563aa2dbddb7..b6e9c674a1a7f812913b3d001c4dfa099679a9a1 100644
 --- a/tools/lazy_deps.py
 +++ b/tools/lazy_deps.py
 @@ -241,6 +241,8 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
@@ -18697,7 +18753,7 @@ index 0000000000000000000000000000000000000000..fd9fc64b595469e21d0f9d5697e47e9a
 +        )
 +        return await _task_request_once(session, method, corrected)
 diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py
-index 6accd450a076d27a9d8ef57a4974b7cb5ad18e4b..69fec7b12c69e9a6aa46c4cab3ad81d0d63fcd66 100644
+index ffcdff532db1b12e12f5419d13207c2c19b554c0..622331241bf1b3792a123fbe2fba918da6fff3af 100644
 --- a/tools/mcp_tool.py
 +++ b/tools/mcp_tool.py
 @@ -1680,6 +1680,10 @@ def _make_redirect_header_stripper(
@@ -19026,7 +19082,7 @@ index 6accd450a076d27a9d8ef57a4974b7cb5ad18e4b..69fec7b12c69e9a6aa46c4cab3ad81d0
      for raw in utility_tools_from_cache_entry(entry):
          if not isinstance(raw, dict):
 diff --git a/tools/read_extract.py b/tools/read_extract.py
-index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd1e74eeb4 100644
+index 260aa045f4ce401cb66d4b5e7d4137764ebcef33..74918a1bbe96b08d44d96d3d98404078b40b7994 100644
 --- a/tools/read_extract.py
 +++ b/tools/read_extract.py
 @@ -1,13 +1,11 @@
@@ -19135,8 +19191,44 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
      if ext in ANYDOC_EXTENSIONS:
          return _extract_anydoc(path)
      raise ExtractionError(f"Unsupported document type: {path!r}")
-@@ -162,6 +190,18 @@ def extract_document_bytes(data: bytes, path: str) -> str:
-                 pass
+@@ -139,21 +167,29 @@ def extract_document_bytes(data: bytes, path: str) -> str:
+     if len(data) > MAX_DOCUMENT_BYTES:
+         raise ExtractionError(
+             f"Document too large to convert ({len(data):,} bytes, limit is {MAX_DOCUMENT_BYTES:,})"
+-        )
++    )
+     ext = _extension(path)
+-    if ext in ANYDOC_EXTENSIONS:
+-        return _extract_anydoc_bytes(data, path)
+     if ext not in EXTRACTABLE_EXTENSIONS:
++        if ext in ANYDOC_EXTENSIONS:
++            return _extract_anydoc_bytes(data, path)
+         raise ExtractionError(f"Unsupported document type: {path!r}")
+ 
+-    # The stdlib extractors are path-oriented. Materialize backend bytes in a
+-    # private host temp file, then remove it even when parsing fails.
++    # The native extractors are path-oriented. Materialize backend bytes in a
++    # private host temp file, then remove it even when parsing fails. Native
++    # formats deliberately win over anydoc when the extension sets overlap;
++    # this keeps PDF/PPTX/ODT available during an anydoc import failure and
++    # preserves the same parser and safety limits on local and remote files.
+     temp_path = ""
+     try:
+         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as fh:
+             fh.write(data)
+             temp_path = fh.name
+-        return extract_document_text(temp_path)
++        text = extract_document_text(temp_path)
++        if ext == ".pdf":
++            note = _pdf_coverage_note(temp_path, display_path=path)
++            if note:
++                text = note + text
++        return text
+     finally:
+         if temp_path:
+             try:
+@@ -257,6 +293,18 @@ def _needs_ocr_warning(path: str, pages, hosted_error: str = "") -> str:
+     return msg + "]\n"
  
  
 +def _check_document_size(path: str) -> None:
@@ -19154,7 +19246,7 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
  def _extract_anydoc(path: str) -> str:
      mod = _anydoc()
      if mod is None:
-@@ -302,18 +342,10 @@ def _pdf_coverage_note(path: str, display_path: Optional[str] = None) -> str:
+@@ -421,18 +469,10 @@ def _pdf_coverage_note(path: str, display_path: Optional[str] = None) -> str:
      the recovery command — the one the agent's terminal can actually see.
      """
      texts = _pdf_page_texts(path)
@@ -19176,7 +19268,7 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
      shown = display_path or path
      return (
          "[EXTRACTION COVERAGE WARNING: "
-@@ -332,6 +364,35 @@ def _pdf_coverage_note(path: str, display_path: Optional[str] = None) -> str:
+@@ -451,6 +491,35 @@ def _pdf_coverage_note(path: str, display_path: Optional[str] = None) -> str:
      )
  
  
@@ -19212,7 +19304,7 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
  def _extract_anydoc_bytes(data: bytes, path: str) -> str:
      mod = _anydoc()
      if mod is None:
-@@ -546,18 +607,39 @@ def _extract_notebook(path: str) -> str:
+@@ -665,18 +734,39 @@ def _extract_notebook(path: str) -> str:
      return "\n".join(out).rstrip("\n") + "\n"
  
  
@@ -19254,7 +19346,7 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
              root = _zip_xml(zf, "word/document.xml")
      except zipfile.BadZipFile as exc:
          raise ExtractionError(f"Not a valid DOCX: {exc}") from exc
-@@ -581,9 +663,229 @@ def _extract_docx(path: str) -> str:
+@@ -700,9 +790,229 @@ def _extract_docx(path: str) -> str:
      return "\n".join(lines).rstrip("\n") + "\n"
  
  
@@ -19484,7 +19576,7 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
              names = set(zf.namelist())
              shared = _shared_strings(zf, names)
              sheets = _workbook_sheets(zf)
-@@ -596,7 +898,7 @@ def _extract_xlsx(path: str) -> str:
+@@ -715,7 +1025,7 @@ def _extract_xlsx(path: str) -> str:
                  if part not in names:
                      continue
                  try:
@@ -19493,7 +19585,7 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
                  except ET.ParseError:
                      continue
                  out.append(f"# ── Sheet: {name} ──")
-@@ -618,7 +920,7 @@ def _shared_strings(zf: zipfile.ZipFile, names: set[str]) -> list[str]:
+@@ -737,7 +1047,7 @@ def _shared_strings(zf: zipfile.ZipFile, names: set[str]) -> list[str]:
      if "xl/sharedStrings.xml" not in names:
          return []
      try:
@@ -19502,7 +19594,7 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
      except ET.ParseError:
          return []
      s = f"{{{_NS_S}}}"
-@@ -639,7 +941,7 @@ def _workbook_rels(zf: zipfile.ZipFile, names: set[str]) -> dict[str, str]:
+@@ -758,7 +1068,7 @@ def _workbook_rels(zf: zipfile.ZipFile, names: set[str]) -> dict[str, str]:
      if rels_path not in names:
          return {}
      try:
@@ -19512,7 +19604,7 @@ index 5b50c2728b9c0496be631b28ddddb3d74fb8664e..d42039cdcd10c54c2852e5f9fae403dd
          return {}
      rel_tag = f"{{{_NS_PKG_REL}}}Relationship"
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index 976e3836275931ec60b55b24ac80c43873fec18f..d2a7f02ac79c393dd8f4287cd82125c90582bed9 100644
+index a9f41ad3be4e28b20cb2cd35f46154e3f9614f3c..0b9b82b46eba025e42dde3ed35a83a7d50cd7f0c 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
 @@ -34,6 +34,7 @@ Directory layout for user skills:
@@ -19566,7 +19658,7 @@ index 976e3836275931ec60b55b24ac80c43873fec18f..d2a7f02ac79c393dd8f4287cd82125c9
  
  
  def _find_skill(name: str) -> Optional[Dict[str, Any]]:
-@@ -995,7 +1025,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
+@@ -994,7 +1024,11 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
      result = {
          "success": True,
          "message": f"Skill '{name}' created.",
@@ -19579,7 +19671,7 @@ index 976e3836275931ec60b55b24ac80c43873fec18f..d2a7f02ac79c393dd8f4287cd82125c9
          "skill_md": str(skill_md),
          "_change": {"description": _desc},
      }
-@@ -1313,9 +1347,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
+@@ -1329,9 +1363,11 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
  
      shutil.rmtree(skill_dir)
  
@@ -19902,10 +19994,10 @@ index 66f1b198c57982a8f4ea53726eecc02401c0dd55..11ebae270145a39fd67d0796f0b70c2e
          return None, {}, "tool_call 'arguments' must be an object"
      if not is_deferrable_tool_name(name):
 diff --git a/tools/vision_tools.py b/tools/vision_tools.py
-index 8d05c153e6f0a9575e6ba5c9e4f1f03e0e209856..e53cc9c6a709ee689a89ec71d2c32143215f4389 100644
+index 337bc24d775f6924131d8f9b70f41848a225976c..45e39c5d8f435138675bf6b366d3553f1124cf2e 100644
 --- a/tools/vision_tools.py
 +++ b/tools/vision_tools.py
-@@ -2091,7 +2091,33 @@ async def video_analyze_tool(
+@@ -2173,7 +2173,33 @@ async def video_analyze_tool(
              call_kwargs["model"] = model
  
          _load_auxiliary_client()
@@ -19941,7 +20033,7 @@ index 8d05c153e6f0a9575e6ba5c9e4f1f03e0e209856..e53cc9c6a709ee689a89ec71d2c32143
  
          if not analysis:
 diff --git a/toolsets.py b/toolsets.py
-index bab352a0bdb07bd0a762d736642a34154fe5506b..95f996a8e97667650b34fd93d2d8280589c2adad 100644
+index 2ddd6461c1365cc7dd90ea89a8df858da45898cf..4232dc4d4964db74618d9202b248cb2ae3b22194 100644
 --- a/toolsets.py
 +++ b/toolsets.py
 @@ -178,6 +178,12 @@ TOOLSETS = {
@@ -19971,10 +20063,10 @@ index bab352a0bdb07bd0a762d736642a34154fe5506b..95f996a8e97667650b34fd93d2d82805
      "tts": {
          "description": "Text-to-speech: convert text to audio with Edge TTS (free), ElevenLabs, OpenAI, or xAI",
 diff --git a/uv.lock b/uv.lock
-index 248f1f92ed6928ec272b6261351e85cac08b0dd3..38b53d230fa33b449e1519548dbc76590b7226c6 100644
+index 1f77eae9e50adb4e9b1b0ad0293d6b4849c74a6c..f54ac0e196389cf4f81a50f18a0770c7ab2e9048 100644
 --- a/uv.lock
 +++ b/uv.lock
-@@ -1672,6 +1672,8 @@ fal = [
+@@ -1689,6 +1689,8 @@ fal = [
  ]
  feishu = [
      { name = "lark-oapi" },
@@ -19983,7 +20075,7 @@ index 248f1f92ed6928ec272b6261351e85cac08b0dd3..38b53d230fa33b449e1519548dbc7659
      { name = "qrcode" },
  ]
  firecrawl = [
-@@ -1906,11 +1908,13 @@ requires-dist = [
+@@ -1924,11 +1926,13 @@ requires-dist = [
      { name = "pyasn1", marker = "extra == 'google'", specifier = "==0.6.4" },
      { name = "pydantic", specifier = "==2.13.4" },
      { name = "pyjwt", extras = ["crypto"], specifier = "==2.13.0" },
@@ -19997,7 +20089,7 @@ index 248f1f92ed6928ec272b6261351e85cac08b0dd3..38b53d230fa33b449e1519548dbc7659
      { name = "python-telegram-bot", extras = ["webhooks"], marker = "extra == 'messaging'", specifier = "==22.8" },
      { name = "python-telegram-bot", extras = ["webhooks"], marker = "extra == 'termux'", specifier = "==22.8" },
      { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=306,<312" },
-@@ -3560,6 +3564,15 @@ wheels = [
+@@ -3578,6 +3582,15 @@ wheels = [
      { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781, upload-time = "2026-01-21T03:57:55.912Z" },
  ]
  
@@ -20044,10 +20136,10 @@ index a2069f5ae8448c29ed91a8aca20c16ec6ed2cdf9..6d1b0a61c8dbf01ed6efc3dce164a8bb
  | `FEISHU_HOME_CHANNEL_NAME` | Display name for the Feishu home channel. |
  | `FEISHU_ALLOW_ALL_USERS` | Allow any Feishu user to trigger the bot (dev only). |
 diff --git a/website/docs/user-guide/configuration.md b/website/docs/user-guide/configuration.md
-index 89ec6e2c1541ae6e17cc4d830c2f2220bbd7e3fd..35b999e51494a64b421a0677c8464432669c72bb 100644
+index d5226ce2d6592524db9b3ac2e32f3a46f54d233b..a9026b0703ce850ded4a305a74ba44a8c373a488 100644
 --- a/website/docs/user-guide/configuration.md
 +++ b/website/docs/user-guide/configuration.md
-@@ -817,6 +817,76 @@ the `hermes tools` UI.
+@@ -831,6 +831,76 @@ the `hermes tools` UI.
  
  Leaving the list empty, or omitting the key, is a no-op.
  
@@ -20124,7 +20216,7 @@ index 89ec6e2c1541ae6e17cc4d830c2f2220bbd7e3fd..35b999e51494a64b421a0677c8464432
  ## Git Worktree Isolation
  
  Enable isolated git worktrees for running multiple agents in parallel on the same repo:
-@@ -1846,6 +1916,9 @@ display:
+@@ -1863,6 +1933,9 @@ display:
    timestamps: false       # When true, prefixes user and assistant labels with timestamps in the CLI / TUI transcript
    timestamp_format: "%H:%M"  # strftime format for those timestamps (e.g. "%b-%d %H:%M" for month-day)
    tool_preview_length: 0  # Max chars for tool call previews (0 = no limit, show full paths/commands)
@@ -20134,7 +20226,7 @@ index 89ec6e2c1541ae6e17cc4d830c2f2220bbd7e3fd..35b999e51494a64b421a0677c8464432
    turn_summary: true      # CLI only: print a one-line post-turn accounting footer after each interactive turn
    spinner_token_flow: true # CLI only: append live cumulative turn tokens to the spinner timer
    runtime_footer:         # Gateway: append a runtime-context footer to final replies
-@@ -1857,6 +1930,14 @@ display:
+@@ -1874,6 +1947,14 @@ display:
    language: en            # UI language for static messages (approval prompts, some gateway replies). en | zh | zh-hant | ja | de | es | fr | tr | uk | af | ko | it | ga | pt | ru | hu
  ```
  

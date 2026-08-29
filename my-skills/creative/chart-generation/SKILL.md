@@ -83,8 +83,15 @@ shape. Layout presets only bias the result; all exported PNGs stay between a
 3. Select the simplest truthful chart type.
 4. Supply a concise title, axis labels, and optional subtitle for scope or unit.
 5. Call the appropriate chart tool once.
-6. On success, copy the returned `media_directive` verbatim onto its own line
-   in the final response so the Gateway sends the PNG as a native Feishu image.
+6. If the user explicitly requested a referenced Feishu document destination,
+   follow the `feishu-docs` placement rules. In a Feishu group, call
+   `feishu_doc_manage` with `action="insert_image"` or `action="set_cover"`,
+   passing the returned relative `workspace_path` as `image_path`. In the
+   owner/main conversation, use the fixed `manage_doc_image.py` script with the
+   generated file path from the tool result; do not expose that host path.
+7. Otherwise, or when a chat copy was also requested, copy the returned
+   `media_directive` verbatim onto its own line so the Gateway sends the PNG as
+   a native Feishu image.
 
 ## Accuracy and Safety
 
@@ -105,4 +112,5 @@ shape. Layout presets only bias the result; all exported PNGs stay between a
 
 A successful result contains `success: true`, `chart_type`, `workspace_path`,
 and `media_directive`. Check that the returned label and series counts match the
-intended selection before claiming completion.
+intended selection before claiming completion. For document-only requests, use
+`workspace_path` with the document tool and omit the chat `media_directive`.

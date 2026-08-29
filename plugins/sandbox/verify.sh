@@ -35,6 +35,7 @@ PLUGIN_CONFIG="${HERMES_HOME}/plugins/sandbox/config.yaml"
 PLUGIN_TEST="${HERMES_HOME}/plugins/sandbox/test_sandbox.py"
 PEOPLE_FILE="${HERMES_HOME}/people.yaml"
 PEOPLE_TEST="${HERMES_HOME}/scripts/test_pull_feishu_people.py"
+DOC_MEDIA_TEST="${HERMES_HOME}/my-skills/productivity/feishu-docs/scripts/test_manage_doc_image.py"
 VENV_PYTHON="${HERMES_AGENT}/venv/bin/python"
 
 fail=0
@@ -92,7 +93,7 @@ fi
 # 4. Root/plugin configuration contract (HARD)
 if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${ROOT_CONFIG}" ]] && [[ -r "${PLUGIN_CONFIG}" ]] &&
     [[ -r "${PEOPLE_FILE}" ]] &&
-    "${VENV_PYTHON}" - "${ROOT_CONFIG}" "${PLUGIN_CONFIG}" "${PEOPLE_FILE}" <<'PY'; then
+    "${VENV_PYTHON}" - "${ROOT_CONFIG}" "${PLUGIN_CONFIG}" "${PEOPLE_FILE}" <<'PY'
 import re
 import sys
 import plistlib
@@ -265,6 +266,8 @@ assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []
     "delete",
     "read_url",
     "download_file",
+    "insert_image",
+    "set_cover",
 }
 assert plugin.get("require_process_sandbox") is True
 assert plugin.get("group_image_generation_script") == (
@@ -284,8 +287,9 @@ assert int(plugin.get("group_image_max_output_bytes") or 0) == 10000000
 assert int(plugin.get("group_image_max_inputs") or 0) == 4
 assert int(plugin.get("chart_generation_timeout_seconds") or 0) == 60
 assert int(plugin.get("chart_max_output_bytes") or 0) == 10000000
+assert int(plugin.get("group_doc_image_max_bytes") or 0) == 20 * 1024 * 1024
 assert plugin.get("mutation_trust_block_message") == "群聊中的飞书文档删除仅允许受信任的维护者执行。"
-assert plugin.get("mutation_reference_block_message") == "追加、重建或删除飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
+assert plugin.get("mutation_reference_block_message") == "修改飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
 
 scripts_root = Path(plugin["feishu_doc_scripts_root"]).expanduser().resolve()
 python_executable = Path(plugin["python_executable"]).expanduser().resolve()
@@ -299,6 +303,8 @@ expected_scripts = {
     "delete_doc.py",
     "read_feishu_url.py",
     "download_feishu_file.py",
+    "manage_doc_image.py",
+    "test_manage_doc_image.py",
     "feishu_common.py",
     # Not a mapped action itself, but read_url's renderer dependency; listed
     # so its absence fails with the friendly message instead of a bare
@@ -325,6 +331,17 @@ assert chart_versions == "3.10.6 0.13.2 4.63.0 2.3.2 2.3.2 1.16.1 0.15.0", (
 missing_scripts = sorted(name for name in expected_scripts if not (scripts_root / name).is_file())
 assert not missing_scripts, f"configured Feishu scripts are missing: {missing_scripts}"
 
+doc_media = (scripts_root / "manage_doc_image.py").read_text(encoding="utf-8")
+for needle in (
+    "/drive/v1/medias/upload_all",
+    "parent_type=docx_image",
+    "drive_route_token",
+    'payload={"replace_image": replacement}',
+    'payload={"update_cover": {"cover": cover}}',
+    "append_version_row(token, doc_token)",
+):
+    assert needle in doc_media, f"document media write contract is missing {needle!r}"
+
 # read_feishu_url imports read_docx_to_markdown only for the pure parse_blocks
 # renderer. A module-scope `import requests` there breaks every read_url call
 # whenever the running interpreter lacks requests, so keep the dependency
@@ -338,6 +355,7 @@ assert renderer.count("    import requests\n") == 2, (
     "must import requests lazily"
 )
 PY
+then
     echo "OK   owner-DM/group YAML contract, complete identity roster, and fixed Feishu script map are valid"
 else
     echo "FAIL owner-DM/group YAML contract, identity roster, or fixed Feishu script map is invalid"
@@ -484,6 +502,10 @@ assert "group_cache" in (json.loads(describe_group).get("tools") or {})
 assert "feishu_doc_manage" in (json.loads(describe_doc).get("tools") or {})
 assert "group_image_generate" in (json.loads(describe_image).get("tools") or {})
 assert "group_chart_generate" in (json.loads(describe_chart).get("tools") or {})
+doc_schema = (json.loads(describe_doc).get("tools") or {})["feishu_doc_manage"]
+doc_properties = doc_schema["parameters"]["properties"]
+assert {"insert_image", "set_cover"}.issubset(set(doc_properties["action"]["enum"]))
+assert {"image_path", "attachment_index", "position", "anchor_text"}.issubset(doc_properties)
 
 # Also pass through the actual sandbox pre_tool_call hook. The dispatch checks
 # above alone can be green while Feishu groups still block the bridge tools.
@@ -563,6 +585,8 @@ for document_args in (
     {"action": "create"},
     {"action": "append", "doc_token": "doxcnSandboxVerifyTarget"},
     {"action": "rebuild", "doc_token": "doxcnSandboxVerifyTarget"},
+    {"action": "insert_image", "doc_token": "doxcnSandboxVerifyTarget"},
+    {"action": "set_cover", "doc_token": "doxcnSandboxVerifyTarget"},
 ):
     assert sandbox._on_pre_tool_call(
         tool_name="feishu_doc_manage",
@@ -764,12 +788,13 @@ fi
 # A zero pytest exit alone is insufficient: skipped/xfail-only coverage also
 # exits zero. Emit one machine-readable receipt only after every JUnit case
 # passed cleanly, so Step 8e and the final PATCH evidence consume the same fact.
-if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TEST}" ]]; then
+if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TEST}" ]] && [[ -r "${DOC_MEDIA_TEST}" ]]; then
     _SANDBOX_JUNIT=$(mktemp -t hermes-sandbox-junit.XXXXXX)
     _SANDBOX_PYTEST_OUT=$(
         cd "${HERMES_HOME}" &&
             "${VENV_PYTHON}" -m pytest -q -p no:cacheprovider -o xfail_strict=true \
-                --junitxml="${_SANDBOX_JUNIT}" "${PLUGIN_TEST}" "${PEOPLE_TEST}" 2>&1
+                -W error::pytest.PytestUnhandledThreadExceptionWarning \
+                --junitxml="${_SANDBOX_JUNIT}" "${PLUGIN_TEST}" "${PEOPLE_TEST}" "${DOC_MEDIA_TEST}" 2>&1
     )
     _SANDBOX_PYTEST_RC=$?
     echo "${_SANDBOX_PYTEST_OUT}"
@@ -809,7 +834,7 @@ PY
     rm -f -- "${_SANDBOX_JUNIT}"
     _SANDBOX_JUNIT=""
 else
-    echo "FAIL sandbox or Feishu identity-sync regression inputs are unavailable"
+    echo "FAIL sandbox, Feishu identity-sync, or document-media regression inputs are unavailable"
     fail=1
 fi
 
@@ -880,6 +905,8 @@ PY
         echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_create_case' &&
         echo "${current_reg}" | grep -q 'mcp__hypertex__tasks_get' &&
         echo "${current_reg}" | grep -q 'doc_delete_only=True' &&
+        echo "${current_reg}" | grep -q "doc_media_actions=\['insert_image', 'set_cover'\]" &&
+        echo "${current_reg}" | grep -q 'doc_image_max_bytes=20971520' &&
         echo "${current_reg}" | grep -q 'hypertex_routing_policy=server-owned/non-observable' &&
         echo "${current_reg}" | grep -q 'hypertex_chats=' &&
         echo "${current_reg}" | grep -q 'hypertex_users=' &&

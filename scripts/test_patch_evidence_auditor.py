@@ -134,6 +134,11 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
             ["--file-retries", "0"],
             [argv[index : index + 2] for index in range(len(argv) - 1)],
         )
+        self.assertIn("--", argv)
+        self.assertIn(
+            ["-W", "error::pytest.PytestUnhandledThreadExceptionWarning"],
+            [argv[index : index + 2] for index in range(len(argv) - 1)],
+        )
 
     def test_final_canonical_suite_rejects_flaky_green_output(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -169,22 +174,36 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
             {"id": "PATCH-B", "lifecycle": "active", "upstream_overlap": []},
             {"id": "PATCH-C", "lifecycle": "archived", "upstream_overlap": ["c.py"]},
         ]
+        counts = "本轮 1 个 active 与 1 个受管路径相交，1 个 Archive 与 1 个声明路径相交；active/Archive 去重后 2 条；"
         self.assertEqual(
             final_audit._validate_absorption_matrix(
                 records,
-                "`PATCH-A`=部分吸收；`PATCH-C`=完全吸收；无路径相交=1",
+                counts + "`PATCH-A`=部分吸收；`PATCH-C`=完全吸收；无路径相交=1",
             ),
-            {"overlap_verdicts": 2, "active_no_overlap": 1},
+            {
+                "overlap_verdicts": 2,
+                "active_no_overlap": 1,
+                "active_patches": 1,
+                "active_paths": 1,
+                "archived_patches": 1,
+                "archived_paths": 1,
+                "unique_paths": 2,
+            },
         )
         with self.assertRaisesRegex(final_audit.FinalAuditError, "matrix drift"):
             final_audit._validate_absorption_matrix(
                 records,
-                "`PATCH-C`=完全吸收；无路径相交=1",
+                counts + "`PATCH-C`=完全吸收；无路径相交=1",
             )
         with self.assertRaisesRegex(final_audit.FinalAuditError, "conflicts with lifecycle"):
             final_audit._validate_absorption_matrix(
                 records,
-                "`PATCH-A`=完全吸收；`PATCH-C`=完全吸收；无路径相交=1",
+                counts + "`PATCH-A`=完全吸收；`PATCH-C`=完全吸收；无路径相交=1",
+            )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "path count drift"):
+            final_audit._validate_absorption_matrix(
+                records,
+                counts.replace("去重后 2 条", "去重后 3 条") + "`PATCH-A`=部分吸收；`PATCH-C`=完全吸收；无路径相交=1",
             )
 
     def test_evidence_upgrade_range_must_end_at_current_head(self) -> None:
@@ -623,6 +642,26 @@ fi
                 "tests/test_contract.py::test_contract",
             )
 
+    def test_strict_pytest_probe_rejects_unhandled_thread_exception(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="thread-warning-probe-") as temp_raw:
+            test_file = Path(temp_raw) / "test_thread_warning.py"
+            test_file.write_text(
+                "import threading\n\n"
+                "def test_background_failure():\n"
+                "    def fail():\n"
+                "        raise RuntimeError('background boom')\n"
+                "    thread = threading.Thread(target=fail)\n"
+                "    thread.start()\n"
+                "    thread.join()\n"
+                "    assert True\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(evidence.EvidenceError, "failed"):
+                evidence._run_strict_pytest_probe(
+                    "thread warning regression",
+                    f"{test_file}::test_background_failure",
+                )
+
     def test_evidence_registry_requires_exact_ids_and_lifecycles(self) -> None:
         patches = (
             patch_block("test_contract")
@@ -954,6 +993,11 @@ fi
 
         self.assertEqual(len(calls), 2)
         self.assertEqual({call[-1] for call in calls}, {resolved[key][0] for key in resolved})
+        for call in calls:
+            self.assertIn(
+                ["-W", "error::pytest.PytestUnhandledThreadExceptionWarning"],
+                [call[index : index + 2] for index in range(len(call) - 1)],
+            )
 
     def test_dotenv_inventory_reads_names_without_exposing_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_raw:

@@ -75,7 +75,14 @@ def _patched_tests() -> list[str]:
 def _run_canonical_patch_tests(test_files: list[str]) -> dict[str, int]:
     result = _run(
         "canonical-patch-tests",
-        [str(INNER / "scripts/run_tests.sh"), "--file-retries", "0", *test_files],
+        [
+            str(INNER / "scripts/run_tests.sh"),
+            "--file-retries",
+            "0",
+            *test_files,
+            "--",
+            *patch_evidence.PYTEST_STRICT_WARNING_ARGS,
+        ],
         cwd=INNER,
         timeout=900,
     )
@@ -180,9 +187,49 @@ def _validate_absorption_matrix(patch_records: list[dict[str, object]], summary_
             "derived-docs",
             f"no-overlap active PATCH count drift: reported={reported} actual={active_no_overlap}",
         )
+
+    active_overlaps = [
+        record for record in patch_records if record.get("lifecycle") == "active" and record.get("upstream_overlap")
+    ]
+    archived_overlaps = [
+        record for record in patch_records if record.get("lifecycle") == "archived" and record.get("upstream_overlap")
+    ]
+    active_paths = {str(path) for record in active_overlaps for path in record.get("upstream_overlap", [])}
+    archived_paths = {str(path) for record in archived_overlaps for path in record.get("upstream_overlap", [])}
+    path_claim = re.search(
+        r"本轮\s+(\d+)\s+个 active 与\s+(\d+)\s+个受管路径相交，"
+        r"\s*(\d+)\s+个 Archive 与\s+(\d+)\s+个声明路径相交",
+        summary_text,
+    )
+    union_claim = re.search(r"active/Archive 去重后\s+(\d+)\s+条", summary_text)
+    if path_claim is None or union_claim is None:
+        raise FinalAuditError(
+            "derived-docs",
+            "upstream overlap path count claims are missing",
+        )
+    observed_path_counts = {
+        "active_patches": int(path_claim.group(1)),
+        "active_paths": int(path_claim.group(2)),
+        "archived_patches": int(path_claim.group(3)),
+        "archived_paths": int(path_claim.group(4)),
+        "unique_paths": int(union_claim.group(1)),
+    }
+    expected_path_counts = {
+        "active_patches": len(active_overlaps),
+        "active_paths": len(active_paths),
+        "archived_patches": len(archived_overlaps),
+        "archived_paths": len(archived_paths),
+        "unique_paths": len(active_paths | archived_paths),
+    }
+    if observed_path_counts != expected_path_counts:
+        raise FinalAuditError(
+            "derived-docs",
+            f"upstream overlap path count drift: observed={observed_path_counts} expected={expected_path_counts}",
+        )
     return {
         "overlap_verdicts": len(seen),
         "active_no_overlap": active_no_overlap,
+        **expected_path_counts,
     }
 
 

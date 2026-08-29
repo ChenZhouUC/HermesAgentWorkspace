@@ -43,10 +43,11 @@ allowed_tools_for_outsider_groups:
   - mcp__hypertex__hypertex_iterate_case
   - mcp__hypertex__tasks_get
 
-# Group members may create, append, or rebuild Feishu documents. Append and
-# rebuild still require an explicitly referenced target document. Only these
-# trusted user IDs may delete documents. The key keeps its historical
-# "mutations" name, but its runtime effect is delete-only.
+# Group members may create, append, rebuild, insert images into, or update the
+# cover of Feishu documents. Every mutation of an existing document requires an
+# explicitly referenced target document. Only these trusted user IDs may delete
+# documents. The key keeps its historical "mutations" name, but its runtime
+# effect is delete-only.
 #
 # Roster convention: register ONLY the app-scoped open_id (`ou_…`) from
 # ~/.hermes/people.yaml. The inbound hook collects open_id, tenant user_id, and
@@ -120,6 +121,8 @@ allowed_feishu_script_actions_for_outsider_groups:
   - delete
   - read_url
   - download_file
+  - insert_image
+  - set_cover
 
 feishu_doc_scripts_root: ~/.hermes/my-skills/productivity/feishu-docs/scripts
 group_image_generation_script: ~/.hermes/my-skills/creative/image-generation/scripts/generate_image.py
@@ -136,6 +139,7 @@ group_image_max_output_bytes: 10000000
 group_image_max_inputs: 4
 chart_generation_timeout_seconds: 60
 chart_max_output_bytes: 10000000
+group_doc_image_max_bytes: 20971520
 
 # Fail closed if the OS process sandbox is unavailable. The profile permits
 # reads/execution/network but permits writes only inside the current group
@@ -146,4 +150,4 @@ block_message: "本会话不支持该工具。群聊仅开放问答、联网搜�
 read_root_block_message: "群聊只允许读取 ~/.hermes/wiki 和当前群自己的 ~/.hermes/tmp/group-workspaces/<群哈希>/；skills/my-skills 只能通过只读 skill 工具访问。"
 resource_block_message: "群聊只能读取或下载当前消息、引用消息中明确出现的飞书文档/文件链接。请在本条消息中重新附上目标链接。"
 mutation_trust_block_message: "群聊中的飞书文档删除仅允许受信任的维护者执行。"
-mutation_reference_block_message: "追加、重建或删除飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
+mutation_reference_block_message: "修改飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"

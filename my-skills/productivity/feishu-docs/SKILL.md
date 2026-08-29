@@ -29,7 +29,7 @@ exporting Feishu Docs, Wiki nodes, file attachments, Sheets, or Minutes.
 13. **403 Forbidden Fallbacks**: If appending to a user's doc fails with HTTP 403 Forbidden, and you create a fallback document, you MUST STILL apply all strict formatting rules (Professional Title, Version Table, Chicago References). Do NOT just dump raw markdown via append. Use `scripts/rebuild_doc_from_md.py` on the fallback doc to guarantee the Version Table and Title are initialized properly, and ensure your source markdown includes the `## References` section.
 14. **Wiki vs Docx Permission Scope**: If the target URL is a Feishu Wiki link (`https://domain.feishu.cn/wiki/TOKEN`), the application MUST have `wiki:wiki:readonly` or `wiki:node:read` permissions. If it only has document permissions, the API will reject it with a `99991672 Access denied` error. Ask the user to grant the Wiki scope or provide the underlying standard `.docx` link.
 15. **Shortcuts (404 / 1770032 forBidden)**: If you obtain a file token from a folder listing and that token is a `shortcut` type, reading its raw token or its metadata directly often fails with 404 or `1770032 forBidden`. If extraction fails on a shortcut, notify the user that the source file is either deleted or lacks public/group permissions inherited by the bot.
-16. **Media Token Isolation (No Image/Video Copying)**: Feishu strictly isolates media (images/videos) per document. A media token from Doc A will return `403 Forbidden` if inserted into Doc B. To copy media, you would have to download the binary and use the `Upload Media` API to get a new token for Doc B. Because this is slow and prone to timeouts, our Markdown extraction scripts **intentionally drop images and videos**. If the user asks why images didn't copy over, explain this architectural limitation.
+16. **Media Token Isolation**: Feishu isolates media tokens per document. Never copy an image/video token from Doc A directly into Doc B; download the binary and upload it against the destination document or image block. Markdown extraction still drops embedded media, while explicit image insertion and cover updates use `feishu_doc_manage` or `scripts/manage_doc_image.py` to create a fresh destination-scoped token.
 17. **Rebuild Script KeyError on Deep Nesting**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild and trigger a safe rollback. For a true mapping `KeyError`, use `create_new_doc_from_md.py` only when the user explicitly permits a replacement document. For rich-text-list `HTTP 400` errors, fix the Markdown and rerun the rebuild on the same document as required by rule 21.
 18. **Tenant Domain Configuration**: Scripts output placeholder URLs (e.g. `domain.feishu.cn`). Make sure your execution substitutes the actual tenant domain (`whales.feishu.cn`) when giving links back to the user.
 19. **Nested Inline Formatting in List Items (HTTP 400)**: Feishu's Block API rejects Markdown where bold/italic styling is nested directly inside list items (e.g., `- **Label**: text` or nested sub-lists like `  * **Sub-item**:`), failing with `HTTP 400 Invalid parameter type in json: children`. **WARNING: As an AI, you naturally default to generating `\* **Key**: Value` lists. You MUST actively suppress this habit when generating Markdown for Feishu Docs.** **Resolution**: Flatten the list into regular paragraphs (e.g., `**Label**: text` on its own line), strip the inline emphasis from bullets, or **use Markdown blockquotes (`> text`) instead of lists** to maintain indentation without triggering the rejection. _Example Fix:_ Change `* **Item**:` to `> **Item**:`.
@@ -196,6 +196,43 @@ To merge large Markdown content into an existing document with perfect native fo
 
 ---
 
+## 🖼️ Inserting Images and Setting Document Covers
+
+Images are not completed by Markdown import alone. They require a
+document-scoped media upload followed by an image-block or document-cover
+update. Read [`references/document-images.md`](references/document-images.md)
+when the user asks to insert a generated image/chart, insert an attached image,
+or set/replace a document cover.
+
+In a Feishu group, use `feishu_doc_manage`:
+
+- `action="insert_image"` with exactly one of `image_path` or
+  `attachment_index`.
+- `action="set_cover"` with exactly one of `image_path` or
+  `attachment_index`.
+- A generated image/chart's returned relative `workspace_path` is the canonical
+  `image_path`; do not expose or invent an absolute host path.
+- Every mutation of an existing document requires that document to appear in
+  the current message or explicit reply.
+
+For owner/CLI operation, use the fixed script directly:
+
+```bash
+~/.hermes/hermes-agent/venv/bin/python \
+  ~/.hermes/my-skills/productivity/feishu-docs/scripts/manage_doc_image.py \
+  insert <doc_token> <image_path> --position after --anchor-text "Section title"
+
+~/.hermes/hermes-agent/venv/bin/python \
+  ~/.hermes/my-skills/productivity/feishu-docs/scripts/manage_doc_image.py \
+  cover <doc_token> <image_path>
+```
+
+Do not route these operations through arbitrary shell commands in a group.
+The fixed script uploads the image, performs the document mutation, appends the
+version row, and compensates the visible mutation if a later step fails.
+
+---
+
 ## 🚀 读取任意飞书链接 (统一入口 / 群聊首选)
 
 `scripts/read_feishu_url.py` 是一个分发器：传入任意飞书链接，自动识别类型并路由到对应读取逻辑，打印文本/markdown。
@@ -207,7 +244,7 @@ To merge large Markdown content into an existing document with perfect native fo
 
 支持：`/docx` `/docs`(文档→markdown)、`/wiki`(解析节点后递归)、`/sheets`(电子表格→markdown 表)、`/base`(多维表格→markdown 表)、`/file`(下载附件，再用 `read_file` 抽取)。
 
-**群聊调用规则：** 群聊没有 `terminal`。读取任意飞书链接、下载附件以及创建、追加、重建、删除文档，一律调用结构化的 `feishu_doc_manage`；需要落地 Markdown 时先调用 `group_cache`。工具只会映射到管理员逐项批准的既有脚本，参数不经过 shell，群聊工作区内创建的文件永远不会作为脚本执行。
+**群聊调用规则：** 群聊没有 `terminal`。读取任意飞书链接、下载附件以及创建、追加、重建、删除、插入图片或设置封面的文档操作，一律调用结构化的 `feishu_doc_manage`；需要落地 Markdown 时先调用 `group_cache`。工具只会映射到管理员逐项批准的既有脚本，参数不经过 shell，群聊工作区内创建的文件永远不会作为脚本执行。
 
 新读取脚本本体 (`scripts/read_sheet.py`/`scripts/read_bitable.py`/`scripts/download_feishu_file.py`/`scripts/feishu_render.py`) 是纯标准库，复用 `scripts/feishu_common.py` 取 token。
 

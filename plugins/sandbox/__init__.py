@@ -28,6 +28,7 @@ import contextvars
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -111,6 +112,7 @@ _GROUP_IMAGE_MAX_OUTPUT_BYTES = 10_000_000
 _GROUP_IMAGE_MAX_INPUTS = 4
 _GROUP_CHART_TIMEOUT_SECONDS = 60
 _GROUP_CHART_MAX_OUTPUT_BYTES = 10_000_000
+_GROUP_DOC_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 _REQUIRE_PROCESS_SANDBOX = True
 
 _BLOCK_MESSAGE = "This tool is not available in this chat."
@@ -119,7 +121,7 @@ _CONFIG_BLOCK_MESSAGE = "群聊安全配置未成功加载，工具调用已按�
 _GROUP_CONTEXT_MESSAGE = "This tool is available only inside a configured Feishu group chat."
 _RESOURCE_BLOCK_MESSAGE = "群聊只能访问当前消息明确引用的飞书资源。"
 _MUTATION_TRUST_BLOCK_MESSAGE = "群聊中的飞书文档删除仅允许受信任的维护者执行。"
-_MUTATION_REFERENCE_BLOCK_MESSAGE = "追加、重建或删除飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
+_MUTATION_REFERENCE_BLOCK_MESSAGE = "修改飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
 
 _READ_PATH_TOOLS: FrozenSet[str] = frozenset({"read_file", "search_files"})
 _GROUP_CHAT_TYPES: FrozenSet[str] = frozenset({"group", "channel", "forum", "thread"})
@@ -161,7 +163,7 @@ _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
 _FEISHU_URL_RE = re.compile(r"https://[^\s<>\"'\]]+")
 _EXPLICIT_TOKEN_RE = re.compile(r"(?i)\b(?:doc_token|file_token)\s*[:=]\s*([A-Za-z0-9_-]{5,200})")
 _TRUST_REQUIRED_SCRIPT_ACTIONS = frozenset({"delete"})
-_EXPLICIT_TARGET_SCRIPT_ACTIONS = frozenset({"append", "rebuild", "delete"})
+_EXPLICIT_TARGET_SCRIPT_ACTIONS = frozenset({"append", "rebuild", "delete", "insert_image", "set_cover"})
 _WEB_EXTRACT_PATH_RE = re.compile(r"(?m)^Full text saved to:\s*(.+?)\s*$")
 _EPHEMERAL_READ_PATHS_BY_CHAT: Dict[str, Set[Path]] = {}
 _EPHEMERAL_READ_PATHS_LOCK = threading.Lock()
@@ -180,6 +182,8 @@ _FEISHU_SCRIPT_FILES = {
     "delete": "delete_doc.py",
     "read_url": "read_feishu_url.py",
     "download_file": "download_feishu_file.py",
+    "insert_image": "manage_doc_image.py",
+    "set_cover": "manage_doc_image.py",
 }
 
 
@@ -212,7 +216,7 @@ FEISHU_DOC_MANAGE_SCHEMA = {
     "name": _SCRIPT_TOOL,
     "description": (
         "Run an operator-approved, pre-installed Feishu document script without a shell. "
-        "Supports create, append, rebuild, delete, URL read, and file download. "
+        "Supports create, append, rebuild, delete, image insertion, cover updates, URL read, and file download. "
         "For create/append/rebuild, provide content or a markdown_path previously written by group_cache."
     ),
     "parameters": {
@@ -221,7 +225,16 @@ FEISHU_DOC_MANAGE_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["create", "append", "rebuild", "delete", "read_url", "download_file"],
+                "enum": [
+                    "create",
+                    "append",
+                    "rebuild",
+                    "delete",
+                    "read_url",
+                    "download_file",
+                    "insert_image",
+                    "set_cover",
+                ],
             },
             "doc_token": {"type": "string", "description": "Feishu docx token or docx URL."},
             "title": {"type": "string"},
@@ -231,6 +244,47 @@ FEISHU_DOC_MANAGE_SCHEMA = {
                 "description": "Relative markdown file path in this group's workspace.",
             },
             "url": {"type": "string", "description": "Feishu/Lark URL or file token."},
+            "image_path": {
+                "type": "string",
+                "description": (
+                    "Relative image path in this group's workspace, normally returned by "
+                    "group_image_generate or group_chart_generate. Mutually exclusive with attachment_index."
+                ),
+            },
+            "attachment_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7,
+                "description": (
+                    "Zero-based index among image attachments from the current message or explicit reply. "
+                    "Mutually exclusive with image_path."
+                ),
+            },
+            "insert_index": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Optional exact top-level child index for insert_image.",
+            },
+            "position": {
+                "type": "string",
+                "enum": ["end", "before", "after"],
+                "default": "end",
+                "description": "Placement relative to anchor_text when inserting an image.",
+            },
+            "anchor_text": {
+                "type": "string",
+                "description": "Unique top-level heading or paragraph text used with position=before/after.",
+            },
+            "align": {
+                "type": "string",
+                "enum": ["left", "center", "right"],
+                "default": "center",
+            },
+            "caption": {"type": "string", "description": "Optional image caption."},
+            "width": {"type": "integer", "minimum": 1, "maximum": 20000},
+            "height": {"type": "integer", "minimum": 1, "maximum": 20000},
+            "offset_ratio_x": {"type": "number", "description": "Optional horizontal cover crop offset."},
+            "offset_ratio_y": {"type": "number", "description": "Optional vertical cover crop offset."},
         },
         "required": ["action"],
     },
@@ -1035,6 +1089,12 @@ def _image_extension_from_magic(path: Path) -> Optional[str]:
         return ".jpg"
     if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
         return ".webp"
+    if prefix.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if prefix.startswith(b"BM"):
+        return ".bmp"
+    if prefix.startswith((b"II*\x00", b"MM\x00*")):
+        return ".tiff"
     return None
 
 
@@ -1563,6 +1623,70 @@ def _markdown_source(args: Dict[str, Any], workspace: Path) -> Path:
     return source
 
 
+def _doc_image_source(args: Dict[str, Any], workspace: Path) -> Path:
+    relative = args.get("image_path")
+    attachment_index = args.get("attachment_index")
+    if (relative is None) == (attachment_index is None):
+        raise ValueError("provide exactly one of image_path or attachment_index")
+
+    if relative is not None:
+        source = _workspace_path(workspace, relative)
+    else:
+        if isinstance(attachment_index, bool) or not isinstance(attachment_index, int):
+            raise ValueError("attachment_index must be a zero-based integer")
+        if attachment_index < 0:
+            raise ValueError("attachment_index must be non-negative")
+        image_sources: list[Path] = []
+        for raw in _current_media_paths.get():
+            try:
+                candidate = Path(raw).expanduser()
+                if candidate.is_symlink():
+                    continue
+                candidate = candidate.resolve(strict=True)
+                if not candidate.is_file() or _image_extension_from_magic(candidate) is None:
+                    continue
+                image_sources.append(candidate)
+            except OSError:
+                continue
+        if attachment_index >= len(image_sources):
+            raise ValueError("attachment_index does not name an image in the current message or explicit reply")
+        source = image_sources[attachment_index]
+
+    if source.is_symlink() or not source.is_file():
+        raise ValueError("image source must be a regular file")
+    size = source.stat().st_size
+    if size <= 0:
+        raise ValueError("image source is empty")
+    if size > _GROUP_DOC_IMAGE_MAX_BYTES:
+        raise ValueError("image source exceeds the configured Feishu document upload limit")
+    if _image_extension_from_magic(source) is None:
+        raise ValueError("image source must be PNG, JPEG, GIF, WebP, BMP, or TIFF")
+    return source
+
+
+def _bounded_optional_int(args: Dict[str, Any], name: str, *, minimum: int, maximum: int) -> Optional[int]:
+    value = args.get(name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise ValueError(f"{name} must be an integer between {minimum} and {maximum}")
+    return value
+
+
+def _finite_optional_float(args: Dict[str, Any], name: str) -> Optional[float]:
+    value = args.get(name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        raise ValueError(f"{name} must be a finite number")
+    return float(value)
+
+
+def _append_flag(argv: list[str], name: str, value: Any) -> None:
+    if value is not None:
+        argv.extend([f"--{name.replace('_', '-')}", str(value)])
+
+
 def _trusted_script_path(action: str) -> Path:
     if action not in _GROUP_ALLOWED_SCRIPT_ACTIONS:
         raise PermissionError(f"script action is not operator-approved: {action}")
@@ -1599,6 +1723,44 @@ def _build_script_argv(args: Dict[str, Any], workspace: Path) -> tuple[str, Path
         argv = [_feishu_url(args.get("url"))]
     elif action == "download_file":
         argv = [_feishu_url(args.get("url"), file_only=True), str(workspace)]
+    elif action in {"insert_image", "set_cover"}:
+        source = _doc_image_source(args, workspace)
+        argv = ["insert" if action == "insert_image" else "cover", _doc_token(args.get("doc_token")), str(source)]
+        if action == "insert_image":
+            insert_index = _bounded_optional_int(args, "insert_index", minimum=0, maximum=1_000_000)
+            width = _bounded_optional_int(args, "width", minimum=1, maximum=20_000)
+            height = _bounded_optional_int(args, "height", minimum=1, maximum=20_000)
+            position = str(args.get("position") or "end").strip()
+            if position not in {"end", "before", "after"}:
+                raise ValueError("position must be end, before, or after")
+            anchor_text = args.get("anchor_text")
+            if anchor_text is not None:
+                if not isinstance(anchor_text, str) or not anchor_text.strip() or len(anchor_text) > 500:
+                    raise ValueError("anchor_text must be a non-empty string of at most 500 characters")
+                anchor_text = anchor_text.strip()
+            if insert_index is not None and anchor_text is not None:
+                raise ValueError("insert_index cannot be combined with anchor_text")
+            if position in {"before", "after"} and anchor_text is None:
+                raise ValueError("position=before/after requires anchor_text")
+            if position == "end" and anchor_text is not None:
+                raise ValueError("anchor_text requires position=before or position=after")
+            align = str(args.get("align") or "center").strip()
+            if align not in {"left", "center", "right"}:
+                raise ValueError("align must be left, center, or right")
+            caption = args.get("caption")
+            if caption is not None:
+                if not isinstance(caption, str) or len(caption) > 1_000 or "\x00" in caption:
+                    raise ValueError("caption must be a string of at most 1000 characters")
+            _append_flag(argv, "insert_index", insert_index)
+            _append_flag(argv, "position", position)
+            _append_flag(argv, "anchor_text", anchor_text)
+            _append_flag(argv, "align", align)
+            _append_flag(argv, "caption", caption)
+            _append_flag(argv, "width", width)
+            _append_flag(argv, "height", height)
+        else:
+            _append_flag(argv, "offset_ratio_x", _finite_optional_float(args, "offset_ratio_x"))
+            _append_flag(argv, "offset_ratio_y", _finite_optional_float(args, "offset_ratio_y"))
     else:
         raise ValueError(f"unsupported script action: {action!r}")
     return action, script, argv
@@ -1636,6 +1798,7 @@ def _run_trusted_script(script: Path, argv: list[str], workspace: Path) -> subpr
             "PYTHONDONTWRITEBYTECODE": "1",
             "TMPDIR": str(workspace),
             "HERMES_GROUP_MAX_DOWNLOAD_BYTES": str(_GROUP_MAX_DOWNLOAD_BYTES),
+            "HERMES_FEISHU_IMAGE_MAX_BYTES": str(_GROUP_DOC_IMAGE_MAX_BYTES),
         }
     )
     return subprocess.run(
@@ -1739,6 +1902,7 @@ def _load_config() -> bool:
     global _GROUP_IMAGE_TIMEOUT_SECONDS, _GROUP_IMAGE_MAX_INPUT_BYTES
     global _GROUP_IMAGE_MAX_OUTPUT_BYTES, _GROUP_IMAGE_MAX_INPUTS
     global _GROUP_CHART_TIMEOUT_SECONDS, _GROUP_CHART_MAX_OUTPUT_BYTES
+    global _GROUP_DOC_IMAGE_MAX_BYTES
     global _REQUIRE_PROCESS_SANDBOX, _BLOCK_MESSAGE, _READ_ROOT_BLOCK_MESSAGE
     global _RESOURCE_BLOCK_MESSAGE, _MUTATION_TRUST_BLOCK_MESSAGE
     global _MUTATION_REFERENCE_BLOCK_MESSAGE
@@ -1862,6 +2026,10 @@ def _load_config() -> bool:
         _GROUP_CHART_MAX_OUTPUT_BYTES = max(
             1_000_000,
             min(20_000_000, int(data.get("chart_max_output_bytes", 10_000_000))),
+        )
+        _GROUP_DOC_IMAGE_MAX_BYTES = max(
+            1_000_000,
+            min(20 * 1024 * 1024, int(data.get("group_doc_image_max_bytes", 20 * 1024 * 1024))),
         )
     except (TypeError, ValueError):
         logger.error("sandbox: script, download, and HyperTeX staging limits must be integers")
@@ -2087,7 +2255,8 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     logger.info(
         "sandbox: registered (pid=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
-        "workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, hypertex_chats=%s, "
+        "workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, "
+        "doc_media_actions=%s, doc_image_max_bytes=%s, hypertex_chats=%s, "
         "hypertex_users=%s, hypertex_routing_policy=%s, image_chats=%s, image_script=%s, "
         "chart_chats=%s, chart_script=%s, process_sandbox=%s)",
         os.getpid(),
@@ -2099,6 +2268,8 @@ def register(ctx: Any) -> None:
         sorted(_GROUP_ALLOWED_SCRIPT_ACTIONS),
         sorted(_GROUP_MUTATION_USER_IDS),
         _TRUST_REQUIRED_SCRIPT_ACTIONS == frozenset({"delete"}),
+        sorted({"insert_image", "set_cover"}.intersection(_GROUP_ALLOWED_SCRIPT_ACTIONS)),
+        _GROUP_DOC_IMAGE_MAX_BYTES,
         sorted(_GROUP_HYPERTEX_CHAT_IDS),
         sorted(_GROUP_HYPERTEX_USER_IDS),
         "server-owned/non-observable",

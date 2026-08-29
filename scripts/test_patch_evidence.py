@@ -34,6 +34,10 @@ INNER = ROOT / "hermes-agent"
 PATCHES = ROOT / "patches" / "PATCHES.md"
 SCRIPT = ROOT / "hermes-update.sh"
 BUNDLE = ROOT / "patches" / "local-patches.diff"
+PYTEST_STRICT_WARNING_ARGS = (
+    "-W",
+    "error::pytest.PytestUnhandledThreadExceptionWarning",
+)
 
 
 class EvidenceError(RuntimeError):
@@ -700,6 +704,7 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
                     "-o",
                     "junit_family=xunit2",
                     f"--junitxml={junit}",
+                    *PYTEST_STRICT_WARNING_ARGS,
                     *nodes,
                 ],
                 cwd=INNER,
@@ -944,6 +949,7 @@ RUNTIME_ARTIFACT_NEEDLES: dict[str, tuple[str, ...]] = {
         "FINAL_RC=1",
         "_self_test_patch_gate_coverage",
         "_GW_OLD_PID",
+        "PytestUnhandledThreadExceptionWarning",
     ),
     "PATCH-GATEWAY-RESTART-CLEANUP": (
         "cleanup_transient_artifacts.py",
@@ -1031,6 +1037,7 @@ def _run_strict_pytest_probe(
                 "-o",
                 "xfail_strict=true",
                 f"--junitxml={junit}",
+                *PYTEST_STRICT_WARNING_ARGS,
                 *node_ids,
             ],
             cwd=INNER,

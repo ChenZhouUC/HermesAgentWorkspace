@@ -113,6 +113,7 @@ def group_config(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "_GROUP_IMAGE_MAX_INPUTS", 4)
     monkeypatch.setattr(sandbox, "_GROUP_CHART_TIMEOUT_SECONDS", 30)
     monkeypatch.setattr(sandbox, "_GROUP_CHART_MAX_OUTPUT_BYTES", 1_000_000)
+    monkeypatch.setattr(sandbox, "_GROUP_DOC_IMAGE_MAX_BYTES", 1_000_000)
     monkeypatch.setattr(sandbox, "_EPHEMERAL_READ_PATHS_BY_CHAT", {})
     sandbox._current_platform.set("feishu")
     sandbox._current_chat_id.set("group-one")
@@ -320,6 +321,8 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
         {"action": "create"},
         {"action": "append", "doc_token": token},
         {"action": "rebuild", "doc_token": token},
+        {"action": "insert_image", "doc_token": token},
+        {"action": "set_cover", "doc_token": token},
     ):
         assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args=args) is None
     assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete", "doc_token": token}) == {
@@ -332,7 +335,7 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
     assert (
         sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete", "doc_token": token}) is None
     )
-    for action in ("append", "rebuild", "delete"):
+    for action in ("append", "rebuild", "delete", "insert_image", "set_cover"):
         assert sandbox._on_pre_tool_call(
             tool_name="feishu_doc_manage",
             args={"action": action, "doc_token": "doxcnOtherToken"},
@@ -1163,9 +1166,20 @@ def test_private_image_tool_rejects_non_owner_feishu_dm(group_config):
 def test_script_tool_schema_has_no_command_script_path_or_raw_argv():
     properties = sandbox.FEISHU_DOC_MANAGE_SCHEMA["parameters"]["properties"]
     assert sandbox.FEISHU_DOC_MANAGE_SCHEMA["parameters"]["additionalProperties"] is False
+    assert set(properties["action"]["enum"]) == {
+        "create",
+        "append",
+        "rebuild",
+        "delete",
+        "read_url",
+        "download_file",
+        "insert_image",
+        "set_cover",
+    }
     assert "command" not in properties
     assert "script" not in properties
     assert "arguments" not in properties
+    assert {"image_path", "attachment_index", "insert_index", "position", "anchor_text"}.issubset(properties)
 
 
 def test_script_actions_map_only_to_fixed_existing_files(group_config):
@@ -1185,6 +1199,133 @@ def test_script_actions_map_only_to_fixed_existing_files(group_config):
         workspace,
     )
     assert (action, script.name, argv) == ("delete", "delete_doc.py", ["doxcnToken_123"])
+
+
+def test_generated_image_and_chart_paths_feed_fixed_document_image_script(group_config):
+    workspace = sandbox._workspace_for_chat("group-one")
+    image = workspace / "generated-images" / "result.webp"
+    chart = workspace / "charts" / "result.png"
+    image.parent.mkdir(parents=True)
+    chart.parent.mkdir(parents=True)
+    image.write_bytes(b"RIFF\x00\x00\x00\x00WEBPgenerated")
+    chart.write_bytes(b"\x89PNG\r\n\x1a\nchart")
+
+    action, script, argv = sandbox._build_script_argv(
+        {
+            "action": "insert_image",
+            "doc_token": "doxcnToken_123",
+            "image_path": "generated-images/result.webp",
+            "position": "after",
+            "anchor_text": "Architecture",
+            "align": "center",
+            "caption": "Generated architecture",
+            "width": 900,
+        },
+        workspace,
+    )
+    assert action == "insert_image"
+    assert script == group_config["scripts_root"] / "manage_doc_image.py"
+    assert argv == [
+        "insert",
+        "doxcnToken_123",
+        str(image),
+        "--position",
+        "after",
+        "--anchor-text",
+        "Architecture",
+        "--align",
+        "center",
+        "--caption",
+        "Generated architecture",
+        "--width",
+        "900",
+    ]
+
+    action, script, argv = sandbox._build_script_argv(
+        {
+            "action": "set_cover",
+            "doc_token": "doxcnToken_123",
+            "image_path": "charts/result.png",
+            "offset_ratio_x": 0.2,
+            "offset_ratio_y": -0.1,
+        },
+        workspace,
+    )
+    assert action == "set_cover"
+    assert script == group_config["scripts_root"] / "manage_doc_image.py"
+    assert argv == [
+        "cover",
+        "doxcnToken_123",
+        str(chart),
+        "--offset-ratio-x",
+        "0.2",
+        "--offset-ratio-y",
+        "-0.1",
+    ]
+
+
+def test_current_turn_image_attachment_can_feed_document_actions(group_config, tmp_path):
+    workspace = sandbox._workspace_for_chat("group-one")
+    text_file = tmp_path / "note.txt"
+    first_image = tmp_path / "first.png"
+    second_image = tmp_path / "second.jpg"
+    text_file.write_text("not an image", encoding="utf-8")
+    first_image.write_bytes(b"\x89PNG\r\n\x1a\nfirst")
+    second_image.write_bytes(b"\xff\xd8\xffsecond")
+    sandbox._current_media_paths.set((str(text_file), str(first_image), str(second_image)))
+
+    _, _, argv = sandbox._build_script_argv(
+        {
+            "action": "insert_image",
+            "doc_token": "doxcnToken_123",
+            "attachment_index": 1,
+        },
+        workspace,
+    )
+    assert argv[:3] == ["insert", "doxcnToken_123", str(second_image.resolve())]
+
+    _, _, cover_argv = sandbox._build_script_argv(
+        {
+            "action": "set_cover",
+            "doc_token": "doxcnToken_123",
+            "attachment_index": 0,
+        },
+        workspace,
+    )
+    assert cover_argv == ["cover", "doxcnToken_123", str(first_image.resolve())]
+
+
+def test_document_image_sources_are_bounded_and_provenance_scoped(group_config, tmp_path):
+    workspace = sandbox._workspace_for_chat("group-one")
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"\x89PNG\r\n\x1a\noutside")
+    (workspace / "not-image.txt").write_text("x", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="relative"):
+        sandbox._build_script_argv(
+            {"action": "insert_image", "doc_token": "doxcnToken_123", "image_path": "../outside.png"},
+            workspace,
+        )
+    with pytest.raises(ValueError, match="must be PNG"):
+        sandbox._build_script_argv(
+            {"action": "insert_image", "doc_token": "doxcnToken_123", "image_path": "not-image.txt"},
+            workspace,
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        sandbox._build_script_argv(
+            {
+                "action": "set_cover",
+                "doc_token": "doxcnToken_123",
+                "image_path": "not-image.txt",
+                "attachment_index": 0,
+            },
+            workspace,
+        )
+    with pytest.raises(ValueError, match="current message"):
+        sandbox._build_script_argv(
+            {"action": "set_cover", "doc_token": "doxcnToken_123", "attachment_index": 0},
+            workspace,
+        )
 
 
 def test_script_source_must_be_markdown_in_current_workspace(group_config):
@@ -1235,6 +1376,7 @@ def test_script_runner_uses_argv_process_sandbox_and_workspace_env(group_config,
     assert captured["env"]["HERMES_GROUP_WORKSPACE"] == str(workspace)
     assert captured["env"]["TMPDIR"] == str(workspace)
     assert captured["env"]["HERMES_GROUP_MAX_DOWNLOAD_BYTES"] == "50000000"
+    assert captured["env"]["HERMES_FEISHU_IMAGE_MAX_BYTES"] == "1000000"
 
 
 def test_trusted_script_output_redacts_feishu_credentials():
@@ -1654,6 +1796,19 @@ def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
     assert sandbox._GROUP_CHART_SCRIPT.is_file()
     assert sandbox._CHART_PYTHON_EXECUTABLE is not None
     assert sandbox._CHART_PYTHON_EXECUTABLE.is_file()
+    assert sandbox._GROUP_DOC_IMAGE_MAX_BYTES == 20 * 1024 * 1024
+    assert sandbox._GROUP_ALLOWED_SCRIPT_ACTIONS == frozenset(
+        {
+            "create",
+            "append",
+            "rebuild",
+            "delete",
+            "read_url",
+            "download_file",
+            "insert_image",
+            "set_cover",
+        }
+    )
     calls = {"tools": [], "hooks": []}
 
     class Context:
