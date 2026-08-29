@@ -23,8 +23,8 @@
 #   9. Health verification         (hermes doctor + gateway status)
 #   Final audit (explicit mode)     (--final-audit: full PATCH matrix, canonical tests,
 #                                    docs/runtime checks, and final cleanup JSON)
-#   Pytest integrity                (PATCH evidence, plugin verifiers, and final audit
-#                                    treat PytestUnhandledThreadExceptionWarning as failure)
+#   Pytest integrity                (PATCH evidence, direct gates, plugin verifiers, and final audit
+#                                    reject thread/unraisable/runtime/return/collection warning false greens)
 #
 # ⚠  Keep this script in sync with upstream workflow changes:
 #    - If hermes update adds/removes steps, review whether steps 5–9 are still needed
@@ -61,6 +61,14 @@ if [[ (-n "${ZSH_EVAL_CONTEXT:-}" && "${ZSH_EVAL_CONTEXT}" == *:file) ||
 fi
 
 set -euo pipefail
+
+PYTEST_STRICT_WARNING_ARGS=(
+    -W error::pytest.PytestUnhandledThreadExceptionWarning
+    -W error::pytest.PytestUnraisableExceptionWarning
+    -W error::RuntimeWarning
+    -W error::pytest.PytestReturnNotNoneWarning
+    -W error::pytest.PytestCollectionWarning
+)
 
 HERMES_HOME="${HOME}/.hermes"
 HERMES_AGENT="${HERMES_HOME}/hermes-agent"
@@ -3024,6 +3032,7 @@ if [[ -f "${VENV_PY}" && -f "${HERMES_AGENT}/tests/conftest.py" &&
         grep -q 'test_runtime_identity_paths_stay_sandboxed_when_environment_is_cleared' "${RUNTIME_HOME_ISOLATION_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
         "${VENV_PY}" -m pytest -q -p no:cacheprovider \
+            "${PYTEST_STRICT_WARNING_ARGS[@]}" \
             tests/test_runtime_home_isolation.py::test_runtime_identity_paths_stay_sandboxed_when_environment_is_cleared \
             >/dev/null 2>&1; then
         ok "PATCH-TEST-RUNTIME-STATE-ISOLATION active: pytest cannot write process state into the live Hermes home"
@@ -3214,7 +3223,8 @@ if [[ -f "${VENV_PY}" && -f "${MCP_TOOL_PY}" && -f "${HERMES_AGENT}/tests/tools/
         grep -q 'test_live_child_reports_not_dead' "${MCP_STDIO_UPSTREAM_TEST_PY}" 2>/dev/null &&
         grep -q 'test_pid_probe_error_stays_fail_open' "${MCP_STDIO_UPSTREAM_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
-        "${VENV_PY}" -m pytest -q -p no:cacheprovider -W error::RuntimeWarning \
+        "${VENV_PY}" -m pytest -q -p no:cacheprovider \
+            "${PYTEST_STRICT_WARNING_ARGS[@]}" \
             tests/tools/test_mcp_tool.py::TestToolHandler::test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine \
             tests/tools/test_mcp_stdio_children_dead.py \
             >/dev/null 2>&1; then
@@ -3244,6 +3254,7 @@ if [[ -f "${VENV_PY}" && -f "${CONVERSATION_LOOP_PY}" && -f "${CHAT_COMPLETION_H
         grep -q 'test_codex_responses_consumes_ephemeral_output_cap' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
         "${VENV_PY}" -m pytest -q \
+            "${PYTEST_STRICT_WARNING_ARGS[@]}" \
             tests/run_agent/test_tool_call_incremental_persistence.py::test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover \
             tests/run_agent/test_run_agent.py::TestRunConversation::test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail \
             tests/run_agent/test_run_agent.py::TestBuildApiKwargs::test_bedrock_consumes_ephemeral_output_cap \
@@ -3270,6 +3281,7 @@ if [[ -f "${VENV_PY}" && -f "${TOOL_SEARCH_PY}" && -f "${TOOL_SEARCH_TEST_PY}" ]
         grep -q 'test_resolve_underlying_call_does_not_repair_nested_bridge_recursion' "${TOOL_SEARCH_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
         "${VENV_PY}" -m pytest -q \
+            "${PYTEST_STRICT_WARNING_ARGS[@]}" \
             tests/tools/test_tool_search.py::TestBridgeDispatch::test_resolve_underlying_call_repairs_one_redundant_bridge_envelope \
             tests/tools/test_tool_search.py::TestBridgeDispatch::test_resolve_underlying_call_does_not_repair_nested_bridge_recursion \
             >/dev/null 2>&1; then

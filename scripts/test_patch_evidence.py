@@ -37,6 +37,14 @@ BUNDLE = ROOT / "patches" / "local-patches.diff"
 PYTEST_STRICT_WARNING_ARGS = (
     "-W",
     "error::pytest.PytestUnhandledThreadExceptionWarning",
+    "-W",
+    "error::pytest.PytestUnraisableExceptionWarning",
+    "-W",
+    "error::RuntimeWarning",
+    "-W",
+    "error::pytest.PytestReturnNotNoneWarning",
+    "-W",
+    "error::pytest.PytestCollectionWarning",
 )
 
 
@@ -476,6 +484,7 @@ def _collect_patch_nodes(test_files: set[str]) -> list[str]:
             "-q",
             "-p",
             "no:cacheprovider",
+            *PYTEST_STRICT_WARNING_ARGS,
             *sorted(test_files),
         ],
         cwd=INNER,
@@ -950,6 +959,10 @@ RUNTIME_ARTIFACT_NEEDLES: dict[str, tuple[str, ...]] = {
         "_self_test_patch_gate_coverage",
         "_GW_OLD_PID",
         "PytestUnhandledThreadExceptionWarning",
+        "PytestUnraisableExceptionWarning",
+        "error::RuntimeWarning",
+        "PytestReturnNotNoneWarning",
+        "PytestCollectionWarning",
     ),
     "PATCH-GATEWAY-RESTART-CLEANUP": (
         "cleanup_transient_artifacts.py",
@@ -974,12 +987,69 @@ RUNTIME_ARTIFACT_NEEDLES: dict[str, tuple[str, ...]] = {
 }
 
 
+def _validate_update_pytest_warning_filters(script: str) -> int:
+    array_match = re.search(r"PYTEST_STRICT_WARNING_ARGS=\((.*?)\)", script, re.DOTALL)
+    if array_match is None:
+        raise EvidenceError("hermes-update.sh is missing PYTEST_STRICT_WARNING_ARGS")
+    missing_filters = [
+        warning_filter
+        for warning_filter in PYTEST_STRICT_WARNING_ARGS[1::2]
+        if warning_filter not in array_match.group(1)
+    ]
+    if missing_filters:
+        raise EvidenceError(f"hermes-update.sh strict pytest warning array is incomplete: {missing_filters}")
+    direct_commands = re.findall(
+        r'"\$\{VENV_PY\}" -m pytest(?P<body>.*?)(?:>/dev/null 2>&1; then)',
+        script,
+        re.DOTALL,
+    )
+    invocation_count = len(re.findall(r'"\$\{VENV_PY\}"\s+-m\s+pytest\b', script))
+    if not direct_commands or len(direct_commands) != invocation_count:
+        raise EvidenceError(
+            "hermes-update.sh direct pytest smoke-gate inventory is incomplete: "
+            f"invocations={invocation_count} auditable={len(direct_commands)}"
+        )
+    missing_usage = [
+        index
+        for index, command in enumerate(direct_commands, start=1)
+        if '"${PYTEST_STRICT_WARNING_ARGS[@]}"' not in command
+    ]
+    if missing_usage:
+        raise EvidenceError(
+            f"hermes-update.sh direct pytest smoke gates omit strict warning filters: commands={missing_usage}"
+        )
+    return len(direct_commands)
+
+
+def _validate_verifier_pytest_warning_filters(verifier_text: str) -> int:
+    direct_commands = re.findall(
+        r'"\$\{VENV_PYTHON\}" -m pytest(?P<body>.*?)(?:2>&1)',
+        verifier_text,
+        re.DOTALL,
+    )
+    invocation_count = len(re.findall(r'"\$\{VENV_PYTHON\}"\s+-m\s+pytest\b', verifier_text))
+    if not direct_commands or len(direct_commands) != invocation_count:
+        raise EvidenceError(
+            "sandbox verifier pytest inventory is incomplete: "
+            f"invocations={invocation_count} auditable={len(direct_commands)}"
+        )
+    missing = {
+        index: [warning_filter for warning_filter in PYTEST_STRICT_WARNING_ARGS[1::2] if warning_filter not in command]
+        for index, command in enumerate(direct_commands, start=1)
+    }
+    missing = {index: filters for index, filters in missing.items() if filters}
+    if missing:
+        raise EvidenceError(f"sandbox verifier pytest commands omit strict warning filters: {missing}")
+    return len(direct_commands)
+
+
 def audit_runtime_artifacts() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
     for patch_id, needles in RUNTIME_ARTIFACT_NEEDLES.items():
         missing = [needle for needle in needles if needle not in script]
         if missing:
             raise EvidenceError(f"{patch_id}: executable evidence missing {missing}")
+    _validate_update_pytest_warning_filters(script)
     for patch_id, (
         evidence_path,
         _function_name,
@@ -1092,6 +1162,8 @@ def audit_gateway_restart_cleanup() -> dict[str, object]:
 def audit_sandbox_verifier() -> dict[str, object]:
     verifier_rel = EXTERNAL_EVIDENCE_AUDITS["PATCH-FEISHU-GROUP-SANDBOX"][0]
     verifier = ROOT / verifier_rel
+    verifier_text = verifier.read_text(encoding="utf-8")
+    _validate_verifier_pytest_warning_filters(verifier_text)
     result = _run(["bash", str(verifier)], timeout=300)
     if result.returncode:
         raise EvidenceError(f"sandbox verifier failed: {result.stdout[-2000:]}{result.stderr[-2000:]}")

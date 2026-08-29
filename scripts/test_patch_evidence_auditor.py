@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -75,6 +76,37 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
         ):
             evidence._audit_registered_probe_contract(active, {})
 
+    def test_direct_update_pytest_gates_require_every_strict_warning_filter(self) -> None:
+        filters = "\n".join(evidence.PYTEST_STRICT_WARNING_ARGS)
+        command = (
+            '"${VENV_PY}" -m pytest -q "${PYTEST_STRICT_WARNING_ARGS[@]}" tests/test_contract.py >/dev/null 2>&1; then'
+        )
+        script = f"PYTEST_STRICT_WARNING_ARGS=(\n{filters}\n)\n{command}\n"
+        self.assertEqual(evidence._validate_update_pytest_warning_filters(script), 1)
+        with self.assertRaisesRegex(evidence.EvidenceError, "omit strict warning filters"):
+            evidence._validate_update_pytest_warning_filters(script.replace(' "${PYTEST_STRICT_WARNING_ARGS[@]}"', ""))
+        with self.assertRaisesRegex(evidence.EvidenceError, "array is incomplete"):
+            evidence._validate_update_pytest_warning_filters(
+                script.replace("error::pytest.PytestUnraisableExceptionWarning", "")
+            )
+        with self.assertRaisesRegex(evidence.EvidenceError, "inventory is incomplete"):
+            evidence._validate_update_pytest_warning_filters(
+                script + '\n"${VENV_PY}" -m pytest tests/test_unchecked.py\n'
+            )
+
+    def test_sandbox_pytest_command_requires_every_strict_warning_filter(self) -> None:
+        filters = " ".join(f"-W {warning_filter}" for warning_filter in evidence.PYTEST_STRICT_WARNING_ARGS[1::2])
+        command = f'"${{VENV_PYTHON}}" -m pytest -q {filters} --junitxml="$JUNIT" tests 2>&1'
+        self.assertEqual(evidence._validate_verifier_pytest_warning_filters(command), 1)
+        with self.assertRaisesRegex(evidence.EvidenceError, "omit strict warning filters"):
+            evidence._validate_verifier_pytest_warning_filters(
+                command.replace("-W error::pytest.PytestCollectionWarning", "")
+            )
+        with self.assertRaisesRegex(evidence.EvidenceError, "inventory is incomplete"):
+            evidence._validate_verifier_pytest_warning_filters(
+                command + '\n"${VENV_PYTHON}" -m pytest tests/test_unchecked.py\n'
+            )
+
     def test_registered_probe_is_executed_once_and_recorded(self) -> None:
         patch_id = "PATCH-TEST-RUNTIME"
         active = {patch_id: patch_block("runtime contract")}
@@ -137,6 +169,22 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
         self.assertIn("--", argv)
         self.assertIn(
             ["-W", "error::pytest.PytestUnhandledThreadExceptionWarning"],
+            [argv[index : index + 2] for index in range(len(argv) - 1)],
+        )
+        self.assertIn(
+            ["-W", "error::pytest.PytestUnraisableExceptionWarning"],
+            [argv[index : index + 2] for index in range(len(argv) - 1)],
+        )
+        self.assertIn(
+            ["-W", "error::RuntimeWarning"],
+            [argv[index : index + 2] for index in range(len(argv) - 1)],
+        )
+        self.assertIn(
+            ["-W", "error::pytest.PytestReturnNotNoneWarning"],
+            [argv[index : index + 2] for index in range(len(argv) - 1)],
+        )
+        self.assertIn(
+            ["-W", "error::pytest.PytestCollectionWarning"],
             [argv[index : index + 2] for index in range(len(argv) - 1)],
         )
 
@@ -662,6 +710,83 @@ fi
                     f"{test_file}::test_background_failure",
                 )
 
+    def test_strict_pytest_probe_rejects_unraisable_exception(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="unraisable-warning-probe-") as temp_raw:
+            test_file = Path(temp_raw) / "test_unraisable_warning.py"
+            test_file.write_text(
+                "import gc\n\n"
+                "class Boom:\n"
+                "    def __del__(self):\n"
+                "        raise RuntimeError('unraisable boom')\n\n"
+                "def test_unraisable_failure():\n"
+                "    item = Boom()\n"
+                "    del item\n"
+                "    gc.collect()\n"
+                "    assert True\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(evidence.EvidenceError, "failed"):
+                evidence._run_strict_pytest_probe(
+                    "unraisable warning regression",
+                    f"{test_file}::test_unraisable_failure",
+                )
+
+    def test_strict_pytest_probe_rejects_unawaited_coroutine(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="coroutine-warning-probe-") as temp_raw:
+            test_file = Path(temp_raw) / "test_coroutine_warning.py"
+            test_file.write_text(
+                "import gc\n\n"
+                "async def work():\n"
+                "    return 1\n\n"
+                "def test_unawaited_coroutine():\n"
+                "    coro = work()\n"
+                "    del coro\n"
+                "    gc.collect()\n"
+                "    assert True\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(evidence.EvidenceError, "failed"):
+                evidence._run_strict_pytest_probe(
+                    "unawaited coroutine regression",
+                    f"{test_file}::test_unawaited_coroutine",
+                )
+
+    def test_strict_pytest_probe_rejects_test_return_value(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="return-warning-probe-") as temp_raw:
+            test_file = Path(temp_raw) / "test_return_warning.py"
+            test_file.write_text(
+                "def test_returns_false():\n    return False\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(evidence.EvidenceError, "failed"):
+                evidence._run_strict_pytest_probe(
+                    "return warning regression",
+                    f"{test_file}::test_returns_false",
+                )
+
+    def test_patch_collection_rejects_partially_uncollected_test_class(self) -> None:
+        original_inner = evidence.INNER
+        with tempfile.TemporaryDirectory(prefix="collection-warning-probe-") as temp_raw:
+            root = Path(temp_raw)
+            tests = root / "tests"
+            tests.mkdir()
+            os.symlink(original_inner / "venv", root / "venv", target_is_directory=True)
+            (tests / "test_collection_warning.py").write_text(
+                "def test_collected():\n"
+                "    assert True\n\n"
+                "class TestLost:\n"
+                "    def __init__(self):\n"
+                "        pass\n\n"
+                "    def test_never_collected(self):\n"
+                "        assert False\n",
+                encoding="utf-8",
+            )
+            with (
+                patch.object(evidence, "INNER", root),
+                self.assertRaisesRegex(evidence.EvidenceError, "collection failed"),
+            ):
+                evidence._collect_patch_nodes({"tests/test_collection_warning.py"})
+
     def test_evidence_registry_requires_exact_ids_and_lifecycles(self) -> None:
         patches = (
             patch_block("test_contract")
@@ -996,6 +1121,22 @@ fi
         for call in calls:
             self.assertIn(
                 ["-W", "error::pytest.PytestUnhandledThreadExceptionWarning"],
+                [call[index : index + 2] for index in range(len(call) - 1)],
+            )
+            self.assertIn(
+                ["-W", "error::pytest.PytestUnraisableExceptionWarning"],
+                [call[index : index + 2] for index in range(len(call) - 1)],
+            )
+            self.assertIn(
+                ["-W", "error::RuntimeWarning"],
+                [call[index : index + 2] for index in range(len(call) - 1)],
+            )
+            self.assertIn(
+                ["-W", "error::pytest.PytestReturnNotNoneWarning"],
+                [call[index : index + 2] for index in range(len(call) - 1)],
+            )
+            self.assertIn(
+                ["-W", "error::pytest.PytestCollectionWarning"],
                 [call[index : index + 2] for index in range(len(call) - 1)],
             )
 

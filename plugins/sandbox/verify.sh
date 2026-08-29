@@ -794,6 +794,10 @@ if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TES
         cd "${HERMES_HOME}" &&
             "${VENV_PYTHON}" -m pytest -q -p no:cacheprovider -o xfail_strict=true \
                 -W error::pytest.PytestUnhandledThreadExceptionWarning \
+                -W error::pytest.PytestUnraisableExceptionWarning \
+                -W error::RuntimeWarning \
+                -W error::pytest.PytestReturnNotNoneWarning \
+                -W error::pytest.PytestCollectionWarning \
                 --junitxml="${_SANDBOX_JUNIT}" "${PLUGIN_TEST}" "${PEOPLE_TEST}" "${DOC_MEDIA_TEST}" 2>&1
     )
     _SANDBOX_PYTEST_RC=$?
