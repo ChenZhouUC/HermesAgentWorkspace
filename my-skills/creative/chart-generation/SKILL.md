@@ -74,7 +74,10 @@ For the full chart/parameter routing table, read
 
 Canvas dimensions are selected automatically from the chart family and data
 shape. Layout presets only bias the result; all exported PNGs stay between a
-`2:1` landscape ratio and a `1:2` portrait ratio.
+`2:1` landscape ratio and a `1:2` portrait ratio. Automatic legend placement
+keeps short, low-cardinality legends on the right of landscape charts so the
+main plot retains its vertical height; set `legend_position` only when the user
+requests a different layout.
 
 ## Procedure
 
@@ -112,5 +115,8 @@ shape. Layout presets only bias the result; all exported PNGs stay between a
 
 A successful result contains `success: true`, `chart_type`, `workspace_path`,
 and `media_directive`. Check that the returned label and series counts match the
-intended selection before claiming completion. For document-only requests, use
-`workspace_path` with the document tool and omit the chat `media_directive`.
+intended selection before claiming completion. When legend placement matters,
+also check the resolved `legend_position`; an omitted position should normally
+resolve to `right` for a landscape chart with two to four short series. For
+document-only requests, use `workspace_path` with the document tool and omit
+the chat `media_directive`.

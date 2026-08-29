@@ -127,7 +127,9 @@ Final output is always constrained to an aspect ratio between `2:1` and `1:2`.
 - `highlight_label`
 - `annotation_preset`: `auto`, `none`, `values`, `percent`, or `compact`
 - `legend`: `auto`, `show`, or `hide`
-- `legend_position`: `top`, `right`, `bottom`, or `best`
+- `legend_position`: `auto`, `top`, `right`, `bottom`, or `best`. `auto`
+  prefers a right-side legend for up to four short series on a landscape
+  canvas, preserving vertical plot area; larger legends move above the plot.
 - `orientation` for stacked bars
 - `x_scale` / `y_scale`: `linear`, `log`, or `symlog`
 - axis bounds and up to six `reference_lines`

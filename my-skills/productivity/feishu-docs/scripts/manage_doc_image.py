@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from PIL import Image, UnidentifiedImageError
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import feishu_common as fc
 
@@ -92,6 +94,33 @@ def validate_image_path(value: str) -> tuple[Path, str, int]:
     if size > limit:
         raise ValueError(f"image exceeds the {limit}-byte Feishu upload limit")
     return path, _image_mime(path), size
+
+
+def _complete_image_dimensions(
+    path: Path,
+    width: int | None,
+    height: int | None,
+) -> tuple[int | None, int | None]:
+    """Derive one omitted display dimension without distorting the source."""
+    if (width is None) == (height is None):
+        return width, height
+    try:
+        with Image.open(path) as source:
+            source_width, source_height = source.size
+    except (OSError, UnidentifiedImageError):
+        raise ValueError("image dimensions could not be read") from None
+    if source_width <= 0 or source_height <= 0:
+        raise ValueError("image dimensions must be positive")
+    if width is not None:
+        height = max(1, round(width * source_height / source_width))
+        if height > 20_000:
+            raise ValueError("derived height exceeds the 20000-pixel Feishu limit")
+    else:
+        assert height is not None
+        width = max(1, round(height * source_width / source_height))
+        if width > 20_000:
+            raise ValueError("derived width exceeds the 20000-pixel Feishu limit")
+    return width, height
 
 
 def validate_doc_token(value: str) -> str:
@@ -293,7 +322,7 @@ def insert_image(
     height: int | None = None,
 ) -> dict[str, Any]:
     doc_token = validate_doc_token(doc_token)
-    validate_image_path(image_path)
+    image, _mime, _size = validate_image_path(image_path)
     if align not in ALIGNMENTS:
         raise ValueError("align must be left, center, or right")
     if caption is not None and (len(caption) > 1_000 or "\x00" in caption):
@@ -301,6 +330,7 @@ def insert_image(
     for name, value in (("width", width), ("height", height)):
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 20_000):
             raise ValueError(f"{name} must be an integer between 1 and 20000")
+    width, height = _complete_image_dimensions(image, width, height)
     rows, version_table_count, block_map, root = fc.read_version_tables(token, doc_token)
     original_top_level_ids = set(root.get("children", []))
     target_index = resolve_insert_index(
@@ -354,6 +384,8 @@ def insert_image(
             "block_id": image_block_id,
             "file_token": file_token,
             "insert_index": target_index,
+            "width": width,
+            "height": height,
             "version": version,
         }
     except BaseException as exc:

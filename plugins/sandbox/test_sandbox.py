@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
 
 _SANDBOX_SPEC = importlib.util.spec_from_file_location(
     "hermes_user_sandbox_plugin",
@@ -889,6 +890,8 @@ def test_chart_tool_schema_exposes_only_constrained_data_fields():
         "matrix_preset",
         "annotation_preset",
     }.issubset(properties)
+    assert properties["legend_position"]["default"] == "auto"
+    assert "auto" in properties["legend_position"]["enum"]
 
 
 def test_group_chart_tool_returns_workspace_media_directive(group_config, monkeypatch):
@@ -910,6 +913,7 @@ def test_group_chart_tool_returns_workspace_media_directive(group_config, monkey
                     "chart_type": "bar",
                     "labels": 3,
                     "series": 1,
+                    "legend_position": "hidden",
                 }
             ),
             stderr="",
@@ -930,6 +934,7 @@ def test_group_chart_tool_returns_workspace_media_directive(group_config, monkey
     workspace = sandbox._workspace_for_chat("group-one")
     assert result["success"] is True
     assert result["chart_type"] == "bar"
+    assert result["legend_position"] == "hidden"
     assert result["media_directive"] == f"MEDIA:{workspace / 'charts/result.png'}"
     assert captured["payload"]["series"][0]["values"] == [10, 20, 30]
 
@@ -1587,7 +1592,7 @@ def test_chart_renderer_generates_png_from_structured_values(tmp_path):
         "x_label": "季度",
         "y_label": "收入",
         "style_preset": "hidalgo",
-        "palette_preset": "business",
+        "palette_preset": "blue",
         "annotation_preset": "values",
         "layout_preset": "standard",
     }
@@ -1610,6 +1615,74 @@ def test_chart_renderer_generates_png_from_structured_values(tmp_path):
     assert result["chart_type"] == "bar"
     assert result["labels"] == 4
     assert result["series"] == 2
+
+
+def test_chart_auto_legend_preserves_landscape_plot_height(tmp_path):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "my-skills"
+        / "creative"
+        / "chart-generation"
+        / "scripts"
+        / "render_chart.py"
+    )
+    python = Path(__file__).resolve().parents[2] / "lib" / "chart-renderer" / "venv" / "bin" / "python"
+    workspace = tmp_path / "chart-workspace"
+    workspace.mkdir()
+    request = {
+        "title": "GitHub 社区热度对比：Grok Build 明显领先",
+        "subtitle": "公开仓库页面显示的 stars / forks；约数，用于方向性比较",
+        "chart_type": "bar",
+        "labels": ["Grok Build", "superagent-ai/grok-cli"],
+        "series": [
+            {"name": "Stars (k)", "values": [26.1, 3.4]},
+            {"name": "Forks (k)", "values": [4.9, 0.421]},
+        ],
+        "x_label": "项目",
+        "y_label": "数量（千）",
+        "style_preset": "presentation",
+        "palette_preset": "blue",
+        "layout_preset": "wide",
+        "annotation_preset": "values",
+        "legend": "show",
+        "quality": "high",
+    }
+    completed = subprocess.run(
+        [str(python), str(script)],
+        input=json.dumps(request, ensure_ascii=False),
+        text=True,
+        capture_output=True,
+        env={
+            "HERMES_CHART_WORKSPACE": str(workspace),
+            "MPLCONFIGDIR": str(workspace / ".matplotlib"),
+            "XDG_CACHE_HOME": str(workspace / ".cache"),
+            "MPLBACKEND": "Agg",
+            "PATH": str(Path(python).parent),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "TMPDIR": str(workspace),
+        },
+        timeout=30,
+        check=False,
+    )
+    result = json.loads(completed.stdout)
+    assert completed.returncode == 0, completed.stderr or result
+    assert result["legend_position"] == "right"
+    assert result["legend_title"] == ""
+    output = workspace / result["chart"]
+    with Image.open(output) as rendered:
+        preview = rendered.convert("RGB").resize((200, 100))
+    dense_rows = [
+        y
+        for y in range(preview.height)
+        if sum(
+            1
+            for x in range(preview.width)
+            if min(preview.getpixel((x, y))) < 245 or max(preview.getpixel((x, y))) - min(preview.getpixel((x, y))) > 2
+        )
+        > preview.width / 2
+    ]
+    assert dense_rows
+    assert dense_rows[0] < 40
 
 
 @pytest.mark.parametrize(

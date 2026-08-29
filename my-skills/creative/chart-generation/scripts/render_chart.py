@@ -619,7 +619,8 @@ def _palette(request: dict[str, Any], count: int) -> list[Any]:
             "flare",
             "crest",
         }
-        values = list(sns.color_palette(name if name in allowed else "deep", n_colors=max(count, 1)))
+        palette_name = {"blues": "Blues", "greens": "Greens"}.get(name, name)
+        values = list(sns.color_palette(palette_name if name in allowed else "deep", n_colors=max(count, 1)))
     if len(values) >= count:
         return values[:count]
     return (values * math.ceil(count / len(values)))[:count]
@@ -876,6 +877,17 @@ def _apply_grid(ax: Axes, request: dict[str, Any], *, numeric_axis: str = "y") -
         ax.grid(False, axis="y" if numeric_axis == "x" else "x")
 
 
+def _resolve_legend_position(ax: Axes, request: dict[str, Any], series_count: int) -> str:
+    requested = str(request.get("legend_position") or "auto").strip().lower()
+    if requested in {"top", "right", "bottom", "best"}:
+        return requested
+    labels = [str(label) for label in ax.get_legend_handles_labels()[1] if str(label)]
+    width, height = ax.figure.get_size_inches()
+    if 1 < series_count <= 4 and width / max(height, 0.1) >= 1.25 and max(map(len, labels), default=0) <= 36:
+        return "right"
+    return "top"
+
+
 def _apply_legend(ax: Axes, request: dict[str, Any], series_count: int) -> None:
     mode = str(request.get("legend") or "auto").strip().lower()
     legend = ax.get_legend()
@@ -886,7 +898,9 @@ def _apply_legend(ax: Axes, request: dict[str, Any], series_count: int) -> None:
         return
     if legend is None:
         return
-    position = str(request.get("legend_position") or "top").strip().lower()
+    if legend.get_title().get_text().strip().casefold() == "series":
+        legend.set_title(None)
+    position = _resolve_legend_position(ax, request, series_count)
     if position == "right":
         legend.set_bbox_to_anchor((1.02, 0.5))
         legend._loc = 6
@@ -900,6 +914,15 @@ def _apply_legend(ax: Axes, request: dict[str, Any], series_count: int) -> None:
         legend.set_bbox_to_anchor((0, 1.02))
         legend._loc = 3
         legend.set_ncols(min(series_count, 4))
+
+
+def _legend_metadata(ax: Axes | None) -> tuple[str, str]:
+    if ax is None or ax.get_legend() is None:
+        return "hidden", ""
+    legend = ax.get_legend()
+    assert legend is not None
+    position = {0: "best", 3: "top", 6: "right", 9: "bottom"}.get(legend._loc, "custom")
+    return position, legend.get_title().get_text()
 
 
 def _reference_lines(ax: Axes, request: dict[str, Any]) -> None:
@@ -1812,6 +1835,7 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
             fig.tight_layout(rect=(0.025, bottom, 0.98, top))
         except (RuntimeError, ValueError):
             pass
+        legend_position, legend_title = _legend_metadata(ax)
         day = time.strftime("%Y-%m-%d", time.gmtime())
         output_dir = (workspace / "charts" / day).resolve(strict=False)
         if not output_dir.is_relative_to(workspace):
@@ -1847,6 +1871,8 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
             "chart_type": chart_type,
             "labels": label_count,
             "series": series_count,
+            "legend_position": legend_position,
+            "legend_title": legend_title,
             "size_bytes": target.stat().st_size,
         }
     finally:

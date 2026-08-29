@@ -229,7 +229,10 @@ For owner/CLI operation, use the fixed script directly:
 
 Do not route these operations through arbitrary shell commands in a group.
 The fixed script uploads the image, performs the document mutation, appends the
-version row, and compensates the visible mutation if a later step fails.
+version row, and compensates the visible mutation if a later step fails. For a
+body image, supplying only `width` or only `height` is safe: the script derives
+the other dimension from the source image so Feishu cannot create a distorted
+or letterboxed image block.
 
 ---
 

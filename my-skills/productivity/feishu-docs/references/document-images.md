@@ -35,6 +35,13 @@ The fixed script creates an empty Image Block, uploads the binary with
 `parent_type=docx_image`, patches `replace_image`, then appends the standard
 version row. If upload, patching, or versioning fails, it removes the image
 block and restores the previous version-table rows on a best-effort basis.
+When only `width` or `height` is supplied, the script reads the source pixels
+and derives the missing dimension. This is required because Feishu otherwise
+may retain the source pixel height beside a reduced display width, producing a
+tall image block with large blank bands. Omit both dimensions for native sizing,
+or provide one dimension and let the script preserve the source aspect ratio.
+The success result reports the resolved `width` and `height`; use those values
+when verifying a body image that requested an explicit display size.
 
 ## Set or replace the cover
 

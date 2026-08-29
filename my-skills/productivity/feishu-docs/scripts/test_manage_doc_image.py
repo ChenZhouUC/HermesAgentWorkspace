@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 
 SCRIPT = Path(__file__).with_name("manage_doc_image.py")
@@ -18,9 +19,9 @@ media = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(media)
 
 
-def _png(tmp_path: Path, name: str = "image.png") -> Path:
+def _png(tmp_path: Path, name: str = "image.png", *, size: tuple[int, int] = (1600, 900)) -> Path:
     path = tmp_path / name
-    path.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    Image.new("RGB", size, color=(30, 60, 90)).save(path, format="PNG")
     return path
 
 
@@ -115,7 +116,6 @@ def test_insert_image_targets_anchor_and_updates_version(tmp_path, monkeypatch):
         align="right",
         caption="System diagram",
         width=900,
-        height=500,
     )
 
     create = next(call for call in calls if call[0] == "POST")
@@ -129,11 +129,18 @@ def test_insert_image_targets_anchor_and_updates_version(tmp_path, monkeypatch):
             "align": 3,
             "caption": {"content": "System diagram"},
             "width": 900,
-            "height": 500,
+            "height": 506,
         }
     }
     assert result["version"] == "20260829.01ed"
     assert result["block_id"] == "image-block"
+    assert result["width"] == 900
+    assert result["height"] == 506
+
+
+def test_missing_width_is_derived_from_source_aspect_ratio(tmp_path):
+    image = _png(tmp_path, size=(2048, 1152))
+    assert media._complete_image_dimensions(image, None, 450) == (800, 450)
 
 
 def test_insert_image_removes_created_block_when_upload_fails(tmp_path, monkeypatch):
