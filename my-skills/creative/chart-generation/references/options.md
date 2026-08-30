@@ -143,6 +143,10 @@ measures tick-label bands against the final axes: Y ticks are capped at 10% of
 plot width and X ticks at 10% of plot height. Overlapping X labels rotate to 30
 degrees before pixel-width ellipsis is applied; long Y labels use ellipsis
 without rotation. The result reports these decisions in `axis_label_layout`.
+Value annotations on bars, waterfalls, and lollipops are measured separately;
+if an annotation crosses the plotting boundary, the numeric axis is expanded
+just enough to bring it back inside. `value_label_layout` reports total labels
+and the overflow count before and after correction.
 
 Static PNG files do not have interactive tooltips. Use value labels, legends,
 notes, and reference lines for information that must remain visible in Feishu.

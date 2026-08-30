@@ -88,6 +88,12 @@ plot height. Long X labels are tilted first; labels that still exceed the budget
 are shortened with an ellipsis. The renderer reports the final rotation,
 truncation counts, and measured fractions in `axis_label_layout`.
 
+Bar, waterfall, and lollipop value labels must remain inside the plotting
+area. After `tight_layout`, the renderer measures their actual pixel bounds and
+minimally expands the numeric axis when a label would cross an edge, including
+when the request supplied an explicit `x_max` or `y_max`. The result reports
+the before/after overflow counts in `value_label_layout`.
+
 ## Procedure
 
 1. Identify the intended comparison and unit.

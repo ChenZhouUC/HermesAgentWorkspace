@@ -1,3 +1,4 @@
+import contextvars
 import importlib.util
 import json
 import struct
@@ -116,6 +117,7 @@ def group_config(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "_GROUP_CHART_MAX_OUTPUT_BYTES", 1_000_000)
     monkeypatch.setattr(sandbox, "_GROUP_DOC_IMAGE_MAX_BYTES", 1_000_000)
     monkeypatch.setattr(sandbox, "_EPHEMERAL_READ_PATHS_BY_CHAT", {})
+    monkeypatch.setattr(sandbox, "_TURN_RESOURCE_REFS_BY_KEY", {})
     sandbox._current_platform.set("feishu")
     sandbox._current_chat_id.set("group-one")
     sandbox._current_chat_type.set("group")
@@ -127,6 +129,7 @@ def group_config(tmp_path, monkeypatch):
     sandbox._current_hypertex_call_count.set(0)
     sandbox._current_image_generation_call_count.set(0)
     sandbox._current_chart_generation_call_count.set(0)
+    sandbox._current_tool_turn_id.set("")
     return {
         "workspace_root": workspace_root,
         "private_image_workspace_root": private_image_workspace_root,
@@ -372,6 +375,71 @@ def test_successful_group_create_grants_only_new_doc_for_same_turn(group_config)
     assert (
         sandbox._group_doc_action_block({"action": "set_cover", "doc_token": "doxcnOtherToken"})
         == sandbox._MUTATION_REFERENCE_BLOCK_MESSAGE
+    )
+
+
+def test_successful_group_create_grant_survives_worker_context_boundary(group_config):
+    token = "IhI5dNJ2Vokyt6xijcZcj6u1nRZ"
+    result = json.dumps(
+        {
+            "success": True,
+            "action": "create",
+            "returncode": 0,
+            "stdout": f"Doc created: {token}. Patching title...\nDONE: https://whales.feishu.cn/docx/{token}\n",
+        }
+    )
+
+    first_worker = contextvars.copy_context()
+    first_worker.run(
+        sandbox._on_post_tool_call,
+        tool_name="feishu_doc_manage",
+        result=result,
+        turn_id="turn-shared",
+    )
+
+    # A copied worker's ContextVar write does not flow back to its parent.
+    # The turn-keyed shared grant must carry the authorization instead.
+    assert token not in sandbox._current_resource_refs.get()
+    second_worker = contextvars.copy_context()
+    assert second_worker.run(
+        sandbox._on_pre_tool_call,
+        tool_name="feishu_doc_manage",
+        args={"action": "set_cover", "doc_token": token},
+        turn_id="turn-shared",
+    ) == {"action": "modify", "args": {"_sandbox_turn_id": "turn-shared"}}
+    assert sandbox._on_pre_tool_call(
+        tool_name="feishu_doc_manage",
+        args={"action": "set_cover", "doc_token": token},
+        turn_id="turn-next",
+    ) == {"action": "block", "message": sandbox._MUTATION_REFERENCE_BLOCK_MESSAGE}
+
+
+def test_owner_terminal_feishu_scripts_receive_agent_turn_id(group_config):
+    sandbox._current_chat_id.set("owner-dm")
+    sandbox._current_chat_type.set("dm")
+    command = (
+        "PY=~/.hermes/hermes-agent/venv/bin/python\n"
+        "SCRIPT=~/.hermes/my-skills/productivity/feishu-docs/scripts/manage_doc_image.py\n"
+        "$PY $SCRIPT insert doxcnTarget image.png"
+    )
+
+    directive = sandbox._on_pre_tool_call(
+        tool_name="terminal",
+        args={"command": command},
+        turn_id="session:task:turn-one",
+    )
+
+    assert directive == {
+        "action": "modify",
+        "args": {"command": "export HERMES_FEISHU_VERSION_TURN_ID=session:task:turn-one\n" + command},
+    }
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name="terminal",
+            args={"command": "python unrelated.py"},
+            turn_id="session:task:turn-one",
+        )
+        is None
     )
 
 
@@ -1416,6 +1484,7 @@ def test_script_runner_uses_argv_process_sandbox_and_workspace_env(group_config,
     workspace = sandbox._workspace_for_chat("group-one")
     script = group_config["scripts_root"] / "delete_doc.py"
     captured = {}
+    sandbox._current_tool_turn_id.set("group-turn-one")
 
     def fake_run(command, **kwargs):
         captured["command"] = command
@@ -1434,6 +1503,8 @@ def test_script_runner_uses_argv_process_sandbox_and_workspace_env(group_config,
     assert captured["env"]["TMPDIR"] == str(workspace)
     assert captured["env"]["HERMES_GROUP_MAX_DOWNLOAD_BYTES"] == "50000000"
     assert captured["env"]["HERMES_FEISHU_IMAGE_MAX_BYTES"] == "1000000"
+    assert captured["env"]["HERMES_FEISHU_VERSION_TURN_ID"] == "group-turn-one"
+    assert captured["env"]["HERMES_FEISHU_VERSION_LEDGER"] == str(workspace / ".feishu-version-turns.json")
 
 
 def test_trusted_script_output_redacts_feishu_credentials():
@@ -1740,6 +1811,43 @@ def test_chart_auto_legend_preserves_landscape_plot_height(tmp_path):
     ]
     assert dense_rows
     assert dense_rows[0] < 40
+
+
+def test_chart_value_labels_stay_inside_explicit_axis_bounds(tmp_path):
+    request = {
+        "title": "Grok 相对优势雷达式评分：实时信息与工具化是核心卖点",
+        "subtitle": "5 分制主观评分，用于表达相对定位，不代表绝对 benchmark",
+        "chart_type": "bar",
+        "labels": [
+            "X/Social-native search",
+            "Server-side tool loop",
+            "Coding agent integration",
+            "Output cost vs GPT/Claude",
+            "OpenAI-compatible API",
+            "Long-context ceiling",
+        ],
+        "series": [{"name": "Advantage score", "values": [5, 4.5, 4.5, 4, 4, 2.5]}],
+        "style_preset": "presentation",
+        "palette_preset": "green",
+        "layout_preset": "wide",
+        "annotation_preset": "values",
+        "value_format": "decimal",
+        "decimals": 1,
+        "unit": "score",
+        "x_label": "优势维度",
+        "y_label": "评分",
+        "y_min": 0,
+        "y_max": 5,
+    }
+
+    result, output = _run_chart_renderer(tmp_path, request)
+
+    assert result["value_label_layout"] == {
+        "total": 6,
+        "outside_before": 1,
+        "outside_after": 0,
+    }
+    assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
 def test_chart_legacy_top_legend_is_normalized_to_auto(tmp_path):
@@ -2049,6 +2157,7 @@ def test_chart_renderer_rejects_misaligned_series(tmp_path):
 
 
 def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
+    assert sandbox._PLUGIN_VERSION == "0.7.6"
     assert sandbox._load_config() is True
     assert sandbox._OWNER_CHAT_IDS
     assert sandbox._GROUP_IMAGE_CHAT_IDS

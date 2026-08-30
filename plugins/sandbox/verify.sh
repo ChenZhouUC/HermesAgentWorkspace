@@ -32,6 +32,7 @@ MODEL_TOOLS="${HERMES_AGENT}/model_tools.py"
 AGENT_LOG="${HERMES_HOME}/logs/agent.log"
 ROOT_CONFIG="${HERMES_HOME}/config.yaml"
 PLUGIN_CONFIG="${HERMES_HOME}/plugins/sandbox/config.yaml"
+PLUGIN_MANIFEST="${HERMES_HOME}/plugins/sandbox/plugin.yaml"
 PLUGIN_TEST="${HERMES_HOME}/plugins/sandbox/test_sandbox.py"
 PEOPLE_FILE="${HERMES_HOME}/people.yaml"
 PEOPLE_TEST="${HERMES_HOME}/scripts/test_pull_feishu_people.py"
@@ -92,8 +93,9 @@ fi
 
 # 4. Root/plugin configuration contract (HARD)
 if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${ROOT_CONFIG}" ]] && [[ -r "${PLUGIN_CONFIG}" ]] &&
+    [[ -r "${PLUGIN_MANIFEST}" ]] &&
     [[ -r "${PEOPLE_FILE}" ]] &&
-    "${VENV_PYTHON}" - "${ROOT_CONFIG}" "${PLUGIN_CONFIG}" "${PEOPLE_FILE}" <<'PY'
+    "${VENV_PYTHON}" - "${ROOT_CONFIG}" "${PLUGIN_CONFIG}" "${PEOPLE_FILE}" "${PLUGIN_MANIFEST}" <<'PY'
 import re
 import sys
 import plistlib
@@ -104,9 +106,13 @@ import yaml
 root_path = Path(sys.argv[1])
 plugin_path = Path(sys.argv[2])
 people_path = Path(sys.argv[3])
+manifest_path = Path(sys.argv[4])
 root = yaml.safe_load(root_path.read_text(encoding="utf-8")) or {}
 plugin = yaml.safe_load(plugin_path.read_text(encoding="utf-8")) or {}
 people = (yaml.safe_load(people_path.read_text(encoding="utf-8")) or {}).get("people") or []
+manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+
+assert manifest.get("version") == "0.7.6"
 
 assert people, "people.yaml must contain the active Feishu roster"
 open_ids = [str(person.get("open_id") or "") for person in people if isinstance(person, dict)]
@@ -374,12 +380,14 @@ if [[ -x "${VENV_PYTHON}" ]] &&
     (
         cd "${HERMES_AGENT}" &&
             "${VENV_PYTHON}" - <<'PY'
+import contextvars
 import importlib
 import json
+import subprocess
 from types import SimpleNamespace
 
 from hermes_cli.config import load_config
-from hermes_cli.plugins import discover_plugins
+from hermes_cli.plugins import _dispatch_pre_tool_call_hooks, discover_plugins
 from hermes_cli.tools_config import _get_platform_tools
 from model_tools import get_tool_definitions, handle_function_call
 from toolsets import resolve_toolset
@@ -542,6 +550,25 @@ assert sandbox._on_pre_tool_call(
     tool_name=sandbox._HYPERTEX_TASK_TOOL,
     args={"task_id": 2},
 ) == {"action": "block", "message": sandbox._HYPERTEX_ONE_CALL_MESSAGE}
+
+owner_terminal_command = (
+    "~/.hermes/hermes-agent/venv/bin/python "
+    "~/.hermes/my-skills/productivity/feishu-docs/scripts/manage_doc_image.py "
+    "cover doxcnVerifyTarget image.png"
+)
+owner_block, owner_modified = _dispatch_pre_tool_call_hooks(
+    "terminal",
+    {"command": owner_terminal_command},
+    session_id="sandbox-owner-verify",
+    turn_id="sandbox-owner-verify:turn-one",
+)
+assert owner_block is None
+assert owner_modified == {
+    "command": (
+        "export HERMES_FEISHU_VERSION_TURN_ID=sandbox-owner-verify:turn-one\n"
+        + owner_terminal_command
+    )
+}
 
 sandbox._current_hypertex_call_count.set(0)
 owner_task_args = {"task_id": "2"}
@@ -707,6 +734,87 @@ doc_mutation_result = handle_function_call(
 )
 assert "受信任的维护者" in doc_mutation_result
 
+# The create result and the follow-up media write execute in separate copied
+# worker contexts in production. Prove the exact created token survives that
+# ContextVar boundary through the shared (chat, turn_id) grant ledger.
+created_token = "doxcnSandboxVerifyCreatedTarget"
+created_turn = "sandbox-group-verify:turn-one"
+workspace = sandbox._workspace_for_chat("oc_verify_any_group")
+markdown_path = workspace / "same-turn-create.md"
+cover_path = workspace / "same-turn-cover.png"
+markdown_path.write_text("# same-turn verification\n", encoding="utf-8")
+cover_path.write_bytes(
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+)
+original_run_trusted_script = sandbox._run_trusted_script
+try:
+    def _fake_created_doc_run(script, _argv, _workspace):
+        stdout = (
+            f"Doc created: {created_token}. Patching title...\n"
+            f"DONE: https://whales.feishu.cn/docx/{created_token}\n"
+            if script.name == "create_new_doc_from_md.py"
+            else "updated"
+        )
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+
+    sandbox._run_trusted_script = _fake_created_doc_run
+    create_result = contextvars.copy_context().run(
+        handle_function_call,
+        "tool_call",
+        {
+            "name": "feishu_doc_manage",
+            "arguments": {
+                "action": "create",
+                "title": "same-turn verification",
+                "markdown_path": markdown_path.name,
+            },
+        },
+        task_id="sandbox-verify",
+        session_id="sandbox-group-verify",
+        turn_id=created_turn,
+        enabled_toolsets=group_toolsets,
+    )
+    assert '"success": true' in create_result
+    cover_result = contextvars.copy_context().run(
+        handle_function_call,
+        "tool_call",
+        {
+            "name": "feishu_doc_manage",
+            "arguments": {
+                "action": "set_cover",
+                "doc_token": created_token,
+                "image_path": cover_path.name,
+            },
+        },
+        task_id="sandbox-verify",
+        session_id="sandbox-group-verify",
+        turn_id=created_turn,
+        enabled_toolsets=group_toolsets,
+    )
+    assert '"success": true' in cover_result
+    next_turn_result = contextvars.copy_context().run(
+        handle_function_call,
+        "tool_call",
+        {
+            "name": "feishu_doc_manage",
+            "arguments": {
+                "action": "set_cover",
+                "doc_token": created_token,
+                "image_path": cover_path.name,
+            },
+        },
+        task_id="sandbox-verify",
+        session_id="sandbox-group-verify",
+        turn_id="sandbox-group-verify:turn-two",
+        enabled_toolsets=group_toolsets,
+    )
+    assert "必须在当前消息或显式引用中附上目标文档链接" in next_turn_result
+finally:
+    sandbox._run_trusted_script = original_run_trusted_script
+    markdown_path.unlink(missing_ok=True)
+    cover_path.unlink(missing_ok=True)
+
 trusted_mutation_user = next(iter(sandbox._GROUP_MUTATION_USER_IDS))
 markdown_token = "doxcnSandboxVerifyMarkdownTarget"
 markdown_url = f"https://whales.feishu.cn/docx/{markdown_token}"
@@ -861,6 +969,7 @@ PY
         )
     fi
     current_reg=""
+    plugin_version=$("${VENV_PYTHON}" -c 'import sys,yaml; print((yaml.safe_load(open(sys.argv[1])) or {})["version"])' "${PLUGIN_MANIFEST}" 2>/dev/null || true)
     current_mcp_tasks=""
     if [[ -n "${gateway_pid}" ]]; then
         current_reg=$(grep "sandbox: registered (pid=${gateway_pid}," "${AGENT_LOG}" | tail -1 || true)
@@ -899,7 +1008,9 @@ PY
     elif [[ -z "${current_mcp_tasks}" ]]; then
         echo "FAIL no standard MCP Tasks registration after sandbox trace for gateway child PID ${gateway_pid}"
         fail=1
-    elif echo "${current_reg}" | grep -q 'active=True' &&
+    elif [[ -n "${plugin_version}" ]] &&
+        echo "${current_reg}" | grep -q "version=${plugin_version}" &&
+        echo "${current_reg}" | grep -q 'active=True' &&
         echo "${current_reg}" | grep -q 'tool_search' &&
         echo "${current_reg}" | grep -q 'tool_describe' &&
         echo "${current_reg}" | grep -q 'group_cache' &&

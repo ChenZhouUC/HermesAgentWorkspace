@@ -31,6 +31,7 @@ import logging
 import math
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -44,6 +45,7 @@ from urllib.parse import urlparse
 import yaml
 
 logger = logging.getLogger(__name__)
+_PLUGIN_VERSION = "0.7.6"
 
 
 _current_chat_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -79,6 +81,7 @@ _current_image_generation_call_count: contextvars.ContextVar[int] = contextvars.
 _current_chart_generation_call_count: contextvars.ContextVar[int] = contextvars.ContextVar(
     "sandbox_current_chart_generation_call_count", default=0
 )
+_current_tool_turn_id: contextvars.ContextVar[str] = contextvars.ContextVar("sandbox_current_tool_turn_id", default="")
 
 
 _CONFIG_LOADED = False
@@ -167,6 +170,9 @@ _EXPLICIT_TARGET_SCRIPT_ACTIONS = frozenset({"append", "rebuild", "delete", "ins
 _WEB_EXTRACT_PATH_RE = re.compile(r"(?m)^Full text saved to:\s*(.+?)\s*$")
 _EPHEMERAL_READ_PATHS_BY_CHAT: Dict[str, Set[Path]] = {}
 _EPHEMERAL_READ_PATHS_LOCK = threading.Lock()
+_TURN_RESOURCE_REFS_BY_KEY: Dict[Tuple[str, str], FrozenSet[str]] = {}
+_TURN_RESOURCE_REFS_LOCK = threading.Lock()
+_TURN_RESOURCE_REFS_MAX_ENTRIES = 512
 _BEARER_OUTPUT_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _SECRET_OUTPUT_RE = re.compile(
     r"""(?ix)
@@ -185,6 +191,14 @@ _FEISHU_SCRIPT_FILES = {
     "insert_image": "manage_doc_image.py",
     "set_cover": "manage_doc_image.py",
 }
+_VERSIONED_FEISHU_SCRIPT_NAMES = frozenset(
+    {
+        "create_new_doc_from_md.py",
+        "append_md_to_doc.py",
+        "rebuild_doc_from_md.py",
+        "manage_doc_image.py",
+    }
+)
 
 
 GROUP_CACHE_SCHEMA = {
@@ -1586,8 +1600,46 @@ def _event_resource_refs(event: Any) -> FrozenSet[str]:
     return frozenset(refs)
 
 
-def _resource_was_referenced(value: Any) -> bool:
-    return bool(_resource_ref_candidates(value).intersection(_current_resource_refs.get()))
+def _turn_resource_key(turn_id: str = "") -> Optional[Tuple[str, str]]:
+    chat_id = str(_current_chat_id.get() or "").strip()
+    resolved_turn_id = str(turn_id or _current_tool_turn_id.get() or "").strip()
+    if not chat_id or not resolved_turn_id:
+        return None
+    return chat_id, resolved_turn_id
+
+
+def _record_turn_resource_refs(turn_id: str, refs: FrozenSet[str]) -> None:
+    key = _turn_resource_key(turn_id)
+    if key is None or not refs:
+        return
+    with _TURN_RESOURCE_REFS_LOCK:
+        existing = _TURN_RESOURCE_REFS_BY_KEY.get(key, frozenset())
+        _TURN_RESOURCE_REFS_BY_KEY[key] = frozenset(set(existing) | set(refs))
+        while len(_TURN_RESOURCE_REFS_BY_KEY) > _TURN_RESOURCE_REFS_MAX_ENTRIES:
+            _TURN_RESOURCE_REFS_BY_KEY.pop(next(iter(_TURN_RESOURCE_REFS_BY_KEY)), None)
+
+
+def _turn_resource_refs(turn_id: str = "") -> FrozenSet[str]:
+    key = _turn_resource_key(turn_id)
+    if key is None:
+        return frozenset()
+    with _TURN_RESOURCE_REFS_LOCK:
+        return _TURN_RESOURCE_REFS_BY_KEY.get(key, frozenset())
+
+
+def _clear_turn_resource_refs(chat_id: Optional[str] = None) -> None:
+    with _TURN_RESOURCE_REFS_LOCK:
+        if not chat_id:
+            _TURN_RESOURCE_REFS_BY_KEY.clear()
+            return
+        for key in tuple(_TURN_RESOURCE_REFS_BY_KEY):
+            if key[0] == chat_id:
+                _TURN_RESOURCE_REFS_BY_KEY.pop(key, None)
+
+
+def _resource_was_referenced(value: Any, *, turn_id: str = "") -> bool:
+    allowed = set(_current_resource_refs.get()) | set(_turn_resource_refs(turn_id))
+    return bool(_resource_ref_candidates(value).intersection(allowed))
 
 
 def _successful_created_doc_refs(result: Any) -> FrozenSet[str]:
@@ -1616,10 +1668,11 @@ def _successful_created_doc_refs(result: Any) -> FrozenSet[str]:
     return frozenset(refs)
 
 
-def _group_doc_action_block(args: Any) -> Optional[str]:
+def _group_doc_action_block(args: Any, *, turn_id: str = "") -> Optional[str]:
     """Return a block message for an unauthorized structured doc action."""
     if not isinstance(args, dict):
         return _MUTATION_REFERENCE_BLOCK_MESSAGE
+    turn_id = str(turn_id or args.get("_sandbox_turn_id") or "")
     action = str(args.get("action") or "")
     if action in _TRUST_REQUIRED_SCRIPT_ACTIONS:
         actor = str(_current_user_id.get() or "")
@@ -1632,7 +1685,9 @@ def _group_doc_action_block(args: Any) -> Optional[str]:
                 sorted(_current_actor_ids()),
             )
             return _MUTATION_TRUST_BLOCK_MESSAGE
-    if action in _EXPLICIT_TARGET_SCRIPT_ACTIONS and not _resource_was_referenced(args.get("doc_token")):
+    if action in _EXPLICIT_TARGET_SCRIPT_ACTIONS and not _resource_was_referenced(
+        args.get("doc_token"), turn_id=turn_id
+    ):
         logger.info(
             "sandbox: blocked group document action=%s reason=target_not_referenced chat=%s actor=%s",
             action,
@@ -1641,9 +1696,22 @@ def _group_doc_action_block(args: Any) -> Optional[str]:
         )
         return _MUTATION_REFERENCE_BLOCK_MESSAGE
     if action in {"read_url", "download_file"}:
-        if not _resource_was_referenced(args.get("url")):
+        if not _resource_was_referenced(args.get("url"), turn_id=turn_id):
             return _RESOURCE_BLOCK_MESSAGE
     return None
+
+
+def _owner_terminal_turn_directive(tool_name: str, args: Any, turn_id: str) -> Optional[Dict[str, Any]]:
+    """Inject the agent turn id only for fixed Feishu document scripts."""
+    if tool_name != "terminal" or not isinstance(args, dict) or not turn_id:
+        return None
+    command = args.get("command")
+    if not isinstance(command, str) or not any(name in command for name in _VERSIONED_FEISHU_SCRIPT_NAMES):
+        return None
+    if "HERMES_FEISHU_VERSION_TURN_ID=" in command:
+        return None
+    prefix = f"export HERMES_FEISHU_VERSION_TURN_ID={shlex.quote(turn_id)}\n"
+    return {"action": "modify", "args": {"command": prefix + command}}
 
 
 def _markdown_source(args: Dict[str, Any], workspace: Path) -> Path:
@@ -1835,12 +1903,13 @@ def _run_trusted_script(script: Path, argv: list[str], workspace: Path) -> subpr
         command = [str(sandbox_exec), "-p", _seatbelt_profile(workspace), *command]
 
     env = os.environ.copy()
+    turn_id = _current_tool_turn_id.get()
     try:
         from gateway.session_context import get_session_env
 
-        turn_id = get_session_env("HERMES_SESSION_MESSAGE_ID", "") or ""
+        turn_id = turn_id or get_session_env("HERMES_SESSION_MESSAGE_ID", "") or ""
     except Exception:
-        turn_id = ""
+        pass
     env.update(
         {
             "HERMES_GROUP_WORKSPACE": str(workspace),
@@ -1866,8 +1935,10 @@ def _run_trusted_script(script: Path, argv: list[str], workspace: Path) -> subpr
 
 
 def _handle_feishu_doc_manage(args: Dict[str, Any], **_kwargs: Any) -> str:
+    turn_id = str(args.get("_sandbox_turn_id") or "")
+    _current_tool_turn_id.set(turn_id)
     chat_id = _require_group_context()
-    block_message = _group_doc_action_block(args)
+    block_message = _group_doc_action_block(args, turn_id=turn_id)
     if block_message is not None:
         raise PermissionError(block_message)
     workspace = _workspace_for_chat(chat_id)
@@ -2135,6 +2206,7 @@ def _load_config() -> bool:
 
 def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict[str, Any]]:
     if event is None or getattr(event, "source", None) is None:
+        _clear_turn_resource_refs()
         _current_platform.set(None)
         _current_chat_id.set(None)
         _current_chat_type.set(None)
@@ -2146,8 +2218,10 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
         _current_hypertex_call_count.set(0)
         _current_image_generation_call_count.set(0)
         _current_chart_generation_call_count.set(0)
+        _current_tool_turn_id.set("")
         return None
     source = event.source
+    _clear_turn_resource_refs(str(getattr(source, "chat_id", None) or ""))
     _clear_ephemeral_read_paths(getattr(source, "chat_id", None))
     platform = getattr(source, "platform", None)
     _current_platform.set(platform.value if platform else None)
@@ -2163,12 +2237,14 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
     _current_hypertex_call_count.set(0)
     _current_image_generation_call_count.set(0)
     _current_chart_generation_call_count.set(0)
+    _current_tool_turn_id.set("")
     return None
 
 
 def _on_post_tool_call(
     tool_name: str = "",
     result: Any = None,
+    turn_id: str = "",
     **_kwargs: Any,
 ) -> None:
     if not _CONFIG_LOADED or not _is_group_context():
@@ -2178,6 +2254,7 @@ def _on_post_tool_call(
     elif tool_name == _SCRIPT_TOOL:
         created_refs = _successful_created_doc_refs(result)
         if created_refs:
+            _record_turn_resource_refs(turn_id, created_refs)
             _current_resource_refs.set(frozenset(set(_current_resource_refs.get()) | set(created_refs)))
             logger.info(
                 "sandbox: granted same-turn access to created document chat=%s refs=%s",
@@ -2187,7 +2264,13 @@ def _on_post_tool_call(
     return None
 
 
-def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> Optional[Dict[str, Any]]:
+def _on_pre_tool_call(
+    tool_name: str = "",
+    args: Any = None,
+    turn_id: str = "",
+    **_kwargs: Any,
+) -> Optional[Dict[str, Any]]:
+    _current_tool_turn_id.set(str(turn_id or ""))
     if _current_platform.get() != "feishu":
         return None
     if not _CONFIG_LOADED:
@@ -2195,7 +2278,10 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
 
     chat_id = str(_current_chat_id.get() or "")
     if chat_id in _OWNER_CHAT_IDS:
-        return _prepare_hypertex_call(tool_name, args)
+        hypertex_directive = _prepare_hypertex_call(tool_name, args)
+        if hypertex_directive is not None:
+            return hypertex_directive
+        return _owner_terminal_turn_directive(tool_name, args, turn_id)
 
     chat_type = _current_chat_type.get()
     if chat_type in _GROUP_CHAT_TYPES:
@@ -2247,12 +2333,14 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, **_kwargs: Any) -> 
                 return {"action": "block", "message": _READ_ROOT_BLOCK_MESSAGE}
         if tool_name == "feishu_doc_read":
             token = args.get("doc_token") if isinstance(args, dict) else None
-            if not _resource_was_referenced(token):
+            if not _resource_was_referenced(token, turn_id=turn_id):
                 return {"action": "block", "message": _RESOURCE_BLOCK_MESSAGE}
         if tool_name == _SCRIPT_TOOL:
-            block_message = _group_doc_action_block(args)
+            block_message = _group_doc_action_block(args, turn_id=turn_id)
             if block_message is not None:
                 return {"action": "block", "message": block_message}
+            if turn_id and isinstance(args, dict):
+                return {"action": "modify", "args": {"_sandbox_turn_id": turn_id}}
         return None
 
     if tool_name in _ALLOWED_TOOLS:
@@ -2316,12 +2404,13 @@ def register(ctx: Any) -> None:
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     logger.info(
-        "sandbox: registered (pid=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
+        "sandbox: registered (pid=%s, version=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
         "workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, "
         "doc_media_actions=%s, doc_image_max_bytes=%s, hypertex_chats=%s, "
         "hypertex_users=%s, hypertex_routing_policy=%s, image_chats=%s, image_script=%s, "
         "chart_chats=%s, chart_script=%s, process_sandbox=%s)",
         os.getpid(),
+        _PLUGIN_VERSION,
         loaded,
         sorted(_OWNER_CHAT_IDS),
         sorted(_GROUP_ALLOWED_TOOLS),

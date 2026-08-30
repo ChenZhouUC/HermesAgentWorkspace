@@ -64,7 +64,9 @@ chat; document insertion and chat delivery are distinct destinations.
 A group document successfully produced by `feishu_doc_manage(action="create")`
 may receive generated media during the same turn. Only the exact token parsed
 from that successful fixed-script result is authorized; failed creation,
-another tool's output, arbitrary tokens, and later turns receive no grant.
+another tool's output, arbitrary tokens, and later turns receive no grant. The
+grant is keyed by the internal Hermes turn ID rather than thread-local hook
+state, so a create and its follow-up media write may run in different workers.
 
 ## Permissions and failure handling
 

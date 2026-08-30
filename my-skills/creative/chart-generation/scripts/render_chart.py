@@ -1254,13 +1254,126 @@ def _bar_labels(ax: Axes, request: dict[str, Any], *, horizontal: bool) -> None:
             "" if value is None or not math.isfinite(float(value)) else _format_value(float(value), request)
             for value in container.datavalues
         ]
-        ax.bar_label(container, labels=labels, padding=5, fontsize=9.5, color="#344054")
+        annotations = ax.bar_label(container, labels=labels, padding=5, fontsize=9.5, color="#344054")
+        for annotation in annotations:
+            annotation.set_gid("hermes-value-label-x" if horizontal else "hermes-value-label-y")
     if horizontal:
         low, high = ax.get_xlim()
         ax.set_xlim(low, high + (high - low) * 0.12)
     else:
         low, high = ax.get_ylim()
         ax.set_ylim(low, high + (high - low) * 0.10)
+
+
+def _expand_axis_for_label_overflow(
+    ax: Axes,
+    axis: str,
+    lower_pixels: float,
+    upper_pixels: float,
+) -> bool:
+    if lower_pixels <= 0 and upper_pixels <= 0:
+        return False
+    axis_obj = ax.xaxis if axis == "x" else ax.yaxis
+    limits = ax.get_xlim() if axis == "x" else ax.get_ylim()
+    axis_box = ax.get_window_extent()
+    pixel_span = axis_box.width if axis == "x" else axis_box.height
+    if pixel_span <= 0:
+        return False
+    try:
+        scaled = axis_obj.get_transform().transform(np.asarray(limits, dtype=float))
+        scaled_start, scaled_end = float(scaled[0]), float(scaled[1])
+        scaled_span = scaled_end - scaled_start
+        if not math.isfinite(scaled_span) or math.isclose(scaled_span, 0.0):
+            return False
+        padding = 3.0
+        lower_fraction = min(0.5, (lower_pixels + padding) / pixel_span * 1.15)
+        upper_fraction = min(0.5, (upper_pixels + padding) / pixel_span * 1.15)
+        expanded = (
+            axis_obj.get_transform()
+            .inverted()
+            .transform(
+                np.asarray(
+                    [
+                        scaled_start - scaled_span * lower_fraction,
+                        scaled_end + scaled_span * upper_fraction,
+                    ],
+                    dtype=float,
+                )
+            )
+        )
+        if axis == "x":
+            ax.set_xlim(float(expanded[0]), float(expanded[1]))
+        else:
+            ax.set_ylim(float(expanded[0]), float(expanded[1]))
+        return True
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _fit_value_labels_inside_axes(ax: Axes | None) -> dict[str, int]:
+    """Expand only the numeric data axis until value labels fit the plot."""
+    if ax is None or not hasattr(ax, "texts"):
+        return {"total": 0, "outside_before": 0, "outside_after": 0}
+    labels = [
+        artist
+        for artist in ax.texts
+        if str(artist.get_gid() or "").startswith("hermes-value-label-") and artist.get_visible() and artist.get_text()
+    ]
+    if not labels:
+        return {"total": 0, "outside_before": 0, "outside_after": 0}
+
+    outside_before = 0
+    outside_after = 0
+    for attempt in range(4):
+        ax.figure.canvas.draw()
+        renderer = ax.figure.canvas.get_renderer()
+        axes_box = ax.get_window_extent(renderer)
+        x_boxes = []
+        y_boxes = []
+        outside = 0
+        for label in labels:
+            box = label.get_window_extent(renderer)
+            if box.x0 < axes_box.x0 or box.x1 > axes_box.x1 or box.y0 < axes_box.y0 or box.y1 > axes_box.y1:
+                outside += 1
+            if label.get_gid() == "hermes-value-label-x":
+                x_boxes.append(box)
+            else:
+                y_boxes.append(box)
+        if attempt == 0:
+            outside_before = outside
+        outside_after = outside
+        if outside == 0:
+            break
+
+        changed = False
+        if x_boxes:
+            changed = (
+                _expand_axis_for_label_overflow(
+                    ax,
+                    "x",
+                    max(0.0, axes_box.x0 - min(box.x0 for box in x_boxes)),
+                    max(0.0, max(box.x1 for box in x_boxes) - axes_box.x1),
+                )
+                or changed
+            )
+        if y_boxes:
+            changed = (
+                _expand_axis_for_label_overflow(
+                    ax,
+                    "y",
+                    max(0.0, axes_box.y0 - min(box.y0 for box in y_boxes)),
+                    max(0.0, max(box.y1 for box in y_boxes) - axes_box.y1),
+                )
+                or changed
+            )
+        if not changed:
+            break
+
+    return {
+        "total": len(labels),
+        "outside_before": outside_before,
+        "outside_after": outside_after,
+    }
 
 
 def _highlight_bars(ax: Axes, request: dict[str, Any], order: list[object] | None) -> None:
@@ -1806,7 +1919,7 @@ def _render_waterfall(data: ChartData, request: dict[str, Any]) -> tuple[Figure,
     bars = ax.bar(labels, increments, bottom=starts, color=colors, edgecolor="#FFFFFF", linewidth=0.8)
     if bool(request.get("show_values", True)):
         for bar, value in zip(bars, increments, strict=True):
-            ax.text(
+            annotation = ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_y() + bar.get_height(),
                 _format_value(value, request),
@@ -1814,6 +1927,7 @@ def _render_waterfall(data: ChartData, request: dict[str, Any]) -> tuple[Figure,
                 va="bottom" if value >= 0 else "top",
                 fontsize=9.5,
             )
+            annotation.set_gid("hermes-value-label-y")
     _finish_axes(ax, request, 1)
     return fig, ax
 
@@ -1840,7 +1954,7 @@ def _render_lollipop(data: ChartData, request: dict[str, Any]) -> tuple[Figure, 
     ax.set_yticks(y, labels)
     if bool(request.get("show_values", True)):
         for x, y_value in zip(values, y, strict=True):
-            ax.annotate(
+            annotation = ax.annotate(
                 _format_value(float(x), request),
                 (x, y_value),
                 xytext=(7, 0),
@@ -1848,6 +1962,7 @@ def _render_lollipop(data: ChartData, request: dict[str, Any]) -> tuple[Figure, 
                 va="center",
                 fontsize=9.5,
             )
+            annotation.set_gid("hermes-value-label-x")
     _finish_axes(ax, request, 1, horizontal=True)
     return fig, ax
 
@@ -2102,6 +2217,7 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
             axis_label_layout["x_band_fraction"] = round(_tick_band_fraction(ax, "x"), 4)
             axis_label_layout["y_band_fraction"] = round(_tick_band_fraction(ax, "y"), 4)
         legend_extent_fraction = _limit_external_legend_extent(ax, legend_position)
+        value_label_layout = _fit_value_labels_inside_axes(ax)
         day = time.strftime("%Y-%m-%d", time.gmtime())
         output_dir = (workspace / "charts" / day).resolve(strict=False)
         if not output_dir.is_relative_to(workspace):
@@ -2141,6 +2257,7 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
             "legend_title": legend_title,
             "legend_extent_fraction": round(legend_extent_fraction, 4),
             "axis_label_layout": axis_label_layout,
+            "value_label_layout": value_label_layout,
             "size_bytes": target.stat().st_size,
         }
     finally:

@@ -169,7 +169,9 @@ You normally never touch this by hand — run `append_md_to_doc.py`.
   repeated headers back into one logical history.
 - Within one Hermes turn, the same document receives at most one new version
   row even when content, body images, and cover are updated by separate tool
-  calls. A later turn receives the next version normally.
+  calls. This uses Hermes' internal agent turn ID rather than a platform
+  message ID, so batched Feishu messages and separate terminal/tool workers
+  still share one version. A later turn receives the next version normally.
 
 **Why it can't just "add a row":** Feishu has no native "append row" — the table must
 be rebuilt. The script handles this (re-read rows → new table with `row_size`/`column_size`/`column_width`
@@ -222,7 +224,8 @@ In a Feishu group, use `feishu_doc_manage`:
   the current message or explicit reply. A document successfully created by
   the fixed `create` action is also authorized for the remainder of that same
   group turn, allowing immediate image insertion and cover setup; the grant is
-  limited to the exact returned token and expires on the next message.
+  limited to the exact returned token, is shared safely across separate tool
+  workers, and expires on the next message.
 
 For owner/CLI operation, use the fixed script directly:
 
