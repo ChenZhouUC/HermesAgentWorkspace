@@ -902,6 +902,58 @@ def _wrap_legend_labels(legend: Any, *, width: int) -> None:
             label.set_text("\n".join(textwrap.wrap(content, width=width, break_long_words=False)))
 
 
+def _rebuild_external_legend(
+    ax: Axes,
+    legend: Any,
+    position: str,
+    *,
+    font_size: float,
+    wrap_width: int,
+    truncate_width: int | None = None,
+) -> Any:
+    handles = list(getattr(legend, "legend_handles", []))
+    labels = list(getattr(legend, "_hermes_full_labels", [])) or [text.get_text() for text in legend.get_texts()]
+    if not handles:
+        handles, _unused_labels = ax.get_legend_handles_labels()
+    rendered_labels = []
+    for label in labels:
+        compact = " ".join(str(label).split())
+        if truncate_width is not None and len(compact) > truncate_width:
+            compact = compact[: max(1, truncate_width - 1)].rstrip() + "…"
+        elif len(compact) > wrap_width:
+            compact = "\n".join(textwrap.wrap(compact, width=wrap_width, break_long_words=False))
+        rendered_labels.append(compact)
+    legend.remove()
+    common = {
+        "frameon": False,
+        "fontsize": font_size,
+        "handlelength": 1.0,
+        "handletextpad": 0.4,
+        "borderpad": 0.2,
+        "labelspacing": 0.35,
+    }
+    if position == "right":
+        rebuilt = ax.legend(
+            handles,
+            rendered_labels,
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            ncols=1,
+            **common,
+        )
+    else:
+        rebuilt = ax.legend(
+            handles,
+            rendered_labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.13),
+            ncols=min(max(len(rendered_labels), 1), 6),
+            **common,
+        )
+    rebuilt._hermes_full_labels = labels
+    return rebuilt
+
+
 def _resolve_legend_position(ax: Axes, legend: Any, request: dict[str, Any]) -> str:
     requested = str(request.get("legend_position") or "auto").strip().lower()
     if requested in {"top", "right", "bottom"}:
@@ -931,15 +983,9 @@ def _apply_legend(ax: Axes, request: dict[str, Any], series_count: int) -> None:
         legend.set_title(None)
     position = _resolve_legend_position(ax, legend, request)
     if position == "right":
-        _wrap_legend_labels(legend, width=18)
-        legend.set_bbox_to_anchor((1.02, 0.5))
-        legend._loc = 6
-        legend.set_ncols(1)
+        _rebuild_external_legend(ax, legend, position, font_size=9.0, wrap_width=18)
     elif position == "bottom":
-        _wrap_legend_labels(legend, width=24)
-        legend.set_bbox_to_anchor((0.5, -0.13))
-        legend._loc = 9
-        legend.set_ncols(min(series_count, 6))
+        _rebuild_external_legend(ax, legend, position, font_size=9.0, wrap_width=24)
     elif position == "inside":
         legend.set_bbox_to_anchor(None)
         legend._loc = 0
@@ -969,10 +1015,10 @@ def _legend_layout_rect(position: str, top: float, bottom: float) -> tuple[float
 def _limit_external_legend_extent(ax: Axes | None, position: str, *, maximum: float = 0.20) -> float:
     if ax is None or position not in {"right", "bottom"} or ax.get_legend() is None:
         return 0.0
-    legend = ax.get_legend()
-    assert legend is not None
     ratio = 0.0
     for attempt in range(6):
+        legend = ax.get_legend()
+        assert legend is not None
         ax.figure.canvas.draw()
         renderer = ax.figure.canvas.get_renderer()
         legend_box = legend.get_window_extent(renderer)
@@ -982,12 +1028,33 @@ def _limit_external_legend_extent(ax: Axes | None, position: str, *, maximum: fl
         ratio = extent / max(denominator, 1.0)
         if ratio <= maximum:
             return ratio
-        for label in legend.get_texts():
-            label.set_fontsize(max(6.0, label.get_fontsize() * 0.86))
-        if position == "right":
-            _wrap_legend_labels(legend, width=max(8, 16 - attempt * 2))
+        _rebuild_external_legend(
+            ax,
+            legend,
+            position,
+            font_size=max(5.5, 8.5 - attempt * 0.6),
+            wrap_width=max(6, 14 - attempt * 2),
+            truncate_width=None if attempt < 3 else max(5, 12 - attempt * 2),
+        )
     if ratio > maximum:
-        raise ChartError(f"legend cannot fit within the {maximum:.0%} external layout limit")
+        legend = ax.get_legend()
+        assert legend is not None
+        _rebuild_external_legend(
+            ax,
+            legend,
+            position,
+            font_size=5.0,
+            wrap_width=4,
+            truncate_width=4,
+        )
+        ax.figure.canvas.draw()
+        legend = ax.get_legend()
+        assert legend is not None
+        legend_box = legend.get_window_extent(ax.figure.canvas.get_renderer())
+        axes_box = ax.get_window_extent(ax.figure.canvas.get_renderer())
+        denominator = axes_box.width if position == "right" else axes_box.height
+        extent = legend_box.width if position == "right" else legend_box.height
+        ratio = extent / max(denominator, 1.0)
     return ratio
 
 
@@ -1690,6 +1757,7 @@ def _render_pie(data: ChartData, request: dict[str, Any], *, donut: bool) -> tup
             bbox_to_anchor=(1.0, 0.5),
             frameon=False,
         )
+        _apply_legend(ax, request, len(values))
     ax.set_aspect("equal")
     ax.grid(False)
     return fig, ax

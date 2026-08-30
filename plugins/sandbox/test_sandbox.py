@@ -1733,6 +1733,23 @@ def test_chart_auto_legend_preserves_landscape_plot_height(tmp_path):
             },
             "bottom",
         ),
+        (
+            {
+                "title": "Developer priorities",
+                "chart_type": "donut",
+                "labels": [
+                    "官方身份/文档/企业部署",
+                    "源码可读性/二开便利",
+                    "实验性远控和桌面能力",
+                    "API Key 快速接入",
+                ],
+                "series": [{"name": "选型关注点", "values": [40, 25, 20, 15]}],
+                "legend": "show",
+                "layout_preset": "wide",
+                "style_preset": "presentation",
+            },
+            "right",
+        ),
     ],
 )
 def test_chart_auto_legend_external_fallback_is_bounded(tmp_path, chart_request, expected_position):
