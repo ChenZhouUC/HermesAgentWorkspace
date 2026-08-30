@@ -1,5 +1,5 @@
 name: sandbox
-version: 0.7.1
+version: 0.7.3
 description: "Per-chat Feishu boundary with isolated group workspaces, sandboxed image/chart generation, document image and cover writes, and an owner-DM HyperTeX attachment bridge."
 author: "周琛"
 hooks:

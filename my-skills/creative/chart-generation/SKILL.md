@@ -75,9 +75,17 @@ For the full chart/parameter routing table, read
 Canvas dimensions are selected automatically from the chart family and data
 shape. Layout presets only bias the result; all exported PNGs stay between a
 `2:1` landscape ratio and a `1:2` portrait ratio. Automatic legend placement
-keeps short, low-cardinality legends on the right of landscape charts so the
-main plot retains its vertical height; set `legend_position` only when the user
-requests a different layout.
+first uses Matplotlib's least-obstructive position inside the plotting area. If
+that position intersects plotted data, a landscape chart moves the legend to a
+right-side region capped at one fifth of the plot width; a portrait chart moves
+it below the plot in a region capped at one fifth of the plot height. Set
+`legend_position` only when the user requests a different layout.
+
+Tick-label bands are also bounded after `tight_layout`: Y-axis tick labels may
+use at most 10% of plot width, while X-axis tick labels may use at most 10% of
+plot height. Long X labels are tilted first; labels that still exceed the budget
+are shortened with an ellipsis. The renderer reports the final rotation,
+truncation counts, and measured fractions in `axis_label_layout`.
 
 ## Procedure
 
@@ -116,7 +124,10 @@ requests a different layout.
 A successful result contains `success: true`, `chart_type`, `workspace_path`,
 and `media_directive`. Check that the returned label and series counts match the
 intended selection before claiming completion. When legend placement matters,
-also check the resolved `legend_position`; an omitted position should normally
-resolve to `right` for a landscape chart with two to four short series. For
-document-only requests, use `workspace_path` with the document tool and omit
-the chat `media_directive`.
+also check the resolved `legend_position` and `legend_extent_fraction`: an
+omitted position should resolve to `inside` when it does not cover data, then
+fall back to `right` or `bottom` with an external extent no greater than `0.20`.
+Check `axis_label_layout.x_band_fraction` and `y_band_fraction` are no greater
+than `0.10` when the chart contains long category labels.
+For document-only requests, use `workspace_path` with the document tool and
+omit the chat `media_directive`.

@@ -99,3 +99,8 @@ a `media_directive`. Use the relative path only as structured input to the
 document tool. Include the directive outside code fences when delivering a chat
 copy, but omit it for document-only requests. Do not claim either destination
 succeeded until its corresponding Gateway or document operation succeeds.
+
+Distinguish an Agent/provider failure from an image-model failure. If the turn
+contains no `secure_image_generate` or `group_image_generate` tool result, the
+image fallback chain never started. Only an error beginning with `all image
+models failed` proves that the configured image models were each attempted.

@@ -914,6 +914,14 @@ def test_group_chart_tool_returns_workspace_media_directive(group_config, monkey
                     "labels": 3,
                     "series": 1,
                     "legend_position": "hidden",
+                    "legend_extent_fraction": 0.0,
+                    "axis_label_layout": {
+                        "x_rotation": 0.0,
+                        "x_truncated": 0,
+                        "y_truncated": 0,
+                        "x_band_fraction": 0.03,
+                        "y_band_fraction": 0.02,
+                    },
                 }
             ),
             stderr="",
@@ -935,6 +943,8 @@ def test_group_chart_tool_returns_workspace_media_directive(group_config, monkey
     assert result["success"] is True
     assert result["chart_type"] == "bar"
     assert result["legend_position"] == "hidden"
+    assert result["legend_extent_fraction"] == 0.0
+    assert result["axis_label_layout"]["x_band_fraction"] == 0.03
     assert result["media_directive"] == f"MEDIA:{workspace / 'charts/result.png'}"
     assert captured["payload"]["series"][0]["values"] == [10, 20, 30]
 
@@ -1562,6 +1572,40 @@ def test_group_image_script_scrubs_key_from_api_errors(monkeypatch):
     assert rendered.count("[REDACTED]") >= 1
 
 
+def _run_chart_renderer(tmp_path: Path, request: dict) -> tuple[dict, Path]:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "my-skills"
+        / "creative"
+        / "chart-generation"
+        / "scripts"
+        / "render_chart.py"
+    )
+    python = Path(__file__).resolve().parents[2] / "lib" / "chart-renderer" / "venv" / "bin" / "python"
+    workspace = tmp_path / "chart-workspace"
+    workspace.mkdir()
+    completed = subprocess.run(
+        [str(python), str(script)],
+        input=json.dumps(request, ensure_ascii=False),
+        text=True,
+        capture_output=True,
+        env={
+            "HERMES_CHART_WORKSPACE": str(workspace),
+            "MPLCONFIGDIR": str(workspace / ".matplotlib"),
+            "XDG_CACHE_HOME": str(workspace / ".cache"),
+            "MPLBACKEND": "Agg",
+            "PATH": str(Path(python).parent),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "TMPDIR": str(workspace),
+        },
+        timeout=30,
+        check=False,
+    )
+    result = json.loads(completed.stdout)
+    assert completed.returncode == 0, completed.stderr or result
+    return result, workspace / result["chart"]
+
+
 def test_chart_renderer_generates_png_from_structured_values(tmp_path):
     script = (
         Path(__file__).resolve().parents[2]
@@ -1618,17 +1662,6 @@ def test_chart_renderer_generates_png_from_structured_values(tmp_path):
 
 
 def test_chart_auto_legend_preserves_landscape_plot_height(tmp_path):
-    script = (
-        Path(__file__).resolve().parents[2]
-        / "my-skills"
-        / "creative"
-        / "chart-generation"
-        / "scripts"
-        / "render_chart.py"
-    )
-    python = Path(__file__).resolve().parents[2] / "lib" / "chart-renderer" / "venv" / "bin" / "python"
-    workspace = tmp_path / "chart-workspace"
-    workspace.mkdir()
     request = {
         "title": "GitHub 社区热度对比：Grok Build 明显领先",
         "subtitle": "公开仓库页面显示的 stars / forks；约数，用于方向性比较",
@@ -1647,28 +1680,10 @@ def test_chart_auto_legend_preserves_landscape_plot_height(tmp_path):
         "legend": "show",
         "quality": "high",
     }
-    completed = subprocess.run(
-        [str(python), str(script)],
-        input=json.dumps(request, ensure_ascii=False),
-        text=True,
-        capture_output=True,
-        env={
-            "HERMES_CHART_WORKSPACE": str(workspace),
-            "MPLCONFIGDIR": str(workspace / ".matplotlib"),
-            "XDG_CACHE_HOME": str(workspace / ".cache"),
-            "MPLBACKEND": "Agg",
-            "PATH": str(Path(python).parent),
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "TMPDIR": str(workspace),
-        },
-        timeout=30,
-        check=False,
-    )
-    result = json.loads(completed.stdout)
-    assert completed.returncode == 0, completed.stderr or result
-    assert result["legend_position"] == "right"
+    result, output = _run_chart_renderer(tmp_path, request)
+    assert result["legend_position"] == "inside"
     assert result["legend_title"] == ""
-    output = workspace / result["chart"]
+    assert result["legend_extent_fraction"] == 0.0
     with Image.open(output) as rendered:
         preview = rendered.convert("RGB").resize((200, 100))
     dense_rows = [
@@ -1683,6 +1698,104 @@ def test_chart_auto_legend_preserves_landscape_plot_height(tmp_path):
     ]
     assert dense_rows
     assert dense_rows[0] < 40
+
+
+@pytest.mark.parametrize(
+    ("chart_request", "expected_position"),
+    [
+        (
+            {
+                "title": "Dense landscape bar",
+                "chart_type": "bar",
+                "labels": [f"C{index}" for index in range(12)],
+                "series": [
+                    {"name": f"Series {series}", "values": [90 + series + index % 3 for index in range(12)]}
+                    for series in range(4)
+                ],
+                "legend": "show",
+                "layout_preset": "wide",
+                "annotation_preset": "values",
+            },
+            "right",
+        ),
+        (
+            {
+                "title": "Dense portrait ranking",
+                "chart_type": "horizontal_bar",
+                "labels": [f"Category {index}" for index in range(20)],
+                "series": [
+                    {"name": f"Series {series}", "values": [90 + series + index % 3 for index in range(20)]}
+                    for series in range(4)
+                ],
+                "legend": "show",
+                "layout_preset": "tall",
+                "annotation_preset": "values",
+            },
+            "bottom",
+        ),
+    ],
+)
+def test_chart_auto_legend_external_fallback_is_bounded(tmp_path, chart_request, expected_position):
+    result, _output = _run_chart_renderer(tmp_path, chart_request)
+    assert result["legend_position"] == expected_position
+    assert 0 < result["legend_extent_fraction"] <= 0.20
+
+
+def test_chart_renderer_reads_large_json_request_to_eof(tmp_path):
+    records = [
+        {"x": x / 13, "y": min(1, y / 13 + offset), "group": group}
+        for group, offset in (("A", 0.0), ("B", 0.02))
+        for x in range(14)
+        for y in range(14)
+    ]
+    request = {
+        "title": "Dense scatter",
+        "chart_type": "scatter",
+        "records": records,
+        "x_field": "x",
+        "y_field": "y",
+        "hue_field": "group",
+        "legend": "show",
+        "layout_preset": "wide",
+    }
+    assert len(json.dumps(request)) > 16 * 1024
+    result, output = _run_chart_renderer(tmp_path, request)
+    assert result["success"] is True
+    assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.parametrize(
+    ("chart_request", "axis", "expected_adjustment"),
+    [
+        (
+            {
+                "title": "Long x labels",
+                "chart_type": "bar",
+                "labels": [f"Extremely long category label number {index}" for index in range(8)],
+                "series": [{"name": "Value", "values": list(range(1, 9))}],
+                "layout_preset": "wide",
+            },
+            "x",
+            "x_rotation",
+        ),
+        (
+            {
+                "title": "Long y labels",
+                "chart_type": "horizontal_bar",
+                "labels": [f"Extremely long business category label number {index} with suffix" for index in range(12)],
+                "series": [{"name": "Value", "values": list(range(1, 13))}],
+                "layout_preset": "tall",
+            },
+            "y",
+            "y_truncated",
+        ),
+    ],
+)
+def test_chart_axis_tick_label_bands_are_bounded(tmp_path, chart_request, axis, expected_adjustment):
+    result, _output = _run_chart_renderer(tmp_path, chart_request)
+    layout = result["axis_label_layout"]
+    assert layout[f"{axis}_band_fraction"] <= 0.10
+    assert layout[expected_adjustment] > 0
 
 
 @pytest.mark.parametrize(

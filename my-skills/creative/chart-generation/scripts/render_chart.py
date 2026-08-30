@@ -877,15 +877,41 @@ def _apply_grid(ax: Axes, request: dict[str, Any], *, numeric_axis: str = "y") -
         ax.grid(False, axis="y" if numeric_axis == "x" else "x")
 
 
-def _resolve_legend_position(ax: Axes, request: dict[str, Any], series_count: int) -> str:
+def _legend_overlaps_data(ax: Axes, legend: Any) -> bool:
+    """Use Matplotlib's own best-location geometry to detect obstruction."""
+    try:
+        ax.figure.canvas.draw()
+        renderer = ax.figure.canvas.get_renderer()
+        legend_box = legend.get_window_extent(renderer)
+        bboxes, lines, offsets = legend._auto_legend_data(renderer)
+        badness = (
+            sum(legend_box.count_contains(line.vertices) for line in lines)
+            + legend_box.count_contains(offsets)
+            + legend_box.count_overlaps(bboxes)
+            + sum(line.intersects_bbox(legend_box, filled=False) for line in lines)
+        )
+        return bool(badness)
+    except Exception:  # noqa: BLE001 - uncertain geometry must fail toward external placement
+        return True
+
+
+def _wrap_legend_labels(legend: Any, *, width: int) -> None:
+    for label in legend.get_texts():
+        content = " ".join(label.get_text().split())
+        if len(content) > width:
+            label.set_text("\n".join(textwrap.wrap(content, width=width, break_long_words=False)))
+
+
+def _resolve_legend_position(ax: Axes, legend: Any, request: dict[str, Any]) -> str:
     requested = str(request.get("legend_position") or "auto").strip().lower()
-    if requested in {"top", "right", "bottom", "best"}:
+    if requested in {"top", "right", "bottom"}:
         return requested
-    labels = [str(label) for label in ax.get_legend_handles_labels()[1] if str(label)]
+    legend.set_bbox_to_anchor(None)
+    legend._loc = 0
+    if requested == "best" or not _legend_overlaps_data(ax, legend):
+        return "inside"
     width, height = ax.figure.get_size_inches()
-    if 1 < series_count <= 4 and width / max(height, 0.1) >= 1.25 and max(map(len, labels), default=0) <= 36:
-        return "right"
-    return "top"
+    return "right" if width >= height else "bottom"
 
 
 def _apply_legend(ax: Axes, request: dict[str, Any], series_count: int) -> None:
@@ -897,18 +923,25 @@ def _apply_legend(ax: Axes, request: dict[str, Any], series_count: int) -> None:
             legend.remove()
         return
     if legend is None:
-        return
+        handles, labels = ax.get_legend_handles_labels()
+        if not handles or not labels:
+            return
+        legend = ax.legend(handles, labels)
     if legend.get_title().get_text().strip().casefold() == "series":
         legend.set_title(None)
-    position = _resolve_legend_position(ax, request, series_count)
+    position = _resolve_legend_position(ax, legend, request)
     if position == "right":
+        _wrap_legend_labels(legend, width=18)
         legend.set_bbox_to_anchor((1.02, 0.5))
         legend._loc = 6
+        legend.set_ncols(1)
     elif position == "bottom":
+        _wrap_legend_labels(legend, width=24)
         legend.set_bbox_to_anchor((0.5, -0.13))
         legend._loc = 9
-        legend.set_ncols(min(series_count, 4))
-    elif position == "best":
+        legend.set_ncols(min(series_count, 6))
+    elif position == "inside":
+        legend.set_bbox_to_anchor(None)
         legend._loc = 0
     else:
         legend.set_bbox_to_anchor((0, 1.02))
@@ -921,8 +954,151 @@ def _legend_metadata(ax: Axes | None) -> tuple[str, str]:
         return "hidden", ""
     legend = ax.get_legend()
     assert legend is not None
-    position = {0: "best", 3: "top", 6: "right", 9: "bottom"}.get(legend._loc, "custom")
+    position = {0: "inside", 3: "top", 6: "right", 9: "bottom"}.get(legend._loc, "custom")
     return position, legend.get_title().get_text()
+
+
+def _legend_layout_rect(position: str, top: float, bottom: float) -> tuple[float, float, float, float]:
+    if position == "right":
+        return 0.025, bottom, 0.82, top
+    if position == "bottom":
+        return 0.025, max(bottom, 0.20), 0.98, top
+    return 0.025, bottom, 0.98, top
+
+
+def _limit_external_legend_extent(ax: Axes | None, position: str, *, maximum: float = 0.20) -> float:
+    if ax is None or position not in {"right", "bottom"} or ax.get_legend() is None:
+        return 0.0
+    legend = ax.get_legend()
+    assert legend is not None
+    ratio = 0.0
+    for attempt in range(6):
+        ax.figure.canvas.draw()
+        renderer = ax.figure.canvas.get_renderer()
+        legend_box = legend.get_window_extent(renderer)
+        axes_box = ax.get_window_extent(renderer)
+        denominator = axes_box.width if position == "right" else axes_box.height
+        extent = legend_box.width if position == "right" else legend_box.height
+        ratio = extent / max(denominator, 1.0)
+        if ratio <= maximum:
+            return ratio
+        for label in legend.get_texts():
+            label.set_fontsize(max(6.0, label.get_fontsize() * 0.86))
+        if position == "right":
+            _wrap_legend_labels(legend, width=max(8, 16 - attempt * 2))
+    if ratio > maximum:
+        raise ChartError(f"legend cannot fit within the {maximum:.0%} external layout limit")
+    return ratio
+
+
+def _text_width(renderer: Any, label: Any, content: str) -> float:
+    try:
+        width, _height, _descent = renderer.get_text_width_height_descent(
+            content,
+            label.get_fontproperties(),
+            ismath=False,
+        )
+        return float(width)
+    except Exception:  # noqa: BLE001 - fall back to the artist's current extent
+        return float(label.get_window_extent(renderer).width)
+
+
+def _ellipsize_label(renderer: Any, label: Any, maximum_width: float) -> tuple[str, bool]:
+    content = " ".join(label.get_text().split())
+    if not content or _text_width(renderer, label, content) <= maximum_width:
+        return content, False
+    ellipsis = "…"
+    if _text_width(renderer, label, ellipsis) > maximum_width:
+        return ellipsis, True
+    low, high = 0, len(content)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate = content[:middle].rstrip() + ellipsis
+        if _text_width(renderer, label, candidate) <= maximum_width:
+            low = middle
+        else:
+            high = middle - 1
+    return content[:low].rstrip() + ellipsis, True
+
+
+def _tick_band_fraction(ax: Axes, axis: str) -> float:
+    ax.figure.canvas.draw()
+    renderer = ax.figure.canvas.get_renderer()
+    axes_box = ax.get_window_extent(renderer)
+    labels = ax.get_xticklabels() if axis == "x" else ax.get_yticklabels()
+    extents = [label.get_window_extent(renderer) for label in labels if label.get_visible() and label.get_text()]
+    if not extents:
+        return 0.0
+    extent = max(box.height for box in extents) if axis == "x" else max(box.width for box in extents)
+    denominator = axes_box.height if axis == "x" else axes_box.width
+    return extent / max(denominator, 1.0)
+
+
+def _fit_axis_tick_labels(ax: Axes, *, maximum: float = 0.10) -> dict[str, float | int]:
+    """Bound tick-label bands while preserving readable categorical labels."""
+    ax.figure.canvas.draw()
+    renderer = ax.figure.canvas.get_renderer()
+    axes_box = ax.get_window_extent(renderer)
+
+    y_labels = [label for label in ax.get_yticklabels() if label.get_visible() and label.get_text()]
+    y_truncated = 0
+    y_limit = axes_box.width * maximum * 0.92
+    if y_labels and max(label.get_window_extent(renderer).width for label in y_labels) > y_limit:
+        fitted = []
+        for label in y_labels:
+            content, truncated = _ellipsize_label(renderer, label, y_limit)
+            fitted.append(content)
+            y_truncated += int(truncated)
+        positions = ax.get_yticks()
+        if len(positions) == len(fitted):
+            ax.set_yticks(positions, fitted)
+
+    ax.figure.canvas.draw()
+    renderer = ax.figure.canvas.get_renderer()
+    x_labels = [label for label in ax.get_xticklabels() if label.get_visible() and label.get_text()]
+    x_truncated = 0
+    x_rotation = max((abs(float(label.get_rotation())) for label in x_labels), default=0.0)
+    x_boxes = [label.get_window_extent(renderer) for label in x_labels]
+    overlaps = any(left.x1 > right.x0 for left, right in zip(x_boxes, x_boxes[1:]))
+    if overlaps and x_rotation == 0:
+        x_rotation = 30.0
+
+    if x_labels:
+        slot_width = axes_box.width / max(len(x_labels), 1) * 0.92
+        font_height = max(
+            renderer.get_text_width_height_descent("Ag", label.get_fontproperties(), False)[1] for label in x_labels
+        )
+        radians = math.radians(x_rotation)
+        height_limit = axes_box.height * maximum * 0.92
+        if x_rotation:
+            height_width = max(
+                1.0,
+                (height_limit - abs(math.cos(radians)) * font_height) / max(abs(math.sin(radians)), 1e-6),
+            )
+            width_limit = min(slot_width / max(abs(math.cos(radians)), 0.25), height_width)
+        else:
+            width_limit = slot_width
+        fitted = []
+        for label in x_labels:
+            content, truncated = _ellipsize_label(renderer, label, width_limit)
+            fitted.append(content)
+            x_truncated += int(truncated)
+        positions = ax.get_xticks()
+        if len(positions) == len(fitted):
+            ax.set_xticks(
+                positions,
+                fitted,
+                rotation=x_rotation,
+                ha="right" if x_rotation else "center",
+            )
+
+    return {
+        "x_rotation": round(x_rotation, 1),
+        "x_truncated": x_truncated,
+        "y_truncated": y_truncated,
+        "x_band_fraction": round(_tick_band_fraction(ax, "x"), 4),
+        "y_band_fraction": round(_tick_band_fraction(ax, "y"), 4),
+    }
 
 
 def _reference_lines(ax: Axes, request: dict[str, Any]) -> None:
@@ -1831,11 +2007,30 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
     try:
         fig, ax, chart_type, label_count, series_count = _render(request)
         top, bottom = _titles(fig, ax, request)
+        legend_position, legend_title = _legend_metadata(ax)
         try:
-            fig.tight_layout(rect=(0.025, bottom, 0.98, top))
+            fig.tight_layout(rect=_legend_layout_rect(legend_position, top, bottom))
         except (RuntimeError, ValueError):
             pass
-        legend_position, legend_title = _legend_metadata(ax)
+        axis_label_layout = (
+            _fit_axis_tick_labels(ax)
+            if ax is not None
+            else {
+                "x_rotation": 0.0,
+                "x_truncated": 0,
+                "y_truncated": 0,
+                "x_band_fraction": 0.0,
+                "y_band_fraction": 0.0,
+            }
+        )
+        try:
+            fig.tight_layout(rect=_legend_layout_rect(legend_position, top, bottom))
+        except (RuntimeError, ValueError):
+            pass
+        if ax is not None:
+            axis_label_layout["x_band_fraction"] = round(_tick_band_fraction(ax, "x"), 4)
+            axis_label_layout["y_band_fraction"] = round(_tick_band_fraction(ax, "y"), 4)
+        legend_extent_fraction = _limit_external_legend_extent(ax, legend_position)
         day = time.strftime("%Y-%m-%d", time.gmtime())
         output_dir = (workspace / "charts" / day).resolve(strict=False)
         if not output_dir.is_relative_to(workspace):
@@ -1873,6 +2068,8 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
             "series": series_count,
             "legend_position": legend_position,
             "legend_title": legend_title,
+            "legend_extent_fraction": round(legend_extent_fraction, 4),
+            "axis_label_layout": axis_label_layout,
             "size_bytes": target.stat().st_size,
         }
     finally:
@@ -1881,11 +2078,22 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
         plt.close("all")
 
 
+def _read_request() -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = os.read(0, min(64 * 1024, MAX_REQUEST_BYTES + 1 - total))
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > MAX_REQUEST_BYTES:
+            raise ChartError("chart request exceeds the size limit")
+
+
 def main() -> int:
     try:
-        raw = os.read(0, MAX_REQUEST_BYTES + 1)
-        if len(raw) > MAX_REQUEST_BYTES:
-            raise ChartError("chart request exceeds the size limit")
+        raw = _read_request()
         request = json.loads(raw.decode("utf-8"))
         if not isinstance(request, dict):
             raise ChartError("chart request must be a JSON object")

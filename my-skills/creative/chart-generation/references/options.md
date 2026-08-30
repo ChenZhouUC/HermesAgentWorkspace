@@ -128,12 +128,20 @@ Final output is always constrained to an aspect ratio between `2:1` and `1:2`.
 - `annotation_preset`: `auto`, `none`, `values`, `percent`, or `compact`
 - `legend`: `auto`, `show`, or `hide`
 - `legend_position`: `auto`, `top`, `right`, `bottom`, or `best`. `auto`
-  prefers a right-side legend for up to four short series on a landscape
-  canvas, preserving vertical plot area; larger legends move above the plot.
+  first tries an inside `best` position and keeps it only when Matplotlib's
+  plotted-artist geometry reports no overlap. Otherwise landscape canvases use
+  a right-side legend capped at 20% of plot width, while portrait canvases use
+  a bottom legend capped at 20% of plot height.
 - `orientation` for stacked bars
 - `x_scale` / `y_scale`: `linear`, `log`, or `symlog`
 - axis bounds and up to six `reference_lines`
 - `quality`: `standard`, `high`, or `print`
+
+The renderer always exports through Matplotlib `tight_layout`. After layout it
+measures tick-label bands against the final axes: Y ticks are capped at 10% of
+plot width and X ticks at 10% of plot height. Overlapping X labels rotate to 30
+degrees before pixel-width ellipsis is applied; long Y labels use ellipsis
+without rotation. The result reports these decisions in `axis_label_layout`.
 
 Static PNG files do not have interactive tooltips. Use value labels, legends,
 notes, and reference lines for information that must remain visible in Feishu.
