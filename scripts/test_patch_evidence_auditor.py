@@ -107,6 +107,16 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                 command + '\n"${VENV_PYTHON}" -m pytest tests/test_unchecked.py\n'
             )
 
+    def test_sandbox_mcp_receipt_must_bind_current_gateway_pid(self) -> None:
+        exact = (
+            "grep \"MCP server 'hypertex'.*pid=${gateway_pid}.*"
+            "mcp__hypertex__tasks_get.*mcp__hypertex__tasks_cancel.*"
+            'mcp__hypertex__tasks_update"'
+        )
+        evidence._validate_sandbox_runtime_pid_binding(exact)
+        with self.assertRaisesRegex(evidence.EvidenceError, "current gateway PID"):
+            evidence._validate_sandbox_runtime_pid_binding(exact.replace(".*pid=${gateway_pid}", ""))
+
     def test_registered_probe_is_executed_once_and_recorded(self) -> None:
         patch_id = "PATCH-TEST-RUNTIME"
         active = {patch_id: patch_block("runtime contract")}

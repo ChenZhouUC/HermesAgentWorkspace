@@ -867,7 +867,7 @@ PY
         current_reg_line=$(grep -n "sandbox: registered (pid=${gateway_pid}," "${AGENT_LOG}" | tail -1 | cut -d: -f1 || true)
         if [[ -n "${current_reg_line}" ]]; then
             for _mcp_wait_attempt in {1..20}; do
-                current_mcp_tasks=$(tail -n "+${current_reg_line}" "${AGENT_LOG}" | grep "MCP server 'hypertex'.*mcp__hypertex__tasks_get.*mcp__hypertex__tasks_cancel.*mcp__hypertex__tasks_update" | head -1 || true)
+                current_mcp_tasks=$(tail -n "+${current_reg_line}" "${AGENT_LOG}" | grep "MCP server 'hypertex'.*pid=${gateway_pid}.*mcp__hypertex__tasks_get.*mcp__hypertex__tasks_cancel.*mcp__hypertex__tasks_update" | head -1 || true)
                 [[ -n "${current_mcp_tasks}" ]] && break
                 sleep 0.5
             done

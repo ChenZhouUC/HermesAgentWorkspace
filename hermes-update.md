@@ -458,10 +458,10 @@ Step 6 报告前，以本轮实际执行为镜，把本 playbook（含摩擦表�
 ```yaml
 toolchain_audit_state:
   schema_version: 1
-  last_deep_audit_date: 2026-08-29
-  last_deep_audit_upstream_sha: e387cbc0aa0fc89560bc14438762c7722663db05
-  last_deep_audit_outer_commit: b5b194a4f03e19354422ffd78ac24cf71c7a20b8
-  trigger: explicit-post-commit-unraisable-warning-false-green
+  last_deep_audit_date: 2026-08-30
+  last_deep_audit_upstream_sha: 11c8c05dc31c6e49ddef16dae8695a708d6bce6a
+  last_deep_audit_outer_commit: 8f7de5155c1dfa7ca46c9f1b5c31ca64a3aa5752
+  trigger: explicit-upgrade-runtime-verifier-cross-process-false-green
 ```
 
 深度审计报告除 Step 6 常规内容外，还必须列出：触发原因；检查过的失效类别；新增负例与 toolchain 改动；明确未改动的类别；剩余不可机械证明的风险；更新后的审计游标。若因触发条件自动进入深度审计，agent 在开始时告知用户即可，不为既有范围内的只读检查和修复逐项追问。
@@ -604,6 +604,7 @@ JSON 必须为 `status=ok`、`mode=full`，包含逐 PATCH `patches[]` 明细和
 | 活跃 PATCH 定义误放进 Archive、再用续接标题接回 | 2026-08-15 实抓：`PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY` 状态、源码 hunk、Step 8b gate 和回归都仍活跃，却夹在两个已归档模型补丁之间；随后再开一个活跃续接标题，导致文档阅读顺序与生命周期边界错位，且“首个 Archive 前定义数”只有 32、注册表/README 却写 33。处置：所有活跃定义连续放在首个 Archive 前并按职责类别分组，所有 Archive 统一后置；Step 5 同时断言不得出现续接标题，并检查 Archive 下带状态表的定义只能是“已归档/已上游合并”。若未来 PATCH 注册表拆成机器可读索引 + 独立定义文件，可按新结构改写或删除本 row。 |
 | PATCH evidence 的文件/进程/吸收矩阵只做宽松关联 | 2026-08-27 第二、三轮负向审计发现：路径子串可冒认 ownership，active PATCH 可零受管文件，Archive gate 可错绑，多个 PATCH 共用 pytest 进程时后台线程可串证据，纯 import 可冒充行为执行，旧/非祖先升级范围也能继续产出“当前”overlap；Archive 定义一旦退出当前 `PATCHED_FILES`，其 upstream 路径相交还会被旧算法静默忽略。处置：ownership 只认反引号完整路径；非 runtime/external 的 active PATCH 必须拥有受管路径；active/Archive gate header、唯一置绿变量与 8c consumer 一一对应；每 PATCH 独立 pytest 进程且忽略 `<module>` trace；Archive overlap 直接匹配其声明路径；PATCHES 当前摘要登记每个 overlap PATCH 的显式 verdict 和无 overlap 数；evidence range 必须是 ancestor→当前 HEAD。若未来 PATCH 注册表迁为机器可读 schema，应把 owner、gate、verdict 和 evidence node 全部并入同一 schema，再删除本 row。 |
 | final-audit 全绿但测试已改写真实 `gateway_state.json` | canonical 测试会在 fixture 后执行 `patch.dict(os.environ, {}, clear=True)`；旧隔离只靠 `HERMES_HOME`，环境被清空后动态状态路径回退生产根，2026-08-27 实际留下了 pytest PID，但旧 final-audit 只看 live PID 查询而未核对持久状态文件。处置：`PATCH-TEST-RUNTIME-STATE-ISOLATION` 在 autouse fixture 中直接钉住 Gateway status 与 spawn-ledger 路径；final-audit 在 canonical 后复跑 sandbox，并要求 `gateway_state.json` 的 PID/start-time/argv/code SHA 属于 cleanup 后仍存活的当前 Gateway、spawn ledger 无 pytest 记录，同时再次验证 bundle，并比较审计前后外层 tracked/non-ignored-untracked fingerprint。若 upstream 测试隔离原生覆盖所有 process-state chokepoint 且 final audit 持续核对运行态身份，可归档本 row。 |
+| 更新后 launchd 下位于 Desktop/Documents/Downloads 的 stdio MCP 入口卡在握手超时 | macOS TCC 把受保护目录授权绑定到进程身份；updater 首次把 uv-managed `venv/bin/python` 符号链接物化为稳定 anchor 后，旧解释器路径已有的目录授权不会自动迁移。典型证据是交互 shell 中同一 MCP 握手秒回，launchd Gateway 日志只有 `CancelledError`，`mcp-stderr.log` 只有 server header，进程采样显示入口 shell 阻塞在 `open()`，而 TCC 数据库尚无新 anchor 的 allow 记录。不得修改 TCC 数据库、放宽 runtime verifier、移动用户工程或保留未经验证的 interpreter workaround；等待用户在系统设置中允许新的 `venv/bin/python` 访问对应目录（或授予 Full Disk Access），确认 TCC allow 后执行排空感知 restart，并要求同一真实 Gateway PID 下出现完整 MCP 注册回执。若 upstream 能在 anchor 迁移前检测并引导受保护目录授权、或 stdio MCP 不再从受保护目录启动，可删除本 row。 |
 
 > 这张表是**可扩展也可收缩**的：发现新摩擦就追加 row，且每个 row 的处置栏必须包含（显式一句或隐含于修法的）退场条件；Step 5c 每轮按退场条件审计本表——已消费的一次性预案、引用已归档/已移除事物的 row、连续多轮未触发的非结构性 row 当轮删除。
 

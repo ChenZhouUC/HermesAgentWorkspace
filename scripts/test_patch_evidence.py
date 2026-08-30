@@ -943,6 +943,17 @@ def _validate_external_verifier_links(script: str) -> list[str]:
     return configured
 
 
+def _validate_sandbox_runtime_pid_binding(verifier_text: str) -> None:
+    """Require the live MCP receipt to be tied to the Gateway child PID."""
+    required = (
+        "MCP server 'hypertex'.*pid=${gateway_pid}.*"
+        "mcp__hypertex__tasks_get.*mcp__hypertex__tasks_cancel.*"
+        "mcp__hypertex__tasks_update"
+    )
+    if required not in verifier_text:
+        raise EvidenceError("sandbox verifier MCP registration is not bound to the current gateway PID")
+
+
 RUNTIME_ARTIFACT_NEEDLES: dict[str, tuple[str, ...]] = {
     "PATCH-NPM-DEPENDENCY-HYGIENE": (
         "npm audit fix",
@@ -1164,6 +1175,7 @@ def audit_sandbox_verifier() -> dict[str, object]:
     verifier = ROOT / verifier_rel
     verifier_text = verifier.read_text(encoding="utf-8")
     _validate_verifier_pytest_warning_filters(verifier_text)
+    _validate_sandbox_runtime_pid_binding(verifier_text)
     result = _run(["bash", str(verifier)], timeout=300)
     if result.returncode:
         raise EvidenceError(f"sandbox verifier failed: {result.stdout[-2000:]}{result.stderr[-2000:]}")

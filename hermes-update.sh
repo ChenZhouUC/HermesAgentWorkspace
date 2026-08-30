@@ -3219,16 +3219,19 @@ if [[ -f "${VENV_PY}" && -f "${MCP_TOOL_PY}" && -f "${HERMES_AGENT}/tests/tools/
     -f "${MCP_STDIO_UPSTREAM_TEST_PY}" ]]; then
     if grep -q '_watch_coro = (' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'watch_task = asyncio.ensure_future(_watch_coro)' "${MCP_TOOL_PY}" 2>/dev/null &&
+        grep -q 'pid=%d): registered %d tool(s)' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
+        grep -q 'test_registration_log_binds_tools_to_current_process' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
         grep -q 'test_live_child_reports_not_dead' "${MCP_STDIO_UPSTREAM_TEST_PY}" 2>/dev/null &&
         grep -q 'test_pid_probe_error_stays_fail_open' "${MCP_STDIO_UPSTREAM_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
         "${VENV_PY}" -m pytest -q -p no:cacheprovider \
             "${PYTEST_STRICT_WARNING_ARGS[@]}" \
             tests/tools/test_mcp_tool.py::TestToolHandler::test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine \
+            tests/tools/test_mcp_tool.py::TestDiscoverAndRegister::test_registration_log_binds_tools_to_current_process \
             tests/tools/test_mcp_stdio_children_dead.py \
             >/dev/null 2>&1; then
-        ok "PATCH-MCP-STDIO-WATCHER-LIFECYCLE active: each RPC owns one awaited watcher; upstream liveness guard remains healthy"
+        ok "PATCH-MCP-STDIO-WATCHER-LIFECYCLE active: one awaited watcher plus PID-bound registration receipt"
         _MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK=true
     else
         warn "PATCH-MCP-STDIO-WATCHER-LIFECYCLE inactive or partial"
