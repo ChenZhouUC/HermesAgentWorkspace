@@ -956,6 +956,10 @@ fi
 # Prove both layers: launchd supervisor health from status, runtime identity
 # from gateway.status.get_running_pid().
 if [[ -r "${AGENT_LOG}" ]]; then
+    agent_log_files=("${AGENT_LOG}")
+    for rotated_log in "${AGENT_LOG}".*; do
+        [[ -f "${rotated_log}" ]] && agent_log_files+=("${rotated_log}")
+    done
     gateway_status=$(hermes gateway status 2>&1 || true)
     supervisor_pid=$(echo "${gateway_status}" | sed -nE 's/.*supervised by launchd \(PID ([0-9]+)\).*/\1/p' | head -1)
     gateway_pid=""
@@ -972,11 +976,15 @@ PY
     plugin_version=$("${VENV_PYTHON}" -c 'import sys,yaml; print((yaml.safe_load(open(sys.argv[1])) or {})["version"])' "${PLUGIN_MANIFEST}" 2>/dev/null || true)
     current_mcp_tasks=""
     if [[ -n "${gateway_pid}" ]]; then
-        current_reg=$(grep "sandbox: registered (pid=${gateway_pid}," "${AGENT_LOG}" | tail -1 || true)
-        current_reg_line=$(grep -n "sandbox: registered (pid=${gateway_pid}," "${AGENT_LOG}" | tail -1 | cut -d: -f1 || true)
-        if [[ -n "${current_reg_line}" ]]; then
+        current_reg=$(grep -h "sandbox: registered (pid=${gateway_pid}," "${agent_log_files[@]}" | sort | tail -1 || true)
+        if [[ -n "${current_reg}" ]]; then
+            current_reg_timestamp=${current_reg:0:23}
             for _mcp_wait_attempt in {1..20}; do
-                current_mcp_tasks=$(tail -n "+${current_reg_line}" "${AGENT_LOG}" | grep "MCP server 'hypertex'.*pid=${gateway_pid}.*mcp__hypertex__tasks_get.*mcp__hypertex__tasks_cancel.*mcp__hypertex__tasks_update" | head -1 || true)
+                current_mcp_tasks=$(
+                    grep -h "MCP server 'hypertex'.*pid=${gateway_pid}.*mcp__hypertex__tasks_get.*mcp__hypertex__tasks_cancel.*mcp__hypertex__tasks_update" "${agent_log_files[@]}" |
+                        awk -v started="${current_reg_timestamp}" 'substr($0, 1, 23) >= started' |
+                        sort | head -1 || true
+                )
                 [[ -n "${current_mcp_tasks}" ]] && break
                 sleep 0.5
             done
