@@ -68,6 +68,31 @@ another tool's output, arbitrary tokens, and later turns receive no grant. The
 grant is keyed by the internal Hermes turn ID rather than thread-local hook
 state, so a create and its follow-up media write may run in different workers.
 
+## Public web images
+
+Do not rely on Feishu's Markdown importer to fetch a remote image URL. The
+import task may return success while silently replacing the image with a
+standard“无法导入该图片”bitmap.
+
+For sourced web images in a group:
+
+1. Call `feishu_doc_manage(action="stage_image_urls", urls=[...])`. The fixed
+   staging script permits public HTTPS only, checks every redirect and TCP
+   destination against Hermes SSRF policy, rejects credential-bearing URLs,
+   caps bytes, validates raster magic and decodability, and writes only under
+   the current group workspace.
+2. Keep source attribution as ordinary Markdown text or a link, but remove all
+   Markdown/HTML image embedding from content passed to create/append/rebuild.
+3. After the target document exists, call `insert_image` with each returned
+   `workspace_path`. Use `replace_image` only when repairing a known existing
+   top-level image block.
+4. Read the document back. `[IMAGE_IMPORT_ERRORS]` means visual verification
+   failed and names the affected block IDs.
+
+Only claim images that actually returned a staging path and a successful
+document image result. Do not infer that every image mentioned in research or
+in the Markdown source was uploaded.
+
 ## Permissions and failure handling
 
 The bot needs document edit permission and media-upload permission. A 403 means

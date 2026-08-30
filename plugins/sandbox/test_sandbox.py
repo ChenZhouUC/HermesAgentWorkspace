@@ -118,12 +118,14 @@ def group_config(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "_GROUP_DOC_IMAGE_MAX_BYTES", 1_000_000)
     monkeypatch.setattr(sandbox, "_EPHEMERAL_READ_PATHS_BY_CHAT", {})
     monkeypatch.setattr(sandbox, "_TURN_RESOURCE_REFS_BY_KEY", {})
+    monkeypatch.setattr(sandbox, "_TURN_PUBLIC_URLS_BY_KEY", {})
     sandbox._current_platform.set("feishu")
     sandbox._current_chat_id.set("group-one")
     sandbox._current_chat_type.set("group")
     sandbox._current_user_id.set("trusted-user")
     sandbox._current_user_ids.set(frozenset({"trusted-user"}))
     sandbox._current_resource_refs.set(frozenset())
+    sandbox._current_public_urls.set(frozenset())
     sandbox._current_media_paths.set(tuple())
     sandbox._current_hypertex_staged_paths.set(tuple())
     sandbox._current_hypertex_call_count.set(0)
@@ -318,6 +320,7 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
     token = "doxcnAuditToken_123"
     url = f"https://whales.feishu.cn/docx/{token}"
     sandbox._current_resource_refs.set(sandbox._resource_ref_candidates(url))
+    sandbox._current_public_urls.set(frozenset({"https://example.com/image.png"}))
 
     sandbox._current_user_id.set("member-user")
     sandbox._current_user_ids.set(frozenset({"member-user"}))
@@ -325,8 +328,10 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
         {"action": "create"},
         {"action": "append", "doc_token": token},
         {"action": "rebuild", "doc_token": token},
+        {"action": "stage_image_urls", "urls": ["https://example.com/image.png"]},
         {"action": "insert_image", "doc_token": token},
         {"action": "set_cover", "doc_token": token},
+        {"action": "replace_image", "doc_token": token},
     ):
         assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args=args) is None
     assert sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete", "doc_token": token}) == {
@@ -339,7 +344,7 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
     assert (
         sandbox._on_pre_tool_call(tool_name="feishu_doc_manage", args={"action": "delete", "doc_token": token}) is None
     )
-    for action in ("append", "rebuild", "delete", "insert_image", "set_cover"):
+    for action in ("append", "rebuild", "delete", "insert_image", "set_cover", "replace_image"):
         assert sandbox._on_pre_tool_call(
             tool_name="feishu_doc_manage",
             args={"action": action, "doc_token": "doxcnOtherToken"},
@@ -370,7 +375,7 @@ def test_successful_group_create_grants_only_new_doc_for_same_turn(group_config)
 
     sandbox._on_post_tool_call(tool_name="feishu_doc_manage", result=result)
 
-    for action in ("insert_image", "set_cover", "append", "rebuild"):
+    for action in ("insert_image", "set_cover", "replace_image", "append", "rebuild"):
         assert sandbox._group_doc_action_block({"action": action, "doc_token": token}) is None
     assert (
         sandbox._group_doc_action_block({"action": "set_cover", "doc_token": "doxcnOtherToken"})
@@ -1298,13 +1303,17 @@ def test_script_tool_schema_has_no_command_script_path_or_raw_argv():
         "delete",
         "read_url",
         "download_file",
+        "stage_image_urls",
         "insert_image",
         "set_cover",
+        "replace_image",
     }
     assert "command" not in properties
     assert "script" not in properties
     assert "arguments" not in properties
-    assert {"image_path", "attachment_index", "insert_index", "position", "anchor_text"}.issubset(properties)
+    assert {"urls", "image_path", "attachment_index", "block_id", "insert_index", "position", "anchor_text"}.issubset(
+        properties
+    )
 
 
 def test_script_actions_map_only_to_fixed_existing_files(group_config):
@@ -1324,6 +1333,97 @@ def test_script_actions_map_only_to_fixed_existing_files(group_config):
         workspace,
     )
     assert (action, script.name, argv) == ("delete", "delete_doc.py", ["doxcnToken_123"])
+
+    action, script, argv = sandbox._build_script_argv(
+        {"action": "stage_image_urls", "urls": ["https://example.com/a.png", "https://example.com/b.jpg"]},
+        workspace,
+    )
+    assert (action, script.name, argv) == (
+        "stage_image_urls",
+        "stage_remote_images.py",
+        ["https://example.com/a.png", "https://example.com/b.jpg"],
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "# Report\n\n![remote](https://example.com/image.png)\n",
+        '# Report\n\n<img src="https://example.com/image.png">\n',
+        "# Report\n\n![local](images/example.png)\n",
+    ],
+)
+def test_markdown_document_actions_reject_embedded_images(group_config, content):
+    workspace = sandbox._workspace_for_chat("group-one")
+    with pytest.raises(ValueError, match="stage_image_urls"):
+        sandbox._build_script_argv(
+            {"action": "create", "title": "Test", "content": content},
+            workspace,
+        )
+
+
+def test_stage_image_urls_returns_verified_relative_workspace_paths(group_config, monkeypatch):
+    workspace = sandbox._workspace_for_chat("group-one")
+    sandbox._current_public_urls.set(frozenset({"https://example.com/source.png"}))
+    staged = workspace / "sourced-images" / "2026-08-30" / "source.png"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b"\x89PNG\r\n\x1a\nsource")
+    payload = {
+        "success": True,
+        "images": [
+            {
+                "index": 0,
+                "workspace_path": str(staged.relative_to(workspace)),
+                "mime_type": "image/png",
+                "size_bytes": staged.stat().st_size,
+                "width": 640,
+                "height": 360,
+            }
+        ],
+        "total_bytes": staged.stat().st_size,
+    }
+    monkeypatch.setattr(
+        sandbox,
+        "_run_trusted_script",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, json.dumps(payload), ""),
+    )
+
+    result = _result(
+        sandbox._handle_feishu_doc_manage({"action": "stage_image_urls", "urls": ["https://example.com/source.png"]})
+    )
+
+    assert result["success"] is True
+    assert result["images"] == payload["images"]
+    assert str(workspace) not in json.dumps(result)
+
+
+def test_stage_image_urls_requires_same_turn_observed_url_across_workers(group_config):
+    source_url = "https://media.example.com/report-image.png"
+    first_worker = contextvars.copy_context()
+    first_worker.run(
+        sandbox._on_post_tool_call,
+        tool_name="web_extract",
+        result=json.dumps({"results": [{"url": "https://example.com/report", "content": f"![figure]({source_url})"}]}),
+        turn_id="turn-source",
+    )
+
+    second_worker = contextvars.copy_context()
+    assert second_worker.run(
+        sandbox._on_pre_tool_call,
+        tool_name="feishu_doc_manage",
+        args={"action": "stage_image_urls", "urls": [source_url]},
+        turn_id="turn-source",
+    ) == {"action": "modify", "args": {"_sandbox_turn_id": "turn-source"}}
+    assert sandbox._on_pre_tool_call(
+        tool_name="feishu_doc_manage",
+        args={"action": "stage_image_urls", "urls": ["https://unobserved.example/image.png"]},
+        turn_id="turn-source",
+    ) == {"action": "block", "message": sandbox._REMOTE_IMAGE_SOURCE_BLOCK_MESSAGE}
+    assert sandbox._on_pre_tool_call(
+        tool_name="feishu_doc_manage",
+        args={"action": "stage_image_urls", "urls": [source_url]},
+        turn_id="turn-next",
+    ) == {"action": "block", "message": sandbox._REMOTE_IMAGE_SOURCE_BLOCK_MESSAGE}
 
 
 def test_generated_image_and_chart_paths_feed_fixed_document_image_script(group_config):
@@ -1386,6 +1486,30 @@ def test_generated_image_and_chart_paths_feed_fixed_document_image_script(group_
         "0.2",
         "--offset-ratio-y",
         "-0.1",
+    ]
+
+    action, script, argv = sandbox._build_script_argv(
+        {
+            "action": "replace_image",
+            "doc_token": "doxcnToken_123",
+            "block_id": "doxcnImageBlock_123",
+            "image_path": "charts/result.png",
+            "align": "center",
+            "width": 1200,
+        },
+        workspace,
+    )
+    assert action == "replace_image"
+    assert script == group_config["scripts_root"] / "manage_doc_image.py"
+    assert argv == [
+        "replace",
+        "doxcnToken_123",
+        str(chart),
+        "doxcnImageBlock_123",
+        "--align",
+        "center",
+        "--width",
+        "1200",
     ]
 
 
@@ -2157,7 +2281,7 @@ def test_chart_renderer_rejects_misaligned_series(tmp_path):
 
 
 def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
-    assert sandbox._PLUGIN_VERSION == "0.7.6"
+    assert sandbox._PLUGIN_VERSION == "0.7.7"
     assert sandbox._load_config() is True
     assert sandbox._OWNER_CHAT_IDS
     assert sandbox._GROUP_IMAGE_CHAT_IDS
@@ -2177,8 +2301,10 @@ def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
             "delete",
             "read_url",
             "download_file",
+            "stage_image_urls",
             "insert_image",
             "set_cover",
+            "replace_image",
         }
     )
     calls = {"tools": [], "hooks": []}

@@ -212,12 +212,23 @@ update. Read [`references/document-images.md`](references/document-images.md)
 when the user asks to insert a generated image/chart, insert an attached image,
 or set/replace a document cover.
 
+Never put Markdown image syntax (`![alt](url)` or `<img ...>`) into content sent
+to `create`, `append`, or `rebuild`. Feishu's importer may replace those images
+with a permanent“无法导入该图片”placeholder even when the URL is publicly
+reachable. For public web images, call `stage_image_urls` first, remove the
+image syntax from Markdown, then upload the returned `workspace_path` with
+`insert_image` after the document exists.
+
 In a Feishu group, use `feishu_doc_manage`:
 
 - `action="insert_image"` with exactly one of `image_path` or
   `attachment_index`.
 - `action="set_cover"` with exactly one of `image_path` or
   `attachment_index`.
+- `action="stage_image_urls"` with one to eight public HTTPS raster-image URLs;
+  use the returned relative paths only with later document image actions.
+- `action="replace_image"` with `doc_token`, `block_id`, and exactly one image
+  source when an existing image block must be repaired in place.
 - A generated image/chart's returned relative `workspace_path` is the canonical
   `image_path`; do not expose or invent an absolute host path.
 - Every mutation of an existing document requires that document to appear in
@@ -226,6 +237,10 @@ In a Feishu group, use `feishu_doc_manage`:
   group turn, allowing immediate image insertion and cover setup; the grant is
   limited to the exact returned token, is shared safely across separate tool
   workers, and expires on the next message.
+- Treat `[IMAGE_IMPORT_ERRORS]` in `read_url` output as a failed visual
+  verification. Do not claim that sourced images were inserted until every
+  intended image has a successful staging result and a successful
+  `insert_image`/`replace_image` result.
 
 For owner/CLI operation, use the fixed script directly:
 

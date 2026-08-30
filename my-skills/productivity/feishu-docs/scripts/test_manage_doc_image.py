@@ -250,6 +250,75 @@ def test_set_cover_restores_previous_cover_when_version_update_fails(tmp_path, m
     ]
 
 
+def test_replace_image_updates_existing_top_level_block(tmp_path, monkeypatch):
+    image = _png(tmp_path, size=(1600, 900))
+    root = {"children": ["version", "image-block", "body"]}
+    block_map = {
+        "version": {"block_type": 31},
+        "image-block": {
+            "block_type": 27,
+            "image": {"token": "old-image", "width": 1460, "height": 220},
+        },
+        "body": {"block_type": 2, "text": {"elements": []}},
+    }
+    calls = []
+    monkeypatch.setattr(media.fc, "read_version_tables", lambda *_args: ([[[]]], 1, block_map, root))
+    monkeypatch.setattr(media.fc, "append_version_row", lambda *_args: "20260830.01ed")
+    monkeypatch.setattr(
+        media,
+        "upload_doc_image",
+        lambda token, image_path, *, parent_node, doc_token: (
+            calls.append(("upload", token, image_path, parent_node, doc_token)) or "new-image"
+        ),
+    )
+
+    def fake_do_req(_token, url, method="GET", payload=None, **_kwargs):
+        calls.append((method, url, payload))
+        return {"code": 0, "data": {}}
+
+    monkeypatch.setattr(media.fc, "do_req", fake_do_req)
+    result = media.replace_image(
+        "token",
+        "doc-token",
+        str(image),
+        "image-block",
+        align="center",
+        width=1200,
+    )
+
+    assert ("upload", "token", str(image), "image-block", "doc-token") in calls
+    patch = next(call for call in calls if call[0] == "PATCH")
+    assert patch[2] == {
+        "replace_image": {
+            "token": "new-image",
+            "align": 2,
+            "width": 1200,
+            "height": 675,
+        }
+    }
+    assert result == {
+        "document_id": "doc-token",
+        "block_id": "image-block",
+        "file_token": "new-image",
+        "width": 1200,
+        "height": 675,
+        "version": "20260830.01ed",
+    }
+
+
+def test_replace_image_rejects_non_image_or_nested_block(tmp_path, monkeypatch):
+    image = _png(tmp_path)
+    root = {"children": ["body"]}
+    block_map = {
+        "body": {"block_type": 2, "text": {"elements": []}},
+        "nested-image": {"block_type": 27, "image": {"token": "old-image"}},
+    }
+    monkeypatch.setattr(media.fc, "read_version_tables", lambda *_args: (None, 0, block_map, root))
+
+    with pytest.raises(ValueError, match="top-level image block"):
+        media.replace_image("token", "doc-token", str(image), "nested-image")
+
+
 def test_anchor_and_version_table_boundaries_are_enforced():
     root = {"children": ["version", "a", "b"]}
     block_map = {

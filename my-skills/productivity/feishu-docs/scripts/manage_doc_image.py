@@ -9,6 +9,7 @@ appends the standard version-table row.
 Usage:
   manage_doc_image.py insert <doc_token> <image_path> [options]
   manage_doc_image.py cover  <doc_token> <image_path> [options]
+  manage_doc_image.py replace <doc_token> <image_path> <block_id> [options]
 """
 
 from __future__ import annotations
@@ -483,6 +484,98 @@ def set_cover(
         raise _rollback_error(exc, failures) from None
 
 
+def replace_image(
+    token: str,
+    doc_token: str,
+    image_path: str,
+    block_id: str,
+    *,
+    align: str = "center",
+    caption: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+) -> dict[str, Any]:
+    """Replace an existing top-level image block without moving surrounding text."""
+    doc_token = validate_doc_token(doc_token)
+    block_id = validate_doc_token(block_id)
+    if align not in ALIGNMENTS:
+        raise ValueError("align must be left, center, or right")
+    if caption is not None and (len(caption) > 1_000 or "\x00" in caption):
+        raise ValueError("caption must be at most 1000 characters")
+    image, _mime, _size = validate_image_path(image_path)
+    for name, value in (("width", width), ("height", height)):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 20_000):
+            raise ValueError(f"{name} must be an integer between 1 and 20000")
+    width, height = _complete_image_dimensions(image, width, height)
+    rows, _table_count, block_map, root = fc.read_version_tables(token, doc_token)
+    if block_id not in set(root.get("children", [])):
+        raise ValueError("replace_image requires a top-level image block in the target document")
+    block = block_map.get(block_id)
+    old_image = block.get("image") if isinstance(block, dict) else None
+    if not isinstance(old_image, dict) or block.get("block_type") != 27 or not old_image.get("token"):
+        raise ValueError("replace_image target is not an existing image block")
+    old_replacement = {
+        key: old_image[key]
+        for key in ("token", "align", "caption", "width", "height")
+        if old_image.get(key) is not None
+    }
+    original_top_level_ids = set(root.get("children", []))
+    image_changed = False
+    version_started = False
+    try:
+        file_token = upload_doc_image(token, image_path, parent_node=block_id, doc_token=doc_token)
+        replacement: dict[str, Any] = {"token": file_token, "align": ALIGNMENTS[align]}
+        if caption is not None:
+            replacement["caption"] = {"content": caption}
+        elif old_image.get("caption"):
+            replacement["caption"] = old_image["caption"]
+        if width is not None:
+            replacement["width"] = width
+        if height is not None:
+            replacement["height"] = height
+        fc._check(
+            fc.do_req(
+                token,
+                f"{fc.API}/docx/v1/documents/{doc_token}/blocks/{block_id}",
+                method="PATCH",
+                payload={"replace_image": replacement},
+            ),
+            "replace existing image block",
+        )
+        image_changed = True
+        version_started = True
+        version = fc.append_version_row(token, doc_token)
+        return {
+            "document_id": doc_token,
+            "block_id": block_id,
+            "file_token": file_token,
+            "width": width,
+            "height": height,
+            "version": version,
+        }
+    except BaseException as exc:
+        failures = []
+        if image_changed:
+            try:
+                fc._check(
+                    fc.do_req(
+                        token,
+                        f"{fc.API}/docx/v1/documents/{doc_token}/blocks/{block_id}",
+                        method="PATCH",
+                        payload={"replace_image": old_replacement},
+                    ),
+                    "restore previous image block",
+                )
+            except Exception as rollback_exc:
+                failures.append(f"image block: {rollback_exc}")
+        if version_started:
+            try:
+                _restore_version_rows(token, doc_token, rows, original_top_level_ids)
+            except Exception as rollback_exc:
+                failures.append(f"version table: {rollback_exc}")
+        raise _rollback_error(exc, failures) from None
+
+
 def _positive_size(value: str) -> int:
     parsed = int(value)
     if parsed <= 0 or parsed > 20_000:
@@ -517,6 +610,15 @@ def build_parser() -> argparse.ArgumentParser:
     cover.add_argument("image_path")
     cover.add_argument("--offset-ratio-x", type=_finite_float)
     cover.add_argument("--offset-ratio-y", type=_finite_float)
+
+    replace = subparsers.add_parser("replace")
+    replace.add_argument("doc_token")
+    replace.add_argument("image_path")
+    replace.add_argument("block_id")
+    replace.add_argument("--align", choices=tuple(ALIGNMENTS), default="center")
+    replace.add_argument("--caption")
+    replace.add_argument("--width", type=_positive_size)
+    replace.add_argument("--height", type=_positive_size)
     return parser
 
 
@@ -537,13 +639,24 @@ def main(argv: list[str] | None = None) -> int:
                 width=args.width,
                 height=args.height,
             )
-        else:
+        elif args.operation == "cover":
             result = set_cover(
                 token,
                 args.doc_token,
                 args.image_path,
                 offset_ratio_x=args.offset_ratio_x,
                 offset_ratio_y=args.offset_ratio_y,
+            )
+        else:
+            result = replace_image(
+                token,
+                args.doc_token,
+                args.image_path,
+                args.block_id,
+                align=args.align,
+                caption=args.caption,
+                width=args.width,
+                height=args.height,
             )
     except Exception as exc:
         print(f"Feishu document image operation failed: {exc}", file=sys.stderr)

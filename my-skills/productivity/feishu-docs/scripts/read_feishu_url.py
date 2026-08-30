@@ -11,18 +11,22 @@ Detects the object type from the URL and routes to the right reader:
 Run with the venv interpreter so feishu_common's deps resolve:
   ~/.hermes/hermes-agent/venv/bin/python read_feishu_url.py <feishu_url>
 
-NOTE: docx-embedded tables/images render as placeholders (a known limitation of
-the block extractor). Standalone 电子表格/多维表格 render as full markdown tables.
+NOTE: docx tables render as placeholders. Image bodies are not rendered, but
+known Feishu remote-import error images are detected and reported with block IDs.
+Standalone 电子表格/多维表格 render as full markdown tables.
 """
 
 import os
+import hashlib
 import sys
+import urllib.request
 from pathlib import Path
 
 import feishu_common as fc
 
 _KINDS = ("docx", "docs", "wiki", "sheets", "base", "file")
 _MAX_EXTRACTED_CHARS = 40_000
+_IMPORT_ERROR_IMAGE_SHA256 = "c1263eb516bd6c4b27772fd159fd3f3a38ff8dbf5df04c7c3f97e2afd4b909cc"
 _PLAIN_TEXT_EXTENSIONS = {
     ".txt",
     ".md",
@@ -52,6 +56,36 @@ def _token_after(url, kind):
     return url.split(f"/{kind}/", 1)[1].split("?", 1)[0].split("#", 1)[0].strip("/")
 
 
+def _download_doc_image(token, media_token, max_bytes=1_000_000):
+    req = urllib.request.Request(
+        f"{fc.API}/drive/v1/medias/{media_token}/download",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = resp.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError("document image exceeds verification limit")
+    return data
+
+
+def detect_import_error_images(token, blocks):
+    """Return image block IDs containing Feishu's remote-import failure asset."""
+    failures = []
+    for block in blocks:
+        image = block.get("image") if isinstance(block, dict) else None
+        if not isinstance(image, dict) or block.get("block_type") != 27:
+            continue
+        if image.get("width") != 1460 or image.get("height") != 220 or not image.get("token"):
+            continue
+        try:
+            data = _download_doc_image(token, image["token"])
+        except Exception:
+            continue
+        if hashlib.sha256(data).hexdigest() == _IMPORT_ERROR_IMAGE_SHA256:
+            failures.append(str(block.get("block_id") or "unknown"))
+    return failures
+
+
 def read_docx(doc_token):
     token = fc.get_tenant_token()
     blocks, page_token = [], ""
@@ -69,6 +103,13 @@ def read_docx(doc_token):
     from read_docx_to_markdown import parse_blocks  # pure renderer, reused
 
     _title, md = parse_blocks(blocks)
+    failures = detect_import_error_images(token, blocks)
+    if failures:
+        md += (
+            "\n\n[IMAGE_IMPORT_ERRORS] Feishu replaced remote Markdown images with its import-error "
+            f"placeholder in {len(failures)} block(s): {', '.join(failures)}. "
+            "Do not report visual verification as successful; stage the source images locally and replace these blocks."
+        )
     return md
 
 

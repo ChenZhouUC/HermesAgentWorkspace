@@ -37,6 +37,8 @@ PLUGIN_TEST="${HERMES_HOME}/plugins/sandbox/test_sandbox.py"
 PEOPLE_FILE="${HERMES_HOME}/people.yaml"
 PEOPLE_TEST="${HERMES_HOME}/scripts/test_pull_feishu_people.py"
 DOC_MEDIA_TEST="${HERMES_HOME}/my-skills/productivity/feishu-docs/scripts/test_manage_doc_image.py"
+DOC_STAGE_TEST="${HERMES_HOME}/my-skills/productivity/feishu-docs/scripts/test_stage_remote_images.py"
+DOC_READ_TEST="${HERMES_HOME}/my-skills/productivity/feishu-docs/scripts/test_read_feishu_url.py"
 VENV_PYTHON="${HERMES_AGENT}/venv/bin/python"
 
 fail=0
@@ -112,7 +114,7 @@ plugin = yaml.safe_load(plugin_path.read_text(encoding="utf-8")) or {}
 people = (yaml.safe_load(people_path.read_text(encoding="utf-8")) or {}).get("people") or []
 manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
 
-assert manifest.get("version") == "0.7.6"
+assert manifest.get("version") == "0.7.7"
 
 assert people, "people.yaml must contain the active Feishu roster"
 open_ids = [str(person.get("open_id") or "") for person in people if isinstance(person, dict)]
@@ -272,8 +274,10 @@ assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []
     "delete",
     "read_url",
     "download_file",
+    "stage_image_urls",
     "insert_image",
     "set_cover",
+    "replace_image",
 }
 assert plugin.get("require_process_sandbox") is True
 assert plugin.get("group_image_generation_script") == (
@@ -309,8 +313,11 @@ expected_scripts = {
     "delete_doc.py",
     "read_feishu_url.py",
     "download_feishu_file.py",
+    "stage_remote_images.py",
     "manage_doc_image.py",
     "test_manage_doc_image.py",
+    "test_stage_remote_images.py",
+    "test_read_feishu_url.py",
     "feishu_common.py",
     # Not a mapped action itself, but read_url's renderer dependency; listed
     # so its absence fails with the friendly message instead of a bare
@@ -512,8 +519,10 @@ assert "group_image_generate" in (json.loads(describe_image).get("tools") or {})
 assert "group_chart_generate" in (json.loads(describe_chart).get("tools") or {})
 doc_schema = (json.loads(describe_doc).get("tools") or {})["feishu_doc_manage"]
 doc_properties = doc_schema["parameters"]["properties"]
-assert {"insert_image", "set_cover"}.issubset(set(doc_properties["action"]["enum"]))
-assert {"image_path", "attachment_index", "position", "anchor_text"}.issubset(doc_properties)
+assert {"stage_image_urls", "insert_image", "set_cover", "replace_image"}.issubset(
+    set(doc_properties["action"]["enum"])
+)
+assert {"urls", "image_path", "attachment_index", "block_id", "position", "anchor_text"}.issubset(doc_properties)
 
 # Also pass through the actual sandbox pre_tool_call hook. The dispatch checks
 # above alone can be green while Feishu groups still block the bridge tools.
@@ -607,13 +616,16 @@ sandbox._current_chat_type.set("group")
 sandbox._current_user_id.set("ou_untrusted_verify")
 sandbox._current_user_ids.set(frozenset({"ou_untrusted_verify"}))
 sandbox._current_resource_refs.set(frozenset({"doxcnSandboxVerifyTarget"}))
+sandbox._current_public_urls.set(frozenset({"https://example.com/source.png"}))
 
 for document_args in (
     {"action": "create"},
     {"action": "append", "doc_token": "doxcnSandboxVerifyTarget"},
     {"action": "rebuild", "doc_token": "doxcnSandboxVerifyTarget"},
+    {"action": "stage_image_urls", "urls": ["https://example.com/source.png"]},
     {"action": "insert_image", "doc_token": "doxcnSandboxVerifyTarget"},
     {"action": "set_cover", "doc_token": "doxcnSandboxVerifyTarget"},
+    {"action": "replace_image", "doc_token": "doxcnSandboxVerifyTarget"},
 ):
     assert sandbox._on_pre_tool_call(
         tool_name="feishu_doc_manage",
@@ -742,6 +754,7 @@ created_turn = "sandbox-group-verify:turn-one"
 workspace = sandbox._workspace_for_chat("oc_verify_any_group")
 markdown_path = workspace / "same-turn-create.md"
 cover_path = workspace / "same-turn-cover.png"
+staged_path = workspace / "sourced-images" / "verify-source.png"
 markdown_path.write_text("# same-turn verification\n", encoding="utf-8")
 cover_path.write_bytes(
     b"\x89PNG\r\n\x1a\n"
@@ -750,6 +763,26 @@ cover_path.write_bytes(
 original_run_trusted_script = sandbox._run_trusted_script
 try:
     def _fake_created_doc_run(script, _argv, _workspace):
+        if script.name == "stage_remote_images.py":
+            staged_path.parent.mkdir(parents=True, exist_ok=True)
+            staged_path.write_bytes(cover_path.read_bytes())
+            return subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=json.dumps({
+                    "success": True,
+                    "images": [{
+                        "index": 0,
+                        "workspace_path": str(staged_path.relative_to(workspace)),
+                        "mime_type": "image/png",
+                        "size_bytes": staged_path.stat().st_size,
+                        "width": 1,
+                        "height": 1,
+                    }],
+                    "total_bytes": staged_path.stat().st_size,
+                }),
+                stderr="",
+            )
         stdout = (
             f"Doc created: {created_token}. Patching title...\n"
             f"DONE: https://whales.feishu.cn/docx/{created_token}\n"
@@ -776,6 +809,40 @@ try:
         enabled_toolsets=group_toolsets,
     )
     assert '"success": true' in create_result
+    source_url = "https://media.example.com/verify-source.png"
+    contextvars.copy_context().run(
+        sandbox._on_post_tool_call,
+        tool_name="web_extract",
+        result=json.dumps({"results": [{"url": "https://example.com/page", "content": source_url}]}),
+        turn_id=created_turn,
+    )
+    stage_result = contextvars.copy_context().run(
+        handle_function_call,
+        "tool_call",
+        {
+            "name": "feishu_doc_manage",
+            "arguments": {"action": "stage_image_urls", "urls": [source_url]},
+        },
+        task_id="sandbox-verify",
+        session_id="sandbox-group-verify",
+        turn_id=created_turn,
+        enabled_toolsets=group_toolsets,
+    )
+    assert '"success": true' in stage_result
+    assert '"workspace_path": "sourced-images/verify-source.png"' in stage_result
+    unobserved_stage = contextvars.copy_context().run(
+        handle_function_call,
+        "tool_call",
+        {
+            "name": "feishu_doc_manage",
+            "arguments": {"action": "stage_image_urls", "urls": ["https://unobserved.example/image.png"]},
+        },
+        task_id="sandbox-verify",
+        session_id="sandbox-group-verify",
+        turn_id=created_turn,
+        enabled_toolsets=group_toolsets,
+    )
+    assert "远程图片 URL 必须来自当前消息、显式引用或本轮联网搜索结果" in unobserved_stage
     cover_result = contextvars.copy_context().run(
         handle_function_call,
         "tool_call",
@@ -814,6 +881,7 @@ finally:
     sandbox._run_trusted_script = original_run_trusted_script
     markdown_path.unlink(missing_ok=True)
     cover_path.unlink(missing_ok=True)
+    staged_path.unlink(missing_ok=True)
 
 trusted_mutation_user = next(iter(sandbox._GROUP_MUTATION_USER_IDS))
 markdown_token = "doxcnSandboxVerifyMarkdownTarget"
@@ -896,7 +964,8 @@ fi
 # A zero pytest exit alone is insufficient: skipped/xfail-only coverage also
 # exits zero. Emit one machine-readable receipt only after every JUnit case
 # passed cleanly, so Step 8e and the final PATCH evidence consume the same fact.
-if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TEST}" ]] && [[ -r "${DOC_MEDIA_TEST}" ]]; then
+if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TEST}" ]] &&
+    [[ -r "${DOC_MEDIA_TEST}" ]] && [[ -r "${DOC_STAGE_TEST}" ]] && [[ -r "${DOC_READ_TEST}" ]]; then
     _SANDBOX_JUNIT=$(mktemp -t hermes-sandbox-junit.XXXXXX)
     _SANDBOX_PYTEST_OUT=$(
         cd "${HERMES_HOME}" &&
@@ -906,7 +975,8 @@ if [[ -x "${VENV_PYTHON}" ]] && [[ -r "${PLUGIN_TEST}" ]] && [[ -r "${PEOPLE_TES
                 -W error::RuntimeWarning \
                 -W error::pytest.PytestReturnNotNoneWarning \
                 -W error::pytest.PytestCollectionWarning \
-                --junitxml="${_SANDBOX_JUNIT}" "${PLUGIN_TEST}" "${PEOPLE_TEST}" "${DOC_MEDIA_TEST}" 2>&1
+                --junitxml="${_SANDBOX_JUNIT}" "${PLUGIN_TEST}" "${PEOPLE_TEST}" "${DOC_MEDIA_TEST}" \
+                "${DOC_STAGE_TEST}" "${DOC_READ_TEST}" 2>&1
     )
     _SANDBOX_PYTEST_RC=$?
     echo "${_SANDBOX_PYTEST_OUT}"
@@ -1028,7 +1098,7 @@ PY
         echo "${current_reg}" | grep -q 'mcp__hypertex__hypertex_create_case' &&
         echo "${current_reg}" | grep -q 'mcp__hypertex__tasks_get' &&
         echo "${current_reg}" | grep -q 'doc_delete_only=True' &&
-        echo "${current_reg}" | grep -q "doc_media_actions=\['insert_image', 'set_cover'\]" &&
+        echo "${current_reg}" | grep -q "doc_media_actions=\['insert_image', 'replace_image', 'set_cover', 'stage_image_urls'\]" &&
         echo "${current_reg}" | grep -q 'doc_image_max_bytes=20971520' &&
         echo "${current_reg}" | grep -q 'hypertex_routing_policy=server-owned/non-observable' &&
         echo "${current_reg}" | grep -q 'hypertex_chats=' &&

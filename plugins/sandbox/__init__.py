@@ -45,7 +45,7 @@ from urllib.parse import urlparse
 import yaml
 
 logger = logging.getLogger(__name__)
-_PLUGIN_VERSION = "0.7.6"
+_PLUGIN_VERSION = "0.7.7"
 
 
 _current_chat_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -65,6 +65,9 @@ _current_user_ids: contextvars.ContextVar[FrozenSet[str]] = contextvars.ContextV
 )
 _current_resource_refs: contextvars.ContextVar[FrozenSet[str]] = contextvars.ContextVar(
     "sandbox_current_resource_refs", default=frozenset()
+)
+_current_public_urls: contextvars.ContextVar[FrozenSet[str]] = contextvars.ContextVar(
+    "sandbox_current_public_urls", default=frozenset()
 )
 _current_media_paths: contextvars.ContextVar[Tuple[str, ...]] = contextvars.ContextVar(
     "sandbox_current_media_paths", default=tuple()
@@ -125,6 +128,7 @@ _GROUP_CONTEXT_MESSAGE = "This tool is available only inside a configured Feishu
 _RESOURCE_BLOCK_MESSAGE = "群聊只能访问当前消息明确引用的飞书资源。"
 _MUTATION_TRUST_BLOCK_MESSAGE = "群聊中的飞书文档删除仅允许受信任的维护者执行。"
 _MUTATION_REFERENCE_BLOCK_MESSAGE = "修改飞书文档时，必须在当前消息或显式引用中附上目标文档链接。"
+_REMOTE_IMAGE_SOURCE_BLOCK_MESSAGE = "远程图片 URL 必须来自当前消息、显式引用或本轮联网搜索结果。"
 
 _READ_PATH_TOOLS: FrozenSet[str] = frozenset({"read_file", "search_files"})
 _GROUP_CHAT_TYPES: FrozenSet[str] = frozenset({"group", "channel", "forum", "thread"})
@@ -164,15 +168,23 @@ _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
 # instead of one malformed ``URL](URL`` value. Trailing ``)`` is normalized by
 # _resource_ref_candidates(), preserving ordinary bare-link handling.
 _FEISHU_URL_RE = re.compile(r"https://[^\s<>\"'\]]+")
+_PUBLIC_HTTPS_URL_RE = re.compile(r"https://[^\s<>\"'\]]+")
 _EXPLICIT_TOKEN_RE = re.compile(r"(?i)\b(?:doc_token|file_token)\s*[:=]\s*([A-Za-z0-9_-]{5,200})")
 _TRUST_REQUIRED_SCRIPT_ACTIONS = frozenset({"delete"})
-_EXPLICIT_TARGET_SCRIPT_ACTIONS = frozenset({"append", "rebuild", "delete", "insert_image", "set_cover"})
+_EXPLICIT_TARGET_SCRIPT_ACTIONS = frozenset(
+    {"append", "rebuild", "delete", "insert_image", "set_cover", "replace_image"}
+)
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\s*(?:\([^\n)]*\)|\[[^\]\n]*\])", re.IGNORECASE)
+_HTML_IMAGE_RE = re.compile(r"<img\b", re.IGNORECASE)
 _WEB_EXTRACT_PATH_RE = re.compile(r"(?m)^Full text saved to:\s*(.+?)\s*$")
 _EPHEMERAL_READ_PATHS_BY_CHAT: Dict[str, Set[Path]] = {}
 _EPHEMERAL_READ_PATHS_LOCK = threading.Lock()
 _TURN_RESOURCE_REFS_BY_KEY: Dict[Tuple[str, str], FrozenSet[str]] = {}
 _TURN_RESOURCE_REFS_LOCK = threading.Lock()
 _TURN_RESOURCE_REFS_MAX_ENTRIES = 512
+_TURN_PUBLIC_URLS_BY_KEY: Dict[Tuple[str, str], FrozenSet[str]] = {}
+_TURN_PUBLIC_URLS_LOCK = threading.Lock()
+_TURN_PUBLIC_URLS_MAX_ENTRIES = 512
 _BEARER_OUTPUT_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _SECRET_OUTPUT_RE = re.compile(
     r"""(?ix)
@@ -188,8 +200,10 @@ _FEISHU_SCRIPT_FILES = {
     "delete": "delete_doc.py",
     "read_url": "read_feishu_url.py",
     "download_file": "download_feishu_file.py",
+    "stage_image_urls": "stage_remote_images.py",
     "insert_image": "manage_doc_image.py",
     "set_cover": "manage_doc_image.py",
+    "replace_image": "manage_doc_image.py",
 }
 _VERSIONED_FEISHU_SCRIPT_NAMES = frozenset(
     {
@@ -230,7 +244,8 @@ FEISHU_DOC_MANAGE_SCHEMA = {
     "name": _SCRIPT_TOOL,
     "description": (
         "Run an operator-approved, pre-installed Feishu document script without a shell. "
-        "Supports create, append, rebuild, delete, image insertion, cover updates, URL read, and file download. "
+        "Supports create, append, rebuild, delete, sourced-image staging, image insertion/replacement, "
+        "cover updates, URL read, and file download. "
         "For create/append/rebuild, provide content or a markdown_path previously written by group_cache."
     ),
     "parameters": {
@@ -246,8 +261,10 @@ FEISHU_DOC_MANAGE_SCHEMA = {
                     "delete",
                     "read_url",
                     "download_file",
+                    "stage_image_urls",
                     "insert_image",
                     "set_cover",
+                    "replace_image",
                 ],
             },
             "doc_token": {"type": "string", "description": "Feishu docx token or docx URL."},
@@ -258,6 +275,13 @@ FEISHU_DOC_MANAGE_SCHEMA = {
                 "description": "Relative markdown file path in this group's workspace.",
             },
             "url": {"type": "string", "description": "Feishu/Lark URL or file token."},
+            "urls": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": {"type": "string"},
+                "description": "Public HTTPS raster-image URLs to stage safely in this group's workspace.",
+            },
             "image_path": {
                 "type": "string",
                 "description": (
@@ -273,6 +297,10 @@ FEISHU_DOC_MANAGE_SCHEMA = {
                     "Zero-based index among image attachments from the current message or explicit reply. "
                     "Mutually exclusive with image_path."
                 ),
+            },
+            "block_id": {
+                "type": "string",
+                "description": "Existing top-level Feishu image block ID for replace_image.",
             },
             "insert_index": {
                 "type": "integer",
@@ -1637,6 +1665,61 @@ def _clear_turn_resource_refs(chat_id: Optional[str] = None) -> None:
                 _TURN_RESOURCE_REFS_BY_KEY.pop(key, None)
 
 
+def _normalize_public_url(value: Any) -> str:
+    text = str(value or "").strip().rstrip(".,;:!?)]}>")
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return ""
+    if parsed.scheme != "https" or not parsed.hostname:
+        return ""
+    return parsed._replace(fragment="").geturl()
+
+
+def _public_urls_from_text(value: Any) -> FrozenSet[str]:
+    if not isinstance(value, str):
+        return frozenset()
+    urls = {_normalize_public_url(item) for item in _PUBLIC_HTTPS_URL_RE.findall(value)}
+    return frozenset(item for item in urls if item)
+
+
+def _record_turn_public_urls(turn_id: str, urls: FrozenSet[str]) -> None:
+    key = _turn_resource_key(turn_id)
+    if key is None or not urls:
+        return
+    with _TURN_PUBLIC_URLS_LOCK:
+        existing = _TURN_PUBLIC_URLS_BY_KEY.get(key, frozenset())
+        _TURN_PUBLIC_URLS_BY_KEY[key] = frozenset(set(existing) | set(urls))
+        while len(_TURN_PUBLIC_URLS_BY_KEY) > _TURN_PUBLIC_URLS_MAX_ENTRIES:
+            _TURN_PUBLIC_URLS_BY_KEY.pop(next(iter(_TURN_PUBLIC_URLS_BY_KEY)), None)
+
+
+def _turn_public_urls(turn_id: str = "") -> FrozenSet[str]:
+    key = _turn_resource_key(turn_id)
+    if key is None:
+        return frozenset()
+    with _TURN_PUBLIC_URLS_LOCK:
+        return _TURN_PUBLIC_URLS_BY_KEY.get(key, frozenset())
+
+
+def _clear_turn_public_urls(chat_id: Optional[str] = None) -> None:
+    with _TURN_PUBLIC_URLS_LOCK:
+        if not chat_id:
+            _TURN_PUBLIC_URLS_BY_KEY.clear()
+            return
+        for key in tuple(_TURN_PUBLIC_URLS_BY_KEY):
+            if key[0] == chat_id:
+                _TURN_PUBLIC_URLS_BY_KEY.pop(key, None)
+
+
+def _public_url_was_observed(value: Any, *, turn_id: str = "") -> bool:
+    normalized = _normalize_public_url(value)
+    if not normalized:
+        return False
+    allowed = set(_current_public_urls.get()) | set(_turn_public_urls(turn_id))
+    return normalized in allowed
+
+
 def _resource_was_referenced(value: Any, *, turn_id: str = "") -> bool:
     allowed = set(_current_resource_refs.get()) | set(_turn_resource_refs(turn_id))
     return bool(_resource_ref_candidates(value).intersection(allowed))
@@ -1698,6 +1781,10 @@ def _group_doc_action_block(args: Any, *, turn_id: str = "") -> Optional[str]:
     if action in {"read_url", "download_file"}:
         if not _resource_was_referenced(args.get("url"), turn_id=turn_id):
             return _RESOURCE_BLOCK_MESSAGE
+    if action == "stage_image_urls":
+        urls = args.get("urls")
+        if not isinstance(urls, list) or any(not _public_url_was_observed(url, turn_id=turn_id) for url in urls):
+            return _REMOTE_IMAGE_SOURCE_BLOCK_MESSAGE
     return None
 
 
@@ -1714,6 +1801,15 @@ def _owner_terminal_turn_directive(tool_name: str, args: Any, turn_id: str) -> O
     return {"action": "modify", "args": {"command": prefix + command}}
 
 
+def _reject_embedded_markdown_images(content: str) -> None:
+    if _MARKDOWN_IMAGE_RE.search(content) or _HTML_IMAGE_RE.search(content):
+        raise ValueError(
+            "Markdown image embedding is disabled because Feishu may replace remote/local images with "
+            "an import-error placeholder. Stage public URLs with action=stage_image_urls, remove the image "
+            "syntax from Markdown, then use insert_image or replace_image with the returned workspace_path."
+        )
+
+
 def _markdown_source(args: Dict[str, Any], workspace: Path) -> Path:
     content = args.get("content")
     relative = args.get("markdown_path")
@@ -1724,6 +1820,7 @@ def _markdown_source(args: Dict[str, Any], workspace: Path) -> Path:
             raise ValueError("content must be non-empty markdown")
         if len(content.encode("utf-8")) > _MAX_FILE_CONTENT_BYTES:
             raise ValueError("content exceeds the 1 MB group workspace limit")
+        _reject_embedded_markdown_images(content)
         with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", suffix=".md", prefix="feishu_", dir=workspace, delete=False
         ) as handle:
@@ -1732,6 +1829,7 @@ def _markdown_source(args: Dict[str, Any], workspace: Path) -> Path:
     source = _workspace_path(workspace, relative)
     if source.suffix.lower() != ".md" or not source.is_file():
         raise ValueError("markdown_path must name an existing .md file in this group's workspace")
+    _reject_embedded_markdown_images(source.read_text(encoding="utf-8"))
     return source
 
 
@@ -1835,9 +1933,19 @@ def _build_script_argv(args: Dict[str, Any], workspace: Path) -> tuple[str, Path
         argv = [_feishu_url(args.get("url"))]
     elif action == "download_file":
         argv = [_feishu_url(args.get("url"), file_only=True), str(workspace)]
-    elif action in {"insert_image", "set_cover"}:
+    elif action == "stage_image_urls":
+        urls = args.get("urls")
+        if not isinstance(urls, list) or not 1 <= len(urls) <= 8:
+            raise ValueError("stage_image_urls requires between 1 and 8 URLs")
+        argv = []
+        for value in urls:
+            if not isinstance(value, str) or not value.strip() or len(value) > 4096:
+                raise ValueError("each staged image URL must be a non-empty string of at most 4096 characters")
+            argv.append(value.strip())
+    elif action in {"insert_image", "set_cover", "replace_image"}:
         source = _doc_image_source(args, workspace)
-        argv = ["insert" if action == "insert_image" else "cover", _doc_token(args.get("doc_token")), str(source)]
+        operation = {"insert_image": "insert", "set_cover": "cover", "replace_image": "replace"}[action]
+        argv = [operation, _doc_token(args.get("doc_token")), str(source)]
         if action == "insert_image":
             insert_index = _bounded_optional_int(args, "insert_index", minimum=0, maximum=1_000_000)
             width = _bounded_optional_int(args, "width", minimum=1, maximum=20_000)
@@ -1870,9 +1978,25 @@ def _build_script_argv(args: Dict[str, Any], workspace: Path) -> tuple[str, Path
             _append_flag(argv, "caption", caption)
             _append_flag(argv, "width", width)
             _append_flag(argv, "height", height)
-        else:
+        elif action == "set_cover":
             _append_flag(argv, "offset_ratio_x", _finite_optional_float(args, "offset_ratio_x"))
             _append_flag(argv, "offset_ratio_y", _finite_optional_float(args, "offset_ratio_y"))
+        else:
+            block_id = _doc_token(args.get("block_id"))
+            argv.append(block_id)
+            width = _bounded_optional_int(args, "width", minimum=1, maximum=20_000)
+            height = _bounded_optional_int(args, "height", minimum=1, maximum=20_000)
+            align = str(args.get("align") or "center").strip()
+            if align not in {"left", "center", "right"}:
+                raise ValueError("align must be left, center, or right")
+            caption = args.get("caption")
+            if caption is not None:
+                if not isinstance(caption, str) or len(caption) > 1_000 or "\x00" in caption:
+                    raise ValueError("caption must be a string of at most 1000 characters")
+            _append_flag(argv, "align", align)
+            _append_flag(argv, "caption", caption)
+            _append_flag(argv, "width", width)
+            _append_flag(argv, "height", height)
     else:
         raise ValueError(f"unsupported script action: {action!r}")
     return action, script, argv
@@ -1964,6 +2088,30 @@ def _handle_feishu_doc_manage(args: Dict[str, Any], **_kwargs: Any) -> str:
     )
     stdout = _redact_tool_output(result.stdout[-_MAX_TOOL_OUTPUT_CHARS:])
     stderr = _redact_tool_output(result.stderr[-_MAX_TOOL_OUTPUT_CHARS:])
+    if action == "stage_image_urls":
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError:
+            payload = None
+        if result.returncode == 0 and isinstance(payload, dict) and payload.get("success") is True:
+            images = payload.get("images")
+            if not isinstance(images, list):
+                raise RuntimeError("staged image result omitted the images list")
+            verified = []
+            for image in images:
+                if not isinstance(image, dict) or not isinstance(image.get("workspace_path"), str):
+                    raise RuntimeError("staged image result is malformed")
+                path = _workspace_path(workspace, image["workspace_path"])
+                if not path.is_file() or _image_extension_from_magic(path) is None:
+                    raise RuntimeError("staged image result does not reference a valid workspace image")
+                verified.append(image)
+            return _json_result(
+                success=True,
+                action=action,
+                images=verified,
+                total_bytes=payload.get("total_bytes"),
+                workspace_id=_workspace_id(chat_id),
+            )
     return _json_result(
         success=result.returncode == 0,
         action=action,
@@ -2207,12 +2355,14 @@ def _load_config() -> bool:
 def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict[str, Any]]:
     if event is None or getattr(event, "source", None) is None:
         _clear_turn_resource_refs()
+        _clear_turn_public_urls()
         _current_platform.set(None)
         _current_chat_id.set(None)
         _current_chat_type.set(None)
         _current_user_id.set(None)
         _current_user_ids.set(frozenset())
         _current_resource_refs.set(frozenset())
+        _current_public_urls.set(frozenset())
         _current_media_paths.set(tuple())
         _current_hypertex_staged_paths.set(tuple())
         _current_hypertex_call_count.set(0)
@@ -2221,7 +2371,9 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
         _current_tool_turn_id.set("")
         return None
     source = event.source
-    _clear_turn_resource_refs(str(getattr(source, "chat_id", None) or ""))
+    source_chat_id = str(getattr(source, "chat_id", None) or "")
+    _clear_turn_resource_refs(source_chat_id)
+    _clear_turn_public_urls(source_chat_id)
     _clear_ephemeral_read_paths(getattr(source, "chat_id", None))
     platform = getattr(source, "platform", None)
     _current_platform.set(platform.value if platform else None)
@@ -2230,6 +2382,12 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
     _current_user_id.set(getattr(source, "user_id", None))
     _current_user_ids.set(_event_user_ids(event))
     _current_resource_refs.set(_event_resource_refs(event))
+    _current_public_urls.set(
+        frozenset(
+            set(_public_urls_from_text(getattr(event, "text", None)))
+            | set(_public_urls_from_text(getattr(event, "reply_to_text", None)))
+        )
+    )
     _current_media_paths.set(
         tuple(str(path) for path in (getattr(event, "media_urls", None) or []) if str(path).strip())
     )
@@ -2249,9 +2407,11 @@ def _on_post_tool_call(
 ) -> None:
     if not _CONFIG_LOADED or not _is_group_context():
         return None
+    if tool_name in {"web_search", "web_extract"}:
+        _record_turn_public_urls(turn_id, _public_urls_from_text(result))
     if tool_name == "web_extract":
         _record_web_extract_paths(str(_current_chat_id.get() or ""), result)
-    elif tool_name == _SCRIPT_TOOL:
+    if tool_name == _SCRIPT_TOOL:
         created_refs = _successful_created_doc_refs(result)
         if created_refs:
             _record_turn_resource_refs(turn_id, created_refs)
@@ -2419,7 +2579,11 @@ def register(ctx: Any) -> None:
         sorted(_GROUP_ALLOWED_SCRIPT_ACTIONS),
         sorted(_GROUP_MUTATION_USER_IDS),
         _TRUST_REQUIRED_SCRIPT_ACTIONS == frozenset({"delete"}),
-        sorted({"insert_image", "set_cover"}.intersection(_GROUP_ALLOWED_SCRIPT_ACTIONS)),
+        sorted(
+            {"stage_image_urls", "insert_image", "set_cover", "replace_image"}.intersection(
+                _GROUP_ALLOWED_SCRIPT_ACTIONS
+            )
+        ),
         _GROUP_DOC_IMAGE_MAX_BYTES,
         sorted(_GROUP_HYPERTEX_CHAT_IDS),
         sorted(_GROUP_HYPERTEX_USER_IDS),
