@@ -564,7 +564,7 @@ GROUP_CHART_GENERATE_SCHEMA = {
             "legend": {"type": "string", "enum": ["auto", "show", "hide"], "default": "auto"},
             "legend_position": {
                 "type": "string",
-                "enum": ["auto", "top", "right", "bottom", "best"],
+                "enum": ["auto", "right", "bottom", "best"],
                 "default": "auto",
                 "description": "Auto uses a non-overlapping inside position, else bounded right/bottom fallback.",
             },
@@ -1590,6 +1590,32 @@ def _resource_was_referenced(value: Any) -> bool:
     return bool(_resource_ref_candidates(value).intersection(_current_resource_refs.get()))
 
 
+def _successful_created_doc_refs(result: Any) -> FrozenSet[str]:
+    """Extract only the exact doc created by a successful fixed-script call."""
+    payload = result
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return frozenset()
+    if not isinstance(payload, dict):
+        return frozenset()
+    if payload.get("success") is not True or payload.get("action") != "create" or payload.get("returncode") != 0:
+        return frozenset()
+    stdout = payload.get("stdout")
+    if not isinstance(stdout, str):
+        return frozenset()
+    refs: set[str] = set()
+    for token in re.findall(r"(?m)^Doc created:\s*([A-Za-z0-9_-]{5,200})\b", stdout):
+        if _DOC_TOKEN_RE.fullmatch(token):
+            refs.add(token)
+    for url in _FEISHU_URL_RE.findall(stdout):
+        parsed = urlparse(url.rstrip(".,;:!?)]}>"))
+        if "/docx/" in parsed.path:
+            refs.update(_resource_ref_candidates(url))
+    return frozenset(refs)
+
+
 def _group_doc_action_block(args: Any) -> Optional[str]:
     """Return a block message for an unauthorized structured doc action."""
     if not isinstance(args, dict):
@@ -1809,6 +1835,12 @@ def _run_trusted_script(script: Path, argv: list[str], workspace: Path) -> subpr
         command = [str(sandbox_exec), "-p", _seatbelt_profile(workspace), *command]
 
     env = os.environ.copy()
+    try:
+        from gateway.session_context import get_session_env
+
+        turn_id = get_session_env("HERMES_SESSION_MESSAGE_ID", "") or ""
+    except Exception:
+        turn_id = ""
     env.update(
         {
             "HERMES_GROUP_WORKSPACE": str(workspace),
@@ -1817,8 +1849,11 @@ def _run_trusted_script(script: Path, argv: list[str], workspace: Path) -> subpr
             "TMPDIR": str(workspace),
             "HERMES_GROUP_MAX_DOWNLOAD_BYTES": str(_GROUP_MAX_DOWNLOAD_BYTES),
             "HERMES_FEISHU_IMAGE_MAX_BYTES": str(_GROUP_DOC_IMAGE_MAX_BYTES),
+            "HERMES_FEISHU_VERSION_LEDGER": str(workspace / ".feishu-version-turns.json"),
         }
     )
+    if turn_id:
+        env["HERMES_FEISHU_VERSION_TURN_ID"] = turn_id
     return subprocess.run(
         command,
         cwd=str(script.parent),
@@ -2140,6 +2175,15 @@ def _on_post_tool_call(
         return None
     if tool_name == "web_extract":
         _record_web_extract_paths(str(_current_chat_id.get() or ""), result)
+    elif tool_name == _SCRIPT_TOOL:
+        created_refs = _successful_created_doc_refs(result)
+        if created_refs:
+            _current_resource_refs.set(frozenset(set(_current_resource_refs.get()) | set(created_refs)))
+            logger.info(
+                "sandbox: granted same-turn access to created document chat=%s refs=%s",
+                str(_current_chat_id.get() or ""),
+                sorted(ref for ref in created_refs if _DOC_TOKEN_RE.fullmatch(ref)),
+            )
     return None
 
 

@@ -18,6 +18,6 @@ Feishu docs: SpaceSight weekly report https://whales.feishu.cn/docx/JdP0dS9QsoFW
 §
 Architecture naming: 'Ground Control + Satellite View' = his hub-and-spoke pattern (local = Ground Control: config/agent/sync; remote = Satellite View: read-only dashboards).
 §
-Data Viz: Likes Kepler.gl/L7 for 3D maps; concise labels; HyperTeX data pages should use native/structured charts over screenshot/decorative visuals.
+Data Viz/docs: Likes Kepler.gl/L7 3D maps; concise labels; native charts. Feishu research reports should be 图文并茂：AI cover, sourced images, comparison charts.
 §
 Codex CLI: ~/.codex/models-bundled-0.147-workaround.json caps gpt-5.6-sol ctx at 272K (×95%≈258K), overriding config.toml model_context_window=1M.

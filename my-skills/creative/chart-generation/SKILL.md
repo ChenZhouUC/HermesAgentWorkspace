@@ -78,8 +78,9 @@ shape. Layout presets only bias the result; all exported PNGs stay between a
 first uses Matplotlib's least-obstructive position inside the plotting area. If
 that position intersects plotted data, a landscape chart moves the legend to a
 right-side region capped at one fifth of the plot width; a portrait chart moves
-it below the plot in a region capped at one fifth of the plot height. Set
-`legend_position` only when the user requests a different layout.
+it below the plot in a region capped at one fifth of the plot height. Top
+legends are not supported: legacy `top` requests are normalized to `auto` so
+they cannot shrink a wide chart's plotting area.
 
 Tick-label bands are also bounded after `tight_layout`: Y-axis tick labels may
 use at most 10% of plot width, while X-axis tick labels may use at most 10% of

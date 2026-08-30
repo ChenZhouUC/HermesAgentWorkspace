@@ -127,11 +127,12 @@ Final output is always constrained to an aspect ratio between `2:1` and `1:2`.
 - `highlight_label`
 - `annotation_preset`: `auto`, `none`, `values`, `percent`, or `compact`
 - `legend`: `auto`, `show`, or `hide`
-- `legend_position`: `auto`, `top`, `right`, `bottom`, or `best`. `auto`
+- `legend_position`: `auto`, `right`, `bottom`, or `best`. `auto`
   first tries an inside `best` position and keeps it only when Matplotlib's
   plotted-artist geometry reports no overlap. Otherwise landscape canvases use
   a right-side legend capped at 20% of plot width, while portrait canvases use
-  a bottom legend capped at 20% of plot height.
+  a bottom legend capped at 20% of plot height. Legacy `top` input is treated
+  as `auto` and never creates a top legend.
 - `orientation` for stacked bars
 - `x_scale` / `y_scale`: `linear`, `log`, or `symlog`
 - axis bounds and up to six `reference_lines`

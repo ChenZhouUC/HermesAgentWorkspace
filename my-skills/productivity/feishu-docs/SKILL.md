@@ -164,6 +164,12 @@ You normally never touch this by hand — run `append_md_to_doc.py`.
 - `Author`: native mention card `{"mention_user": {"user_id": "ou_0091f5c50226a4ee0dc8a6d51665db0f"}}` — **never** plain text.
 - Columns: `Version | Time | Author`, widths `[150, 250, 150]`.
 - A NEW row is appended on every modification; old rows are preserved, never collapsed.
+- Histories longer than one Feishu table are split into consecutive tables;
+  every continuation repeats the header, while readers de-duplicate those
+  repeated headers back into one logical history.
+- Within one Hermes turn, the same document receives at most one new version
+  row even when content, body images, and cover are updated by separate tool
+  calls. A later turn receives the next version normally.
 
 **Why it can't just "add a row":** Feishu has no native "append row" — the table must
 be rebuilt. The script handles this (re-read rows → new table with `row_size`/`column_size`/`column_width`
@@ -213,7 +219,10 @@ In a Feishu group, use `feishu_doc_manage`:
 - A generated image/chart's returned relative `workspace_path` is the canonical
   `image_path`; do not expose or invent an absolute host path.
 - Every mutation of an existing document requires that document to appear in
-  the current message or explicit reply.
+  the current message or explicit reply. A document successfully created by
+  the fixed `create` action is also authorized for the remainder of that same
+  group turn, allowing immediate image insertion and cover setup; the grant is
+  limited to the exact returned token and expires on the next message.
 
 For owner/CLI operation, use the fixed script directly:
 

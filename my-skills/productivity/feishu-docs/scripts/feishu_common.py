@@ -17,6 +17,7 @@ Stdlib-only. Two responsibilities:
 import http.client
 import json
 import os
+import tempfile
 import random
 import re
 import socket
@@ -25,6 +26,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 
 API = "https://open.feishu.cn/open-apis"
 BOT_OPEN_ID = "ou_0091f5c50226a4ee0dc8a6d51665db0f"  # @Gödel
@@ -268,18 +270,24 @@ def read_version_tables(token, doc_token):
     if head_text not in ("version", "版本") and not VERSION_RE.match(first_cell):
         return None, 0, block_map, root
 
-    # Include continuation tables only while their first cell is a version string.
+    # Include continuation tables while their first cell is either a version
+    # string (legacy layout) or a repeated header (current readable layout).
     tables = [leading[0]]
     for b in leading[1:]:
         rws = _table_rows(b)
-        if rws and VERSION_RE.match(_elems_text(_cell_elements(rws[0][0], block_map)).strip()):
+        first = _elems_text(_cell_elements(rws[0][0], block_map)).strip() if rws else ""
+        if rws and (VERSION_RE.match(first) or first.lower() in ("version", "版本")):
             tables.append(b)
         else:
             break
 
     rows_elements = []
-    for tb in tables:
-        for row in _table_rows(tb):
+    for table_index, tb in enumerate(tables):
+        for row_index, row in enumerate(_table_rows(tb)):
+            if table_index and row_index == 0:
+                first = _elems_text(_cell_elements(row[0], block_map)).strip().lower()
+                if first in ("version", "版本"):
+                    continue
             rows_elements.append([_cell_elements(cid, block_map) for cid in row])
     return rows_elements, len(tables), block_map, root
 
@@ -310,7 +318,9 @@ def _write_version_tables(token, doc_token, rows_elements, insert_index):
     col_size = len(rows_elements[0])
     col_width = [150, 250, 150][:col_size] or None
     cur_index = insert_index
-    for chunk in _chunk_rows(rows_elements):
+    header, data_rows = rows_elements[0], rows_elements[1:]
+    chunks = [[header, *chunk] for chunk in _chunk_rows(data_rows, size=8)] or [[header]]
+    for chunk in chunks:
         prop: dict = {"row_size": len(chunk), "column_size": col_size}
         if col_width:
             prop["column_width"] = col_width
@@ -379,16 +389,60 @@ def append_version_row(token, doc_token, author_id=BOT_OPEN_ID, version=None):
 
     Creates the table if the doc has none. Returns the version string written.
     """
-    rows, table_count, _block_map, _root = read_version_tables(token, doc_token)
-    if rows:
-        # Replace the old version table(s) in place: delete leading blocks first.
-        do_req(
-            token,
-            f"{API}/docx/v1/documents/{doc_token}/blocks/{doc_token}/children/batch_delete",
-            method="DELETE",
-            payload={"start_index": 0, "end_index": table_count},
-        )
-    return build_and_write_version_table(token, doc_token, rows, author_id, version, insert_index=0)
+    turn_id = (
+        os.environ.get("HERMES_FEISHU_VERSION_TURN_ID", "").strip()
+        or os.environ.get("HERMES_SESSION_MESSAGE_ID", "").strip()
+    )
+    ledger_raw = os.environ.get("HERMES_FEISHU_VERSION_LEDGER", "").strip()
+    if turn_id and not ledger_raw:
+        hermes_home = os.environ.get("HERMES_HOME", "").strip()
+        if hermes_home:
+            ledger_raw = str(Path(hermes_home) / "cache" / "feishu-version-turns.json")
+    ledger_path = Path(ledger_raw) if turn_id and ledger_raw else None
+
+    def mutate():
+        rows, table_count, _block_map, _root = read_version_tables(token, doc_token)
+        if rows:
+            do_req(
+                token,
+                f"{API}/docx/v1/documents/{doc_token}/blocks/{doc_token}/children/batch_delete",
+                method="DELETE",
+                payload={"start_index": 0, "end_index": table_count},
+            )
+        return build_and_write_version_table(token, doc_token, rows, author_id, version, insert_index=0)
+
+    if ledger_path is None:
+        return mutate()
+
+    import fcntl
+
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = ledger_path.with_suffix(ledger_path.suffix + ".lock")
+    with lock_path.open("a+", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            try:
+                ledger = json.loads(ledger_path.read_text(encoding="utf-8")) if ledger_path.is_file() else {}
+            except (OSError, json.JSONDecodeError):
+                ledger = {}
+            prior = ledger.get(doc_token) if isinstance(ledger, dict) else None
+            if isinstance(prior, dict) and prior.get("turn_id") == turn_id and prior.get("version"):
+                return str(prior["version"])
+            written = mutate()
+            if not isinstance(ledger, dict):
+                ledger = {}
+            ledger[doc_token] = {"turn_id": turn_id, "version": written}
+            fd, temp_name = tempfile.mkstemp(prefix=".feishu-version-", dir=str(ledger_path.parent))
+            os.close(fd)
+            temp_path = Path(temp_name)
+            try:
+                temp_path.write_text(json.dumps(ledger, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+                os.replace(temp_path, ledger_path)
+            finally:
+                temp_path.unlink(missing_ok=True)
+            return written
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 # --------------------------------------------------------------------------- #

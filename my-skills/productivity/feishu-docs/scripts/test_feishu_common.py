@@ -266,17 +266,48 @@ def main():
         check("setup is 10 rows in 1 table", leading_table_count(doc) == 1)
         fc.append_version_row("tok", DOC, version="20260525.01ed")  # -> 11 rows total
         check("split into 2 consecutive tables", leading_table_count(doc) == 2)
-        # the two tables should hold 9 + 2 rows
+        # Continuation tables repeat the header, so they read as one coherent
+        # version table while each physical Feishu table stays within 9 rows.
         kids = doc.blocks[DOC]["children"]
         t0, t1 = kids[0], kids[1]
         r0 = doc.blocks[t0]["table"]["property"]["row_size"]
         r1 = doc.blocks[t1]["table"]["property"]["row_size"]
-        check("first table 9 rows, second 2", (r0, r1) == (9, 2))
+        check("first table 9 rows, second header + 2", (r0, r1) == (9, 3))
+        second_first = fc._elems_text(fc._cell_elements(fc._table_rows(doc.blocks[t1])[0][0], doc.blocks))
+        check("continuation repeats header", second_first == "Version")
         rows = read_rows_text(doc)
         check("reader concatenates to 11 rows", rows is not None and len(rows) == 11)
         check("newest row is the appended one", rows[-1][0] == "20260525.01ed")
 
     run_case("C. history outgrows 9-row table limit", case_c)
+
+    def case_c2(doc):
+        doc.add_table([header(), data_row("20260520.01ed")])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_turn = os.environ.get("HERMES_FEISHU_VERSION_TURN_ID")
+            old_ledger = os.environ.get("HERMES_FEISHU_VERSION_LEDGER")
+            try:
+                os.environ["HERMES_FEISHU_VERSION_TURN_ID"] = "turn-one"
+                os.environ["HERMES_FEISHU_VERSION_LEDGER"] = os.path.join(temp_dir, "ledger.json")
+                first = fc.append_version_row("tok", DOC, version="20260525.01ed")
+                second = fc.append_version_row("tok", DOC, version="20260525.02ed")
+                check("same turn reuses first version", first == second == "20260525.01ed")
+                check("same turn writes one row", len(read_rows_text(doc)) == 3)
+                os.environ["HERMES_FEISHU_VERSION_TURN_ID"] = "turn-two"
+                third = fc.append_version_row("tok", DOC, version="20260525.02ed")
+                check("new turn appends next version", third == "20260525.02ed")
+                check("new turn writes another row", len(read_rows_text(doc)) == 4)
+            finally:
+                if old_turn is None:
+                    os.environ.pop("HERMES_FEISHU_VERSION_TURN_ID", None)
+                else:
+                    os.environ["HERMES_FEISHU_VERSION_TURN_ID"] = old_turn
+                if old_ledger is None:
+                    os.environ.pop("HERMES_FEISHU_VERSION_LEDGER", None)
+                else:
+                    os.environ["HERMES_FEISHU_VERSION_LEDGER"] = old_ledger
+
+    run_case("C2. one version per Hermes turn", case_c2)
 
     # ---- D: rebuild flow -> read-before-clear, then rewrite preserves history ----
     def case_d(doc):

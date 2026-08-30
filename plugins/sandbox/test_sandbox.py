@@ -353,6 +353,48 @@ def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_c
         sandbox._handle_feishu_doc_manage({"action": "delete", "doc_token": token})
 
 
+def test_successful_group_create_grants_only_new_doc_for_same_turn(group_config):
+    token = "IhI5dNJ2Vokyt6xijcZcj6u1nRZ"
+    sandbox._current_resource_refs.set(frozenset())
+    result = json.dumps(
+        {
+            "success": True,
+            "action": "create",
+            "returncode": 0,
+            "stdout": (f"Doc created: {token}. Patching title...\nDONE: https://whales.feishu.cn/docx/{token}\n"),
+        }
+    )
+
+    sandbox._on_post_tool_call(tool_name="feishu_doc_manage", result=result)
+
+    for action in ("insert_image", "set_cover", "append", "rebuild"):
+        assert sandbox._group_doc_action_block({"action": action, "doc_token": token}) is None
+    assert (
+        sandbox._group_doc_action_block({"action": "set_cover", "doc_token": "doxcnOtherToken"})
+        == sandbox._MUTATION_REFERENCE_BLOCK_MESSAGE
+    )
+
+
+def test_failed_or_unrelated_create_does_not_grant_document(group_config):
+    token = "IhI5dNJ2Vokyt6xijcZcj6u1nRZ"
+    sandbox._current_resource_refs.set(frozenset())
+    for tool_name, result in (
+        (
+            "feishu_doc_manage",
+            json.dumps({"success": False, "action": "create", "returncode": 1, "stdout": f"Doc created: {token}"}),
+        ),
+        (
+            "other_tool",
+            json.dumps({"success": True, "action": "create", "returncode": 0, "stdout": f"Doc created: {token}"}),
+        ),
+    ):
+        sandbox._on_post_tool_call(tool_name=tool_name, result=result)
+    assert (
+        sandbox._group_doc_action_block({"action": "insert_image", "doc_token": token})
+        == sandbox._MUTATION_REFERENCE_BLOCK_MESSAGE
+    )
+
+
 def test_markdown_reply_link_authorizes_trusted_group_delete(group_config, monkeypatch):
     token = "doxcnMarkdownReplyToken_123"
     url = f"https://whales.feishu.cn/docx/{token}"
@@ -1698,6 +1740,24 @@ def test_chart_auto_legend_preserves_landscape_plot_height(tmp_path):
     ]
     assert dense_rows
     assert dense_rows[0] < 40
+
+
+def test_chart_legacy_top_legend_is_normalized_to_auto(tmp_path):
+    request = {
+        "title": "Wide multi-series chart",
+        "chart_type": "bar",
+        "labels": ["A", "B", "C", "D"],
+        "series": [
+            {"name": "Input", "values": [2, 4, 2, 1]},
+            {"name": "Output", "values": [6, 20, 10, 4]},
+        ],
+        "legend": "show",
+        "legend_position": "top",
+        "layout_preset": "wide",
+    }
+    result, _output = _run_chart_renderer(tmp_path, request)
+    assert result["legend_position"] in {"inside", "right"}
+    assert result["legend_position"] != "top"
 
 
 @pytest.mark.parametrize(

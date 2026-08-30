@@ -61,6 +61,11 @@ whose explicit destination is a referenced Feishu document, pass its
 `media_directive` unless the user also asked to receive a separate image in the
 chat; document insertion and chat delivery are distinct destinations.
 
+A group document successfully produced by `feishu_doc_manage(action="create")`
+may receive generated media during the same turn. Only the exact token parsed
+from that successful fixed-script result is authorized; failed creation,
+another tool's output, arbitrary tokens, and later turns receive no grant.
+
 ## Permissions and failure handling
 
 The bot needs document edit permission and media-upload permission. A 403 means

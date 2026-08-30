@@ -956,7 +956,10 @@ def _rebuild_external_legend(
 
 def _resolve_legend_position(ax: Axes, legend: Any, request: dict[str, Any]) -> str:
     requested = str(request.get("legend_position") or "auto").strip().lower()
-    if requested in {"top", "right", "bottom"}:
+    # ``top`` was historically accepted, but it consumes vertical plot space
+    # and bypasses the bounded right/bottom layout budget.  Treat it as auto so
+    # stale callers cannot override the landscape/portrait policy.
+    if requested in {"right", "bottom"}:
         return requested
     legend.set_bbox_to_anchor(None)
     legend._loc = 0
