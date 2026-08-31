@@ -57,6 +57,10 @@ using their returned relative `workspace_path` / `image_path` values. The sandbo
 inside the current group's isolated workspace and privately stages copies for HyperTeX. Never pass
 an arbitrary absolute path or a path from another chat/workspace.
 
+The configured bridge accepts at most 20 assets per create/iterate call and at most 100 MB per
+asset. These limits cover current-message attachments and explicit current-group workspace files
+combined; do not split one user request into multiple HyperTeX calls to bypass them.
+
 When several source files are provided and the user identifies one as newer or authoritative, use
 that source for structure and narrative, and use older sources only for supporting evidence or
 reusable visuals. State that precedence in the prompt.

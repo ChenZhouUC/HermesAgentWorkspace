@@ -47,7 +47,7 @@ from urllib.parse import urlparse
 import yaml
 
 logger = logging.getLogger(__name__)
-_PLUGIN_VERSION = "0.7.8"
+_PLUGIN_VERSION = "0.7.9"
 
 
 _current_chat_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -110,9 +110,9 @@ _CHART_PYTHON_EXECUTABLE: Optional[Path] = None
 _PYTHON_EXECUTABLE: Optional[Path] = None
 _HYPERTEX_ASSET_STAGING_ROOT: Optional[Path] = None
 _SCRIPT_TIMEOUT_SECONDS = 300
-_GROUP_MAX_DOWNLOAD_BYTES = 50_000_000
-_HYPERTEX_MAX_ASSET_BYTES = 50_000_000
-_HYPERTEX_MAX_ASSETS_PER_TURN = 12
+_GROUP_MAX_DOWNLOAD_BYTES = 100_000_000
+_HYPERTEX_MAX_ASSET_BYTES = 100_000_000
+_HYPERTEX_MAX_ASSETS_PER_TURN = 20
 _HYPERTEX_ASSET_STAGING_TTL_SECONDS = 86_400
 _GROUP_IMAGE_TIMEOUT_SECONDS = 900
 _GROUP_IMAGE_MAX_INPUT_BYTES = 25_000_000
@@ -2330,15 +2330,15 @@ def _load_config() -> bool:
         _SCRIPT_TIMEOUT_SECONDS = max(1, min(900, int(data.get("script_timeout_seconds", 300))))
         _GROUP_MAX_DOWNLOAD_BYTES = max(
             1_000_000,
-            min(500_000_000, int(data.get("group_max_download_bytes", 50_000_000))),
+            min(500_000_000, int(data.get("group_max_download_bytes", 100_000_000))),
         )
         _HYPERTEX_MAX_ASSET_BYTES = max(
             1_000_000,
-            min(500_000_000, int(data.get("hypertex_max_asset_bytes", 50_000_000))),
+            min(500_000_000, int(data.get("hypertex_max_asset_bytes", 100_000_000))),
         )
         _HYPERTEX_MAX_ASSETS_PER_TURN = max(
             1,
-            min(20, int(data.get("hypertex_max_assets_per_turn", 6))),
+            min(20, int(data.get("hypertex_max_assets_per_turn", 20))),
         )
         _HYPERTEX_ASSET_STAGING_TTL_SECONDS = max(
             3_600,

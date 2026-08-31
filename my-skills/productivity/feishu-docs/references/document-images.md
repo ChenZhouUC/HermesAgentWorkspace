@@ -109,7 +109,9 @@ generated/chart `workspace_path` values, and pass those relative paths as
 HyperTeX `asset_paths`. The Hermes sandbox accepts only files that resolve
 inside the current group's workspace, copies them into HyperTeX's private
 staging directory, and rejects missing files, symlinks, cross-group paths, and
-requests above the configured count/size bounds.
+requests above the configured count/size bounds. The HyperTeX bridge currently
+allows 20 assets per call and 100 MB per asset. Feishu document image upload and
+remote-image staging retain their separate 20 MiB raster limit.
 
 ## Permissions and failure handling
 

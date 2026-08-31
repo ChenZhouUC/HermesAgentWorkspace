@@ -114,7 +114,7 @@ plugin = yaml.safe_load(plugin_path.read_text(encoding="utf-8")) or {}
 people = (yaml.safe_load(people_path.read_text(encoding="utf-8")) or {}).get("people") or []
 manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
 
-assert manifest.get("version") == "0.7.8"
+assert manifest.get("version") == "0.7.9"
 
 assert people, "people.yaml must contain the active Feishu roster"
 open_ids = [str(person.get("open_id") or "") for person in people if isinstance(person, dict)]
@@ -187,9 +187,10 @@ assert not any(
 
 assert plugin.get("owner_feishu_chat_ids"), "owner Feishu chat id must be configured"
 assert plugin.get("hypertex_asset_staging_root") == "~/.hermes/tmp/hypertex-assets"
-assert int(plugin.get("hypertex_max_asset_bytes") or 0) == 50000000
-assert int(plugin.get("hypertex_max_assets_per_turn") or 0) == 12
+assert int(plugin.get("hypertex_max_asset_bytes") or 0) == 100000000
+assert int(plugin.get("hypertex_max_assets_per_turn") or 0) == 20
 assert int(plugin.get("hypertex_asset_staging_ttl_seconds") or 0) == 86400
+assert int(plugin.get("group_max_download_bytes") or 0) == 100000000
 assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "clarify",
     "web_search",

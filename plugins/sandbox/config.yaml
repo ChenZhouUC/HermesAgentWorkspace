@@ -12,10 +12,10 @@ owner_feishu_chat_ids:
 # injects the stable paths into the MCP call without exposing host paths to the
 # model. Staged files are private and expire after one day.
 hypertex_asset_staging_root: ~/.hermes/tmp/hypertex-assets
-hypertex_max_asset_bytes: 50000000
-# Covers a typical deck bundle (cover + charts + contextual images) while the
-# existing per-file size limit and private staging copy keep the boundary bounded.
-hypertex_max_assets_per_turn: 12
+hypertex_max_asset_bytes: 100000000
+# Covers a larger deck bundle while the per-file limit, group-workspace
+# containment, and private staging copy keep the boundary bounded.
+hypertex_max_assets_per_turn: 20
 hypertex_asset_staging_ttl_seconds: 86400
 
 allowed_tools_for_outsiders:
@@ -136,7 +136,7 @@ chart_python_executable: ~/.hermes/lib/chart-renderer/venv/bin/python
 private_chart_workspace_root: ~/.hermes/tmp/chart-generation
 python_executable: ~/.hermes/hermes-agent/venv/bin/python
 script_timeout_seconds: 300
-group_max_download_bytes: 50000000
+group_max_download_bytes: 100000000
 group_image_generation_timeout_seconds: 900
 group_image_max_input_bytes: 25000000
 group_image_max_output_bytes: 10000000

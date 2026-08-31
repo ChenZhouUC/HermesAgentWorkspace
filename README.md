@@ -763,8 +763,8 @@ hermes gateway restart             # 重启 gateway 加载插件
 owner_feishu_chat_ids:
   - oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx # 你和 bot 的主 DM chat_id；可填多个
 hypertex_asset_staging_root: ~/.hermes/tmp/hypertex-assets
-hypertex_max_asset_bytes: 50000000
-hypertex_max_assets_per_turn: 12
+hypertex_max_asset_bytes: 100000000
+hypertex_max_assets_per_turn: 20
 hypertex_asset_staging_ttl_seconds: 86400
 allowed_tools_for_outsiders:
   - web_search
@@ -811,7 +811,7 @@ chart_generation_script: ~/.hermes/my-skills/creative/chart-generation/scripts/r
 chart_python_executable: ~/.hermes/lib/chart-renderer/venv/bin/python
 private_chart_workspace_root: ~/.hermes/tmp/chart-generation
 python_executable: ~/.hermes/hermes-agent/venv/bin/python
-group_max_download_bytes: 50000000
+group_max_download_bytes: 100000000
 group_image_generation_timeout_seconds: 900
 group_image_max_input_bytes: 25000000
 group_image_max_output_bytes: 10000000

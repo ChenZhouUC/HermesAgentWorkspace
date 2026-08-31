@@ -94,8 +94,8 @@ def group_config(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "_PRIVATE_IMAGE_WORKSPACE_ROOT", private_image_workspace_root)
     monkeypatch.setattr(sandbox, "_PRIVATE_CHART_WORKSPACE_ROOT", private_chart_workspace_root)
     monkeypatch.setattr(sandbox, "_HYPERTEX_ASSET_STAGING_ROOT", hypertex_staging_root)
-    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSET_BYTES", 50_000_000)
-    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSETS_PER_TURN", 12)
+    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSET_BYTES", 100_000_000)
+    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSETS_PER_TURN", 20)
     monkeypatch.setattr(sandbox, "_HYPERTEX_ASSET_STAGING_TTL_SECONDS", 86_400)
     monkeypatch.setattr(
         sandbox,
@@ -827,20 +827,54 @@ def test_trusted_group_hypertex_rejects_workspace_symlink(group_config):
     }
 
 
-def test_trusted_group_hypertex_accepts_eight_workspace_assets(group_config):
+def test_trusted_group_hypertex_accepts_twenty_workspace_assets(group_config):
     workspace = sandbox._workspace_for_chat("group-one")
     sources = []
-    for index in range(8):
+    for index in range(20):
         source = workspace / "deck-assets" / f"asset-{index}.png"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_bytes(f"asset-{index}".encode())
         sources.append(str(source))
-    args = {"prompt": "use all eight", "asset_paths": sources}
+    args = {"prompt": "use all twenty", "asset_paths": sources}
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
     staged = [Path(path) for path in args["asset_paths"]]
-    assert len(staged) == 8
-    assert [path.name for path in staged] == [f"asset-{index}.png" for index in range(8)]
+    assert len(staged) == 20
+    assert [path.name for path in staged] == [f"asset-{index}.png" for index in range(20)]
+
+
+def test_trusted_group_hypertex_rejects_twenty_one_workspace_assets(group_config, monkeypatch):
+    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSETS_PER_TURN", 20)
+    workspace = sandbox._workspace_for_chat("group-one")
+    sources = []
+    for index in range(21):
+        source = workspace / "overflow-assets" / f"asset-{index}.png"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b"asset")
+        sources.append(str(source))
+    args = {"prompt": "too many", "asset_paths": sources}
+
+    directive = sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args)
+
+    assert directive == {
+        "action": "block",
+        "message": "素材未能安全暂存给 HyperTeX，请重新提供素材后再试。",
+    }
+
+
+def test_trusted_group_hypertex_enforces_per_asset_byte_limit(group_config, monkeypatch):
+    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSET_BYTES", 4)
+    workspace = sandbox._workspace_for_chat("group-one")
+    source = workspace / "oversized.bin"
+    source.write_bytes(b"12345")
+    args = {"prompt": "too large", "asset_paths": [str(source)]}
+
+    directive = sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args)
+
+    assert directive == {
+        "action": "block",
+        "message": "素材未能安全暂存给 HyperTeX，请重新提供素材后再试。",
+    }
 
 
 @pytest.mark.parametrize(
@@ -1709,9 +1743,9 @@ def test_script_runner_uses_argv_process_sandbox_and_workspace_env(group_config,
     assert captured["cwd"] == str(script.parent)
     assert captured["env"]["HERMES_GROUP_WORKSPACE"] == str(workspace)
     assert captured["env"]["TMPDIR"] == str(workspace)
-    assert captured["env"]["HERMES_GROUP_MAX_DOWNLOAD_BYTES"] == "50000000"
+    assert captured["env"]["HERMES_GROUP_MAX_DOWNLOAD_BYTES"] == "100000000"
     assert captured["env"]["HERMES_FEISHU_IMAGE_MAX_BYTES"] == "1000000"
-    assert captured["env"]["HERMES_FEISHU_DOC_READ_MAX_IMAGES"] == "12"
+    assert captured["env"]["HERMES_FEISHU_DOC_READ_MAX_IMAGES"] == "20"
     assert captured["env"]["HERMES_FEISHU_VERSION_TURN_ID"] == "group-turn-one"
     assert captured["env"]["HERMES_FEISHU_VERSION_LEDGER"] == str(workspace / ".feishu-version-turns.json")
 
@@ -2366,7 +2400,7 @@ def test_chart_renderer_rejects_misaligned_series(tmp_path):
 
 
 def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
-    assert sandbox._PLUGIN_VERSION == "0.7.8"
+    assert sandbox._PLUGIN_VERSION == "0.7.9"
     assert sandbox._load_config() is True
     assert sandbox._OWNER_CHAT_IDS
     assert sandbox._GROUP_IMAGE_CHAT_IDS
@@ -2378,7 +2412,9 @@ def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
     assert sandbox._CHART_PYTHON_EXECUTABLE is not None
     assert sandbox._CHART_PYTHON_EXECUTABLE.is_file()
     assert sandbox._GROUP_DOC_IMAGE_MAX_BYTES == 20 * 1024 * 1024
-    assert sandbox._HYPERTEX_MAX_ASSETS_PER_TURN == 12
+    assert sandbox._GROUP_MAX_DOWNLOAD_BYTES == 100_000_000
+    assert sandbox._HYPERTEX_MAX_ASSET_BYTES == 100_000_000
+    assert sandbox._HYPERTEX_MAX_ASSETS_PER_TURN == 20
     assert sandbox._GROUP_ALLOWED_SCRIPT_ACTIONS == frozenset(
         {
             "create",
