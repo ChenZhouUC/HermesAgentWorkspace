@@ -29,7 +29,7 @@ exporting Feishu Docs, Wiki nodes, file attachments, Sheets, or Minutes.
 13. **403 Forbidden Fallbacks**: If appending to a user's doc fails with HTTP 403 Forbidden, and you create a fallback document, you MUST STILL apply all strict formatting rules (Professional Title, Version Table, Chicago References). Do NOT just dump raw markdown via append. Use `scripts/rebuild_doc_from_md.py` on the fallback doc to guarantee the Version Table and Title are initialized properly, and ensure your source markdown includes the `## References` section.
 14. **Wiki vs Docx Permission Scope**: If the target URL is a Feishu Wiki link (`https://domain.feishu.cn/wiki/TOKEN`), the application MUST have `wiki:wiki:readonly` or `wiki:node:read` permissions. If it only has document permissions, the API will reject it with a `99991672 Access denied` error. Ask the user to grant the Wiki scope or provide the underlying standard `.docx` link.
 15. **Shortcuts (404 / 1770032 forBidden)**: If you obtain a file token from a folder listing and that token is a `shortcut` type, reading its raw token or its metadata directly often fails with 404 or `1770032 forBidden`. If extraction fails on a shortcut, notify the user that the source file is either deleted or lacks public/group permissions inherited by the bot.
-16. **Media Token Isolation**: Feishu isolates media tokens per document. Never copy an image/video token from Doc A directly into Doc B; download the binary and upload it against the destination document or image block. Markdown extraction still drops embedded media, while explicit image insertion and cover updates use `feishu_doc_manage` or `scripts/manage_doc_image.py` to create a fresh destination-scoped token.
+16. **Media Token Isolation**: Feishu isolates media tokens per document. Never copy an image/video token from Doc A directly into Doc B; download the binary and upload it against the destination document or image block. Plain Markdown extraction omits embedded media. When the user needs those visuals as reusable source material, call `feishu_doc_manage(action="read_url", include_images=true)` so the fixed reader downloads bounded raster copies into the current group workspace and returns relative `image_path` values. Explicit image insertion and cover updates still create fresh destination-scoped tokens.
 17. **Rebuild Script KeyError on Deep Nesting**: The `rebuild_doc_from_md.py` script requires building an exact block tree mapping. On documents with very deep nested blocks, complex tables, or certain Feishu artifacts, `merge_markdown_blocks.py` may fail with a `KeyError` during atomic rebuild and trigger a safe rollback. For a true mapping `KeyError`, use `create_new_doc_from_md.py` only when the user explicitly permits a replacement document. For rich-text-list `HTTP 400` errors, fix the Markdown and rerun the rebuild on the same document as required by rule 21.
 18. **Tenant Domain Configuration**: Scripts output placeholder URLs (e.g. `domain.feishu.cn`). Make sure your execution substitutes the actual tenant domain (`whales.feishu.cn`) when giving links back to the user.
 19. **Nested Inline Formatting in List Items (HTTP 400)**: Feishu's Block API rejects Markdown where bold/italic styling is nested directly inside list items (e.g., `- **Label**: text` or nested sub-lists like `  * **Sub-item**:`), failing with `HTTP 400 Invalid parameter type in json: children`. **WARNING: As an AI, you naturally default to generating `\* **Key**: Value` lists. You MUST actively suppress this habit when generating Markdown for Feishu Docs.** **Resolution**: Flatten the list into regular paragraphs (e.g., `**Label**: text` on its own line), strip the inline emphasis from bullets, or **use Markdown blockquotes (`> text`) instead of lists** to maintain indentation without triggering the rejection. _Example Fix:_ Change `* **Item**:` to `> **Item**:`.
@@ -229,6 +229,13 @@ In a Feishu group, use `feishu_doc_manage`:
   use the returned relative paths only with later document image actions.
 - `action="replace_image"` with `doc_token`, `block_id`, and exactly one image
   source when an existing image block must be repaired in place.
+- `action="read_url"` with `include_images=true` when embedded images from a
+  referenced docx/wiki document must become reusable local source material.
+  The result appends a `[DOCUMENT_IMAGES]` JSON manifest whose relative
+  `image_path` values remain inside the current group workspace and may be
+  passed to HyperTeX by the `hypertex-mcp` workflow. The document cover is
+  returned first with `role="cover"` when one exists; body images use
+  `role="body"`.
 - A generated image/chart's returned relative `workspace_path` is the canonical
   `image_path`; do not expose or invent an absolute host path.
 - Every mutation of an existing document requires that document to appear in
@@ -284,7 +291,7 @@ or letterboxed image block.
 - 多维表格：`venv/bin/python scripts/read_bitable.py <base_url> [table_id] [max_records]`
 - 文件附件：优先使用统一入口 `read_feishu_url.py`；它会下载并直接抽取 PDF、HTML/HTM、DOCX、XLSX、PPTX、ODT、IPYNB 和常见纯文本。群聊通过 `feishu_doc_manage(action="read_url")` 调用。图片/视频 `/file/` 链接由 Feishu 网关原生媒体路由处理；需要原始落地路径时用 `action="download_file"`。
 
-**已知限制**:docx 内嵌的表格/图片仍渲染为占位符 (块抽取器的固有限制);**独立**的电子表格/多维表格才渲染为完整 markdown 表。图片/截图走原生 vision(被 @ 时网关自动附图),不需要脚本。
+**已知限制**：docx 内嵌表格仍渲染为占位符；普通文本读取也不会把图片嵌进 Markdown。需要复用文档图片时，显式设置 `include_images=true`，读取结果会返回当前群工作区内的图片清单。**独立**的电子表格/多维表格才渲染为完整 Markdown 表。当前消息中的图片/截图仍走原生 vision。
 
 ## 📖 Reading Feishu Docs (Fallback)
 

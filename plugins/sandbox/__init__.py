@@ -18,8 +18,10 @@ calls are pinned to the ``hermes`` Contributor and, for a new case, the
 ``freestyle`` case type. Execution routing is server-owned and non-observable;
 the sandbox discards model-supplied routing hints instead of forwarding or
 describing them. Files attached to the current Feishu turn are copied into a
-private stable staging directory and injected into create/iterate calls without
-exposing cache paths to the model.
+private stable staging directory. Trusted groups may additionally submit files
+already produced inside their own isolated group workspace; those paths are
+validated, copied into the same private staging area, and never forwarded in
+place.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ from urllib.parse import urlparse
 import yaml
 
 logger = logging.getLogger(__name__)
-_PLUGIN_VERSION = "0.7.7"
+_PLUGIN_VERSION = "0.7.8"
 
 
 _current_chat_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -110,7 +112,7 @@ _HYPERTEX_ASSET_STAGING_ROOT: Optional[Path] = None
 _SCRIPT_TIMEOUT_SECONDS = 300
 _GROUP_MAX_DOWNLOAD_BYTES = 50_000_000
 _HYPERTEX_MAX_ASSET_BYTES = 50_000_000
-_HYPERTEX_MAX_ASSETS_PER_TURN = 6
+_HYPERTEX_MAX_ASSETS_PER_TURN = 12
 _HYPERTEX_ASSET_STAGING_TTL_SECONDS = 86_400
 _GROUP_IMAGE_TIMEOUT_SECONDS = 900
 _GROUP_IMAGE_MAX_INPUT_BYTES = 25_000_000
@@ -156,6 +158,7 @@ _HYPERTEX_CASE_TYPE = "freestyle"
 _HYPERTEX_ONE_CALL_MESSAGE = "本轮已经调用过 HyperTeX。请直接根据已有结果回复用户；状态查询或重试请等待用户下一条消息。"
 _HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE = "HyperTeX 目前未在本群启用。"
 _HYPERTEX_GROUP_BLOCK_MESSAGE = "HyperTeX 群聊内测目前仅对受信任的维护者开放。"
+_HYPERTEX_ASSET_BLOCK_MESSAGE = "HyperTeX 素材只能来自当前消息附件或当前群的隔离工作区。"
 _GROUP_IMAGE_CHAT_BLOCK_MESSAGE = "图片生成目前未在本群启用。"
 _GROUP_IMAGE_ONE_CALL_MESSAGE = "本轮已经生成过图片。若需调整，请在下一条消息中继续。"
 _GROUP_CHART_CHAT_BLOCK_MESSAGE = "图表生成目前未在本群启用。"
@@ -275,6 +278,15 @@ FEISHU_DOC_MANAGE_SCHEMA = {
                 "description": "Relative markdown file path in this group's workspace.",
             },
             "url": {"type": "string", "description": "Feishu/Lark URL or file token."},
+            "include_images": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "For a Feishu document URL, download embedded raster images into this group's workspace "
+                    "and include their relative image_path values in the read result. Use this when the document "
+                    "will be reused as visual source material, such as for a HyperTeX deck."
+                ),
+            },
             "urls": {
                 "type": "array",
                 "minItems": 1,
@@ -814,18 +826,63 @@ def _cleanup_hypertex_asset_staging(root: Path) -> None:
             logger.debug("sandbox: failed to clean old HyperTeX staging path %s", entry, exc_info=True)
 
 
-def _stage_current_hypertex_assets() -> Tuple[str, ...]:
+def _group_hypertex_asset_sources(raw_paths: Any) -> Tuple[Path, ...]:
+    if raw_paths in (None, []):
+        return tuple()
+    if not isinstance(raw_paths, list):
+        raise ValueError("asset_paths must be an array")
+
+    chat_id = str(_current_chat_id.get() or "")
+    if not chat_id or not _is_group_context():
+        return tuple()
+    workspace = _workspace_for_chat(chat_id)
+    sources: list[Path] = []
+    for raw_path in raw_paths:
+        if not isinstance(raw_path, str) or not raw_path.strip() or len(raw_path) > 4096:
+            raise ValueError("asset_paths entries must be non-empty paths of at most 4096 characters")
+        expanded = os.path.expandvars(os.path.expanduser(raw_path.strip()))
+        candidate = Path(expanded)
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
+        else:
+            candidate = _resolve_tool_path(expanded)
+        if candidate.is_symlink():
+            raise ValueError("HyperTeX workspace assets must not be symlinks")
+        try:
+            source = candidate.resolve(strict=True)
+        except OSError as exc:
+            raise FileNotFoundError("a requested HyperTeX workspace asset is unavailable") from exc
+        if not _path_within(source, workspace) or not source.is_file():
+            raise ValueError("HyperTeX workspace assets must be regular files inside the current group workspace")
+        sources.append(source)
+    return tuple(sources)
+
+
+def _stage_current_hypertex_assets(extra_sources: Tuple[Path, ...] = tuple()) -> Tuple[str, ...]:
     cached = _current_hypertex_staged_paths.get()
     if cached:
         return cached
 
-    source_paths = _current_media_paths.get()
+    source_paths: list[Path] = []
+    seen_sources: Set[Path] = set()
+    for raw_path in (*_current_media_paths.get(), *extra_sources):
+        candidate = Path(raw_path).expanduser()
+        if candidate.is_symlink():
+            raise ValueError("HyperTeX assets must not be symlinks")
+        try:
+            source = candidate.resolve(strict=True)
+        except OSError as exc:
+            raise FileNotFoundError("a HyperTeX asset is no longer available") from exc
+        if source in seen_sources:
+            continue
+        seen_sources.add(source)
+        source_paths.append(source)
     if not source_paths:
         return tuple()
     if _HYPERTEX_ASSET_STAGING_ROOT is None:
         raise RuntimeError("HyperTeX asset staging root is not configured")
     if len(source_paths) > _HYPERTEX_MAX_ASSETS_PER_TURN:
-        raise ValueError(f"at most {_HYPERTEX_MAX_ASSETS_PER_TURN} attachments are supported")
+        raise ValueError(f"at most {_HYPERTEX_MAX_ASSETS_PER_TURN} HyperTeX assets are supported")
 
     root = _HYPERTEX_ASSET_STAGING_ROOT.resolve(strict=False)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -839,8 +896,7 @@ def _stage_current_hypertex_assets() -> Tuple[str, ...]:
     staged: list[str] = []
     used_names: Set[str] = set()
     try:
-        for raw_path in source_paths:
-            source = Path(raw_path).expanduser()
+        for source in source_paths:
             if source.is_symlink() or not source.is_file():
                 raise FileNotFoundError("an attached file is no longer available")
             size = source.stat().st_size
@@ -871,13 +927,20 @@ def _prepare_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str, Any]
     _current_hypertex_call_count.set(1)
 
     if tool_name in {_HYPERTEX_CREATE_TOOL, _HYPERTEX_ITERATE_TOOL}:
+        extra_sources: Tuple[Path, ...] = tuple()
+        if _is_group_context():
+            try:
+                extra_sources = _group_hypertex_asset_sources(args.get("asset_paths"))
+            except Exception as exc:
+                logger.warning("sandbox: rejected HyperTeX workspace assets: %s", exc)
+                return {"action": "block", "message": _HYPERTEX_ASSET_BLOCK_MESSAGE}
         try:
-            staged_paths = _stage_current_hypertex_assets()
+            staged_paths = _stage_current_hypertex_assets(extra_sources)
         except Exception as exc:
-            logger.warning("sandbox: HyperTeX attachment staging failed: %s", exc, exc_info=True)
+            logger.warning("sandbox: HyperTeX asset staging failed: %s", exc, exc_info=True)
             return {
                 "action": "block",
-                "message": "附件未能安全暂存给 HyperTeX，请重新发送附件后再试。",
+                "message": "素材未能安全暂存给 HyperTeX，请重新提供素材后再试。",
             }
         # Execution routing belongs to HyperTeX and is intentionally absent
         # from the MCP contract. Drop defensive caller-side hints so old or
@@ -1931,6 +1994,11 @@ def _build_script_argv(args: Dict[str, Any], workspace: Path) -> tuple[str, Path
         argv = [_doc_token(args.get("doc_token"))]
     elif action == "read_url":
         argv = [_feishu_url(args.get("url"))]
+        include_images = args.get("include_images", False)
+        if not isinstance(include_images, bool):
+            raise ValueError("include_images must be a boolean")
+        if include_images:
+            argv.append("--include-images")
     elif action == "download_file":
         argv = [_feishu_url(args.get("url"), file_only=True), str(workspace)]
     elif action == "stage_image_urls":
@@ -2042,6 +2110,7 @@ def _run_trusted_script(script: Path, argv: list[str], workspace: Path) -> subpr
             "TMPDIR": str(workspace),
             "HERMES_GROUP_MAX_DOWNLOAD_BYTES": str(_GROUP_MAX_DOWNLOAD_BYTES),
             "HERMES_FEISHU_IMAGE_MAX_BYTES": str(_GROUP_DOC_IMAGE_MAX_BYTES),
+            "HERMES_FEISHU_DOC_READ_MAX_IMAGES": str(_HYPERTEX_MAX_ASSETS_PER_TURN),
             "HERMES_FEISHU_VERSION_LEDGER": str(workspace / ".feishu-version-turns.json"),
         }
     )

@@ -50,7 +50,12 @@ Call `hypertex_create_case` once with only a self-contained `prompt`:
 
 The prompt should capture the requested audience, purpose, content, structure, visual direction,
 source precedence, and output constraints. Attachments from the current Feishu message are handled
-automatically; never request or pass local file paths.
+automatically. In a trusted Feishu group, files already produced by `group_image_generate`,
+`group_chart_generate`, `feishu_doc_manage(action="stage_image_urls")`, or
+`feishu_doc_manage(action="read_url", include_images=true)` may be passed through `asset_paths`
+using their returned relative `workspace_path` / `image_path` values. The sandbox resolves them only
+inside the current group's isolated workspace and privately stages copies for HyperTeX. Never pass
+an arbitrary absolute path or a path from another chat/workspace.
 
 When several source files are provided and the user identifies one as newer or authoritative, use
 that source for structure and narrative, and use older sources only for supporting evidence or
@@ -71,8 +76,8 @@ Call `hypertex_iterate_case` once with the exact case name and a focused revisio
 ```
 
 Treat the prompt as a delta against the accepted presentation. Preserve everything the user did
-not ask to change. Current-message attachments are handled automatically; never request or pass
-local file paths.
+not ask to change. Current-message attachments are handled automatically; current-group workspace
+assets may be supplied under the same restricted `asset_paths` rule described above.
 
 ## Query a task
 

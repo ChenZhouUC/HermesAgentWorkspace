@@ -95,7 +95,7 @@ def group_config(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "_PRIVATE_CHART_WORKSPACE_ROOT", private_chart_workspace_root)
     monkeypatch.setattr(sandbox, "_HYPERTEX_ASSET_STAGING_ROOT", hypertex_staging_root)
     monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSET_BYTES", 50_000_000)
-    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSETS_PER_TURN", 6)
+    monkeypatch.setattr(sandbox, "_HYPERTEX_MAX_ASSETS_PER_TURN", 12)
     monkeypatch.setattr(sandbox, "_HYPERTEX_ASSET_STAGING_TTL_SECONDS", 86_400)
     monkeypatch.setattr(
         sandbox,
@@ -758,7 +758,7 @@ def test_trusted_group_hypertex_create_uses_server_routing_and_stages_current_at
         "model": "private-model",
         "provider": "private-provider",
         "type": "brochure",
-        "asset_paths": ["/etc/passwd"],
+        "asset_paths": [],
     }
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
@@ -767,6 +767,80 @@ def test_trusted_group_hypertex_create_uses_server_routing_and_stages_current_at
     assert args["type"] == "freestyle"
     assert len(args["asset_paths"]) == 1
     assert Path(args["asset_paths"][0]).name == "Group.pdf"
+
+
+def test_trusted_group_hypertex_stages_explicit_current_workspace_assets(group_config):
+    workspace = sandbox._workspace_for_chat("group-one")
+    cover = workspace / "generated-images" / "cover.png"
+    chart = workspace / "charts" / "market.png"
+    cover.parent.mkdir(parents=True)
+    chart.parent.mkdir(parents=True)
+    cover.write_bytes(b"cover")
+    chart.write_bytes(b"chart")
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="group-one",
+        chat_type="group",
+        user_id="trusted-user",
+    )
+    sandbox._on_pre_gateway_dispatch(
+        SimpleNamespace(source=source, text="用工作区素材做演示文稿", reply_to_text="", media_urls=[])
+    )
+    args = {
+        "prompt": "用工作区素材做演示文稿",
+        "asset_paths": [str(cover), "charts/market.png"],
+    }
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
+    staged = [Path(path) for path in args["asset_paths"]]
+    assert [path.name for path in staged] == ["cover.png", "market.png"]
+    assert [path.read_bytes() for path in staged] == [b"cover", b"chart"]
+    assert all(path.is_relative_to(group_config["hypertex_staging_root"]) for path in staged)
+
+
+def test_trusted_group_hypertex_rejects_explicit_asset_outside_current_workspace(group_config, tmp_path):
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"outside")
+    args = {"prompt": "use this", "asset_paths": [str(outside)]}
+
+    directive = sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args)
+
+    assert directive == {
+        "action": "block",
+        "message": sandbox._HYPERTEX_ASSET_BLOCK_MESSAGE,
+    }
+
+
+def test_trusted_group_hypertex_rejects_workspace_symlink(group_config):
+    workspace = sandbox._workspace_for_chat("group-one")
+    source = workspace / "real.png"
+    link = workspace / "linked.png"
+    source.write_bytes(b"image")
+    link.symlink_to(source)
+    args = {"prompt": "use this", "asset_paths": ["linked.png"]}
+
+    directive = sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args)
+
+    assert directive == {
+        "action": "block",
+        "message": sandbox._HYPERTEX_ASSET_BLOCK_MESSAGE,
+    }
+
+
+def test_trusted_group_hypertex_accepts_eight_workspace_assets(group_config):
+    workspace = sandbox._workspace_for_chat("group-one")
+    sources = []
+    for index in range(8):
+        source = workspace / "deck-assets" / f"asset-{index}.png"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(f"asset-{index}".encode())
+        sources.append(str(source))
+    args = {"prompt": "use all eight", "asset_paths": sources}
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
+    staged = [Path(path) for path in args["asset_paths"]]
+    assert len(staged) == 8
+    assert [path.name for path in staged] == [f"asset-{index}.png" for index in range(8)]
 
 
 @pytest.mark.parametrize(
@@ -1596,6 +1670,16 @@ def test_script_source_must_be_markdown_in_current_workspace(group_config):
 
 def test_script_arguments_reject_shell_payloads_and_non_feishu_urls(group_config):
     workspace = sandbox._workspace_for_chat("group-one")
+    _, _, read_argv = sandbox._build_script_argv(
+        {
+            "action": "read_url",
+            "url": "https://whales.feishu.cn/docx/doxcnToken_123",
+            "include_images": True,
+        },
+        workspace,
+    )
+    assert read_argv == ["https://whales.feishu.cn/docx/doxcnToken_123", "--include-images"]
+
     with pytest.raises(ValueError):
         sandbox._build_script_argv({"action": "delete", "doc_token": "token; rm -rf /"}, workspace)
     with pytest.raises(ValueError):
@@ -1627,6 +1711,7 @@ def test_script_runner_uses_argv_process_sandbox_and_workspace_env(group_config,
     assert captured["env"]["TMPDIR"] == str(workspace)
     assert captured["env"]["HERMES_GROUP_MAX_DOWNLOAD_BYTES"] == "50000000"
     assert captured["env"]["HERMES_FEISHU_IMAGE_MAX_BYTES"] == "1000000"
+    assert captured["env"]["HERMES_FEISHU_DOC_READ_MAX_IMAGES"] == "12"
     assert captured["env"]["HERMES_FEISHU_VERSION_TURN_ID"] == "group-turn-one"
     assert captured["env"]["HERMES_FEISHU_VERSION_LEDGER"] == str(workspace / ".feishu-version-turns.json")
 
@@ -2281,7 +2366,7 @@ def test_chart_renderer_rejects_misaligned_series(tmp_path):
 
 
 def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
-    assert sandbox._PLUGIN_VERSION == "0.7.7"
+    assert sandbox._PLUGIN_VERSION == "0.7.8"
     assert sandbox._load_config() is True
     assert sandbox._OWNER_CHAT_IDS
     assert sandbox._GROUP_IMAGE_CHAT_IDS
@@ -2293,6 +2378,7 @@ def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
     assert sandbox._CHART_PYTHON_EXECUTABLE is not None
     assert sandbox._CHART_PYTHON_EXECUTABLE.is_file()
     assert sandbox._GROUP_DOC_IMAGE_MAX_BYTES == 20 * 1024 * 1024
+    assert sandbox._HYPERTEX_MAX_ASSETS_PER_TURN == 12
     assert sandbox._GROUP_ALLOWED_SCRIPT_ACTIONS == frozenset(
         {
             "create",

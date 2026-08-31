@@ -11,13 +11,18 @@ Detects the object type from the URL and routes to the right reader:
 Run with the venv interpreter so feishu_common's deps resolve:
   ~/.hermes/hermes-agent/venv/bin/python read_feishu_url.py <feishu_url>
 
-NOTE: docx tables render as placeholders. Image bodies are not rendered, but
-known Feishu remote-import error images are detected and reported with block IDs.
+NOTE: docx tables render as placeholders. Pass ``--include-images`` to download
+embedded raster images into the current Feishu group workspace and append a
+machine-readable ``[DOCUMENT_IMAGES]`` manifest with relative ``image_path``
+values. Without that flag, image bodies are not rendered, but known Feishu
+remote-import error images are still detected and reported with block IDs.
 Standalone 电子表格/多维表格 render as full markdown tables.
 """
 
-import os
 import hashlib
+import json
+import os
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -27,6 +32,9 @@ import feishu_common as fc
 _KINDS = ("docx", "docs", "wiki", "sheets", "base", "file")
 _MAX_EXTRACTED_CHARS = 40_000
 _IMPORT_ERROR_IMAGE_SHA256 = "c1263eb516bd6c4b27772fd159fd3f3a38ff8dbf5df04c7c3f97e2afd4b909cc"
+_DEFAULT_DOC_IMAGE_LIMIT = 12
+_DEFAULT_IMAGE_MAX_BYTES = 20 * 1024 * 1024
+_DEFAULT_TOTAL_IMAGE_BYTES = 50_000_000
 _PLAIN_TEXT_EXTENSIONS = {
     ".txt",
     ".md",
@@ -68,6 +76,125 @@ def _download_doc_image(token, media_token, max_bytes=1_000_000):
     return data
 
 
+def _bounded_env_int(name, default, minimum, maximum):
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _safe_component(value, fallback):
+    cleaned = re.sub(r"[^A-Za-z0-9_-]", "_", str(value or ""))[:120].strip("_")
+    return cleaned or fallback
+
+
+def _image_suffix(data):
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return ".webp"
+    if data.startswith(b"BM"):
+        return ".bmp"
+    if data.startswith((b"II*\x00", b"MM\x00*")):
+        return ".tiff"
+    return ""
+
+
+def read_doc_cover(token, doc_token):
+    data = fc._check(
+        fc.do_req(token, f"{fc.API}/docx/v1/documents/{doc_token}"),
+        "read document cover",
+    ).get("data", {})
+    cover = (data.get("document") or {}).get("cover") or data.get("cover")
+    if not isinstance(cover, dict) or not cover.get("token"):
+        return None
+    return {
+        "block_id": "document-cover",
+        "block_type": 27,
+        "asset_role": "cover",
+        "image": {
+            "token": cover["token"],
+            "width": cover.get("width"),
+            "height": cover.get("height"),
+        },
+    }
+
+
+def export_doc_images(
+    access_token,
+    doc_token,
+    blocks,
+    workspace,
+    *,
+    max_images=_DEFAULT_DOC_IMAGE_LIMIT,
+    max_bytes=_DEFAULT_IMAGE_MAX_BYTES,
+    max_total_bytes=_DEFAULT_TOTAL_IMAGE_BYTES,
+):
+    """Download docx image blocks into a bounded group-workspace bundle."""
+    workspace = Path(workspace).expanduser().resolve(strict=False)
+    target_dir = workspace / "feishu-doc-images" / _safe_component(doc_token, "document")
+    if target_dir.exists() and target_dir.is_symlink():
+        raise ValueError("document image directory must not be a symlink")
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    image_blocks = [
+        block
+        for block in blocks
+        if isinstance(block, dict)
+        and block.get("block_type") == 27
+        and isinstance(block.get("image"), dict)
+        and block["image"].get("token")
+    ]
+    selected = image_blocks[:max_images]
+    result = {"images": [], "errors": [], "truncated": max(0, len(image_blocks) - len(selected))}
+    total_bytes = 0
+    for index, block in enumerate(selected, 1):
+        image = block["image"]
+        block_id = str(block.get("block_id") or f"image-{index}")
+        try:
+            data = _download_doc_image(access_token, image["token"], max_bytes)
+        except Exception as exc:
+            result["errors"].append({"block_id": block_id, "error": type(exc).__name__})
+            continue
+        if (
+            image.get("width") == 1460
+            and image.get("height") == 220
+            and hashlib.sha256(data).hexdigest() == _IMPORT_ERROR_IMAGE_SHA256
+        ):
+            result["errors"].append({"block_id": block_id, "error": "feishu_import_placeholder"})
+            continue
+        suffix = _image_suffix(data)
+        if not suffix:
+            result["errors"].append({"block_id": block_id, "error": "unsupported_raster_format"})
+            continue
+        if total_bytes + len(data) > max_total_bytes:
+            result["errors"].append({"block_id": block_id, "error": "total_image_bytes_exceeded"})
+            result["truncated"] += len(selected) - index
+            break
+        filename = f"{index:02d}-{_safe_component(block_id, f'image-{index}')}{suffix}"
+        destination = target_dir / filename
+        if destination.is_symlink() or (destination.exists() and not destination.is_file()):
+            raise ValueError("document image destination must be a regular file")
+        destination.write_bytes(data)
+        total_bytes += len(data)
+        result["images"].append(
+            {
+                "block_id": block_id,
+                "role": block.get("asset_role") or "body",
+                "image_path": destination.relative_to(workspace).as_posix(),
+                "width": image.get("width"),
+                "height": image.get("height"),
+                "size_bytes": len(data),
+            }
+        )
+    return result
+
+
 def detect_import_error_images(token, blocks):
     """Return image block IDs containing Feishu's remote-import failure asset."""
     failures = []
@@ -86,7 +213,7 @@ def detect_import_error_images(token, blocks):
     return failures
 
 
-def read_docx(doc_token):
+def read_docx(doc_token, *, include_images=False):
     token = fc.get_tenant_token()
     blocks, page_token = [], ""
     while True:
@@ -103,13 +230,49 @@ def read_docx(doc_token):
     from read_docx_to_markdown import parse_blocks  # pure renderer, reused
 
     _title, md = parse_blocks(blocks)
-    failures = detect_import_error_images(token, blocks)
-    if failures:
-        md += (
-            "\n\n[IMAGE_IMPORT_ERRORS] Feishu replaced remote Markdown images with its import-error "
-            f"placeholder in {len(failures)} block(s): {', '.join(failures)}. "
-            "Do not report visual verification as successful; stage the source images locally and replace these blocks."
-        )
+    if include_images:
+        workspace = os.environ.get("HERMES_GROUP_WORKSPACE", "").strip()
+        if not workspace:
+            image_result = {
+                "images": [],
+                "errors": [{"block_id": "", "error": "group_workspace_unavailable"}],
+                "truncated": 0,
+            }
+        else:
+            cover = read_doc_cover(token, doc_token)
+            image_result = export_doc_images(
+                token,
+                doc_token,
+                ([cover] if cover else []) + blocks,
+                workspace,
+                max_images=_bounded_env_int(
+                    "HERMES_FEISHU_DOC_READ_MAX_IMAGES",
+                    _DEFAULT_DOC_IMAGE_LIMIT,
+                    1,
+                    20,
+                ),
+                max_bytes=_bounded_env_int(
+                    "HERMES_FEISHU_IMAGE_MAX_BYTES",
+                    _DEFAULT_IMAGE_MAX_BYTES,
+                    1_000_000,
+                    100_000_000,
+                ),
+                max_total_bytes=_bounded_env_int(
+                    "HERMES_GROUP_MAX_DOWNLOAD_BYTES",
+                    _DEFAULT_TOTAL_IMAGE_BYTES,
+                    1_000_000,
+                    500_000_000,
+                ),
+            )
+        md += "\n\n[DOCUMENT_IMAGES]\n" + json.dumps(image_result, ensure_ascii=False)
+    else:
+        failures = detect_import_error_images(token, blocks)
+        if failures:
+            md += (
+                "\n\n[IMAGE_IMPORT_ERRORS] Feishu replaced remote Markdown images with its import-error "
+                f"placeholder in {len(failures)} block(s): {', '.join(failures)}. "
+                "Do not report visual verification as successful; stage the source images locally and replace these blocks."
+            )
     return md
 
 
@@ -159,17 +322,17 @@ def _read_downloaded_file(path):
         return f"(文件已下载，但无法抽取文本: {exc})"
 
 
-def read_url(url):
+def read_url(url, *, include_images=False):
     url = (url or "").strip()
     kind = detect_kind(url)
     if kind in ("docx", "docs"):
-        return read_docx(_token_after(url, kind))
+        return read_docx(_token_after(url, kind), include_images=include_images)
     if kind == "wiki":
         obj_type, obj_token = resolve_wiki(_token_after(url, "wiki"))
         if not obj_token:
             return f"(无法解析 wiki 节点: {url})"
         if obj_type in ("docx", "doc"):
-            return read_docx(obj_token)
+            return read_docx(obj_token, include_images=include_images)
         if obj_type in ("sheet", "sheets"):
             from read_sheet import read_sheet
 
@@ -197,7 +360,8 @@ def read_url(url):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python read_feishu_url.py <feishu_url>")
+    positional = [arg for arg in sys.argv[1:] if arg != "--include-images"]
+    if len(positional) != 1:
+        print("Usage: python read_feishu_url.py <feishu_url> [--include-images]")
         sys.exit(1)
-    print(read_url(sys.argv[1]))
+    print(read_url(positional[0], include_images="--include-images" in sys.argv[1:]))

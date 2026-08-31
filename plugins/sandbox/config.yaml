@@ -13,7 +13,9 @@ owner_feishu_chat_ids:
 # model. Staged files are private and expire after one day.
 hypertex_asset_staging_root: ~/.hermes/tmp/hypertex-assets
 hypertex_max_asset_bytes: 50000000
-hypertex_max_assets_per_turn: 6
+# Covers a typical deck bundle (cover + charts + contextual images) while the
+# existing per-file size limit and private staging copy keep the boundary bounded.
+hypertex_max_assets_per_turn: 12
 hypertex_asset_staging_ttl_seconds: 86400
 
 allowed_tools_for_outsiders:

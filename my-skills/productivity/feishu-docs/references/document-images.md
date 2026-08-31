@@ -6,6 +6,14 @@ Use this reference only for writing raster images into a Feishu docx document.
 
 - Generated image or chart: pass the producing tool's relative
   `workspace_path` as `image_path`.
+- Image embedded in a referenced Feishu docx/wiki document: call
+  `feishu_doc_manage(action="read_url", include_images=true)` and use the
+  relative `image_path` values from its `[DOCUMENT_IMAGES]` manifest. Each
+  raster is downloaded into `feishu-doc-images/<doc-token>/` inside the current
+  group's isolated workspace; failed or known import-placeholder blocks are
+  reported under `errors` instead of being presented as valid images. A
+  document cover is listed first with `role="cover"`; ordinary image blocks use
+  `role="body"`.
 - Image attached to the current message or explicit reply: pass its zero-based
   image-only `attachment_index`.
 - Never pass an arbitrary absolute path in a Feishu group.
@@ -92,6 +100,16 @@ For sourced web images in a group:
 Only claim images that actually returned a staging path and a successful
 document image result. Do not infer that every image mentioned in research or
 in the Markdown source was uploaded.
+
+## Reuse in HyperTeX
+
+For a deck based on an existing Feishu document, read it with
+`include_images=true`, combine the returned `image_path` values with any
+generated/chart `workspace_path` values, and pass those relative paths as
+HyperTeX `asset_paths`. The Hermes sandbox accepts only files that resolve
+inside the current group's workspace, copies them into HyperTeX's private
+staging directory, and rejects missing files, symlinks, cross-group paths, and
+requests above the configured count/size bounds.
 
 ## Permissions and failure handling
 

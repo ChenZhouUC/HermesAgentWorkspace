@@ -114,7 +114,7 @@ plugin = yaml.safe_load(plugin_path.read_text(encoding="utf-8")) or {}
 people = (yaml.safe_load(people_path.read_text(encoding="utf-8")) or {}).get("people") or []
 manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
 
-assert manifest.get("version") == "0.7.7"
+assert manifest.get("version") == "0.7.8"
 
 assert people, "people.yaml must contain the active Feishu roster"
 open_ids = [str(person.get("open_id") or "") for person in people if isinstance(person, dict)]
@@ -188,7 +188,7 @@ assert not any(
 assert plugin.get("owner_feishu_chat_ids"), "owner Feishu chat id must be configured"
 assert plugin.get("hypertex_asset_staging_root") == "~/.hermes/tmp/hypertex-assets"
 assert int(plugin.get("hypertex_max_asset_bytes") or 0) == 50000000
-assert int(plugin.get("hypertex_max_assets_per_turn") or 0) == 6
+assert int(plugin.get("hypertex_max_assets_per_turn") or 0) == 12
 assert int(plugin.get("hypertex_asset_staging_ttl_seconds") or 0) == 86400
 assert set(plugin.get("allowed_tools_for_outsider_groups") or []) == {
     "clarify",
@@ -522,7 +522,15 @@ doc_properties = doc_schema["parameters"]["properties"]
 assert {"stage_image_urls", "insert_image", "set_cover", "replace_image"}.issubset(
     set(doc_properties["action"]["enum"])
 )
-assert {"urls", "image_path", "attachment_index", "block_id", "position", "anchor_text"}.issubset(doc_properties)
+assert {
+    "urls",
+    "image_path",
+    "attachment_index",
+    "block_id",
+    "position",
+    "anchor_text",
+    "include_images",
+}.issubset(doc_properties)
 
 # Also pass through the actual sandbox pre_tool_call hook. The dispatch checks
 # above alone can be green while Feishu groups still block the bridge tools.
