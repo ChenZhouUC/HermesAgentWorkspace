@@ -114,7 +114,7 @@ plugin = yaml.safe_load(plugin_path.read_text(encoding="utf-8")) or {}
 people = (yaml.safe_load(people_path.read_text(encoding="utf-8")) or {}).get("people") or []
 manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
 
-assert manifest.get("version") == "0.7.9"
+assert manifest.get("version") == "0.7.11"
 
 assert people, "people.yaml must contain the active Feishu roster"
 open_ids = [str(person.get("open_id") or "") for person in people if isinstance(person, dict)]
@@ -268,6 +268,7 @@ assert set(plugin.get("trusted_feishu_chat_ids_for_group_chart_generation") or [
 }, "group chart generation must use an explicit all-groups wildcard"
 assert plugin.get("allowed_read_roots_for_outsider_groups") == ["~/.hermes/wiki"]
 assert plugin.get("group_workspace_root") == "~/.hermes/tmp/group-workspaces"
+assert plugin.get("private_doc_workspace_root") == "~/.hermes/tmp/feishu-doc-assets"
 assert set(plugin.get("allowed_feishu_script_actions_for_outsider_groups") or []) == {
     "create",
     "append",
@@ -552,7 +553,7 @@ owner_hypertex_args = {
     "executor": "private-executor",
     "routing": "caller-selected",
     "type": "brochure",
-    "asset_paths": ["/etc/passwd"],
+    "asset_paths": [],
 }
 assert sandbox._on_pre_tool_call(
     tool_name=sandbox._HYPERTEX_CREATE_TOOL,
@@ -606,7 +607,7 @@ owner_iterate_args = {
     "model": "private-model",
     "provider": "private-provider",
     "execution_backend": "private-backend",
-    "asset_paths": ["/etc/passwd"],
+    "asset_paths": [],
 }
 assert sandbox._on_pre_tool_call(
     tool_name=sandbox._HYPERTEX_ITERATE_TOOL,

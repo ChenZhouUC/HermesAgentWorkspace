@@ -30,6 +30,13 @@ def patch_block(validation: str) -> str:
 
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
+    def test_patch_trace_plugin_caches_code_filename_resolution(self) -> None:
+        source = evidence._patch_trace_plugin_source()
+        self.assertIn("_relative_cache", source)
+        self.assertIn("os.path.realpath(filename)", source)
+        self.assertIn("if filename in _relative_cache", source)
+        self.assertNotIn("Path(frame.f_code.co_filename).resolve()", source)
+
     def test_duplicate_patch_definition_in_one_lifecycle_is_rejected(self) -> None:
         duplicate = patch_block("test_first") + "\n" + patch_block("test_second")
         with self.assertRaisesRegex(evidence.EvidenceError, "duplicate active PATCH definitions"):

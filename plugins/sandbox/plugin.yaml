@@ -1,6 +1,6 @@
 name: sandbox
-version: 0.7.9
-description: "Per-chat Feishu boundary with isolated group workspaces, sandboxed image/chart generation, document image and cover writes, and a safe HyperTeX asset bridge."
+version: 0.7.11
+description: "Per-chat Feishu boundary with isolated document workspaces, sandboxed image/chart generation, document image and cover writes, and a safe HyperTeX asset bridge."
 author: "周琛"
 hooks:
   - pre_gateway_dispatch

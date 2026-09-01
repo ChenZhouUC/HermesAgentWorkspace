@@ -50,15 +50,18 @@ Call `hypertex_create_case` once with only a self-contained `prompt`:
 
 The prompt should capture the requested audience, purpose, content, structure, visual direction,
 source precedence, and output constraints. Attachments from the current Feishu message are handled
-automatically. In a trusted Feishu group, files already produced by `group_image_generate`,
-`group_chart_generate`, `feishu_doc_manage(action="stage_image_urls")`, or
+automatically. In the owner's main Feishu DM, document images exported by
+`feishu_doc_manage(action="read_url", include_images=true)` may be passed through `asset_paths`
+using their returned relative `image_path` values. In a trusted Feishu group, files already produced
+by `group_image_generate`, `group_chart_generate`,
+`feishu_doc_manage(action="stage_image_urls")`, or
 `feishu_doc_manage(action="read_url", include_images=true)` may be passed through `asset_paths`
 using their returned relative `workspace_path` / `image_path` values. The sandbox resolves them only
-inside the current group's isolated workspace and privately stages copies for HyperTeX. Never pass
+inside the current chat's isolated workspace and privately stages copies for HyperTeX. Never pass
 an arbitrary absolute path or a path from another chat/workspace.
 
 The configured bridge accepts at most 20 assets per create/iterate call and at most 100 MB per
-asset. These limits cover current-message attachments and explicit current-group workspace files
+asset. These limits cover current-message attachments and explicit current-chat workspace files
 combined; do not split one user request into multiple HyperTeX calls to bypass them.
 
 When several source files are provided and the user identifies one as newer or authoritative, use
@@ -80,8 +83,9 @@ Call `hypertex_iterate_case` once with the exact case name and a focused revisio
 ```
 
 Treat the prompt as a delta against the accepted presentation. Preserve everything the user did
-not ask to change. Current-message attachments are handled automatically; current-group workspace
-assets may be supplied under the same restricted `asset_paths` rule described above.
+not ask to change. Current-message attachments are handled automatically; owner-DM document images
+and current-group workspace assets may be supplied under the same restricted `asset_paths` rule
+described above.
 
 ## Query a task
 

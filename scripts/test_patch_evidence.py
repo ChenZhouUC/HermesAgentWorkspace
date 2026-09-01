@@ -626,15 +626,10 @@ def _validate_patch_trace_hits(
     return hits
 
 
-def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str]]) -> dict[str, list[str]]:
-    if not any(resolved.values()):
-        raise EvidenceError("active engineering PATCH evidence resolved to no pytest nodes")
-    with tempfile.TemporaryDirectory(prefix="hermes-active-patch-evidence-") as temp_raw:
-        temp = Path(temp_raw)
-        plugin = temp / "patch_trace_plugin.py"
-        plugin.write_text(
-            textwrap.dedent(
-                r"""
+def _patch_trace_plugin_source() -> str:
+    return (
+        textwrap.dedent(
+            r"""
                 import json
                 import os
                 import sys
@@ -643,18 +638,35 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
 
                 import pytest
 
-                ROOT = Path(os.environ["HERMES_PATCH_TRACE_ROOT"]).resolve()
+                ROOT = os.path.realpath(os.environ["HERMES_PATCH_TRACE_ROOT"])
+                ROOT_PREFIX = ROOT + os.sep
                 OUT = Path(os.environ["HERMES_PATCH_TRACE_OUT"])
                 _current = None
                 _seen = {}
                 _imports = {}
+                _relative_cache = {}
+
+                def _relative_filename(filename):
+                    if filename in _relative_cache:
+                        return _relative_cache[filename]
+                    try:
+                        resolved = os.path.realpath(filename)
+                        if resolved == ROOT:
+                            relative = ""
+                        elif resolved.startswith(ROOT_PREFIX):
+                            relative = resolved[len(ROOT_PREFIX):].replace(os.sep, "/")
+                        else:
+                            relative = None
+                    except Exception:
+                        relative = None
+                    _relative_cache[filename] = relative
+                    return relative
 
                 def _profile(frame, event, arg):
                     if event != "call" or _current is None:
                         return
-                    try:
-                        rel = Path(frame.f_code.co_filename).resolve().relative_to(ROOT).as_posix()
-                    except Exception:
+                    rel = _relative_filename(frame.f_code.co_filename)
+                    if rel is None:
                         return
                     if rel.startswith(("tests/", "venv/", ".hermes-runtime/")):
                         return
@@ -683,8 +695,19 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
                         encoding="utf-8",
                     )
                 """
-            ).strip()
-            + "\n",
+        ).strip()
+        + "\n"
+    )
+
+
+def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str]]) -> dict[str, list[str]]:
+    if not any(resolved.values()):
+        raise EvidenceError("active engineering PATCH evidence resolved to no pytest nodes")
+    with tempfile.TemporaryDirectory(prefix="hermes-active-patch-evidence-") as temp_raw:
+        temp = Path(temp_raw)
+        plugin = temp / "patch_trace_plugin.py"
+        plugin.write_text(
+            _patch_trace_plugin_source(),
             encoding="utf-8",
         )
         traced_files: dict[str, set[str]] = defaultdict(set)

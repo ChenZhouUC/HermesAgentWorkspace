@@ -21,7 +21,8 @@ describing them. Files attached to the current Feishu turn are copied into a
 private stable staging directory. Trusted groups may additionally submit files
 already produced inside their own isolated group workspace; those paths are
 validated, copied into the same private staging area, and never forwarded in
-place.
+place. The owner DM may likewise submit files produced by the fixed Feishu
+document reader inside its dedicated private document workspace.
 """
 
 from __future__ import annotations
@@ -47,7 +48,7 @@ from urllib.parse import urlparse
 import yaml
 
 logger = logging.getLogger(__name__)
-_PLUGIN_VERSION = "0.7.9"
+_PLUGIN_VERSION = "0.7.11"
 
 
 _current_chat_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -100,6 +101,7 @@ _GROUP_IMAGE_CHAT_IDS: FrozenSet[str] = frozenset()
 _GROUP_CHART_CHAT_IDS: FrozenSet[str] = frozenset()
 _GROUP_ALLOWED_READ_ROOTS: Tuple[Path, ...] = tuple()
 _GROUP_WORKSPACE_ROOT: Optional[Path] = None
+_PRIVATE_DOC_WORKSPACE_ROOT: Optional[Path] = None
 _PRIVATE_IMAGE_WORKSPACE_ROOT: Optional[Path] = None
 _PRIVATE_CHART_WORKSPACE_ROOT: Optional[Path] = None
 _GROUP_ALLOWED_SCRIPT_ACTIONS: FrozenSet[str] = frozenset()
@@ -158,7 +160,7 @@ _HYPERTEX_CASE_TYPE = "freestyle"
 _HYPERTEX_ONE_CALL_MESSAGE = "本轮已经调用过 HyperTeX。请直接根据已有结果回复用户；状态查询或重试请等待用户下一条消息。"
 _HYPERTEX_GROUP_CHAT_BLOCK_MESSAGE = "HyperTeX 目前未在本群启用。"
 _HYPERTEX_GROUP_BLOCK_MESSAGE = "HyperTeX 群聊内测目前仅对受信任的维护者开放。"
-_HYPERTEX_ASSET_BLOCK_MESSAGE = "HyperTeX 素材只能来自当前消息附件或当前群的隔离工作区。"
+_HYPERTEX_ASSET_BLOCK_MESSAGE = "HyperTeX 素材只能来自当前消息附件或当前会话的隔离文档工作区。"
 _GROUP_IMAGE_CHAT_BLOCK_MESSAGE = "图片生成目前未在本群启用。"
 _GROUP_IMAGE_ONE_CALL_MESSAGE = "本轮已经生成过图片。若需调整，请在下一条消息中继续。"
 _GROUP_CHART_CHAT_BLOCK_MESSAGE = "图表生成目前未在本群启用。"
@@ -858,6 +860,46 @@ def _group_hypertex_asset_sources(raw_paths: Any) -> Tuple[Path, ...]:
     return tuple(sources)
 
 
+def _owner_hypertex_asset_sources(raw_paths: Any) -> Tuple[Path, ...]:
+    """Resolve explicit owner-DM assets only from the private doc workspace.
+
+    Owner DMs retain the full Hermes tool surface, but HyperTeX is still an
+    outbound data boundary. Do not accept arbitrary host paths here: only files
+    produced by the fixed Feishu document scripts in this chat's dedicated
+    workspace may supplement current-message attachments.
+    """
+    if raw_paths in (None, []):
+        return tuple()
+    if not isinstance(raw_paths, list):
+        raise ValueError("asset_paths must be an array")
+    if not _is_owner_dm_context():
+        return tuple()
+
+    workspace = _private_doc_workspace()
+    sources: list[Path] = []
+    for raw_path in raw_paths:
+        if not isinstance(raw_path, str) or not raw_path.strip() or len(raw_path) > 4096:
+            raise ValueError("asset_paths entries must be non-empty paths of at most 4096 characters")
+        expanded = os.path.expandvars(os.path.expanduser(raw_path.strip()))
+        candidate = Path(expanded)
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
+        else:
+            candidate = _resolve_tool_path(expanded)
+        if candidate.is_symlink():
+            raise ValueError("HyperTeX private document assets must not be symlinks")
+        try:
+            source = candidate.resolve(strict=True)
+        except OSError as exc:
+            raise FileNotFoundError("a requested HyperTeX private document asset is unavailable") from exc
+        if not _path_within(source, workspace) or not source.is_file():
+            raise ValueError(
+                "HyperTeX private document assets must be regular files inside the owner document workspace"
+            )
+        sources.append(source)
+    return tuple(sources)
+
+
 def _stage_current_hypertex_assets(extra_sources: Tuple[Path, ...] = tuple()) -> Tuple[str, ...]:
     cached = _current_hypertex_staged_paths.get()
     if cached:
@@ -934,6 +976,12 @@ def _prepare_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str, Any]
             except Exception as exc:
                 logger.warning("sandbox: rejected HyperTeX workspace assets: %s", exc)
                 return {"action": "block", "message": _HYPERTEX_ASSET_BLOCK_MESSAGE}
+        elif _is_owner_dm_context():
+            try:
+                extra_sources = _owner_hypertex_asset_sources(args.get("asset_paths"))
+            except Exception as exc:
+                logger.warning("sandbox: rejected owner-DM HyperTeX document assets: %s", exc)
+                return {"action": "block", "message": _HYPERTEX_ASSET_BLOCK_MESSAGE}
         try:
             staged_paths = _stage_current_hypertex_assets(extra_sources)
         except Exception as exc:
@@ -973,6 +1021,14 @@ def _is_group_context() -> bool:
     )
 
 
+def _is_owner_dm_context() -> bool:
+    return (
+        _current_platform.get() == "feishu"
+        and str(_current_chat_id.get() or "") in _OWNER_CHAT_IDS
+        and _current_chat_type.get() not in _GROUP_CHAT_TYPES
+    )
+
+
 def _require_group_context() -> str:
     if not _CONFIG_LOADED or not _is_group_context():
         raise PermissionError(_GROUP_CONTEXT_MESSAGE)
@@ -996,6 +1052,33 @@ def _workspace_for_chat(chat_id: str, *, create: bool = True) -> Path:
     if create:
         workspace.mkdir(parents=True, exist_ok=True, mode=0o700)
     return workspace
+
+
+def _private_doc_workspace(*, create: bool = True) -> Path:
+    if _PRIVATE_DOC_WORKSPACE_ROOT is None:
+        raise RuntimeError("private document workspace root is not configured")
+    chat_id = str(_current_chat_id.get() or "")
+    if not chat_id or not _is_owner_dm_context():
+        raise PermissionError(_GROUP_CONTEXT_MESSAGE)
+    root = _PRIVATE_DOC_WORKSPACE_ROOT.resolve(strict=False)
+    if create:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    workspace = (root / _workspace_id(chat_id)).resolve(strict=False)
+    if not _path_within(workspace, root):
+        raise RuntimeError("invalid private document workspace")
+    if create:
+        workspace.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return workspace
+
+
+def _document_workspace_for_current_context() -> tuple[str, Path, bool]:
+    if _is_group_context():
+        chat_id = str(_current_chat_id.get())
+        return chat_id, _workspace_for_chat(chat_id), True
+    if _is_owner_dm_context():
+        chat_id = str(_current_chat_id.get())
+        return chat_id, _private_doc_workspace(), False
+    raise PermissionError(_GROUP_CONTEXT_MESSAGE)
 
 
 def _workspace_id(chat_id: str) -> str:
@@ -2130,11 +2213,11 @@ def _run_trusted_script(script: Path, argv: list[str], workspace: Path) -> subpr
 def _handle_feishu_doc_manage(args: Dict[str, Any], **_kwargs: Any) -> str:
     turn_id = str(args.get("_sandbox_turn_id") or "")
     _current_tool_turn_id.set(turn_id)
-    chat_id = _require_group_context()
-    block_message = _group_doc_action_block(args, turn_id=turn_id)
-    if block_message is not None:
-        raise PermissionError(block_message)
-    workspace = _workspace_for_chat(chat_id)
+    chat_id, workspace, is_group = _document_workspace_for_current_context()
+    if is_group:
+        block_message = _group_doc_action_block(args, turn_id=turn_id)
+        if block_message is not None:
+            raise PermissionError(block_message)
     action, script, argv = _build_script_argv(args, workspace)
     actor = str(_current_user_id.get() or "unknown")
     logger.info(
@@ -2196,6 +2279,7 @@ def _group_tools_available() -> bool:
     return bool(
         _CONFIG_LOADED
         and _GROUP_WORKSPACE_ROOT
+        and _PRIVATE_DOC_WORKSPACE_ROOT
         and _FEISHU_DOC_SCRIPTS_ROOT
         and _PYTHON_EXECUTABLE
         and (not _REQUIRE_PROCESS_SANDBOX or Path("/usr/bin/sandbox-exec").is_file())
@@ -2233,7 +2317,8 @@ def _load_config() -> bool:
     global _GROUP_MUTATION_USER_IDS, _GROUP_HYPERTEX_CHAT_IDS, _GROUP_HYPERTEX_USER_IDS
     global _GROUP_IMAGE_CHAT_IDS, _GROUP_IMAGE_SCRIPT
     global _GROUP_CHART_CHAT_IDS, _GROUP_CHART_SCRIPT, _CHART_PYTHON_EXECUTABLE
-    global _GROUP_ALLOWED_READ_ROOTS, _GROUP_WORKSPACE_ROOT, _PRIVATE_IMAGE_WORKSPACE_ROOT
+    global _GROUP_ALLOWED_READ_ROOTS, _GROUP_WORKSPACE_ROOT, _PRIVATE_DOC_WORKSPACE_ROOT
+    global _PRIVATE_IMAGE_WORKSPACE_ROOT
     global _PRIVATE_CHART_WORKSPACE_ROOT
     global _GROUP_ALLOWED_SCRIPT_ACTIONS
     global _FEISHU_DOC_SCRIPTS_ROOT, _PYTHON_EXECUTABLE, _SCRIPT_TIMEOUT_SECONDS
@@ -2270,6 +2355,7 @@ def _load_config() -> bool:
         return False
 
     workspace_value = data.get("group_workspace_root")
+    private_doc_workspace_value = data.get("private_doc_workspace_root")
     private_image_workspace_value = data.get("private_image_workspace_root")
     private_chart_workspace_value = data.get("private_chart_workspace_root")
     scripts_value = data.get("feishu_doc_scripts_root")
@@ -2280,6 +2366,7 @@ def _load_config() -> bool:
         isinstance(value, str) and value.strip()
         for value in (
             workspace_value,
+            private_doc_workspace_value,
             private_image_workspace_value,
             private_chart_workspace_value,
             scripts_value,
@@ -2308,6 +2395,7 @@ def _load_config() -> bool:
     _GROUP_CHART_CHAT_IDS = frozenset(_coerce_chat_ids(data.get("trusted_feishu_chat_ids_for_group_chart_generation")))
     _GROUP_ALLOWED_READ_ROOTS = _coerce_paths(data.get("allowed_read_roots_for_outsider_groups"))
     _GROUP_WORKSPACE_ROOT = _expand_path(workspace_value)
+    _PRIVATE_DOC_WORKSPACE_ROOT = _expand_path(private_doc_workspace_value)
     _PRIVATE_IMAGE_WORKSPACE_ROOT = _expand_path(private_image_workspace_value)
     _PRIVATE_CHART_WORKSPACE_ROOT = _expand_path(private_chart_workspace_value)
     _GROUP_ALLOWED_SCRIPT_ACTIONS = actions
@@ -2634,7 +2722,7 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     logger.info(
         "sandbox: registered (pid=%s, version=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
-        "workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, "
+        "workspace_root=%s, private_doc_workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, "
         "doc_media_actions=%s, doc_image_max_bytes=%s, hypertex_chats=%s, "
         "hypertex_users=%s, hypertex_routing_policy=%s, image_chats=%s, image_script=%s, "
         "chart_chats=%s, chart_script=%s, process_sandbox=%s)",
@@ -2645,6 +2733,7 @@ def register(ctx: Any) -> None:
         sorted(_GROUP_ALLOWED_TOOLS),
         [str(path) for path in _GROUP_ALLOWED_READ_ROOTS],
         _GROUP_WORKSPACE_ROOT,
+        _PRIVATE_DOC_WORKSPACE_ROOT,
         sorted(_GROUP_ALLOWED_SCRIPT_ACTIONS),
         sorted(_GROUP_MUTATION_USER_IDS),
         _TRUST_REQUIRED_SCRIPT_ACTIONS == frozenset({"delete"}),

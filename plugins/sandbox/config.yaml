@@ -114,6 +114,11 @@ allowed_read_roots_for_outsider_groups:
 
 group_workspace_root: ~/.hermes/tmp/group-workspaces
 
+# The owner's main DM may use the fixed Feishu document reader to export
+# document images here, then pass only those workspace-contained files through
+# the private HyperTeX staging bridge. Arbitrary host paths remain rejected.
+private_doc_workspace_root: ~/.hermes/tmp/feishu-doc-assets
+
 # Exact operator-approved actions. Each maps to one fixed script filename in
 # feishu_doc_scripts_root; the group can never supply a script path or argv.
 allowed_feishu_script_actions_for_outsider_groups:

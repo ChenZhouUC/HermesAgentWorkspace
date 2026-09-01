@@ -24,6 +24,7 @@ _SANDBOX_SPEC.loader.exec_module(sandbox)
 @pytest.fixture
 def group_config(tmp_path, monkeypatch):
     workspace_root = (tmp_path / "tmp" / "group-workspaces").resolve()
+    private_doc_workspace_root = (tmp_path / "tmp" / "feishu-doc-assets").resolve()
     hypertex_staging_root = (tmp_path / "tmp" / "hypertex-assets").resolve()
     scripts_root = (tmp_path / "my-skills" / "feishu-docs" / "scripts").resolve()
     image_script = (tmp_path / "my-skills" / "image-generation" / "scripts" / "generate_image.py").resolve()
@@ -91,6 +92,7 @@ def group_config(tmp_path, monkeypatch):
     wiki_root.mkdir()
     monkeypatch.setattr(sandbox, "_GROUP_ALLOWED_READ_ROOTS", (wiki_root,))
     monkeypatch.setattr(sandbox, "_GROUP_WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr(sandbox, "_PRIVATE_DOC_WORKSPACE_ROOT", private_doc_workspace_root)
     monkeypatch.setattr(sandbox, "_PRIVATE_IMAGE_WORKSPACE_ROOT", private_image_workspace_root)
     monkeypatch.setattr(sandbox, "_PRIVATE_CHART_WORKSPACE_ROOT", private_chart_workspace_root)
     monkeypatch.setattr(sandbox, "_HYPERTEX_ASSET_STAGING_ROOT", hypertex_staging_root)
@@ -134,6 +136,7 @@ def group_config(tmp_path, monkeypatch):
     sandbox._current_tool_turn_id.set("")
     return {
         "workspace_root": workspace_root,
+        "private_doc_workspace_root": private_doc_workspace_root,
         "private_image_workspace_root": private_image_workspace_root,
         "private_chart_workspace_root": private_chart_workspace_root,
         "hypertex_staging_root": hypertex_staging_root,
@@ -643,7 +646,7 @@ def test_owner_dm_hypertex_create_uses_server_routing_and_stages_current_attachm
         "executor": "private-executor",
         "routing": "caller-selected",
         "type": "brochure",
-        "asset_paths": ["/etc/passwd"],
+        "asset_paths": [],
     }
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_CREATE_TOOL, args=args) is None
@@ -685,7 +688,7 @@ def test_owner_dm_hypertex_iterate_uses_server_routing_and_stages_current_attach
         "model": "private-model",
         "provider": "private-provider",
         "execution_backend": "private-backend",
-        "asset_paths": ["/etc/passwd"],
+        "asset_paths": [],
     }
 
     assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_ITERATE_TOOL, args=args) is None
@@ -693,6 +696,121 @@ def test_owner_dm_hypertex_iterate_uses_server_routing_and_stages_current_attach
     assert not set(args).intersection(sandbox._HYPERTEX_PRIVATE_ROUTING_KEYS)
     assert len(args["asset_paths"]) == 1
     assert Path(args["asset_paths"][0]).name == "Update.pptx"
+
+
+def test_owner_dm_hypertex_accepts_private_document_workspace_assets(group_config):
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="owner-dm",
+        chat_type="private",
+        user_id="owner-user",
+    )
+    sandbox._on_pre_gateway_dispatch(SimpleNamespace(source=source, text="iterate", reply_to_text="", media_urls=[]))
+    workspace = sandbox._private_doc_workspace()
+    image = workspace / "feishu-doc-images" / "doc-token" / "cover.png"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"\x89PNG\r\n\x1a\nsource")
+    args = {
+        "case_name": "Demo",
+        "prompt": "使用飞书文档插图",
+        "asset_paths": [str(image.relative_to(workspace))],
+    }
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_ITERATE_TOOL, args=args) is None
+    assert len(args["asset_paths"]) == 1
+    staged = Path(args["asset_paths"][0])
+    assert staged.name == "cover.png"
+    assert staged.read_bytes() == image.read_bytes()
+    assert staged.is_relative_to(group_config["hypertex_staging_root"])
+
+
+def test_owner_dm_hypertex_rejects_legacy_unscoped_document_root_assets(group_config, tmp_path):
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="owner-dm",
+        chat_type="private",
+        user_id="owner-user",
+    )
+    sandbox._on_pre_gateway_dispatch(SimpleNamespace(source=source, text="iterate", reply_to_text="", media_urls=[]))
+    image = tmp_path / "tmp" / "hypertex_doc_assets" / "legacy-report" / "cover.png"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"\x89PNG\r\n\x1a\nlegacy")
+    args = {"case_name": "Demo", "prompt": "use legacy export", "asset_paths": [str(image)]}
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_ITERATE_TOOL, args=args) == {
+        "action": "block",
+        "message": sandbox._HYPERTEX_ASSET_BLOCK_MESSAGE,
+    }
+
+
+def test_owner_dm_hypertex_rejects_arbitrary_explicit_asset_path(group_config, tmp_path):
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="owner-dm",
+        chat_type="private",
+        user_id="owner-user",
+    )
+    sandbox._on_pre_gateway_dispatch(SimpleNamespace(source=source, text="iterate", reply_to_text="", media_urls=[]))
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"\x89PNG\r\n\x1a\noutside")
+    args = {"case_name": "Demo", "prompt": "use this", "asset_paths": [str(outside)]}
+
+    assert sandbox._on_pre_tool_call(tool_name=sandbox._HYPERTEX_ITERATE_TOOL, args=args) == {
+        "action": "block",
+        "message": sandbox._HYPERTEX_ASSET_BLOCK_MESSAGE,
+    }
+
+
+def test_owner_dm_feishu_doc_reader_uses_private_document_workspace(group_config, monkeypatch):
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="owner-dm",
+        chat_type="private",
+        user_id="owner-user",
+    )
+    sandbox._on_pre_gateway_dispatch(
+        SimpleNamespace(source=source, text="读取文档图片", reply_to_text="", media_urls=[])
+    )
+    captured = {}
+
+    def fake_run(script, argv, workspace):
+        captured["script"] = script
+        captured["argv"] = argv
+        captured["workspace"] = workspace
+        image = workspace / "feishu-doc-images" / "doc-token" / "cover.png"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"\x89PNG\r\n\x1a\nsource")
+        stdout = "# Doc\n\n[DOCUMENT_IMAGES]\n" + json.dumps(
+            {
+                "images": [
+                    {
+                        "block_id": "cover",
+                        "role": "cover",
+                        "image_path": str(image.relative_to(workspace)),
+                    }
+                ],
+                "errors": [],
+                "truncated": 0,
+            }
+        )
+        return subprocess.CompletedProcess([], 0, stdout, "")
+
+    monkeypatch.setattr(sandbox, "_run_trusted_script", fake_run)
+    result = _result(
+        sandbox._handle_feishu_doc_manage(
+            {
+                "action": "read_url",
+                "url": "https://whales.feishu.cn/docx/doxcnOwnerDoc",
+                "include_images": True,
+            }
+        )
+    )
+
+    assert result["success"] is True
+    assert captured["script"].name == "read_feishu_url.py"
+    assert captured["argv"][-1] == "--include-images"
+    assert captured["workspace"].is_relative_to(group_config["private_doc_workspace_root"])
+    assert "feishu-doc-images/doc-token/cover.png" in result["stdout"]
 
 
 def test_owner_dm_allows_only_one_hypertex_call_per_inbound_turn(group_config):
@@ -2400,9 +2518,10 @@ def test_chart_renderer_rejects_misaligned_series(tmp_path):
 
 
 def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
-    assert sandbox._PLUGIN_VERSION == "0.7.9"
+    assert sandbox._PLUGIN_VERSION == "0.7.11"
     assert sandbox._load_config() is True
     assert sandbox._OWNER_CHAT_IDS
+    assert sandbox._PRIVATE_DOC_WORKSPACE_ROOT is not None
     assert sandbox._GROUP_IMAGE_CHAT_IDS
     assert sandbox._GROUP_IMAGE_SCRIPT is not None
     assert sandbox._GROUP_IMAGE_SCRIPT.is_file()
