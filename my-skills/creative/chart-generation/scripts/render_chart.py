@@ -46,6 +46,8 @@ MIN_FIGURE_ASPECT = 0.5
 MAX_FIGURE_ASPECT = 2.0
 MIN_FIGURE_INCHES = 4.8
 MAX_FIGURE_INCHES = 16.0
+AXIS_TICK_BAND_MAX_FRACTION = 0.20
+TIGHT_LAYOUT_PAD = 0.55
 
 BUSINESS_TYPES = {
     "bar",
@@ -105,7 +107,7 @@ STYLE_PRESETS: dict[str, dict[str, object]] = {
         "theme": "business",
         "palette": "business",
         "context": "notebook",
-        "grid": "auto",
+        "grid": True,
         "legend": "auto",
         "quality": "high",
     },
@@ -113,7 +115,7 @@ STYLE_PRESETS: dict[str, dict[str, object]] = {
         "theme": "finance",
         "palette": "finance",
         "context": "notebook",
-        "grid": "auto",
+        "grid": True,
         "legend": "auto",
         "quality": "high",
     },
@@ -121,7 +123,7 @@ STYLE_PRESETS: dict[str, dict[str, object]] = {
         "theme": "light",
         "palette": "muted",
         "context": "notebook",
-        "grid": "auto",
+        "grid": True,
         "legend": "auto",
         "quality": "high",
     },
@@ -129,7 +131,7 @@ STYLE_PRESETS: dict[str, dict[str, object]] = {
         "theme": "presentation",
         "palette": "business",
         "context": "talk",
-        "grid": "auto",
+        "grid": True,
         "figure_size": "wide",
         "quality": "high",
     },
@@ -137,14 +139,14 @@ STYLE_PRESETS: dict[str, dict[str, object]] = {
         "theme": "minimal",
         "palette": "colorblind",
         "context": "notebook",
-        "grid": "none",
+        "grid": True,
         "legend": "auto",
     },
     "statistical": {
         "theme": "whitegrid",
         "palette": "colorblind",
         "context": "notebook",
-        "grid": "auto",
+        "grid": True,
         "legend": "auto",
     },
 }
@@ -669,6 +671,9 @@ def _setup_theme(request: dict[str, Any]) -> str:
             "axes.titleweight": "bold",
             "axes.titlesize": 13,
             "axes.unicode_minus": False,
+            "axes.axisbelow": True,
+            "axes.grid": True,
+            "axes.grid.axis": "both",
             "grid.color": grid_color,
             "grid.linestyle": grid_style,
             "grid.linewidth": 1.15,
@@ -679,6 +684,10 @@ def _setup_theme(request: dict[str, Any]) -> str:
             "ytick.labelsize": 10,
             "xtick.direction": "out",
             "ytick.direction": "out",
+            "xtick.bottom": True,
+            "xtick.top": False,
+            "ytick.left": True,
+            "ytick.right": False,
             "xtick.major.width": 1.2,
             "ytick.major.width": 1.2,
             "xtick.major.size": 4,
@@ -863,18 +872,39 @@ def _apply_limits_and_scale(
     (ax.xaxis if horizontal else ax.yaxis).set_major_formatter(_formatter(request))
 
 
-def _apply_grid(ax: Axes, request: dict[str, Any], *, numeric_axis: str = "y") -> None:
-    value = str(request.get("grid") or "auto").strip().lower()
-    if value == "none":
-        ax.grid(False)
-    elif value == "both":
-        ax.grid(True, axis="both")
+def _apply_grid(ax: Axes, request: dict[str, Any]) -> None:
+    raw = request.get("grid", True)
+    value = str(raw).strip().lower()
+    if raw is False or value in {"false", "none", "off", "0"}:
+        ax.grid(False, which="major", axis="both")
+    elif raw is True or value in {"true", "both", "all", "on", "1"}:
+        ax.grid(True, which="major", axis="both")
     elif value in {"x", "y"}:
-        ax.grid(True, axis=value)
-        ax.grid(False, axis="y" if value == "x" else "x")
+        ax.grid(True, which="major", axis=value)
+        ax.grid(False, which="major", axis="y" if value == "x" else "x")
     else:
-        ax.grid(True, axis=numeric_axis)
-        ax.grid(False, axis="y" if numeric_axis == "x" else "x")
+        ax.grid(True, which="major", axis="both")
+    ax.set_axisbelow(True)
+
+
+def _axis_style_layout(ax: Axes | None) -> dict[str, bool | int]:
+    if ax is None:
+        return {
+            "x_grid": False,
+            "y_grid": False,
+            "x_major_ticks": 0,
+            "y_major_ticks": 0,
+        }
+    return {
+        "x_grid": any(line.get_visible() for line in ax.get_xgridlines()),
+        "y_grid": any(line.get_visible() for line in ax.get_ygridlines()),
+        "x_major_ticks": sum(
+            tick.tick1line.get_visible() and tick.tick1line.get_markersize() > 0 for tick in ax.xaxis.get_major_ticks()
+        ),
+        "y_major_ticks": sum(
+            tick.tick1line.get_visible() and tick.tick1line.get_markersize() > 0 for tick in ax.yaxis.get_major_ticks()
+        ),
+    }
 
 
 def _legend_overlaps_data(ax: Axes, legend: Any) -> bool:
@@ -1008,11 +1038,19 @@ def _legend_metadata(ax: Axes | None) -> tuple[str, str]:
 
 
 def _legend_layout_rect(position: str, top: float, bottom: float) -> tuple[float, float, float, float]:
-    if position == "right":
-        return 0.025, bottom, 0.82, top
-    if position == "bottom":
-        return 0.025, max(bottom, 0.20), 0.98, top
-    return 0.025, bottom, 0.98, top
+    # External legends already participate in tight-layout's artist bounds.
+    # Reserving another fixed 18–20% here double-counts them and leaves a large
+    # empty band on the right or bottom.  Keep only a narrow outer gutter and
+    # let the measured legend extent determine the actual space it consumes.
+    del position
+    return 0.02, bottom, 0.985, top
+
+
+def _apply_compact_layout(fig: Figure, legend_position: str, top: float, bottom: float) -> None:
+    fig.tight_layout(
+        pad=TIGHT_LAYOUT_PAD,
+        rect=_legend_layout_rect(legend_position, top, bottom),
+    )
 
 
 def _limit_external_legend_extent(ax: Axes | None, position: str, *, maximum: float = 0.20) -> float:
@@ -1073,22 +1111,30 @@ def _text_width(renderer: Any, label: Any, content: str) -> float:
         return float(label.get_window_extent(renderer).width)
 
 
-def _ellipsize_label(renderer: Any, label: Any, maximum_width: float) -> tuple[str, bool]:
+def _wrap_label(renderer: Any, label: Any, maximum_width: float) -> tuple[str, bool]:
+    """Wrap a tick label to a pixel width without dropping any content."""
     content = " ".join(label.get_text().split())
     if not content or _text_width(renderer, label, content) <= maximum_width:
         return content, False
-    ellipsis = "…"
-    if _text_width(renderer, label, ellipsis) > maximum_width:
-        return ellipsis, True
-    low, high = 0, len(content)
-    while low < high:
-        middle = (low + high + 1) // 2
-        candidate = content[:middle].rstrip() + ellipsis
-        if _text_width(renderer, label, candidate) <= maximum_width:
-            low = middle
-        else:
-            high = middle - 1
-    return content[:low].rstrip() + ellipsis, True
+
+    lines: list[str] = []
+    remaining = content
+    while remaining:
+        low, high = 1, len(remaining)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if _text_width(renderer, label, remaining[:middle]) <= maximum_width:
+                low = middle
+            else:
+                high = middle - 1
+        cut = max(1, low)
+        if cut < len(remaining):
+            whitespace = remaining.rfind(" ", 0, cut + 1)
+            if whitespace >= max(1, cut // 2):
+                cut = whitespace
+        lines.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip()
+    return "\n".join(lines), True
 
 
 def _tick_band_fraction(ax: Axes, axis: str) -> float:
@@ -1104,68 +1150,153 @@ def _tick_band_fraction(ax: Axes, axis: str) -> float:
     return extent / max(denominator, 1.0)
 
 
-def _fit_axis_tick_labels(ax: Axes, *, maximum: float = 0.10) -> dict[str, float | int]:
-    """Bound tick-label bands while preserving readable categorical labels."""
+def _tick_labels_overlap(ax: Axes, labels: list[Any], axis: str, *, padding: float = 4.0) -> bool:
+    ax.figure.canvas.draw()
+    renderer = ax.figure.canvas.get_renderer()
+    boxes = [label.get_window_extent(renderer) for label in labels if label.get_visible() and label.get_text()]
+    if len(boxes) < 2:
+        return False
+    boxes.sort(key=(lambda box: box.x0) if axis == "x" else (lambda box: box.y0))
+    return any(
+        (left.x1 + padding > right.x0) if axis == "x" else (left.y1 + padding > right.y0)
+        for left, right in zip(boxes, boxes[1:])
+    )
+
+
+def _visible_tick_indices(labels: list[Any], step: int, preserve_text: str) -> set[int]:
+    if not labels:
+        return set()
+    visible = set(range(0, len(labels), max(step, 1)))
+    visible.update({0, len(labels) - 1})
+    if preserve_text:
+        visible.update(
+            index for index, label in enumerate(labels) if " ".join(label.get_text().split()) == preserve_text
+        )
+    return visible
+
+
+def _set_tick_density(labels: list[Any], step: int, preserve_text: str) -> int:
+    visible = _visible_tick_indices(labels, step, preserve_text)
+    for index, label in enumerate(labels):
+        label.set_visible(index in visible)
+    return len(labels) - len(visible)
+
+
+def _fit_x_tick_labels(
+    ax: Axes,
+    labels: list[Any],
+    *,
+    maximum: float,
+    preserve_text: str,
+) -> tuple[float, int, int]:
+    if not labels:
+        return 0.0, 0, 1
+    requested_rotation = max((abs(float(label.get_rotation())) for label in labels), default=0.0)
+    rotations = [requested_rotation] if requested_rotation else [0.0, 30.0, 45.0]
+    best: tuple[tuple[int, float, float], float, int, int] | None = None
+
+    for rotation in rotations:
+        for label in labels:
+            label.set_rotation(rotation)
+            label.set_ha("right" if rotation else "center")
+        for step in range(1, len(labels) + 1):
+            hidden = _set_tick_density(labels, step, preserve_text)
+            band = _tick_band_fraction(ax, "x")
+            if band <= maximum and not _tick_labels_overlap(ax, labels, "x"):
+                score = (hidden, rotation, band)
+                if best is None or score < best[0]:
+                    best = (score, rotation, step, hidden)
+                break
+
+    if best is None:
+        rotation, step = rotations[-1], len(labels)
+        for label in labels:
+            label.set_rotation(rotation)
+            label.set_ha("right" if rotation else "center")
+        hidden = _set_tick_density(labels, step, preserve_text)
+        return rotation, hidden, step
+
+    _score, rotation, step, hidden = best
+    for label in labels:
+        label.set_rotation(rotation)
+        label.set_ha("right" if rotation else "center")
+    _set_tick_density(labels, step, preserve_text)
+    return rotation, hidden, step
+
+
+def _fit_y_tick_labels(
+    ax: Axes,
+    labels: list[Any],
+    *,
+    maximum: float,
+    preserve_text: str,
+) -> tuple[int, int, int]:
+    if not labels:
+        return 0, 0, 1
     ax.figure.canvas.draw()
     renderer = ax.figure.canvas.get_renderer()
     axes_box = ax.get_window_extent(renderer)
+    width_limit = max(1.0, axes_box.width * maximum * 0.90)
+    wrapped = 0
+    wrapped_contents: list[str] = []
+    for label in labels:
+        content, changed = _wrap_label(renderer, label, width_limit)
+        wrapped_contents.append(content)
+        wrapped += int(changed)
 
-    y_labels = [label for label in ax.get_yticklabels() if label.get_visible() and label.get_text()]
-    y_truncated = 0
-    y_limit = axes_box.width * maximum * 0.92
-    if y_labels and max(label.get_window_extent(renderer).width for label in y_labels) > y_limit:
-        fitted = []
-        for label in y_labels:
-            content, truncated = _ellipsize_label(renderer, label, y_limit)
-            fitted.append(content)
-            y_truncated += int(truncated)
+    if wrapped:
         positions = ax.get_yticks()
-        if len(positions) == len(fitted):
-            ax.set_yticks(positions, fitted)
-
-    ax.figure.canvas.draw()
-    renderer = ax.figure.canvas.get_renderer()
-    x_labels = [label for label in ax.get_xticklabels() if label.get_visible() and label.get_text()]
-    x_truncated = 0
-    x_rotation = max((abs(float(label.get_rotation())) for label in x_labels), default=0.0)
-    x_boxes = [label.get_window_extent(renderer) for label in x_labels]
-    overlaps = any(left.x1 > right.x0 for left, right in zip(x_boxes, x_boxes[1:]))
-    if overlaps and x_rotation == 0:
-        x_rotation = 30.0
-
-    if x_labels:
-        slot_width = axes_box.width / max(len(x_labels), 1) * 0.92
-        font_height = max(
-            renderer.get_text_width_height_descent("Ag", label.get_fontproperties(), False)[1] for label in x_labels
-        )
-        radians = math.radians(x_rotation)
-        height_limit = axes_box.height * maximum * 0.92
-        if x_rotation:
-            height_width = max(
-                1.0,
-                (height_limit - abs(math.cos(radians)) * font_height) / max(abs(math.sin(radians)), 1e-6),
-            )
-            width_limit = min(slot_width / max(abs(math.cos(radians)), 0.25), height_width)
+        if len(positions) == len(wrapped_contents):
+            ax.set_yticks(positions, wrapped_contents)
+            labels = [label for label in ax.get_yticklabels() if label.get_text()]
         else:
-            width_limit = slot_width
-        fitted = []
-        for label in x_labels:
-            content, truncated = _ellipsize_label(renderer, label, width_limit)
-            fitted.append(content)
-            x_truncated += int(truncated)
-        positions = ax.get_xticks()
-        if len(positions) == len(fitted):
-            ax.set_xticks(
-                positions,
-                fitted,
-                rotation=x_rotation,
-                ha="right" if x_rotation else "center",
-            )
+            for label, content in zip(labels, wrapped_contents, strict=True):
+                label.set_text(content)
+
+    for step in range(1, len(labels) + 1):
+        hidden = _set_tick_density(labels, step, preserve_text)
+        if not _tick_labels_overlap(ax, labels, "y"):
+            return wrapped, hidden, step
+    hidden = _set_tick_density(labels, len(labels), preserve_text)
+    return wrapped, hidden, len(labels)
+
+
+def _fit_axis_tick_labels(
+    ax: Axes,
+    request: dict[str, Any],
+    *,
+    maximum: float = AXIS_TICK_BAND_MAX_FRACTION,
+) -> dict[str, float | int]:
+    """Keep full tick text within bounded bands by wrapping or thinning ticks."""
+    ax.figure.canvas.draw()
+    x_labels = [tick.label1 for tick in ax.xaxis.get_major_ticks() if tick.label1.get_text()]
+    y_labels = [tick.label1 for tick in ax.yaxis.get_major_ticks() if tick.label1.get_text()]
+    preserve_text = _text(request.get("highlight_label"), limit=100)
+
+    y_wrapped, y_hidden, y_step = _fit_y_tick_labels(
+        ax,
+        y_labels,
+        maximum=maximum,
+        preserve_text=preserve_text,
+    )
+    x_rotation, x_hidden, x_step = _fit_x_tick_labels(
+        ax,
+        x_labels,
+        maximum=maximum,
+        preserve_text=preserve_text,
+    )
 
     return {
         "x_rotation": round(x_rotation, 1),
-        "x_truncated": x_truncated,
-        "y_truncated": y_truncated,
+        "x_hidden": x_hidden,
+        "y_hidden": y_hidden,
+        "x_tick_step": x_step,
+        "y_tick_step": y_step,
+        "y_wrapped": y_wrapped,
+        # Retain the old fields for response compatibility.  Tick text is no
+        # longer shortened; density and wrapping carry the layout pressure.
+        "x_truncated": 0,
+        "y_truncated": 0,
         "x_band_fraction": round(_tick_band_fraction(ax, "x"), 4),
         "y_band_fraction": round(_tick_band_fraction(ax, "y"), 4),
     }
@@ -1197,17 +1328,37 @@ def _reference_lines(ax: Axes, request: dict[str, Any]) -> None:
 def _titles(fig: Figure, ax: Axes | None, request: dict[str, Any]) -> tuple[float, float]:
     title = _text(request.get("title"), limit=160) or "Chart"
     subtitle, note = _text(request.get("subtitle"), limit=500), _text(request.get("note"), limit=500)
-    fig.suptitle(title, x=0.04, y=0.965, ha="left", va="top", fontsize=17, fontweight="bold", color="#243447")
-    top = 0.93
+    title_artist = fig.suptitle(
+        title,
+        x=0.035,
+        y=0.972,
+        ha="left",
+        va="top",
+        fontsize=17,
+        fontweight="bold",
+        color="#243447",
+    )
+    title_artist.set_in_layout(False)
+    top = 0.91
     if subtitle:
         wrapped = "\n".join(textwrap.wrap(subtitle, width=95)[:3])
-        fig.text(0.04, 0.895, wrapped, ha="left", va="top", fontsize=10.5, color="#667085")
-        top = 0.88 - wrapped.count("\n") * 0.025
-    bottom = 0.08
+        subtitle_artist = fig.text(0.035, 0.90, wrapped, ha="left", va="top", fontsize=10.5, color="#667085")
+        subtitle_artist.set_in_layout(False)
+        top = 0.855 - wrapped.count("\n") * 0.024
+    bottom = 0.025
     if note:
         wrapped_note = "\n".join(textwrap.wrap(note, width=115)[:3])
-        fig.text(0.04, 0.025, f"注：{wrapped_note}", ha="left", va="bottom", fontsize=9.5, color="#737B86")
-        bottom = 0.11 + wrapped_note.count("\n") * 0.02
+        note_artist = fig.text(
+            0.035,
+            0.018,
+            f"注：{wrapped_note}",
+            ha="left",
+            va="bottom",
+            fontsize=9.5,
+            color="#737B86",
+        )
+        note_artist.set_in_layout(False)
+        bottom = 0.055 + wrapped_note.count("\n") * 0.018
     if ax is not None:
         ax.set_title("")
     return top, bottom
@@ -1235,7 +1386,19 @@ def _finish_axes(
     if rotation:
         plt.setp(ax.get_xticklabels(), rotation=rotation, ha="right")
     _apply_limits_and_scale(ax, request, horizontal=horizontal, numeric_x=numeric_x)
-    _apply_grid(ax, request, numeric_axis="x" if horizontal else "y")
+    _apply_grid(ax, request)
+    ax.tick_params(
+        axis="both",
+        which="major",
+        direction="out",
+        bottom=True,
+        top=False,
+        left=True,
+        right=False,
+        length=4,
+        width=1.0,
+        color="#646464",
+    )
     _apply_legend(ax, request, series_count)
     _reference_lines(ax, request)
     for spine in ax.spines.values():
@@ -2194,15 +2357,17 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
         fig, ax, chart_type, label_count, series_count = _render(request)
         top, bottom = _titles(fig, ax, request)
         legend_position, legend_title = _legend_metadata(ax)
-        try:
-            fig.tight_layout(rect=_legend_layout_rect(legend_position, top, bottom))
-        except (RuntimeError, ValueError):
-            pass
+        legend_extent_fraction = _limit_external_legend_extent(ax, legend_position)
         axis_label_layout = (
-            _fit_axis_tick_labels(ax)
+            _fit_axis_tick_labels(ax, request)
             if ax is not None
             else {
                 "x_rotation": 0.0,
+                "x_hidden": 0,
+                "y_hidden": 0,
+                "x_tick_step": 1,
+                "y_tick_step": 1,
+                "y_wrapped": 0,
                 "x_truncated": 0,
                 "y_truncated": 0,
                 "x_band_fraction": 0.0,
@@ -2210,13 +2375,25 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
             }
         )
         try:
-            fig.tight_layout(rect=_legend_layout_rect(legend_position, top, bottom))
+            _apply_compact_layout(fig, legend_position, top, bottom)
         except (RuntimeError, ValueError):
             pass
         if ax is not None:
+            axis_label_layout = _fit_axis_tick_labels(ax, request)
+            try:
+                _apply_compact_layout(fig, legend_position, top, bottom)
+            except (RuntimeError, ValueError):
+                pass
+        if legend_position in {"right", "bottom"}:
+            legend_extent_fraction = _limit_external_legend_extent(ax, legend_position)
+            try:
+                _apply_compact_layout(fig, legend_position, top, bottom)
+            except (RuntimeError, ValueError):
+                pass
+        if ax is not None:
             axis_label_layout["x_band_fraction"] = round(_tick_band_fraction(ax, "x"), 4)
             axis_label_layout["y_band_fraction"] = round(_tick_band_fraction(ax, "y"), 4)
-        legend_extent_fraction = _limit_external_legend_extent(ax, legend_position)
+        axis_style_layout = _axis_style_layout(ax)
         value_label_layout = _fit_value_labels_inside_axes(ax)
         day = time.strftime("%Y-%m-%d", time.gmtime())
         output_dir = (workspace / "charts" / day).resolve(strict=False)
@@ -2257,6 +2434,7 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
             "legend_title": legend_title,
             "legend_extent_fraction": round(legend_extent_fraction, 4),
             "axis_label_layout": axis_label_layout,
+            "axis_style_layout": axis_style_layout,
             "value_label_layout": value_label_layout,
             "size_bytes": target.stat().st_size,
         }

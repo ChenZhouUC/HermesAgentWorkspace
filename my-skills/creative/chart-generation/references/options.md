@@ -82,6 +82,9 @@ Use for heatmaps and cluster maps:
 - `statistical` — conventional Seaborn white-grid styling and colorblind-safe
   defaults.
 
+All Cartesian presets enable major X/Y grid lines and visible bottom-X/left-Y
+major tick marks by default. Pie and donut charts remain grid-free.
+
 ### `palette_preset`
 
 `auto`, `business`, `finance`, `muted`, `pastel`, `colorblind`, `blue`,
@@ -138,11 +141,16 @@ Final output is always constrained to an aspect ratio between `2:1` and `1:2`.
 - axis bounds and up to six `reference_lines`
 - `quality`: `standard`, `high`, or `print`
 
-The renderer always exports through Matplotlib `tight_layout`. After layout it
-measures tick-label bands against the final axes: Y ticks are capped at 10% of
-plot width and X ticks at 10% of plot height. Overlapping X labels rotate to 30
-degrees before pixel-width ellipsis is applied; long Y labels use ellipsis
-without rotation. The result reports these decisions in `axis_label_layout`.
+The renderer always exports through a compact Matplotlib `tight_layout`. After
+layout it measures tick-label bands against the final axes: Y ticks are capped
+at 20% of plot width and X ticks at 20% of plot height. Visible tick text is
+never shortened with an ellipsis. The renderer evaluates readable X-axis
+rotations and lowers tick density when necessary while preserving the first,
+last, and highlighted labels. Long Y labels wrap without losing content, then
+use a lower density only if wrapped labels overlap. The result reports rotation,
+hidden-label counts, tick steps, wrapping, and final fractions in
+`axis_label_layout`. Titles, subtitles, notes, and external legends each reserve
+space once, avoiding fixed duplicate gutters around the plotting area.
 Value annotations on bars, waterfalls, and lollipops are measured separately;
 if an annotation crosses the plotting boundary, the numeric axis is expanded
 just enough to bring it back inside. `value_label_layout` reports total labels

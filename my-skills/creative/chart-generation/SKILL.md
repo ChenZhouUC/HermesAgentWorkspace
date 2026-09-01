@@ -83,10 +83,24 @@ legends are not supported: legacy `top` requests are normalized to `auto` so
 they cannot shrink a wide chart's plotting area.
 
 Tick-label bands are also bounded after `tight_layout`: Y-axis tick labels may
-use at most 10% of plot width, while X-axis tick labels may use at most 10% of
-plot height. Long X labels are tilted first; labels that still exceed the budget
-are shortened with an ellipsis. The renderer reports the final rotation,
-truncation counts, and measured fractions in `axis_label_layout`.
+use at most 20% of plot width, while X-axis tick labels may use at most 20% of
+plot height. The renderer preserves complete label text: it first chooses a
+readable X-axis rotation, then lowers tick density while retaining the first,
+last, and highlighted labels; long Y labels wrap and may likewise use a lower
+tick density instead of ellipsis truncation. The renderer reports the final
+rotation, hidden-label counts, tick steps, wrapping count, and measured
+fractions in `axis_label_layout`.
+
+The exported layout favors a compact, information-dense plotting area. Titles,
+subtitles, notes, and external legends reserve space once according to their
+actual layout role; a right or bottom legend must not also trigger a fixed
+percentage gutter.
+
+Cartesian chart templates show major grid lines on both axes by default and
+draw visible outward major tick marks along the bottom X axis and left Y axis.
+This applies consistently across business, presentation, minimal, and
+statistical visual presets; non-Cartesian charts such as pie and donut remain
+grid-free.
 
 Bar, waterfall, and lollipop value labels must remain inside the plotting
 area. After `tight_layout`, the renderer measures their actual pixel bounds and
@@ -135,6 +149,8 @@ also check the resolved `legend_position` and `legend_extent_fraction`: an
 omitted position should resolve to `inside` when it does not cover data, then
 fall back to `right` or `bottom` with an external extent no greater than `0.20`.
 Check `axis_label_layout.x_band_fraction` and `y_band_fraction` are no greater
-than `0.10` when the chart contains long category labels.
+than `0.20` when the chart contains long category labels. `x_truncated` and
+`y_truncated` remain zero; use the hidden-label and tick-step fields to confirm
+that dense axes were thinned without altering visible label text.
 For document-only requests, use `workspace_path` with the document tool and
 omit the chat `media_directive`.

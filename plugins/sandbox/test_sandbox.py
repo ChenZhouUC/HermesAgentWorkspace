@@ -2080,6 +2080,19 @@ def _run_chart_renderer(tmp_path: Path, request: dict) -> tuple[dict, Path]:
     return result, workspace / result["chart"]
 
 
+def _chart_axes_face_bounds(output: Path, color: tuple[int, int, int]) -> tuple[float, float, float, float]:
+    with Image.open(output) as rendered:
+        image = rendered.convert("RGB")
+        width, height = image.size
+        pixels = image.load()
+        column_hits = [sum(pixels[x, y] == color for y in range(height)) for x in range(width)]
+        row_hits = [sum(pixels[x, y] == color for x in range(width)) for y in range(height)]
+    xs = [index for index, count in enumerate(column_hits) if count > height * 0.20]
+    ys = [index for index, count in enumerate(row_hits) if count > width * 0.20]
+    assert xs and ys
+    return min(xs) / width, min(ys) / height, max(xs) / width, max(ys) / height
+
+
 def test_chart_renderer_generates_png_from_structured_values(tmp_path):
     script = (
         Path(__file__).resolve().parents[2]
@@ -2172,6 +2185,73 @@ def test_chart_auto_legend_preserves_landscape_plot_height(tmp_path):
     ]
     assert dense_rows
     assert dense_rows[0] < 40
+
+
+def test_chart_dense_time_axis_keeps_full_labels_and_compact_plot_area(tmp_path):
+    labels = [f"08-{day:02d}" for day in range(2, 32) if day != 22]
+    request = {
+        "title": "过去30天门店客流趋势",
+        "subtitle": "2026-08-02 至 2026-08-31；passby=过店人次，impression=关注人次",
+        "note": "数据来自聚合查询；仅展示按日汇总，不含顾客明细。缺少 2026-08-22 记录。",
+        "chart_type": "line",
+        "labels": labels,
+        "series": [
+            {"name": "进店客流", "values": [100 + index % 8 for index in range(len(labels))]},
+            {"name": "过店人次", "values": [180 + index % 11 for index in range(len(labels))]},
+            {"name": "关注人次", "values": [120 + index % 7 for index in range(len(labels))]},
+        ],
+        "x_label": "日期",
+        "y_label": "人数",
+        "unit": "人次",
+        "style_preset": "presentation",
+        "layout_preset": "wide",
+        "legend": "show",
+        "legend_position": "right",
+        "annotation_preset": "none",
+        "quality": "high",
+    }
+
+    result, output = _run_chart_renderer(tmp_path, request)
+
+    layout = result["axis_label_layout"]
+    assert layout["x_truncated"] == 0
+    assert layout["y_truncated"] == 0
+    assert layout["x_band_fraction"] <= 0.20
+    assert len(labels) - layout["x_hidden"] >= 8
+
+    left, top, right, bottom = _chart_axes_face_bounds(output, (238, 242, 245))
+    margins = {
+        "left": left,
+        "top": top,
+        "right": 1 - right,
+        "bottom": 1 - bottom,
+        "width": right - left,
+        "height": bottom - top,
+    }
+    assert margins["right"] < 0.18, margins
+    assert margins["top"] < 0.20, margins
+    assert margins["bottom"] < 0.20, margins
+    assert margins["width"] > 0.72, margins
+    assert margins["height"] > 0.60, margins
+
+
+@pytest.mark.parametrize("style_preset", ["hidalgo", "presentation", "minimal", "statistical"])
+def test_chart_templates_show_both_grids_and_axis_ticks_by_default(tmp_path, style_preset):
+    request = {
+        "title": "Axis decoration defaults",
+        "chart_type": "bar",
+        "labels": ["A", "B", "C"],
+        "series": [{"name": "Value", "values": [2, 4, 3]}],
+        "style_preset": style_preset,
+    }
+
+    result, _output = _run_chart_renderer(tmp_path, request)
+
+    layout = result["axis_style_layout"]
+    assert layout["x_grid"] is True
+    assert layout["y_grid"] is True
+    assert layout["x_major_ticks"] >= 3
+    assert layout["y_major_ticks"] >= 2
 
 
 def test_chart_value_labels_stay_inside_explicit_axis_bounds(tmp_path):
@@ -2311,7 +2391,7 @@ def test_chart_renderer_reads_large_json_request_to_eof(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("chart_request", "axis", "expected_adjustment"),
+    ("chart_request", "axis"),
     [
         (
             {
@@ -2322,7 +2402,6 @@ def test_chart_renderer_reads_large_json_request_to_eof(tmp_path):
                 "layout_preset": "wide",
             },
             "x",
-            "x_rotation",
         ),
         (
             {
@@ -2333,15 +2412,19 @@ def test_chart_renderer_reads_large_json_request_to_eof(tmp_path):
                 "layout_preset": "tall",
             },
             "y",
-            "y_truncated",
         ),
     ],
 )
-def test_chart_axis_tick_label_bands_are_bounded(tmp_path, chart_request, axis, expected_adjustment):
+def test_chart_axis_tick_label_bands_are_bounded(tmp_path, chart_request, axis):
     result, _output = _run_chart_renderer(tmp_path, chart_request)
     layout = result["axis_label_layout"]
-    assert layout[f"{axis}_band_fraction"] <= 0.10
-    assert layout[expected_adjustment] > 0
+    assert layout[f"{axis}_band_fraction"] <= 0.20
+    if axis == "x":
+        assert layout["x_rotation"] > 0 or layout["x_hidden"] > 0
+    else:
+        assert layout["y_wrapped"] > 0
+    assert layout["x_truncated"] == 0
+    assert layout["y_truncated"] == 0
 
 
 @pytest.mark.parametrize(
