@@ -394,23 +394,23 @@ fallback_providers:
   - provider: bedrock
     model: ${CLAUDE_AM_OPUS_ARN}
   - provider: vertex
-    model: google/gemini-3.5-flash
+    model: google/gemini-3.7-flash
 
-# Flash 作为末级恢复模型时同样使用 high reasoning
+# Flash 作为末级恢复模型时使用 high reasoning
 agent:
   reasoning_overrides:
-    gemini-3.5-flash: high
+    gemini-3.7-flash: high
 
 # 压缩辅助模型（与主/备模型对齐到 1M 上下文，可统一使用同一个 threshold）
 auxiliary:
   compression:
     provider: vertex
-    model: google/gemini-3.5-flash
+    model: google/gemini-3.7-flash
     extra_body:
       google:
         thinking_config:
           include_thoughts: false
-          thinking_level: high
+          thinking_level: low
 
 # 上下文压缩门槛（主/fallback/压缩三方都是 1M context 时可放宽到 0.7）
 compression:
@@ -419,6 +419,9 @@ compression:
   threshold_tokens: 700000 # 三档统一约 700k 触发，保留约 300k 余量
   target_ratio: 0.2
   tail_mode: legacy # 显式保持既有 verbatim-tail 语义；上游另提供 lean
+  hygiene_hard_message_limit: 1000
+  hygiene_max_turn_hold_seconds: 60
+  idle_compact_after_seconds: 1800
   codex_gpt55_autoraise: false
 
 # /model 只展示/允许切换上述主模型与 fallback；切换仅作用于当前 session。
@@ -432,11 +435,11 @@ secrets:
   ignore_ambient_credentials: true
 ```
 
-> **三档统一策略**：GPT-5.5 / Claude Opus 5 / Gemini 3.5 Flash 的 context metadata 分别约 1.05M / 1M / 1.048576M。统一 `threshold=0.7` + `threshold_tokens=700000`，并关闭 GPT-5.5 的 85% autoraise，使 provider 切换后的 compressor 始终在约 700k 触发，给 system prompt、29 个工具 schema、输出预算与估算误差留下约 300k 余量。
+> **三档统一策略**：GPT-5.5 / Claude Opus 5 / Gemini 3.7 Flash 的 context metadata 分别约 1.05M / 1M / 1.048576M。统一 `threshold=0.7` + `threshold_tokens=700000`，并关闭 GPT-5.5 的 85% autoraise，使 provider 切换后的 compressor 始终在约 700k 触发，给 system prompt、工具 schema、输出预算与估算误差留下约 300k 余量。
 
 > **主动切换与 fallback**：严格模式下 `/model` 只能在上述三条 route 间做 session-scoped 切换，`--global` 和链外模型会被拒绝。切到 Bedrock 时会跳过 fallback 链中重复的 Bedrock、保留 Vertex；切到 Vertex 时先回退 Bedrock、再跳过重复 Vertex。`auxiliary.compression` 始终优先 Vertex，不因主模型切换而改写；只有 Vertex 摘要失败时，备用摘要模型才随“当前主模型”变化。
 
-> **多模态 native-first + sidecar**：三条 route 的图片能力均已验证并走原生输入：Azure GPT-5.5、Bedrock Claude Opus 5、Vertex Gemini 3.5 Flash 都直接接收像素。GPT-5.5 与 Opus 5 官方不支持视频/音频输入，不能伪装为 native；此时仅把当前音频/视频及最多 4,000 字 caption/引用交给 fallback 链中的 Gemini Flash sidecar，主会话模型与历史不切换。普通语音优先本地 STT，全部失败才旁路；PDF/纯文本优先本地可信抽取，抽取为空或 PDF 覆盖率探测发现扫描/图片页缺口时才旁路，DOCX/XLSX/PPTX 等未列入 Flash 原生 MIME 的格式不外发。成功的 native、抽取和 sidecar 结果不再向模型暴露宿主 cache 绝对路径；全部读取链失败时注入明确的 `FAILED` 状态并要求如实告知用户，不允许退化为“自行打开路径”。
+> **多模态 native-first + sidecar**：三条 route 的图片能力均已验证并走原生输入：Azure GPT-5.5、Bedrock Claude Opus 5、Vertex Gemini 3.7 Flash 都直接接收像素。GPT-5.5 与 Opus 5 官方不支持视频/音频输入，不能伪装为 native；此时仅把当前音频/视频及最多 4,000 字 caption/引用交给 fallback 链中的 Gemini Flash sidecar，主会话模型与历史不切换。普通语音优先本地 STT，全部失败才旁路；PDF/纯文本优先本地可信抽取，抽取为空或 PDF 覆盖率探测发现扫描/图片页缺口时才旁路，DOCX/XLSX/PPTX 等未列入 Flash 原生 MIME 的格式不外发。成功的 native、抽取和 sidecar 结果不再向模型暴露宿主 cache 绝对路径；全部读取链失败时注入明确的 `FAILED` 状态并要求如实告知用户，不允许退化为“自行打开路径”。
 
 #### Session override、fallback 与 compaction 生命周期
 
@@ -484,7 +487,7 @@ Feishu 群里独立附件消息本身不能携带 @Hermes，因此当前配置�
 | `agent.max_turns`                                         | 90                      | 单次 session 最大轮数                                                      |
 | `agent.gateway_timeout`                                   | 1800s                   | Gateway 会话超时（30 分钟）                                                |
 | `agent.reasoning_effort`                                  | high                    | 主 agent 推理强度（none/low/medium/high/xhigh）                            |
-| `agent.reasoning_overrides.gemini-3.5-flash`              | high                    | 末级 Flash fallback 使用高思考，与压缩模型保持一致                         |
+| `agent.reasoning_overrides.gemini-3.7-flash`              | high                    | 末级 Flash fallback 使用高思考；压缩任务单独覆盖为 low                     |
 | `delegation.reasoning_effort`                             | high                    | 子 agent / orchestrator 推理强度（空字符串表示继承主 agent）               |
 | `display.personality`                                     | none（配置为空）        | 显示风格；如需恢复可在会话中执行 `/personality kawaii`                     |
 | `display.show_reasoning`                                  | false                   | 是否在 TUI / 飞书等前端展示 reasoning 内容（依赖模型返回 reasoning）       |
@@ -493,23 +496,26 @@ Feishu 群里独立附件消息本身不能携带 @Hermes，因此当前配置�
 | `compression.threshold`                                   | 0.7                     | 上下文占主模型容量比例触发压缩                                             |
 | `compression.threshold_tokens`                            | 700000                  | 三档统一的绝对触发上限，保留约 300k 余量                                   |
 | `compression.tail_mode`                                   | legacy                  | 保持既有原文 tail；`lean` 依赖摘要 digest/anchor/search 恢复               |
+| `compression.hygiene_hard_message_limit`                  | 1000                    | Gateway 按消息数强制压缩的安全阈值                                         |
+| `compression.hygiene_max_turn_hold_seconds`               | 60                      | 摘要仍在流式输出时，入站消息最多等待 60 秒                                 |
+| `compression.idle_compact_after_seconds`                  | 1800                    | 会话空闲 30 分钟后，在下一条消息前尝试压缩                                 |
 | `compression.codex_gpt55_autoraise`                       | false                   | 禁止 GPT-5.5 单独抬到 85%，避免切换 provider 后阈值分叉                    |
-| `auxiliary.compression.model`                             | google/gemini-3.5-flash | 压缩任务与末级 fallback 使用同一 Vertex 模型                               |
-| `auxiliary.compression.extra_body.google.thinking_config` | high / 不返回 thoughts  | 给摘要充分推理空间，同时避免输出内部思考占用正文预算                       |
+| `auxiliary.compression.model`                             | google/gemini-3.7-flash | 压缩任务与末级 fallback 使用同一 Vertex 模型                               |
+| `auxiliary.compression.extra_body.google.thinking_config` | low / 不返回 thoughts   | 降低摘要延迟，同时避免输出内部思考占用正文预算                             |
 | `approvals.mode`                                          | manual                  | 危险命令审批（manual/auto）                                                |
 
 ### Thinking / Reasoning 配置
 
 当前 thinking/reasoning 配置与可见性：
 
-| 位置                                     | 当前                | 模型                                      | TUI 可见 | 飞书可见                  |
-| ---------------------------------------- | ------------------- | ----------------------------------------- | -------- | ------------------------- |
-| 主 agent (`agent.reasoning_effort`)      | high                | gpt-5.5（Azure，Responses 路径）          | 不展示   | 不展示                    |
-| 子 agent (`delegation.reasoning_effort`) | high                | 默认继承主模型                            | 不展示   | 不展示                    |
-| Fallback[0] (`fallback_providers`)       | high                | bedrock/Claude Opus 5 application profile | 不展示   | 不展示                    |
-| Fallback[1] (`fallback_providers`)       | reasoning: high     | vertex/google/gemini-3.5-flash            | 不展示   | 不展示                    |
-| 压缩 (`auxiliary.compression`)           | high；隐藏 thoughts | vertex/google/gemini-3.5-flash            | —        | —（后台任务，不前端展示） |
-| 显示开关 (`display.show_reasoning`)      | false               | —                                         | —        | —                         |
+| 位置                                     | 当前               | 模型                                      | TUI 可见 | 飞书可见                  |
+| ---------------------------------------- | ------------------ | ----------------------------------------- | -------- | ------------------------- |
+| 主 agent (`agent.reasoning_effort`)      | high               | gpt-5.5（Azure，Responses 路径）          | 不展示   | 不展示                    |
+| 子 agent (`delegation.reasoning_effort`) | high               | 默认继承主模型                            | 不展示   | 不展示                    |
+| Fallback[0] (`fallback_providers`)       | high               | bedrock/Claude Opus 5 application profile | 不展示   | 不展示                    |
+| Fallback[1] (`fallback_providers`)       | reasoning: high    | vertex/google/gemini-3.7-flash            | 不展示   | 不展示                    |
+| 压缩 (`auxiliary.compression`)           | low；隐藏 thoughts | vertex/google/gemini-3.7-flash            | —        | —（后台任务，不前端展示） |
+| 显示开关 (`display.show_reasoning`)      | false              | —                                         | —        | —                         |
 
 **已知限制**：
 
@@ -543,7 +549,7 @@ Hermes 有**两套独立的流式机制**，配置项分别落在不同的 names
 主模型是 `azure-foundry/gpt-5.5`；标准 Vertex 承担四件事：
 
 1. **fallback[1]** —— Azure 与 Bedrock 都失败后接管
-2. **上下文压缩** —— `auxiliary.compression` 使用同一 Gemini 3.5 Flash
+2. **上下文压缩** —— `auxiliary.compression` 使用同一 Gemini 3.7 Flash，并显式降低到 low thinking
 3. **音频/视频旁路** —— 前两档不支持这些原生输入时，由它只读取当前媒体并把结果交回主会话
 4. **PDF 视觉兜底** —— 本地可信抽取为空或失败时读取 PDF；可正常抽取的文档仍留在本地处理
 
@@ -637,8 +643,36 @@ launchd
 当前推荐组合是：
 
 1. `.env` 写入标准 Vertex 的 `GOOGLE_APPLICATION_CREDENTIALS` + `VERTEX_PROJECT_ID` + `VERTEX_REGION`
-2. `fallback_providers[1]` 与 `auxiliary.compression` 都保持 `vertex/google/gemini-3.5-flash`
+2. `fallback_providers[1]` 与 `auxiliary.compression` 都保持 `vertex/google/gemini-3.7-flash`
 3. 执行 `hermes gateway install`，确保后台服务可自启动
+
+### ChatBI MCP（主会话）
+
+`mcp_servers.chatbi` 通过 Streamable HTTP 接入内网 ChatBI，只注册
+`mcp__chatbi__chatbi_query`。当前使用 `trust: untrusted`、120 秒工具超时，且关闭空的
+resources/prompts 辅助入口。主飞书私聊和 CLI 可使用；`platform_toolsets.feishu_group`
+显式只列出 `hypertex`，sandbox 群聊 allowlist 也不包含 ChatBI，因此群聊不会获得该工具。
+
+```yaml
+mcp_servers:
+  chatbi:
+    url: http://10.202.0.222:30801/mcp/
+    connect_timeout: 15
+    timeout: 120
+    trust: untrusted
+    tools:
+      include:
+        - chatbi_query
+      resources: false
+      prompts: false
+    enabled: true
+```
+
+验证命令：
+
+```bash
+hermes mcp test chatbi
+```
 
 ### 飞书集成
 
@@ -1104,7 +1138,7 @@ hermes config get fallback_providers  # 查看当前 fallback 链
 | -------------------------------------------------- | ------------------------------------ |
 | `/model`                                           | 展示当前配置允许的三条 route         |
 | `/model gpt-5.5 --provider azure-foundry`          | 当前会话切回默认主模型               |
-| `/model google/gemini-3.5-flash --provider vertex` | 当前会话切到配置中的 Vertex fallback |
+| `/model google/gemini-3.7-flash --provider vertex` | 当前会话切到配置中的 Vertex fallback |
 
 当前启用了 `model_catalog.configured_only: true`：会话内 `/model` 只能在 `config.model + fallback_providers` 构成的集合中切换，且 `/model --global` 会被拒绝。需要改变允许集合或以后新会话的默认模型时，显式编辑配置：
 

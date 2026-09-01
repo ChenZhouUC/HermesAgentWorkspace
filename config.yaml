@@ -7,7 +7,7 @@ fallback_providers:
   - provider: bedrock
     model: ${CLAUDE_AM_OPUS_ARN}
   - provider: vertex
-    model: google/gemini-3.5-flash
+    model: google/gemini-3.7-flash
 toolsets:
   - hermes-cli
 agent:
@@ -29,7 +29,7 @@ agent:
   image_input_mode: auto
   disabled_toolsets: []
   reasoning_overrides:
-    gemini-3.5-flash: high
+    gemini-3.7-flash: high
   reasoning_effort: high
 terminal:
   backend: local
@@ -110,7 +110,8 @@ compression:
   tail_mode: legacy
   protect_last_n: 40
   proactive_prune_tokens: 48000
-  hygiene_hard_message_limit: 400
+  hygiene_hard_message_limit: 1000
+  hygiene_max_turn_hold_seconds: 60
   protect_first_n: 3
   abort_on_summary_failure: false
   codex_gpt55_autoraise: false
@@ -148,7 +149,7 @@ auxiliary:
     timeout: 360
   compression:
     provider: vertex
-    model: google/gemini-3.5-flash
+    model: google/gemini-3.7-flash
     base_url: ''
     api_key: ''
     timeout: 120
@@ -156,7 +157,7 @@ auxiliary:
       google:
         thinking_config:
           include_thoughts: false
-          thinking_level: high
+          thinking_level: low
   skills_hub:
     provider: auto
     model: ''
@@ -668,6 +669,17 @@ mcp_servers:
         - hypertex_create_case
         - hypertex_iterate_case
       tasks: true
+    enabled: true
+  chatbi:
+    url: http://10.202.0.222:30801/mcp/
+    connect_timeout: 15
+    timeout: 120
+    trust: untrusted
+    tools:
+      include:
+        - chatbi_query
+      resources: false
+      prompts: false
     enabled: true
 
 # ── Fallback Model ────────────────────────────────────────────────────

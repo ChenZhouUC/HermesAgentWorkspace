@@ -315,7 +315,7 @@ fallback_providers:
   - provider: bedrock
     model: ${CLAUDE_AM_OPUS_ARN}
   - provider: vertex
-    model: google/gemini-3.5-flash
+    model: google/gemini-3.7-flash
 
 providers: {}
 
@@ -324,7 +324,7 @@ agent:
   gateway_timeout: 1800
   reasoning_effort: high
   reasoning_overrides:
-    gemini-3.5-flash: high
+    gemini-3.7-flash: high
   # 计划内 restart（升级 / 手动 restart）时给 in-flight agent 的排空时间，
   # 避免 SIGKILL 导致"会话重置"。长任务可跑 8-10 分钟，故给到 900s。
   restart_drain_timeout: 900
@@ -341,17 +341,33 @@ checkpoints:
 auxiliary:
   compression:
     provider: vertex
-    model: google/gemini-3.5-flash
+    model: google/gemini-3.7-flash
     extra_body:
       google:
         thinking_config:
           include_thoughts: false
-          thinking_level: high
+          thinking_level: low
 
 compression:
   threshold: 0.7
   threshold_tokens: 700000
+  hygiene_hard_message_limit: 1000
+  hygiene_max_turn_hold_seconds: 60
+  idle_compact_after_seconds: 1800
   codex_gpt55_autoraise: false
+
+# ChatBI 仅供主私聊/CLI；feishu_group 的 MCP allowlist 不包含 chatbi。
+mcp_servers:
+  chatbi:
+    url: http://10.202.0.222:30801/mcp/
+    connect_timeout: 15
+    timeout: 120
+    trust: untrusted
+    tools:
+      include: [chatbi_query]
+      resources: false
+      prompts: false
+    enabled: true
 ```
 
 > v0.12.x 的老手册建议把 `compression.threshold` 调到 0.35 提前触发压缩——那是因为压缩当时还在抢主模型配额。
@@ -365,7 +381,7 @@ hermes config set model.default gpt-5.5
 hermes config set agent.reasoning_effort high
 hermes config set agent.restart_drain_timeout 900
 hermes config set auxiliary.compression.provider vertex
-hermes config set auxiliary.compression.model google/gemini-3.5-flash
+hermes config set auxiliary.compression.model google/gemini-3.7-flash
 
 # fallback 链是列表，用 config edit 手写更稳妥（见上面的 YAML）
 hermes config edit
@@ -755,12 +771,12 @@ rm -rf ~/.hermes
 | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `hermes chat` 报 401 / `Invalid Credentials`                                                 | 跑 `hermes doctor` 看是哪条链路；Azure 看 `AZURE_FOUNDRY_API_KEY`，Bedrock 看 AWS credential chain / profile ARN，Vertex 看 `GOOGLE_APPLICATION_CREDENTIALS` 指向的 SA JSON 是否存在                                                                       |
 | Vertex 报 403 / `permission denied on project`                                               | SA 与 project 不匹配：确认 `VERTEX_PROJECT_ID` 就是该 SA 所属 project，`VERTEX_REGION` 与模型可用 location 一致                                                                                                                                            |
-| 主模型挂了不切 fallback                                                                      | `hermes fallback list` 检查顺序应为 Bedrock Opus 5 → Vertex Gemini 3.5 Flash；再跑 `hermes doctor` 检查 AWS/Vertex 连接                                                                                                                                    |
+| 主模型挂了不切 fallback                                                                      | `hermes fallback list` 检查顺序应为 Bedrock Opus 5 → Vertex Gemini 3.7 Flash；再跑 `hermes doctor` 检查 AWS/Vertex 连接                                                                                                                                    |
 | 飞书 bot 收到消息但不回复                                                                    | `hermes doctor`；`tail -50 ~/.hermes/logs/gateway.error.log`；检查模型 token / fallback 是否都失效                                                                                                                                                         |
 | 提示 `API quota exceeded`                                                                    | 先区分 Bedrock quota 与 Vertex project quota；末级 fallback、compression 与视频旁路共享标准 Vertex project 配额                                                                                                                                            |
 | 修改 `config.yaml` 后不生效                                                                  | 后台 gateway 必须 `hermes gateway restart`；前台 chat 用 `/reload`                                                                                                                                                                                         |
 | 飞书任务跑到一半"突然没反应"/会话重置                                                        | in-flight 长任务遇到 `gateway restart`（升级、改配置等），超过 `agent.restart_drain_timeout` 会被 SIGKILL。看 `grep "drain timed out" ~/.hermes/logs/errors.log` 是否有命中。修复：把 `restart_drain_timeout` 调大到 900s（见第四章 agent 段示例）         |
-| 长会话报 `Compression summary failed: 429 Resource exhausted` / 插入 fallback context marker | 检查 `auxiliary.compression.provider=vertex`、模型为 `google/gemini-3.5-flash`，以及 `threshold_tokens=700000`；确认 Vertex project 配额后执行 `hermes gateway restart`                                                                                    |
+| 长会话报 `Compression summary failed: 429 Resource exhausted` / 插入 fallback context marker | 检查 `auxiliary.compression.provider=vertex`、模型为 `google/gemini-3.7-flash`，以及 `threshold_tokens=700000`；确认 Vertex project 配额后执行 `hermes gateway restart`                                                                                    |
 | 升级代码后 bot 无法启动（`ModuleNotFoundError`）                                             | `cd ~/.hermes/hermes-agent && source venv/bin/activate && uv pip install -e ".[all,feishu]" && deactivate && hermes gateway restart`；若缺的是 Feishu SOCKS 支持，先确认 `PATCH-FEISHU-SOCKS-DEPENDENCY` 已应用到 `pyproject.toml` 和 `tools/lazy_deps.py` |
 | 想限定特定飞书用户访问                                                                       | `.env` 注释掉 `GATEWAY_ALLOW_ALL_USERS=true`，改为 `FEISHU_ALLOWED_USERS=ou_用户ID1,ou_用户ID2`（用户 ID 在飞书开放平台「通讯录」查到）                                                                                                                    |
 | `Found N issue(s) to address` 误报未启用的 toolset（如 moa / rl）                            | 本机归档补丁 `PATCH-DOCTOR-ENABLED-TOOLSETS` 的回归 sentinel 会验证上游已过滤未启用平台 toolset；若仍出现，先跑 `hermes doctor` 看是否是真缺凭据，再检查 `hermes_cli/doctor.py` 中 `_get_platform_tools` 的上游实现                                        |
