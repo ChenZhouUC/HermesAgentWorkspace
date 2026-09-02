@@ -1169,6 +1169,26 @@ fi
                 {"FIRST_SECRET", "SECOND_SECRET"},
             )
 
+    def test_final_audit_rejects_literal_mcp_credentials(self) -> None:
+        safe = """mcp_servers:
+  service:
+    headers:
+      Authorization: "Bearer ${env:SERVICE_TOKEN}"
+      X-API-Key: "${SERVICE_API_KEY}"
+"""
+        self.assertEqual(
+            final_audit._validate_tracked_config_secret_refs(safe),
+            {"sensitive_mcp_headers": 2, "literal_credentials": 0},
+        )
+
+        unsafe = """mcp_servers:
+  service:
+    headers:
+      Authorization: "Bearer copied-secret"
+"""
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "literal MCP credentials"):
+            final_audit._validate_tracked_config_secret_refs(unsafe)
+
     def test_active_node_skip_is_not_accepted_as_real_regression(self) -> None:
         def fake_run(argv, **_kwargs):
             junit_arg = next(value for value in argv if value.startswith("--junitxml="))

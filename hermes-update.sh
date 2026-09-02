@@ -74,6 +74,13 @@ HERMES_HOME="${HOME}/.hermes"
 HERMES_AGENT="${HERMES_HOME}/hermes-agent"
 PATCHES_DIR="${HERMES_HOME}/patches"
 PATCH_FILE="${PATCHES_DIR}/local-patches.diff"
+# A peer machine may carry Hermes' managed uv under ~/.hermes/bin without
+# exposing it through the login shell. Use that copy only as a fallback: an
+# already configured system uv stays authoritative and is never downgraded by
+# an unrelated managed binary in the same directory.
+if ! command -v uv >/dev/null 2>&1 && [[ -x "${HERMES_HOME}/bin/uv" ]]; then
+    export PATH="${HERMES_HOME}/bin:${PATH}"
+fi
 CLEANUP_SCRIPT="${HERMES_HOME}/scripts/cleanup_transient_artifacts.py"
 CLEANUP_POLICY="${HERMES_HOME}/scripts/cleanup_policy.json"
 CLEANUP_MIN_AGE_MINUTES="${HERMES_CLEANUP_MIN_AGE_MINUTES:-10}"

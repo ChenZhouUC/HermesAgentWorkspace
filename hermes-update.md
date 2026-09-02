@@ -49,6 +49,17 @@
 
 默认升级来源是 `~/.hermes/hermes-agent` 的官方 `origin/main`。新事务的唯一一次 `--update` 先用 scoped fetch 把当时最新 main 写入专用事务 ref 并原子固定为 `TARGET_SHA`，随后让官方 updater 在临时 Git 代理下只消费这个 SHA：其内置 `fetch origin main` 被置为 no-op，所有 `origin/main` 比较/merge 被替换为固定 SHA，因此整轮网络获取仍然只有一次。此后即使远端 main 继续前进，本轮也只围绕这个 SHA 收敛。如用户明确要求稳定 release/tag，不要把它混同于默认流程：先记录目标 tag/branch，并确认 `hermes-update.sh`/patch 回贴流程是否支持该目标后再执行。
 
+### Peer machine 能力层迁移边界
+
+peer machine 部署不是把来源 `~/.hermes` 克隆成相同机器，而是把可复用能力迁入另一份独立状态。完整操作步骤以 `README.md` 的“整机迁移”章节为权威；本 playbook 只固定与升级、自演进和终态证据有关的不变量：
+
+- 禁止用整目录 `rsync --delete` 覆盖已有目标目录；来源 `.env`、整目录 credentials、SOUL、memory、sessions、数据库、cron live store、cache/log、PID/lock、LaunchAgent、venv/node_modules 和机器二进制默认不迁移。
+- replay bundle、PATCH 注册表、updater、用户插件实现/verifier、自定义 skills、受管脚本、wiki 与通用文档属于能力层；目标机自己的 `config.yaml`、插件配置、people/groups 和身份文件采用字段级合并，不能用来源文件整体替换。
+- owner 身份只在目标配置中声明：`feishu.assistant_user_ids` 是人员同步置顶 owner 的机器级来源，sandbox owner DM、删除授权、可选 MCP 授信与 groups allowlist 必须同步复核；不得在共享脚本或 verifier 中硬编码来源机器 ID。
+- 可选 MCP 未部署时必须同时移除 server、platform toolset、群工具和 trust lists。`people.yaml` / `groups.yaml` 只证明被授权对象存在，显式 trust lists 才是权限权威；新增或扩大授权必须在 Git diff 中人工审查。
+- 目标机必须独立固定/取得所需 upstream SHA、重建运行环境并执行 no-network `--reconcile` 与 `--final-audit --json`；来源机器或另一 peer 的测试、Gateway PID、runtime trace 和 final-audit JSON 不能作为目标机证据。
+- 若迁移过程暴露新的配置形态、身份耦合、可选组件或验证缺口，按 Step 5c 在当轮同步修改对应权威文件；只写迁移日志不构成自演进完成。
+
 ### 补丁模型（本轮重构后的固定边界）
 
 - **语义层**：每个 `PATCH-<DOMAIN>-<INVARIANT>` 是独立的问题、回滚、验证和上游吸收单元；语义定义只在 `PATCHES.md` 出现一次。
@@ -458,10 +469,10 @@ Step 6 报告前，以本轮实际执行为镜，把本 playbook（含摩擦表�
 ```yaml
 toolchain_audit_state:
   schema_version: 1
-  last_deep_audit_date: 2026-09-01
+  last_deep_audit_date: 2026-09-02
   last_deep_audit_upstream_sha: 11c8c05dc31c6e49ddef16dae8695a708d6bce6a
-  last_deep_audit_outer_commit: d1ba60d78076a833fa5399971e1cb72640f1d6d9
-  trigger: post-green-owner-dm-hypertex-asset-root-migration
+  last_deep_audit_outer_commit: 83da1397d6d5a231bdbf6a4d0e4e936ce216d9b7
+  trigger: peer-machine-migration-and-tracked-credential-assurance
 ```
 
 深度审计报告除 Step 6 常规内容外，还必须列出：触发原因；检查过的失效类别；新增负例与 toolchain 改动；明确未改动的类别；剩余不可机械证明的风险；更新后的审计游标。若因触发条件自动进入深度审计，agent 在开始时告知用户即可，不为既有范围内的只读检查和修复逐项追问。
@@ -511,6 +522,7 @@ bash ~/.hermes/hermes-update.sh --final-audit --json \
 - patch gate/transaction/fetch self-test、bundle byte/cached/reverse/index/base 闭环；active/Archive gate header、唯一置绿变量与 8c 消费集合必须一一对应；inner 只允许完整 `PATCHED_FILES` overlay，另可保留唯一、已审查且仅 unstaged 的 `package-lock.json` npm 归一化差异，其他 extra/staged 路径仍 fail closed；canonical 与 verifier 全部结束后必须再次执行 bundle 物理闭环，封死测试后漂移窗口
 - README 周键唯一与当前周摘要有效内容不超过 1500 字；`PATCHED_FILES` 数组/快照/注数一致；全部 active + Archive 定义精确四段；PATCH evidence 的 upgrade range 终点必须等于当前 HEAD，所有 upstream-overlap PATCH 必须在当前摘要以 `` `PATCH-FOO-BAR`=未吸收 | 部分吸收 | 完全吸收 `` 唯一登记，并核对无路径相交 active 数；playbook 摩擦表列结构与 Wiki lint 正常
 - `hermes doctor` 的无 active security advisory、config up-to-date、无 deprecated key；canonical 后再次运行 sandbox verifier；launchd supervisor PID、真实 Gateway child PID 与 `gateway_state.json` 的 PID/argv/code SHA 必须一致，spawn ledger 不得残留 pytest 记录；transaction=`none`
+- 受 Git 管理的 `config.yaml` 不得在 MCP sensitive headers 中保存 literal credential；Authorization/API-key/token/secret 类 header 只能引用 `${VAR}` / `${env:VAR}`，实值保留在目标机 `.env` 或 secret backend
 - 所有测试/formatter/verifier 完成后的最终 cleanup apply，再 dry-run 证明 candidate/review/policy error 为 0
 
 JSON 必须为 `status=ok`、`mode=full`，包含逐 PATCH `patches[]` 明细和 `failed_step` 可定位失败；只看到 aggregate 数字、quick mode 或单独运行的若干绿灯不能替代本步骤。final-audit 自己完成最后 cleanup，因此成功后只允许只读检查和报告；如果又运行 pytest、py_compile、formatter、verifier 或任何会生成缓存的命令，必须重新运行 final-audit。

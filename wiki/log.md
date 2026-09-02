@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-08-05
+updated: 2026-09-02
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,21 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-09-02] daily | Hermes peer Mac deployment procedure
+
+### update | Patch-preserving, identity-safe peer deployment
+
+- Trigger: 将本机带 replay patch、用户插件、自定义 skills 与 wiki 的 Hermes 能力层迁移到另一台 Mac，同时保留目标机自己的 SOUL、memory、sessions、飞书/Tavily 环境与私有凭据，并切换主人和群组边界。
+- Actions:
+  - 将 `README.md` 的旧整目录覆盖方案改为能力层迁移：目标机保留 `.env`、credentials、SOUL、memory、sessions、数据库、cron 与机器运行态，受管配置按字段合并；同一 bot 的 Gateway 不允许双机并发消费。
+  - 在 `hermes-update.md` 固化 peer-machine 迁移不变量：来源证据不可借给目标机，目标机必须围绕自己的固定 upstream SHA 独立 reconcile、runtime attestation 与 final audit。
+  - 将 ChatBI token 从受 Git 管理的 `config.yaml` 移入目标机 `.env`，配置只保留 `${env:CHATBI_MCP_TOKEN}`；final audit 与 sandbox verifier 同时拒绝 tracked MCP sensitive header 中的 literal credential。
+  - 去除人员同步脚本中的来源 owner open_id 常量，改由目标机 `feishu.assistant_user_ids` 推导 `people.yaml` 首位，并补缺失、多值和非 open_id 的负向回归。
+  - 保留可选 HyperTeX 的双形态 verifier；`people.yaml` / `groups.yaml` 只验证授权对象存在，sandbox 显式 trust lists 继续作为权限权威，扩大授权必须经过 diff 审查。
+  - updater 仅在系统找不到 `uv` 时回退 `~/.hermes/bin/uv`，避免 peer 兼容修复在本机反向覆盖更新的系统工具；同步修正运维文档的模型与 upstream 快照。
+- Boundary: 未在 wiki 写入主机地址、用户 ID、chat ID、API key、endpoint 实值或服务账号内容；未修改 Active Layer 2、index、SCHEMA、lint 规则或 Obsidian 配置；未复制或覆盖任一 peer 的私有运行数据。
+- Verification: 当前机器 no-network reconcile 在固定 `11c8c05dc3` 上 exit 0；full PATCH evidence 为 43 active + 10 archive、39 files / 1777 collected，canonical 为 1771 passed / 0 failed / 6 skipped，sandbox/identity-sync 为 147 passed；tracked MCP literal credential 为 0，Wiki 18 项 lint 全绿，cleanup candidate/review 均为 0。所有结果来自本机重新执行，不沿用 peer machine 的历史绿色数字。
 
 ## [2026-08-05] daily | SpaceSight AI Hub ALGO capacity consolidation
 

@@ -2608,7 +2608,7 @@ def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
     assert sandbox._GROUP_IMAGE_CHAT_IDS
     assert sandbox._GROUP_IMAGE_SCRIPT is not None
     assert sandbox._GROUP_IMAGE_SCRIPT.is_file()
-    assert sandbox._GROUP_CHART_CHAT_IDS == frozenset({"*"})
+    assert sandbox._GROUP_CHART_CHAT_IDS
     assert sandbox._GROUP_CHART_SCRIPT is not None
     assert sandbox._GROUP_CHART_SCRIPT.is_file()
     assert sandbox._CHART_PYTHON_EXECUTABLE is not None

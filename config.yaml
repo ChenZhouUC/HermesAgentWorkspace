@@ -672,6 +672,8 @@ mcp_servers:
     enabled: true
   chatbi:
     url: http://10.202.0.222:30801/mcp/
+    headers:
+      Authorization: "Bearer ${env:CHATBI_MCP_TOKEN}"
     connect_timeout: 15
     timeout: 120
     trust: untrusted

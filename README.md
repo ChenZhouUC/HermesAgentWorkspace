@@ -259,88 +259,39 @@ FEISHU_CONNECTION_MODE=websocket
 
 ### 整机迁移：旧机停用，新机接管
 
-适用于把一台机器上已经正常运行的 Hermes 环境整体迁到另一台机器：先让旧机停止所有 Hermes 及相关后台进程，再把 `~/.hermes/` 整目录复制到新机，最后在新机重新安装/启动服务。
+Hermes 迁移必须区分“可复用能力层”和“目标机私有状态”。默认目标是把 replay patch、用户插件、自定义 skills、脚本和 wiki 带到 peer machine，同时保留目标机自己的身份、会话、凭据和运行数据。**禁止用 `rsync --delete ~/.hermes/` 覆盖目标目录，也不要复制来源机器的整份 `.env`、`credentials/`、SOUL、memory、sessions、数据库、cron live store、cache、logs、PID/lock 或 LaunchAgent。**
 
-> ⚠️ `~/.hermes/` 里包含 `.env`、`credentials/`、会话、数据库、缓存等敏感或私有数据。只复制到你信任的新机器，并使用可信传输方式。
+只有在“旧机永久退役、目标机为空、所有身份和历史也明确要求整体接管”的灾备恢复场景，才可考虑完整加密备份导入；这与 peer machine 能力部署是两种不同流程。
 
-#### 1. 在旧机停止 Hermes 相关服务
+#### 1. 固定来源能力状态并保护目标机
 
-先停止并卸载 gateway，避免飞书 WebSocket、cron 或 gateway 在两台机器上同时运行：
+- 记录来源外层仓库 commit、内层 upstream SHA、`patches/.local-patches.base` 和当前 replay bundle 状态。
+- 在目标机先备份现有 Hermes 状态，并分别记录 outer/inner Git 状态、Gateway PID、Doctor 和 cron 清单。
+- 如果两台机器将使用同一 Feishu/IM bot 凭据，启动目标 Gateway 前必须先在来源机器执行排空感知的停止/卸载，禁止两个 consumer 同时在线；使用不同 bot 凭据时可以并存。
 
-```bash
-hermes gateway stop || true
-hermes gateway uninstall || true
-```
+#### 2. 只迁移能力层
 
-确认旧机已经没有 Hermes 相关进程：
+优先通过经过审查的 Git commit、patch 或逐路径同步迁移以下类别：升级 playbook 与 updater、`patches/` replay 资产、用户插件实现和 verifier、自定义 `my-skills/`、受管脚本、wiki 与通用文档。内层 `hermes-agent` 在目标机按记录的 upstream SHA 单独取得，再由目标机本地执行 patch replay；不要复制来源机器的 `venv/`、`node_modules/` 或 `bin/` 二进制。
 
-```bash
-launchctl list | grep -Ei 'hermes|feishu|gateway' || true
-ps -axo pid=,ppid=,stat=,command= | grep -Ei 'hermes|feishu|gateway' | grep -v grep || true
-```
+以下文件即使受外层 Git 管理，也必须按“目标机配置”处理，不能被来源版本整文件覆盖：`config.yaml`、`plugins/sandbox/config.yaml`、`people.yaml`、`groups.yaml`、`SOUL.md`、`memories/`。先保留目标值，再按字段合并确实需要的能力配置。
 
-如果仍看到残留进程，先记录 PID，再按 PID 停止：
+#### 3. 在目标机完成身份与配置深度合并
 
-```bash
-kill -TERM <PID>
-```
+- `.env` 和 `credentials/` 只在目标机本地维护；从来源迁移凭据时按明确白名单逐项复制。MCP header 使用 `${env:VAR}` 引用，不把 token 写进 `config.yaml`。
+- owner 切换必须同时覆盖 `feishu.assistant_user_ids`、`people.yaml` 的 owner 条目、sandbox owner DM、文档删除授权和可选 HyperTeX 用户授权。组织同步脚本从 `feishu.assistant_user_ids` 推导置顶 owner，不再携带来源机器的硬编码 open_id。
+- 群画像以目标 `groups.yaml` 为准；sandbox 的群 allowlist 只能引用该文件中已准入的群。授权意图以 `plugins/sandbox/config.yaml` 的显式 trust lists 为准，verifier 负责检查引用完整性和运行态一致性，不能替代人工审查权限扩大。
+- 可选 MCP 未部署时，要同时移除对应 server、platform toolset、群工具和 trust lists；独立工程路径、浏览器 profile、大型媒体缓存和 cron 任务均按用户明确范围选择，不因“全功能迁移”自动复制。
 
-停止后可清理运行期 PID/lock 文件，避免把旧机的进程状态带到新机：
+#### 4. 在目标机独立收敛和验收
 
-```bash
-rm -f ~/.hermes/gateway.pid ~/.hermes/gateway.lock
-```
-
-#### 2. 复制 `~/.hermes/` 到新机
-
-推荐用 `rsync` 保留目录结构和权限：
+重建目标机自己的 Python/Node 环境，先分别验证每条模型路由与外部能力，再执行：
 
 ```bash
-rsync -aH --delete ~/.hermes/ new-host:~/.hermes/
+bash ~/.hermes/hermes-update.sh --reconcile
+bash ~/.hermes/hermes-update.sh --final-audit --json
 ```
 
-也可以用外置磁盘、局域网共享或其他可信方式复制；关键是目标路径保持为新机的 `~/.hermes/`。
-
-#### 3. 在新机恢复可执行环境
-
-先安装基础依赖（见“前置条件”），再重建虚拟环境。即使复制过来的 `venv/` 看起来存在，也建议在新机重建，避免 Python 版本、CPU 架构或动态库路径不一致：
-
-```bash
-cd ~/.hermes/hermes-agent
-rm -rf venv
-rg '^requires-python' pyproject.toml
-PYTHON_VERSION=3.12.7  # 示例：选择任意满足 requires-python 的本机版本
-uv venv --python "$PYTHON_VERSION" venv
-source venv/bin/activate
-uv pip install -e ".[all,feishu]"
-
-mkdir -p ~/.local/bin
-ln -sf ~/.hermes/hermes-agent/venv/bin/hermes ~/.local/bin/hermes
-```
-
-`PYTHON_VERSION` 不写死，按当前 `pyproject.toml` 的约束和本机已安装版本选择即可。2026-05-20 这次新机恢复使用的是本机 `pyenv` 的 `3.12.7`，满足当时上游 `requires-python = ">=3.11"`。
-
-如果使用官方 Vertex Provider，先确认 `.env` 里有服务账号 JSON 路径，且 `config.yaml` 的主模型、fallback 或 auxiliary 路由中存在 `provider: vertex`：
-
-```bash
-rg '^(GOOGLE_APPLICATION_CREDENTIALS|VERTEX_CREDENTIALS_PATH)=' ~/.hermes/.env
-sed -n '1,20p' ~/.hermes/config.yaml
-```
-
-最后安装并启动新机的后台服务：
-
-```bash
-hermes doctor
-hermes gateway install --force
-hermes gateway start
-
-hermes gateway status
-launchctl list | grep -Ei 'hermes'
-```
-
-Vertex OAuth token 由 Hermes 进程内 mint/refresh，不需要任何额外的 LaunchAgent。
-
-迁移完成后，旧机应保持 gateway 卸载状态；如果只是临时切换机器，回切前也按同样流程先停掉当前机器，再启动另一台。
+目标机必须以自己的配置、Gateway PID、sandbox runtime trace、PATCH evidence 和 cleanup 结果形成终态证据；来源机器或另一个 peer 的绿色报告不能借用。只有 final audit 返回 `status=ok`、`mode=full` 后才算迁移完成。若同一 bot 需要回切，先在当前机器排空并停止 Gateway，再启动另一台。
 
 ---
 
@@ -778,6 +729,8 @@ hermes gateway restart             # 重启 gateway 加载插件
 **owner DM 文档插图链**：新任务必须先调用 `feishu_doc_manage(action="read_url", include_images=true)`，把飞书文档插图导出到 `private_doc_workspace_root/<chat-id-hash>/`，再把返回的相对 `image_path` 传给 HyperTeX。bridge 只接受该会话 workspace 内的普通文件并复制到私有 staging；一次性手工目录、旧任务临时路径、任意宿主绝对路径和 symlink 均不属于可信根。
 
 **为什么需要它**：hermes 原生 platform enum 只提供 `feishu`，同一个 Feishu bot 下所有 chat 原本共享一份工具列表。若把 bot 拉进群或被别人加为联系人，对方可以直接让 bot 调 `terminal` / `read_file` 等危险工具。`allowed_chats` 白名单虽然能限制响应范围，但代价是其他会话完全得不到响应；要在"允许其他人聊天/搜索/问图"和"禁止其他人碰系统"之间取折衷，原生配置做不到。本地 `PATCH-FEISHU-GROUP-SCOPE` 让真实 Gateway consumer 按 chat type 选择 `feishu` / `feishu_group` namespace，本插件再通过官方 `pre_gateway_dispatch` + `pre_tool_call` + `post_tool_call` 钩子做调用期纵深裁剪与本轮临时文件授权。
+
+HyperTeX 是可选能力。没有部署独立 HyperTeX 工程的机器必须同时移除 `mcp_servers.hypertex`、`platform_toolsets.feishu_group` 中的 `hypertex`、群工具列表里的 `mcp__hypertex__*` 和对应 trust lists；sandbox verifier 会按根配置判断该 MCP 是否启用，并在禁用时验证这些运行时工具确实不存在。其他群沙盒、飞书文档、图片和图表能力不依赖 HyperTeX MCP。`people.yaml` / `groups.yaml` 只提供合法身份与群的全集，具体权限仍以 `plugins/sandbox/config.yaml` 的显式 trust lists 为权威；verifier 能阻止未知身份、未知群和运行态漂移，但不能替代对 trust-list 扩大的 Git diff 审查。
 
 **机制（要点）**：
 
@@ -1248,7 +1201,7 @@ hermes cron run JOB_ID       # 立即执行一次
 
 `~/.hermes/cron/jobs.json` 是 Hermes 持续读写的 live store，不是稳定的声明式配置：除任务定义外还包含 `last_run_at`、`next_run_at`、执行状态、投递错误和 claim 等运行字段，因此本仓库将它保留在本机并通过 `.gitignore` 排除。需要迁移或备份 Cron 任务时使用 `hermes backup --quick` / `hermes backup` 和 `hermes import`，不要依赖 Git 同步该文件。
 
-当前 `日报和晚安问候` 任务由 `scripts/nightly_greeting.py` 以 no-agent 模式执行。任务首先按中国工作日历判断：周末和法定休息日直接跳过整个流程（调休补班日照常执行），只有显式传入 `--ignore-holiday` 才会绕过；工作日固定顺序为：① 同步飞书组织架构；② 从当日 Hermes 会话提取日报素材并提交日报；③ 向 `groups.yaml` 中未关闭 `nightly_greeting` 的群发送晚安词。晚安词固定为两句两行，第一句中文、第二句英文，两句表达相同的完整含义。组织同步与后两阶段严格隔离：飞书可提供的在职人员、open_id、tenant user_id、岗位、部门、上级等字段以最新完整快照为准，离职人员移除；身份快照要求每人同时具备唯一的 open_id 与 user_id，缺失或重复会整轮拒绝写入；aliases、称谓、背景、沟通偏好及其它飞书无法提供的自定义字段继续保留。同步成功或失败都会单独通知 sandbox 配置中的 owner 私聊；成功只报告新增/移除人员，没有人员变化时也会明确说明同步成功，失败则报告原因。同步失败不会阻断日报和晚安，也不会把同步结果注入日报素材或群发内容；通知首轮发送失败会在日报/晚安阶段后再补发，补发仍失败则将该次 cron 标为失败，不再静默记为成功。dry-run 只写新增/移除人员预览，不覆盖 `people.yaml`。
+当前 `日报和晚安问候` 任务由 `scripts/nightly_greeting.py` 以 no-agent 模式执行。任务首先按中国工作日历判断：周末和法定休息日直接跳过整个流程（调休补班日照常执行），只有显式传入 `--ignore-holiday` 才会绕过；工作日固定顺序为：① 同步飞书组织架构；② 从当日 Hermes 会话提取日报素材并提交日报；③ 向 `groups.yaml` 中未关闭 `nightly_greeting` 的群发送晚安词。晚安词固定为两句两行，第一句中文、第二句英文，两句表达相同的完整含义。组织同步与后两阶段严格隔离：飞书可提供的在职人员、open_id、tenant user_id、岗位、部门、上级等字段以最新完整快照为准，离职人员移除；身份快照要求每人同时具备唯一的 open_id 与 user_id，缺失或重复会整轮拒绝写入；aliases、称谓、背景、沟通偏好及其它飞书无法提供的自定义字段继续保留。人员排序从 `config.yaml` 的唯一 `feishu.assistant_user_ids` 推导置顶 owner，不在共享脚本中硬编码某台机器的 open_id。同步成功或失败都会单独通知 sandbox 配置中的 owner 私聊；成功只报告新增/移除人员，没有人员变化时也会明确说明同步成功，失败则报告原因。同步失败不会阻断日报和晚安，也不会把同步结果注入日报素材或群发内容；通知首轮发送失败会在日报/晚安阶段后再补发，补发仍失败则将该次 cron 标为失败，不再静默记为成功。dry-run 只写新增/移除人员预览，不覆盖 `people.yaml`。
 
 可选参数遵循固定优先级：非工作日守卫最先执行且仅 `--ignore-holiday` 可绕过；`--skip-org-sync`、`--skip-report`、`--skip-greeting` 显式关闭对应阶段，并优先于同阶段的 force 参数；`--force-report`、`--force-greeting` 只绕过当天成功标记；`--dry-run` / `--dryrun` / 位置参数 `dryrun`（或 `dry-run`）只做组织预览并将日报/晚安预览发送到主私聊，不覆盖人员文件、不提交日报、不群发；`--force-dry-run` / `--force-dryrun` 在已有当天预览标记时重新发送；`--date YYYY-MM-DD` 统一决定工作日判断、会话范围和状态键。
 
@@ -1782,7 +1735,7 @@ hermes import hermes_backup_YYYYMMDD_HHMMSS.zip
 
 | 版本               | 日期       | 周摘要                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| v0.20.6            | 2026-09-01 | **2026-W36**：本周未获取新 upstream，内层固定 `11c8c05dc3`，收束 `PATCH-FEISHU-GROUP-SANDBOX` 与一次 post-green toolchain 审计。主会话 Task 62/64 证明“模型参数里有图片路径”不等于 HyperTeX 收到 assets：owner bridge 仍会以 `media=0` 的当前消息附件覆盖显式路径。最终插件 `0.7.11` 将 owner DM 纳入固定 `feishu_doc_manage(read_url, include_images=true)`，图片只落入 `~/.hermes/tmp/feishu-doc-assets/<chat-id-hash>/`，以相对 `image_path` 经路径校验后复制到 HyperTeX 私有 staging；一次性历史目录 `hypertex_doc_assets` 明确拒绝。新增 owner reader、私有 workspace 正例及历史目录/任意外部路径反例，Step 8e 行为测试 117 条。提交前 full evidence 又连续两次在同一四节点组卡满 300 秒，而普通 pytest 仅 6 秒；定位为 trace profiler 每次函数调用重复 `Path.resolve()`，改为按 code filename 缓存 realpath，并以 auditor 负例锁定，未提高超时预算。无新依赖、无内层 bundle 变化，安全边界未扩大。终态维持 **53/53 full PATCH evidence**、**39 files / 1771 passed / 0 failed / 6 skipped**、另有 2 个 test support modules、35 active + 7 archived gates、sandbox/identity-sync **145 passed**。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| v0.20.6            | 2026-09-01 | **2026-W36**：本周未获取新 upstream，内层固定 `11c8c05dc3`，收束 `PATCH-FEISHU-GROUP-SANDBOX` 与一次 post-green toolchain 审计。主会话 Task 62/64 证明“模型参数里有图片路径”不等于 HyperTeX 收到 assets：owner bridge 仍会以 `media=0` 的当前消息附件覆盖显式路径。最终插件 `0.7.11` 将 owner DM 纳入固定 `feishu_doc_manage(read_url, include_images=true)`，图片只落入 `~/.hermes/tmp/feishu-doc-assets/<chat-id-hash>/`，以相对 `image_path` 经路径校验后复制到 HyperTeX 私有 staging；一次性历史目录 `hypertex_doc_assets` 明确拒绝。新增 owner reader、私有 workspace 正例及历史目录/任意外部路径反例，Step 8e 行为测试 117 条。提交前 full evidence 又连续两次在同一四节点组卡满 300 秒，而普通 pytest 仅 6 秒；定位为 trace profiler 每次函数调用重复 `Path.resolve()`，改为按 code filename 缓存 realpath，并以 auditor 负例锁定，未提高超时预算。9 月 2 日进一步把 peer-machine 部署收敛为能力层字段合并：owner 置顶由目标 config 推导，HyperTeX verifier 兼容有/无部署，MCP token 改为 `.env` 引用并新增 literal credential 负例，updater 仅在系统缺少 `uv` 时回退本地 binary。无新依赖、无内层 bundle 变化，安全边界未扩大。终态维持 **53/53 full PATCH evidence**、**39 files / 1771 passed / 0 failed / 6 skipped**、另有 2 个 test support modules、35 active + 7 archived gates、sandbox/identity-sync **147 passed**。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | v0.20.6            | 2026-08-30 | **2026-W35**：upstream `8966b0a700 → 11c8c05dc3`（+499 commits，累计 +1670）。本轮新增 162 commits，重点覆盖 Skills Hub 支持文件/版本固定、`/plan` 内建化、`/busy`/`/btw`、cron 自然语言周期、request overrides 全链路、Anthropic OAuth/adapter、真实浏览器 profile，以及 Alibaba Token Plan、Nebius、Ramp Router；官方默认 SOUL 同步为更直接的响应契约。逐项审计 43 active + 10 archive PATCH：19 active/18 路径、7 archive/11 路径相交，去重 26；仅 `hermes_cli/doctor.py` 发生并存型冲突，保留上游 `TOKENPLAN_API_KEY` 与本地 Azure/Vertex 提示；`PATCH-DOCUMENT-EXTRACTION`、`PATCH-MCP-STDIO-WATCHER-LIFECYCLE` 维持部分吸收，其余无新增吸收/归档。主会话已原地 compact：493 → 265 messages、约 466k → 184k tokens。升级后稳定 Python anchor 首次触发 macOS Documents 授权迁移，Step 8e 连续拒绝缺少 HyperTeX/MCP Tasks 回执的假绿；授权生效后 canonical launchd 重启恢复 5 个工具。深度审计进一步把 MCP 注册回执绑定真实 Gateway PID，防止 doctor/CLI 进程跨进程借绿；后续修复顶部 legend 绕过自动布局、跨 worker 的群聊新建文档同轮媒体授权、批处理消息下的 agent-turn 版本去重、长版本历史续表表头、显式轴上限下 value label 越界，以及远程 sourced 图片由飞书 importer 静默替换为错误占位图的问题。公共图片现必须先经 HTTPS/SSRF/redirect/大小/格式校验 staging 到群 workspace，再走 `insert_image`/`replace_image`；`read_url` 会输出 `[IMAGE_IMPORT_ERRORS]` 阻断视觉假绿。sandbox 注册回执同时绑定 `plugin.yaml` 版本并跨 `agent.log` 轮转文件按时间检索。终态 **39 files / 1771 passed / 0 failed / 6 skipped**，另有 2 个 test support modules；90-file bundle、43 active + 10 archive、35 active + 7 archived gates、53/53 full PATCH evidence、sandbox/identity-sync **127 passed**。配置保持 v39，Doctor 与 cleanup 闭合；npm 仅余 Electron/extract-zip 2 high，为 P2 且不影响飞书主链路。                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | v0.20.5            | 2026-08-23 | **2026-W34**：upstream `8ad055414 → 503d863fcd`（累计 +1625 commits），本轮 +59 commits 后仍收敛在 v0.20.5。主线覆盖 Windows launcher/update 回滚、Desktop/dashboard 更新回执与并发启动保护、DB marker、browser vision 历史复用，以及 Bot Mode、provider picker 和本地后端路由身份收紧。逐项轮询 42 active + 9 archive PATCH：本轮 `fd760435c66..503d863fcd` 仅与 `tools/vision_tools.py` 重叠且 hunk 零交叉，无新增吸收/归档/收缩；`PATCH-DOCUMENT-EXTRACTION` 保持既有部分吸收。最终 **39 files / 1679 passed / 0 failed / 3 skipped**，88-file bundle、34 active + 6 archived gates、42+9 PATCH evidence 全绿；sandbox/identity-sync **60 passed**，Gateway wrapper/child `9115/9123`。Skills mirror `+1/~0/-0`；npm Web 4 high、UI-TUI 3 high 为构建链 P2，上游 `ERESOLVE` 阻挡且不影响飞书主链路，未使用 `--force`；最终 cleanup candidate/review/policy error 为 0。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | v0.20.1            | 2026-08-16 | **2026-W33**：upstream `cd9fbf9f1 → 8ad055414`（周内 +1805 commits）。主线：周初完成 CVE、v34 personality、Gateway route/session、Browser Use、provider/compression 与 Desktop 收敛；随后补齐 `/model`/resume、secrets redaction、Slack streaming、updater 事务/排空和组织同步。本轮新增 compression `tail_mode`、digest/anchor/watermark 与并发 tail 修复，Gateway finalize 离主循环、durable row id、Codex/Claude session import/resume、terminal breadcrumbs，hooks `modify`、computer-use 授权、MCP OAuth DCR secret 和 Desktop Skills/session UI 继续演进。PATCH：周内 **+9 / 2 归档 / 0 收缩**，终态 **37 活跃**；新增 launchd supervisor、ambient credential isolation、configured-only model、三档图片 native、通用音视频/PDF sidecar、附件 path-free/显式失败、群聊 sandbox provenance/mutation/artifact grant，以及 `PATCH-DOCTOR-TEST-NETWORK-ISOLATION`。本轮 74-file bundle clean apply，upstream 仅与 5 个受管文件正交重叠，既有 PATCH **0 吸收 / 0 归档 / 0 收缩**；doctor 单测由 >300s flake 降到 13.7s。最终 **34 files / 1219 passed / 0 failed / 3 skipped**、sandbox **32 passed**，full-index/cached/reverse/index-clean 全绿。配置链保持 `azure-foundry/gpt-5.5 → bedrock/Claude Opus 5 → vertex/google/gemini-3.5-flash`，compression 仍用 Vertex、统一 cap 700k，并显式 `tail_mode: legacy` 保持既有 tail 语义；v37 无迁移。首次 HTTPS acquisition 失败后按 pending-transaction recovery 走进程级 SSH 443 rewrite 固定 `8ad055414`，remote 未改、临时 prompt 文件已清理。官方更新 16 个 bundled skills；npm 仍 6 high，均为 Desktop/web build 链 P2，不影响飞书主链路，禁止 `--force`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |

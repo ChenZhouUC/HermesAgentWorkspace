@@ -25,6 +25,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 import test_patch_evidence as patch_evidence
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 INNER = ROOT / "hermes-agent"
@@ -138,6 +139,31 @@ def _current_week_readme_rows(readme: str, today: date) -> list[str]:
         if (row_iso.year, row_iso.week) == current_key:
             rows.append(line)
     return rows
+
+
+def _validate_tracked_config_secret_refs(config_text: str) -> dict[str, int]:
+    """Reject literal credentials in tracked MCP header configuration."""
+    config = yaml.safe_load(config_text) or {}
+    checked = 0
+    violations: list[str] = []
+    env_ref = r"\$\{(?:env:)?[A-Za-z_][A-Za-z0-9_]*\}"
+    allowed = re.compile(rf"^(?:(?:Bearer|Basic|Token)\s+)?{env_ref}$", re.IGNORECASE)
+    sensitive_name = re.compile(r"authorization|api[-_]?key|token|secret", re.IGNORECASE)
+    for server_name, server in (config.get("mcp_servers") or {}).items():
+        if not isinstance(server, dict):
+            continue
+        for header_name, raw_value in (server.get("headers") or {}).items():
+            if not sensitive_name.search(str(header_name)):
+                continue
+            checked += 1
+            if not allowed.fullmatch(str(raw_value).strip()):
+                violations.append(f"mcp_servers.{server_name}.headers.{header_name}")
+    if violations:
+        raise FinalAuditError(
+            "tracked-config-secrets",
+            f"tracked config contains literal MCP credentials; use ${{env:VAR}}: {sorted(violations)}",
+        )
+    return {"sensitive_mcp_headers": checked, "literal_credentials": 0}
 
 
 def _validate_absorption_matrix(patch_records: list[dict[str, object]], summary_text: str) -> dict[str, int]:
@@ -442,6 +468,7 @@ def _derived_checks(
     patches = (ROOT / "patches/PATCHES.md").read_text(encoding="utf-8")
     playbook = (ROOT / "hermes-update.md").read_text(encoding="utf-8")
     script = UPDATE.read_text(encoding="utf-8")
+    tracked_config_secrets = _validate_tracked_config_secret_refs((ROOT / "config.yaml").read_text(encoding="utf-8"))
 
     days = re.findall(r"(?m)^\|\s*v[^|]*\|\s*(\d{4}-\d{2}-\d{2})\s*\|", readme)
     weeks = [f"{(iso := date.fromisoformat(day).isocalendar()).year}-W{iso.week:02d}" for day in days]
@@ -593,6 +620,7 @@ def _derived_checks(
         "test_support_files": support_count,
         "gate_counts": gate_counts,
         "upgrade_range": upgrade_range,
+        "tracked_config_secrets": tracked_config_secrets,
     }
 
 

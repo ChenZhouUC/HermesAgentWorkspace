@@ -17,8 +17,14 @@ class PeopleMergeTests(unittest.TestCase):
         self.people = self.root / "people.yaml"
         self.draft = self.root / "people.draft.yaml"
         self.merged = self.root / "people.merged.yaml"
+        self.config = self.root / "config.yaml"
+        self.config.write_text(
+            "feishu:\n  assistant_user_ids:\n    - ou_owner\n",
+            encoding="utf-8",
+        )
         self.globals = patch.multiple(
             sync,
+            CONFIG_FILE=self.config,
             PEOPLE_FILE=self.people,
             DRAFT_FILE=self.draft,
             MERGED_FILE=self.merged,
@@ -192,6 +198,37 @@ people:
                 "ou_second": {"user_id": "second_user"},
             }
         )
+
+    def test_roster_sorting_pins_the_owner_from_config(self) -> None:
+        doc = sync.make_yaml().load(
+            """people:
+  - open_id: ou_first
+    user_id: user_first
+    name: First
+    employee_no: WH0001
+  - open_id: ou_owner
+    user_id: user_owner
+    name: Owner
+    employee_no: WH9999
+"""
+        )
+
+        rendered = sync.dump_sorted(sync.make_yaml(), doc)
+        loaded = sync.make_yaml().load(rendered)
+
+        self.assertEqual(loaded["people"][0]["open_id"], "ou_owner")
+
+    def test_owner_config_must_contain_one_open_id(self) -> None:
+        self.config.write_text("feishu:\n  assistant_user_ids: []\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            sync.load_owner_open_id()
+
+        self.config.write_text(
+            "feishu:\n  assistant_user_ids:\n    - tenant_user_id\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(RuntimeError, "app-scoped open_id"):
+            sync.load_owner_open_id()
 
 
 if __name__ == "__main__":

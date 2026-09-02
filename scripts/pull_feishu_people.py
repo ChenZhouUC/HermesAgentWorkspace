@@ -74,12 +74,10 @@ from pathlib import Path
 
 HERMES_HOME = Path(__file__).resolve().parent.parent
 ENV_FILE = HERMES_HOME / ".env"
+CONFIG_FILE = HERMES_HOME / "config.yaml"
 PEOPLE_FILE = HERMES_HOME / "people.yaml"
 DRAFT_FILE = HERMES_HOME / "people.draft.yaml"
 MERGED_FILE = HERMES_HOME / "people.merged.yaml"
-
-# Owner's open_id — always pinned to the top of the sorted file.
-PIN_FIRST = "ou_33eeacfbd0c0559b7b734f83503719ab"
 
 # Canonical field order inside each person entry (drives insert positions).
 FIELD_ORDER = [
@@ -145,6 +143,27 @@ def load_env(path: Path) -> dict:
         if m:
             env[m.group(1)] = m.group(2).strip().strip('"').strip("'")
     return env
+
+
+def load_owner_open_id(path: Path | None = None) -> str:
+    """Read the machine-local owner identity from the Hermes config.
+
+    The roster ordering must follow the target machine's configured owner,
+    rather than a source-machine constant copied during deployment.
+    """
+    import yaml
+
+    config_path = path or CONFIG_FILE
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    owner_ids = (config.get("feishu") or {}).get("assistant_user_ids") or []
+    if len(owner_ids) != 1:
+        raise RuntimeError(
+            "config.yaml must define exactly one feishu.assistant_user_ids owner before people.yaml can be sorted"
+        )
+    owner_open_id = str(owner_ids[0]).strip()
+    if not re.fullmatch(r"ou_[A-Za-z0-9]+", owner_open_id):
+        raise RuntimeError("configured Feishu owner must be an app-scoped open_id (ou_...)")
+    return owner_open_id
 
 
 def build_client():
@@ -564,12 +583,13 @@ def dump_sorted(yaml, doc) -> str:
     seq = doc["people"]
     items = list(seq)
     seq.ca.items.clear()  # drop seq-level comments; re-spaced on output below
+    owner_open_id = load_owner_open_id()
 
     def key(it):
         oid = it.get("open_id") if isinstance(it, dict) else None
         eno = it.get("employee_no") if isinstance(it, dict) else None
         return (
-            0 if oid == PIN_FIRST else 1,
+            0 if oid == owner_open_id else 1,
             eno is None,
             str(eno or ""),
             str((it.get("name") if isinstance(it, dict) else "") or ""),
