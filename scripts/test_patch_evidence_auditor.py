@@ -334,6 +334,79 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                 summary,
             )
 
+    def test_documented_artifact_counts_must_match_full_evidence(self) -> None:
+        evidence_report = {
+            "collected": 42,
+            "probes": {"registered": 7, "executed": 7, "deferred": 0},
+        }
+        summary = "42 collected、7/7 probe；9-file bundle"
+        self.assertEqual(
+            final_audit._validate_documented_artifact_counts(
+                evidence_report,
+                [f"file-{index}" for index in range(9)],
+                summary,
+            ),
+            {
+                "collected": 42,
+                "registered_probes": 7,
+                "executed_probes": 7,
+                "deferred_probes": 0,
+                "bundle_files": 9,
+            },
+        )
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "artifact count drift"):
+            final_audit._validate_documented_artifact_counts(
+                evidence_report,
+                [f"file-{index}" for index in range(9)],
+                "41 collected、7/7 probe；9-file bundle",
+            )
+
+    def test_patch_base_requires_exact_sha_and_utc_timestamp(self) -> None:
+        sha = "a" * 40
+        self.assertEqual(
+            final_audit._parse_patch_base(f"{sha} 2026-09-03T12:34:56Z\n"),
+            (sha, "2026-09-03T12:34:56Z"),
+        )
+        for invalid in (
+            f"{sha}\n",
+            f"{sha} not-a-time\n",
+            f"{sha} 2026-09-03T12:34:56Z\nextra\n",
+        ):
+            with self.assertRaisesRegex(final_audit.FinalAuditError, "must be exactly"):
+                final_audit._parse_patch_base(invalid)
+
+    def test_audit_snapshot_change_is_rejected(self) -> None:
+        before = {"head": "a", "base": "a", "bundle_sha256": "one"}
+        final_audit._validate_audit_snapshot(before, dict(before))
+        with self.assertRaisesRegex(final_audit.FinalAuditError, "inputs changed"):
+            final_audit._validate_audit_snapshot(
+                before,
+                {"head": "b", "base": "a", "bundle_sha256": "one"},
+            )
+
+    def test_dirty_package_lock_requires_matching_review_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_raw:
+            root = Path(temp_raw)
+            lock = root / "package-lock.json"
+            receipt = root / "package-lock.review"
+            lock.write_text('{"lockfileVersion": 3}\n', encoding="utf-8")
+            base_blob = "b" * 40
+            digest = final_audit._sha256_file(lock)
+            receipt.write_text(f"{base_blob} {digest}\n", encoding="utf-8")
+
+            final_audit._validate_reviewed_package_lock(
+                base_blob=base_blob,
+                lock_path=lock,
+                review_path=receipt,
+            )
+            receipt.write_text(f"{'c' * 40} {digest}\n", encoding="utf-8")
+            with self.assertRaisesRegex(final_audit.FinalAuditError, "does not match"):
+                final_audit._validate_reviewed_package_lock(
+                    base_blob=base_blob,
+                    lock_path=lock,
+                    review_path=receipt,
+                )
+
     def test_documented_sandbox_count_must_match_clean_verifier_result(self) -> None:
         summary = "sandbox/identity-sync **60 passed**"
         self.assertEqual(

@@ -88,12 +88,52 @@ people:
         self.assertEqual(active["name"], "New Name")
         self.assertEqual(active["department"], "新部门")
         self.assertNotIn("role", active)
-        self.assertNotIn("manager", active)
+        self.assertEqual(active["manager"], "旧上级")
         self.assertEqual(list(active["aliases"]), ["自定义别名"])
         self.assertEqual(active["address"], "老师")
         self.assertEqual(active["background"], "本地背景")
         self.assertEqual(active["favorite_topic"], "几何")
         self.assertEqual(stat.S_IMODE(self.people.stat().st_mode), 0o600)
+
+    def test_merge_refreshes_app_scoped_open_id_by_tenant_user_id(self) -> None:
+        self.people.write_text(
+            """people:
+  - open_id: ou_old_app
+    user_id: stable_tenant_user
+    name: Existing Person
+    aliases: [保留别名]
+    role: 保留岗位
+    department: 已知部门
+    background: 保留的本地画像
+""",
+            encoding="utf-8",
+        )
+        self.draft.write_text(
+            """generated: 2026-09-03 17:00:00
+people:
+  - open_id: ou_new_app
+    user_id: stable_tenant_user
+    name: Existing Person
+    department: od-redacted123
+    employee_no: WH0001
+    direct_reports: 0
+    total_reports: 0
+""",
+            encoding="utf-8",
+        )
+
+        summary = sync.cmd_merge(SimpleNamespace(apply=True, allow_large_removal=False))
+
+        doc = sync.make_yaml().load(self.people)
+        self.assertEqual(len(doc["people"]), 1)
+        person = doc["people"][0]
+        self.assertEqual(person["open_id"], "ou_new_app")
+        self.assertEqual(person["user_id"], "stable_tenant_user")
+        self.assertEqual(list(person["aliases"]), ["保留别名"])
+        self.assertEqual(person["role"], "保留岗位")
+        self.assertEqual(person["department"], "已知部门")
+        self.assertEqual(person["background"], "保留的本地画像")
+        self.assertEqual(summary, {"added": [], "removed": []})
 
     def test_objective_entry_includes_tenant_user_id(self) -> None:
         entry = sync.objective_entry(

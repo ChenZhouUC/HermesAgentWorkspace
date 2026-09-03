@@ -20,9 +20,11 @@ pull can never clobber the subjective fields you set by hand:
          rewrites it in canonical form after verifying the data is unchanged.
 
 Field policy on merge:
-  Feishu-backed — authoritative. Values are refreshed from the latest complete
-  snapshot; a field omitted by Feishu is removed rather than retaining stale
-  local org data:
+  Feishu-backed — authoritative when the latest snapshot exposes that field
+  for at least one person. Values are refreshed from the latest complete
+  snapshot; an omitted per-person value is removed when the field is available
+  elsewhere in the snapshot, while a field redacted for the entire snapshot is
+  preserved locally rather than erased:
       user_id, name, role, department, employee_no, join_date, tenure,
       manager, direct_reports, total_reports
   Subjective — created blank for new people, NEVER overwritten if already set:
@@ -237,7 +239,14 @@ def collect(client) -> tuple[dict, dict]:
             raise RuntimeError(f"department.get failed for {did}: code={r.code} msg={r.msg}")
         nm = getattr(r.data.department, "name", None)
         if not nm:
-            raise RuntimeError(f"department.get returned no name for {did}")
+            # Some Feishu app scopes expose the department graph and members but
+            # redact department names. Keep the identity snapshot usable (most
+            # importantly open_id/user_id) and make the missing field explicit.
+            nm = did
+            print(
+                f"warning: department.get returned no name for {did}; using the open_department_id",
+                file=sys.stderr,
+            )
         dept_name[did] = nm
         return dept_name[did]
 
@@ -411,6 +420,12 @@ def objective_entry(oid: str, e: dict, dept_name: dict) -> dict:
     out["direct_reports"] = e["direct_reports"]
     out["total_reports"] = e["total_reports"]
     return out
+
+
+def department_names_are_redacted(value) -> bool:
+    """Return true when Feishu exposed only open_department_id values."""
+    parts = [part.strip() for part in str(value or "").split("/") if part.strip()]
+    return bool(parts) and all(re.fullmatch(r"od-[A-Za-z0-9]+", part) for part in parts)
 
 
 # --------------------------------------------------------------------------- #
@@ -681,11 +696,24 @@ def cmd_merge(args):
         doc["people"] = CommentedSeq()
     seq = doc["people"]
     index = {it["open_id"]: it for it in seq if isinstance(it, dict) and it.get("open_id")}
+    user_index = {str(it["user_id"]): it for it in seq if isinstance(it, dict) and it.get("user_id")}
+    draft_user_ids = {str(it["user_id"]) for it in draft.values() if isinstance(it, dict) and it.get("user_id")}
+    available_objective_fields = {
+        field for field in ALWAYS_REFRESH if any(entry.get(field) not in (None, "") for entry in draft.values())
+    }
 
     from ruamel.yaml.comments import CommentedMap
 
-    removed_ids = [oid for oid in index if oid not in draft]
-    removed_people = [{"open_id": oid, "name": str(index[oid].get("name") or "")} for oid in removed_ids]
+    removed_entries = [
+        ent
+        for ent in seq
+        if isinstance(ent, dict)
+        and ent.get("open_id")
+        and ent.get("open_id") not in draft
+        and str(ent.get("user_id") or "") not in draft_user_ids
+    ]
+    removed_ids = [str(ent["open_id"]) for ent in removed_entries]
+    removed_people = [{"open_id": str(ent["open_id"]), "name": str(ent.get("name") or "")} for ent in removed_entries]
     if args.apply and index and removed_ids and not args.allow_large_removal:
         removal_ratio = len(removed_ids) / len(index)
         if removal_ratio > MAX_AUTOMATIC_REMOVAL_RATIO:
@@ -696,15 +724,20 @@ def cmd_merge(args):
                 "contact scope/API completeness, then rerun manually with "
                 "--allow-large-removal if the change is intentional."
             )
-    for ent in list(seq):
-        if isinstance(ent, dict) and ent.get("open_id") in removed_ids:
-            seq.remove(ent)
+    for ent in removed_entries:
+        seq.remove(ent)
     index = {it["open_id"]: it for it in seq if isinstance(it, dict) and it.get("open_id")}
+    user_index = {str(it["user_id"]): it for it in seq if isinstance(it, dict) and it.get("user_id")}
 
     added = updated = 0
     added_people: list[dict[str, str]] = []
     for oid, d in draft.items():
         ent = index.get(oid)
+        if ent is None and d.get("user_id"):
+            # open_id is app-scoped and therefore changes when the same tenant
+            # installs a different Feishu app. Match the stable tenant user_id
+            # so a bot migration refreshes identity without losing local notes.
+            ent = user_index.get(str(d["user_id"]))
         if ent is None:
             ent = CommentedMap()
             ent["open_id"] = oid
@@ -714,12 +747,26 @@ def cmd_merge(args):
             added_people.append({"open_id": oid, "name": str(d.get("name") or "")})
         else:
             updated += 1
+            old_oid = str(ent.get("open_id") or "")
+            if old_oid != oid:
+                upsert(ent, "open_id", oid)
+                index.pop(old_oid, None)
+                index[oid] = ent
         for f in ALWAYS_REFRESH:
             if f in d and d[f] not in (None, ""):
+                if (
+                    f == "department"
+                    and department_names_are_redacted(d[f])
+                    and ent.get("department")
+                    and not department_names_are_redacted(ent["department"])
+                ):
+                    continue
                 upsert(ent, f, d[f])
-            elif f in ent:
+            elif f in ent and f in available_objective_fields:
                 # Feishu-backed fields are authoritative. An omitted latest
-                # value must clear stale local org data rather than preserving it.
+                # value clears stale local data only when this snapshot exposes
+                # that field at all. Field-level permission redaction must not
+                # erase every employee number/role during an app migration.
                 ent.ca.items.pop(f, None)
                 del ent[f]
         if "aliases" not in ent:

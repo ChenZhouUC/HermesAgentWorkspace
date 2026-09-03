@@ -35,12 +35,76 @@ CLEANUP = ROOT / "scripts/cleanup_transient_artifacts.py"
 CLEANUP_POLICY = ROOT / "scripts/cleanup_policy.json"
 WIKI_LINT = ROOT / "scripts/wiki_lint.py"
 _ALLOWED_REVIEWED_INNER_DIRTY = {"package-lock.json": " M"}
+PACKAGE_LOCK_REVIEW = ROOT / "patches/package-lock.review"
 
 
 class FinalAuditError(RuntimeError):
     def __init__(self, step: str, message: str):
         super().__init__(message)
         self.step = step
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _parse_patch_base(text: str) -> tuple[str, str]:
+    match = re.fullmatch(
+        r"([0-9a-f]{40}) (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\n?",
+        text,
+    )
+    if not match:
+        raise FinalAuditError(
+            "derived-docs",
+            "patches/.local-patches.base must be exactly '<sha> <UTC timestamp>'",
+        )
+    return match.group(1), match.group(2)
+
+
+def _audit_snapshot() -> dict[str, str]:
+    base_text = (ROOT / "patches/.local-patches.base").read_text(encoding="utf-8")
+    base_sha, _ = _parse_patch_base(base_text)
+    return {
+        "head": _run("snapshot-head", ["git", "rev-parse", "HEAD"], cwd=INNER).stdout.strip(),
+        "base": base_sha,
+        "base_text_sha256": hashlib.sha256(base_text.encode("utf-8")).hexdigest(),
+        "bundle_sha256": _sha256_file(ROOT / "patches/local-patches.diff"),
+    }
+
+
+def _validate_audit_snapshot(before: dict[str, str], after: dict[str, str]) -> None:
+    if before != after:
+        raise FinalAuditError(
+            "transaction-stability",
+            f"audit inputs changed while the audit was running: before={before} after={after}",
+        )
+
+
+def _validate_reviewed_package_lock(*, base_blob: str, lock_path: Path, review_path: Path) -> None:
+    try:
+        review = review_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise FinalAuditError(
+            "repository-checks",
+            f"dirty package-lock.json has no readable review receipt: {exc}",
+        ) from exc
+    match = re.fullmatch(r"([0-9a-f]{40}) ([0-9a-f]{64})\n?", review)
+    if not match:
+        raise FinalAuditError(
+            "repository-checks",
+            "package-lock review receipt must be exactly '<base blob sha> <sha256>'",
+        )
+    reviewed_base_blob, reviewed_hash = match.groups()
+    current_hash = _sha256_file(lock_path)
+    if reviewed_base_blob != base_blob or reviewed_hash != current_hash:
+        raise FinalAuditError(
+            "repository-checks",
+            "dirty package-lock.json does not match its reviewed base-blob/hash receipt",
+        )
 
 
 def _run(
@@ -402,6 +466,41 @@ def _validate_documented_regression_counts(
     }
 
 
+def _validate_documented_artifact_counts(
+    evidence: dict[str, object],
+    patched_files: list[str],
+    patch_summary: str,
+) -> dict[str, int]:
+    collected = int(evidence.get("collected") or 0)
+    probes = evidence.get("probes") or {}
+    registered = int(probes.get("registered") or 0) if isinstance(probes, dict) else 0
+    executed = int(probes.get("executed") or 0) if isinstance(probes, dict) else 0
+    deferred = int(probes.get("deferred") or 0) if isinstance(probes, dict) else 0
+    expected = {
+        "collected": collected,
+        "registered_probes": registered,
+        "executed_probes": executed,
+        "deferred_probes": deferred,
+        "bundle_files": len(patched_files),
+    }
+    collected_match = re.search(r"(\d+)\s+collected", patch_summary)
+    probe_match = re.search(r"(\d+)/(\d+)\s+probe", patch_summary)
+    bundle_match = re.search(r"(\d+)-file bundle", patch_summary)
+    observed = {
+        "collected": int(collected_match.group(1)) if collected_match else -1,
+        "registered_probes": int(probe_match.group(2)) if probe_match else -1,
+        "executed_probes": int(probe_match.group(1)) if probe_match else -1,
+        "deferred_probes": deferred,
+        "bundle_files": int(bundle_match.group(1)) if bundle_match else -1,
+    }
+    if observed != expected:
+        raise FinalAuditError(
+            "derived-docs",
+            f"PATCHES artifact count drift: observed={observed} expected={expected}",
+        )
+    return expected
+
+
 def _validate_documented_sandbox_count(
     sandbox_passed: int,
     readme_summary: str,
@@ -531,7 +630,7 @@ def _derived_checks(
     if malformed:
         raise FinalAuditError("derived-docs", f"playbook friction table has malformed rows: {malformed}")
 
-    base = (ROOT / "patches/.local-patches.base").read_text(encoding="utf-8").split()[0]
+    base, _base_timestamp = _parse_patch_base((ROOT / "patches/.local-patches.base").read_text(encoding="utf-8"))
     head = _run("head-sha", ["git", "rev-parse", "HEAD"], cwd=INNER).stdout.strip()
     if base != head:
         raise FinalAuditError("derived-docs", f"patch base {base} != inner HEAD {head}")
@@ -578,6 +677,11 @@ def _derived_checks(
         current_summary,
         summary_text,
     )
+    artifact_counts = _validate_documented_artifact_counts(
+        evidence,
+        patched_files,
+        summary_text,
+    )
     sandbox_count = _validate_documented_sandbox_count(
         sandbox_passed,
         current_summary,
@@ -616,6 +720,7 @@ def _derived_checks(
         "patch_counts": patch_counts,
         "evidence_registry": evidence_registry,
         "regression_counts": regression_counts,
+        "artifact_counts": artifact_counts,
         "sandbox_passed": sandbox_count,
         "test_support_files": support_count,
         "gate_counts": gate_counts,
@@ -848,6 +953,15 @@ def _repository_checks(patched_files: list[str]) -> dict[str, object]:
                     "repository-checks",
                     f"reviewed npm lockfile is invalid JSON: {exc}",
                 ) from exc
+            _validate_reviewed_package_lock(
+                base_blob=_run(
+                    "reviewed-lock-base",
+                    ["git", "rev-parse", "HEAD:package-lock.json"],
+                    cwd=INNER,
+                ).stdout.strip(),
+                lock_path=INNER / rel,
+                review_path=PACKAGE_LOCK_REVIEW,
+            )
     _reverify_bundle_after_tests()
     return {
         "inner_overlay_paths": len(patched_files),
@@ -993,6 +1107,7 @@ def main() -> int:
         transaction = _run("transaction-status", ["bash", str(UPDATE), "--transaction-status"]).stdout.strip()
         if transaction != "none":
             raise FinalAuditError("transaction-status", f"unfinished update transaction: {transaction}")
+        audit_snapshot_before = _audit_snapshot()
         _run("bash-syntax", ["bash", "-n", str(UPDATE)])
         _run("patch-gates", ["bash", str(UPDATE), "--self-test-patch-gates"])
 
@@ -1076,6 +1191,16 @@ def main() -> int:
         repository = _repository_checks(patched_files)
         cleanup = _cleanup_final()
         runtime = _gateway_runtime()
+        transaction_after = _run(
+            "transaction-status-final",
+            ["bash", str(UPDATE), "--transaction-status"],
+        ).stdout.strip()
+        if transaction_after != "none":
+            raise FinalAuditError(
+                "transaction-stability",
+                f"update transaction appeared during final audit: {transaction_after}",
+            )
+        _validate_audit_snapshot(audit_snapshot_before, _audit_snapshot())
         outer_workspace_after = _outer_workspace_snapshot()
         _validate_outer_workspace_stability(
             outer_workspace_before,
@@ -1088,8 +1213,8 @@ def main() -> int:
             {
                 "status": "ok",
                 "mode": "full",
-                "target_sha": _run("target-sha", ["git", "rev-parse", "HEAD"], cwd=INNER).stdout.strip(),
-                "transaction": "none",
+                "target_sha": audit_snapshot_before["head"],
+                "transaction": transaction_after,
                 "patch_evidence": evidence,
                 "canonical_patch_tests": canonical_tests,
                 "sandbox": {

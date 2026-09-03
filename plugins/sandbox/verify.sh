@@ -130,7 +130,7 @@ for server_name, server in (root.get("mcp_servers") or {}).items():
                 f"mcp_servers.{server_name}.headers.{header_name} must use an environment reference"
             )
 
-assert manifest.get("version") == "0.7.11"
+assert manifest.get("version") == "0.7.13"
 
 assert people, "people.yaml must contain the active Feishu roster"
 open_ids = [str(person.get("open_id") or "") for person in people if isinstance(person, dict)]

@@ -362,7 +362,51 @@ def discover_artifacts(
     return artifacts, skipped
 
 
-def active_test_processes(policy: dict[str, Any]) -> list[str]:
+def _process_cwd(pid: int) -> Path | None:
+    """Return a live process cwd, ``None`` if it exited, or fail closed."""
+    proc_cwd = Path(f"/proc/{pid}/cwd")
+    if proc_cwd.exists():
+        try:
+            return proc_cwd.resolve(strict=True)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise RuntimeError(f"could not resolve cwd for pid {pid}: {exc}") from exc
+
+    lsof = shutil.which("lsof")
+    if lsof is None:
+        raise RuntimeError("active process cwd probe unavailable: lsof not found")
+    try:
+        result = subprocess.run(
+            [lsof, "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"active process cwd probe failed for pid {pid}: {exc}") from exc
+    if result.returncode != 0:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return None
+        except PermissionError as exc:
+            raise RuntimeError(f"cannot inspect live pid {pid}: {exc}") from exc
+        detail = (result.stderr or result.stdout or "unknown lsof failure").strip()
+        raise RuntimeError(f"active process cwd probe exited {result.returncode} for pid {pid}: {detail[:500]}")
+    for line in result.stdout.splitlines():
+        if line.startswith("n") and len(line) > 1:
+            return Path(line[1:]).resolve()
+    raise RuntimeError(f"active process cwd probe returned no cwd for live pid {pid}")
+
+
+def active_test_processes(policy: dict[str, Any], root: Path | None = None) -> list[str]:
+    """Return matching processes that can touch this Hermes workspace.
+
+    Generic process names such as pytest, codex, claude, gemini, and qwen are
+    common across unrelated workspaces. They block cleanup only when their cwd
+    is inside this Hermes root or their argv explicitly references the root.
+    """
     try:
         result = subprocess.run(
             ["ps", "-axo", "pid=,command="],
@@ -370,9 +414,14 @@ def active_test_processes(policy: dict[str, Any]) -> list[str]:
             capture_output=True,
             text=True,
         )
-    except OSError:
-        return []
+    except OSError as exc:
+        raise RuntimeError(f"active process probe failed: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "unknown ps failure").strip()
+        raise RuntimeError(f"active process probe exited {result.returncode}: {detail[:500]}")
     markers = [str(value).lower() for value in policy["active_process_markers"]]
+    scoped_root = (root or Path.cwd()).expanduser().resolve()
+    root_marker = str(scoped_root).lower()
     current_pid = os.getpid()
     active: list[str] = []
     for line in result.stdout.splitlines():
@@ -385,7 +434,13 @@ def active_test_processes(policy: dict[str, Any]) -> list[str]:
         if pid == current_pid:
             continue
         lowered = command.lower()
-        if any(marker in lowered for marker in markers):
+        if not any(marker in lowered for marker in markers):
+            continue
+        if root_marker in lowered:
+            active.append(stripped[:500])
+            continue
+        cwd = _process_cwd(pid)
+        if cwd is not None and _is_within(cwd, scoped_root):
             active.append(stripped[:500])
     return active
 
@@ -435,7 +490,14 @@ def run(args: argparse.Namespace, *, processes: list[str] | None = None) -> tupl
         ignored_audit,
         min_age_seconds=max(0.0, args.min_age_minutes * 60),
     )
-    active = active_test_processes(policy) if processes is None else processes
+    if processes is None:
+        try:
+            active = active_test_processes(policy, root)
+        except RuntimeError as exc:
+            active = []
+            policy_errors.append(str(exc))
+    else:
+        active = processes
     script_reviews = [item for item in script_audit if item.classification == "review"]
     ignored_reviews = [item for item in ignored_audit if item.classification == "review"]
     trash_dir: Path | None = None

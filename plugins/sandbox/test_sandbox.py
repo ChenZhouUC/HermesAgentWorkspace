@@ -4,7 +4,9 @@ import json
 import struct
 import subprocess
 import sys
+import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -121,6 +123,7 @@ def group_config(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "_EPHEMERAL_READ_PATHS_BY_CHAT", {})
     monkeypatch.setattr(sandbox, "_TURN_RESOURCE_REFS_BY_KEY", {})
     monkeypatch.setattr(sandbox, "_TURN_PUBLIC_URLS_BY_KEY", {})
+    monkeypatch.setattr(sandbox, "_TURN_CAPABILITY_CLAIMS_BY_KEY", {}, raising=False)
     sandbox._current_platform.set("feishu")
     sandbox._current_chat_id.set("group-one")
     sandbox._current_chat_type.set("group")
@@ -134,6 +137,8 @@ def group_config(tmp_path, monkeypatch):
     sandbox._current_image_generation_call_count.set(0)
     sandbox._current_chart_generation_call_count.set(0)
     sandbox._current_tool_turn_id.set("")
+    if hasattr(sandbox, "_current_dispatch_turn_id"):
+        sandbox._current_dispatch_turn_id.set("")
     return {
         "workspace_root": workspace_root,
         "private_doc_workspace_root": private_doc_workspace_root,
@@ -317,6 +322,69 @@ def test_group_feishu_reads_require_current_message_reference(group_config):
         "action": "block",
         "message": sandbox._RESOURCE_BLOCK_MESSAGE,
     }
+
+
+def test_group_feishu_markdown_resource_link_survives_adjacent_cjk_text(group_config):
+    token = "KrM9slePXh6aeztKgyBc44LVnIc"
+    url = f"https://whales.feishu.cn/sheets/{token}"
+    event = SimpleNamespace(
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="feishu"),
+            chat_id="group-one",
+            chat_type="group",
+            user_id="member-user",
+        ),
+        text=f"[理想-私有化部署清单 - 飞书云文档]({url})根据这个清单给出建议",
+        reply_to_text="",
+        channel_context="",
+    )
+    sandbox._on_pre_gateway_dispatch(event)
+
+    assert url in sandbox._current_resource_refs.get()
+    assert token in sandbox._current_resource_refs.get()
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name="feishu_doc_manage",
+            args={"action": "read_url", "url": url},
+        )
+        is None
+    )
+    assert sandbox._on_pre_tool_call(
+        tool_name="feishu_doc_manage",
+        args={"action": "read_url", "url": "https://whales.feishu.cn/sheets/OtherSheetToken"},
+    ) == {"action": "block", "message": sandbox._RESOURCE_BLOCK_MESSAGE}
+
+
+def test_group_feishu_bare_resource_link_survives_adjacent_cjk_text_without_trusting_history(group_config):
+    token = "KrM9slePXh6aeztKgyBc44LVnIc"
+    url = f"https://whales.feishu.cn/sheets/{token}"
+    historical_url = "https://whales.feishu.cn/sheets/HistoricalSheetToken"
+    event = SimpleNamespace(
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="feishu"),
+            chat_id="group-one",
+            chat_type="group",
+            user_id="member-user",
+        ),
+        text=f"{url}根据这个清单给出建议",
+        reply_to_text="",
+        channel_context=f"较早的消息引用了 {historical_url}",
+    )
+    sandbox._on_pre_gateway_dispatch(event)
+
+    assert url in sandbox._current_resource_refs.get()
+    assert token in sandbox._current_resource_refs.get()
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name="feishu_doc_manage",
+            args={"action": "read_url", "url": url},
+        )
+        is None
+    )
+    assert sandbox._on_pre_tool_call(
+        tool_name="feishu_doc_manage",
+        args={"action": "read_url", "url": historical_url},
+    ) == {"action": "block", "message": sandbox._RESOURCE_BLOCK_MESSAGE}
 
 
 def test_group_doc_writes_allow_members_but_delete_requires_trusted_user(group_config):
@@ -1130,6 +1198,62 @@ def test_trusted_group_hypertex_allows_one_call_per_inbound_turn(group_config):
     ) == {"action": "block", "message": sandbox._HYPERTEX_ONE_CALL_MESSAGE}
 
 
+@pytest.mark.parametrize(
+    ("tool_name", "args_factory", "block_message"),
+    [
+        (sandbox._HYPERTEX_TASK_TOOL, lambda: {"task_id": "task-1"}, sandbox._HYPERTEX_ONE_CALL_MESSAGE),
+        (sandbox._IMAGE_TOOL, lambda: {"prompt": "draw"}, sandbox._GROUP_IMAGE_ONE_CALL_MESSAGE),
+        (
+            sandbox._CHART_TOOL,
+            lambda: {"title": "Trend", "labels": ["A"], "series": [{"name": "Value", "values": [1]}]},
+            sandbox._GROUP_CHART_ONE_CALL_MESSAGE,
+        ),
+    ],
+)
+def test_per_turn_capability_claim_is_atomic_across_worker_contexts(
+    group_config,
+    tool_name,
+    args_factory,
+    block_message,
+):
+    source = SimpleNamespace(
+        platform=SimpleNamespace(value="feishu"),
+        chat_id="group-one",
+        chat_type="group",
+        user_id="trusted-user",
+    )
+    sandbox._on_pre_gateway_dispatch(
+        SimpleNamespace(source=source, text="run", reply_to_text="", channel_context="", media_urls=[])
+    )
+    contexts = [contextvars.copy_context(), contextvars.copy_context()]
+    barrier = threading.Barrier(2)
+
+    def invoke(index):
+        def call():
+            barrier.wait(timeout=5)
+            return sandbox._on_pre_tool_call(
+                tool_name=tool_name,
+                args=args_factory(),
+                turn_id="shared-turn",
+            )
+
+        return contexts[index].run(call)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(invoke, range(2)))
+
+    assert results.count(None) == 1
+    assert results.count({"action": "block", "message": block_message}) == 1
+    assert (
+        sandbox._on_pre_tool_call(
+            tool_name=tool_name,
+            args=args_factory(),
+            turn_id="next-turn",
+        )
+        is None
+    )
+
+
 def test_outsider_dm_keeps_safe_base_allowlist(group_config):
     sandbox._current_chat_id.set("outsider-dm")
     sandbox._current_chat_type.set("private")
@@ -1881,6 +2005,82 @@ def test_trusted_script_output_redacts_feishu_credentials():
     assert redacted.count("[REDACTED]") == 3
 
 
+@pytest.mark.parametrize(
+    ("args", "stdout_factory", "expected_relative"),
+    [
+        (
+            {"action": "create", "title": "Test", "content": "# Body"},
+            lambda workspace, argv: f"Uploading {argv[0]}...\nDONE: https://whales.feishu.cn/docx/doxcnCreatedToken\n",
+            "feishu_",
+        ),
+        (
+            {"action": "download_file", "url": "https://whales.feishu.cn/file/FileToken123"},
+            lambda workspace, _argv: (
+                f"{workspace / 'report.xlsx'}\n\n下载完成。用 read_file 抽取内容:\n"
+                f'  read_file("{workspace / "report.xlsx"}")\n'
+            ),
+            "report.xlsx",
+        ),
+        (
+            {"action": "read_url", "url": "https://whales.feishu.cn/file/FileToken123"},
+            lambda workspace, _argv: f"文件已下载到: {workspace / 'report.xlsx'}\n\nSheet content",
+            "report.xlsx",
+        ),
+    ],
+)
+def test_group_fixed_script_stdout_uses_only_relative_workspace_paths(
+    group_config,
+    monkeypatch,
+    args,
+    stdout_factory,
+    expected_relative,
+):
+    workspace = sandbox._workspace_for_chat("group-one")
+    url = args.get("url")
+    if url:
+        sandbox._current_resource_refs.set(sandbox._resource_ref_candidates(url))
+
+    def fake_run(_script, argv, actual_workspace):
+        assert actual_workspace == workspace
+        return subprocess.CompletedProcess([], 0, stdout_factory(workspace, argv), "")
+
+    monkeypatch.setattr(sandbox, "_run_trusted_script", fake_run)
+    result = _result(sandbox._handle_feishu_doc_manage(dict(args)))
+
+    assert result["success"] is True
+    assert expected_relative in result["stdout"]
+    assert str(workspace) not in result["stdout"]
+
+
+def test_group_slides_reader_reports_explicit_unsupported_status(group_config, monkeypatch):
+    url = "https://whales.feishu.cn/slides/RFgisuPWylnGhodv48hcvmU3nm2"
+    sandbox._current_resource_refs.set(sandbox._resource_ref_candidates(url))
+
+    def fake_run(_script, _argv, _workspace):
+        return subprocess.CompletedProcess(
+            [],
+            2,
+            json.dumps(
+                {
+                    "success": False,
+                    "status": "unsupported",
+                    "resource_type": "slides",
+                    "error": "飞书原生 Slides 暂不支持直接读取；请导出为 PPTX 或 PDF 后重新发送。",
+                },
+                ensure_ascii=False,
+            ),
+            "",
+        )
+
+    monkeypatch.setattr(sandbox, "_run_trusted_script", fake_run)
+    result = _result(sandbox._handle_feishu_doc_manage({"action": "read_url", "url": url}))
+
+    assert result["success"] is False
+    assert result["status"] == "unsupported"
+    assert result["resource_type"] == "slides"
+    assert result["returncode"] == 2
+
+
 def test_upload_failure_traceback_does_not_leak_tenant_token(monkeypatch, tmp_path):
     scripts_root = Path(__file__).resolve().parents[2] / "my-skills/productivity/feishu-docs/scripts"
     monkeypatch.syspath_prepend(str(scripts_root))
@@ -2601,7 +2801,7 @@ def test_chart_renderer_rejects_misaligned_series(tmp_path):
 
 
 def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
-    assert sandbox._PLUGIN_VERSION == "0.7.11"
+    assert sandbox._PLUGIN_VERSION == "0.7.13"
     assert sandbox._load_config() is True
     assert sandbox._OWNER_CHAT_IDS
     assert sandbox._PRIVATE_DOC_WORKSPACE_ROOT is not None

@@ -29,7 +29,7 @@ from pathlib import Path
 
 import feishu_common as fc
 
-_KINDS = ("docx", "docs", "wiki", "sheets", "base", "file")
+_KINDS = ("docx", "docs", "wiki", "sheets", "base", "file", "slides")
 _MAX_EXTRACTED_CHARS = 40_000
 _IMPORT_ERROR_IMAGE_SHA256 = "c1263eb516bd6c4b27772fd159fd3f3a38ff8dbf5df04c7c3f97e2afd4b909cc"
 _DEFAULT_DOC_IMAGE_LIMIT = 20
@@ -51,6 +51,12 @@ _PLAIN_TEXT_EXTENSIONS = {
     ".sh",
     ".ts",
 }
+
+
+class UnsupportedFeishuResource(ValueError):
+    def __init__(self, resource_type, message):
+        super().__init__(message)
+        self.resource_type = resource_type
 
 
 def detect_kind(url):
@@ -341,7 +347,10 @@ def read_url(url, *, include_images=False):
             from read_bitable import read_bitable
 
             return read_bitable(obj_token)
-        return f"(wiki 节点指向暂不支持的类型 obj_type={obj_type}, token={obj_token})"
+        raise UnsupportedFeishuResource(
+            str(obj_type or "unknown"),
+            f"wiki 节点指向暂不支持的类型 obj_type={obj_type}, token={obj_token}",
+        )
     if kind == "sheets":
         from read_sheet import read_sheet
 
@@ -356,12 +365,41 @@ def read_url(url, *, include_images=False):
         path = download_file(url)
         content = _read_downloaded_file(path)
         return f"文件已下载到: {path}\n\n{content}"
-    return f"(无法识别的飞书链接类型: {url}\n支持: /docx /docs /wiki /sheets /base /file)"
+    if kind == "slides":
+        raise UnsupportedFeishuResource(
+            "slides",
+            "飞书原生 Slides 暂不支持直接读取；请导出为 PPTX 或 PDF 后重新发送。",
+        )
+    raise UnsupportedFeishuResource(
+        "unknown",
+        "无法识别的飞书链接类型；支持: /docx /docs /wiki /sheets /base /file",
+    )
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    positional = [arg for arg in argv if arg != "--include-images"]
+    if len(positional) != 1:
+        print("Usage: python read_feishu_url.py <feishu_url> [--include-images]")
+        return 1
+    try:
+        output = read_url(positional[0], include_images="--include-images" in argv)
+    except UnsupportedFeishuResource as exc:
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "status": "unsupported",
+                    "resource_type": exc.resource_type,
+                    "error": str(exc),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 2
+    print(output)
+    return 0
 
 
 if __name__ == "__main__":
-    positional = [arg for arg in sys.argv[1:] if arg != "--include-images"]
-    if len(positional) != 1:
-        print("Usage: python read_feishu_url.py <feishu_url> [--include-images]")
-        sys.exit(1)
-    print(read_url(positional[0], include_images="--include-images" in sys.argv[1:]))
+    sys.exit(main())

@@ -48,7 +48,7 @@ from urllib.parse import urlparse
 import yaml
 
 logger = logging.getLogger(__name__)
-_PLUGIN_VERSION = "0.7.11"
+_PLUGIN_VERSION = "0.7.13"
 
 
 _current_chat_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -88,6 +88,9 @@ _current_chart_generation_call_count: contextvars.ContextVar[int] = contextvars.
     "sandbox_current_chart_generation_call_count", default=0
 )
 _current_tool_turn_id: contextvars.ContextVar[str] = contextvars.ContextVar("sandbox_current_tool_turn_id", default="")
+_current_dispatch_turn_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "sandbox_current_dispatch_turn_id", default=""
+)
 
 
 _CONFIG_LOADED = False
@@ -174,6 +177,12 @@ _DOC_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{5,200}$")
 # _resource_ref_candidates(), preserving ordinary bare-link handling.
 _FEISHU_URL_RE = re.compile(r"https://[^\s<>\"'\]]+")
 _PUBLIC_HTTPS_URL_RE = re.compile(r"https://[^\s<>\"'\]]+")
+_MARKDOWN_HTTPS_TARGET_RE = re.compile(r"\]\(\s*(https://[^\s<>\"')]+)\s*\)")
+_FEISHU_RESOURCE_URL_RE = re.compile(
+    r"https://(?:[A-Za-z0-9-]+\.)*(?:feishu\.cn|larksuite\.com)/"
+    r"(?:docx|docs|wiki|sheets|base|file|slides)/[A-Za-z0-9_-]{5,200}"
+    r"(?=$|[^A-Za-z0-9_-])"
+)
 _EXPLICIT_TOKEN_RE = re.compile(r"(?i)\b(?:doc_token|file_token)\s*[:=]\s*([A-Za-z0-9_-]{5,200})")
 _TRUST_REQUIRED_SCRIPT_ACTIONS = frozenset({"delete"})
 _EXPLICIT_TARGET_SCRIPT_ACTIONS = frozenset(
@@ -190,6 +199,9 @@ _TURN_RESOURCE_REFS_MAX_ENTRIES = 512
 _TURN_PUBLIC_URLS_BY_KEY: Dict[Tuple[str, str], FrozenSet[str]] = {}
 _TURN_PUBLIC_URLS_LOCK = threading.Lock()
 _TURN_PUBLIC_URLS_MAX_ENTRIES = 512
+_TURN_CAPABILITY_CLAIMS_BY_KEY: Dict[Tuple[str, str, str], float] = {}
+_TURN_CAPABILITY_CLAIMS_LOCK = threading.Lock()
+_TURN_CAPABILITY_CLAIMS_MAX_ENTRIES = 2048
 _BEARER_OUTPUT_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _SECRET_OUTPUT_RE = re.compile(
     r"""(?ix)
@@ -680,6 +692,19 @@ def _redact_tool_output(value: str) -> str:
     return _SECRET_OUTPUT_RE.sub(r"\1[REDACTED]", text)
 
 
+def _redact_workspace_output(value: str, workspace: Path) -> str:
+    """Redact secrets and render workspace-local absolute paths as relative paths."""
+    text = _redact_tool_output(value)
+    roots = {
+        str(workspace.absolute()).rstrip(os.sep),
+        str(workspace.resolve(strict=False)).rstrip(os.sep),
+    }
+    for root in sorted((item for item in roots if item), key=len, reverse=True):
+        text = text.replace(root + os.sep, "")
+        text = re.sub(rf"{re.escape(root)}(?=$|[\s\"'])", ".", text)
+    return text
+
+
 def _coerce_chat_ids(raw: Any) -> Set[str]:
     if raw is None:
         return set()
@@ -959,14 +984,43 @@ def _stage_current_hypertex_assets(extra_sources: Tuple[Path, ...] = tuple()) ->
     return result
 
 
-def _prepare_hypertex_call(tool_name: str, args: Any) -> Optional[Dict[str, Any]]:
+def _claim_turn_capability(capability: str, *, turn_id: str = "") -> bool:
+    """Atomically claim one capability for a chat turn across worker contexts."""
+    chat_id = str(_current_chat_id.get() or "").strip()
+    resolved_turn_id = str(turn_id or _current_tool_turn_id.get() or _current_dispatch_turn_id.get() or "").strip()
+    if chat_id and resolved_turn_id:
+        key = (chat_id, resolved_turn_id, capability)
+        with _TURN_CAPABILITY_CLAIMS_LOCK:
+            if key in _TURN_CAPABILITY_CLAIMS_BY_KEY:
+                return False
+            _TURN_CAPABILITY_CLAIMS_BY_KEY[key] = time.monotonic()
+            while len(_TURN_CAPABILITY_CLAIMS_BY_KEY) > _TURN_CAPABILITY_CLAIMS_MAX_ENTRIES:
+                oldest = next(iter(_TURN_CAPABILITY_CLAIMS_BY_KEY))
+                _TURN_CAPABILITY_CLAIMS_BY_KEY.pop(oldest, None)
+        return True
+
+    # Hooks outside a gateway dispatch may not have a stable turn id. Preserve
+    # the legacy single-context boundary for those callers; real gateway turns
+    # use the shared atomic map above.
+    counters = {
+        "hypertex": _current_hypertex_call_count,
+        "image": _current_image_generation_call_count,
+        "chart": _current_chart_generation_call_count,
+    }
+    counter = counters[capability]
+    if counter.get() >= 1:
+        return False
+    counter.set(1)
+    return True
+
+
+def _prepare_hypertex_call(tool_name: str, args: Any, *, turn_id: str = "") -> Optional[Dict[str, Any]]:
     if tool_name not in _HYPERTEX_TOOLS:
         return None
     if not isinstance(args, dict):
         return {"action": "block", "message": "HyperTeX 工具参数格式无效，请重新提交。"}
-    if _current_hypertex_call_count.get() >= 1:
+    if not _claim_turn_capability("hypertex", turn_id=turn_id):
         return {"action": "block", "message": _HYPERTEX_ONE_CALL_MESSAGE}
-    _current_hypertex_call_count.set(1)
 
     if tool_name in {_HYPERTEX_CREATE_TOOL, _HYPERTEX_ITERATE_TOOL}:
         extra_sources: Tuple[Path, ...] = tuple()
@@ -1747,7 +1801,15 @@ def _resource_ref_candidates(value: Any) -> FrozenSet[str]:
     host = (parsed.hostname or "").lower()
     if parsed.scheme == "https" and (host.endswith(".feishu.cn") or host.endswith(".larksuite.com")):
         refs.add(f"https://{host}{parsed.path.rstrip('/')}")
-        for marker in ("/docx/", "/docs/", "/file/"):
+        for marker in (
+            "/docx/",
+            "/docs/",
+            "/wiki/",
+            "/sheets/",
+            "/base/",
+            "/file/",
+            "/slides/",
+        ):
             if marker in parsed.path:
                 token = parsed.path.split(marker, 1)[1].split("/", 1)[0]
                 if _DOC_TOKEN_RE.fullmatch(token):
@@ -1755,6 +1817,24 @@ def _resource_ref_candidates(value: Any) -> FrozenSet[str]:
     elif _DOC_TOKEN_RE.fullmatch(text):
         refs.add(text)
     return frozenset(refs)
+
+
+def _https_urls_from_text(value: Any, pattern: re.Pattern[str]) -> FrozenSet[str]:
+    """Return bare URLs plus exact Markdown link destinations.
+
+    A normalized Feishu message can place CJK prose immediately after a
+    Markdown link's closing parenthesis.  The broad bare-URL matcher then sees
+    ``https://.../TOKEN)正文`` as one token.  Parse the Markdown destination as
+    an additional exact candidate instead of weakening provenance checks or
+    globally treating arbitrary historical text as trusted.
+    """
+    if not isinstance(value, str):
+        return frozenset()
+    return frozenset(
+        set(pattern.findall(value))
+        | set(_MARKDOWN_HTTPS_TARGET_RE.findall(value))
+        | set(_FEISHU_RESOURCE_URL_RE.findall(value))
+    )
 
 
 def _event_resource_refs(event: Any) -> FrozenSet[str]:
@@ -1767,7 +1847,7 @@ def _event_resource_refs(event: Any) -> FrozenSet[str]:
         value = getattr(event, attr, None)
         if not isinstance(value, str):
             continue
-        for url in _FEISHU_URL_RE.findall(value):
+        for url in _https_urls_from_text(value, _FEISHU_URL_RE):
             refs.update(_resource_ref_candidates(url))
         for token in _EXPLICIT_TOKEN_RE.findall(value):
             refs.add(token)
@@ -1825,7 +1905,7 @@ def _normalize_public_url(value: Any) -> str:
 def _public_urls_from_text(value: Any) -> FrozenSet[str]:
     if not isinstance(value, str):
         return frozenset()
-    urls = {_normalize_public_url(item) for item in _PUBLIC_HTTPS_URL_RE.findall(value)}
+    urls = {_normalize_public_url(item) for item in _https_urls_from_text(value, _PUBLIC_HTTPS_URL_RE)}
     return frozenset(item for item in urls if item)
 
 
@@ -1890,7 +1970,7 @@ def _successful_created_doc_refs(result: Any) -> FrozenSet[str]:
     for token in re.findall(r"(?m)^Doc created:\s*([A-Za-z0-9_-]{5,200})\b", stdout):
         if _DOC_TOKEN_RE.fullmatch(token):
             refs.add(token)
-    for url in _FEISHU_URL_RE.findall(stdout):
+    for url in _https_urls_from_text(stdout, _FEISHU_URL_RE):
         parsed = urlparse(url.rstrip(".,;:!?)]}>"))
         if "/docx/" in parsed.path:
             refs.update(_resource_ref_candidates(url))
@@ -2238,8 +2318,8 @@ def _handle_feishu_doc_manage(args: Dict[str, Any], **_kwargs: Any) -> str:
         actor,
         result.returncode,
     )
-    stdout = _redact_tool_output(result.stdout[-_MAX_TOOL_OUTPUT_CHARS:])
-    stderr = _redact_tool_output(result.stderr[-_MAX_TOOL_OUTPUT_CHARS:])
+    stdout = _redact_workspace_output(result.stdout[-_MAX_TOOL_OUTPUT_CHARS:], workspace)
+    stderr = _redact_workspace_output(result.stderr[-_MAX_TOOL_OUTPUT_CHARS:], workspace)
     if action == "stage_image_urls":
         try:
             payload = json.loads(stdout)
@@ -2262,6 +2342,22 @@ def _handle_feishu_doc_manage(args: Dict[str, Any], **_kwargs: Any) -> str:
                 action=action,
                 images=verified,
                 total_bytes=payload.get("total_bytes"),
+                workspace_id=_workspace_id(chat_id),
+            )
+    if action == "read_url" and result.returncode != 0:
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict) and payload.get("status") == "unsupported":
+            return _json_result(
+                success=False,
+                status="unsupported",
+                action=action,
+                script=script.name,
+                returncode=result.returncode,
+                resource_type=payload.get("resource_type"),
+                error=payload.get("error"),
                 workspace_id=_workspace_id(chat_id),
             )
     return _json_result(
@@ -2526,6 +2622,7 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
         _current_image_generation_call_count.set(0)
         _current_chart_generation_call_count.set(0)
         _current_tool_turn_id.set("")
+        _current_dispatch_turn_id.set("")
         return None
     source = event.source
     source_chat_id = str(getattr(source, "chat_id", None) or "")
@@ -2553,6 +2650,13 @@ def _on_pre_gateway_dispatch(event: Any = None, **_kwargs: Any) -> Optional[Dict
     _current_image_generation_call_count.set(0)
     _current_chart_generation_call_count.set(0)
     _current_tool_turn_id.set("")
+    event_turn_id = str(
+        getattr(event, "turn_id", None)
+        or getattr(event, "message_id", None)
+        or getattr(event, "event_id", None)
+        or f"dispatch-{time.monotonic_ns()}-{id(event)}"
+    ).strip()
+    _current_dispatch_turn_id.set(event_turn_id)
     return None
 
 
@@ -2595,7 +2699,7 @@ def _on_pre_tool_call(
 
     chat_id = str(_current_chat_id.get() or "")
     if chat_id in _OWNER_CHAT_IDS:
-        hypertex_directive = _prepare_hypertex_call(tool_name, args)
+        hypertex_directive = _prepare_hypertex_call(tool_name, args, turn_id=turn_id)
         if hypertex_directive is not None:
             return hypertex_directive
         return _owner_terminal_turn_directive(tool_name, args, turn_id)
@@ -2621,20 +2725,18 @@ def _on_pre_tool_call(
                     sorted(_current_actor_ids()),
                 )
                 return {"action": "block", "message": _HYPERTEX_GROUP_BLOCK_MESSAGE}
-            return _prepare_hypertex_call(tool_name, args)
+            return _prepare_hypertex_call(tool_name, args, turn_id=turn_id)
         if tool_name == _IMAGE_TOOL:
             if not _group_image_chat_allowed(chat_id):
                 return {"action": "block", "message": _GROUP_IMAGE_CHAT_BLOCK_MESSAGE}
-            if _current_image_generation_call_count.get() >= 1:
+            if not _claim_turn_capability("image", turn_id=turn_id):
                 return {"action": "block", "message": _GROUP_IMAGE_ONE_CALL_MESSAGE}
-            _current_image_generation_call_count.set(1)
             return None
         if tool_name == _CHART_TOOL:
             if not _group_chart_chat_allowed(chat_id):
                 return {"action": "block", "message": _GROUP_CHART_CHAT_BLOCK_MESSAGE}
-            if _current_chart_generation_call_count.get() >= 1:
+            if not _claim_turn_capability("chart", turn_id=turn_id):
                 return {"action": "block", "message": _GROUP_CHART_ONE_CALL_MESSAGE}
-            _current_chart_generation_call_count.set(1)
             return None
         if tool_name in _READ_PATH_TOOLS:
             if (

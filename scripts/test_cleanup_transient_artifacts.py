@@ -9,6 +9,7 @@ import time
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -57,6 +58,81 @@ def args_for(root: Path, policy: Path, trash: Path, *, apply: bool, fail_on_revi
 
 
 class CleanupTransientArtifactsTest(unittest.TestCase):
+    def test_active_process_probe_rejects_nonzero_ps(self) -> None:
+        failed = subprocess.CompletedProcess(args=["ps"], returncode=1, stdout="", stderr="permission denied")
+        with patch.object(cleanup.subprocess, "run", return_value=failed):
+            with self.assertRaisesRegex(RuntimeError, "permission denied"):
+                cleanup.active_test_processes({"active_process_markers": ["pytest"]})
+
+    def test_active_process_probe_ignores_agents_in_other_workspaces(self) -> None:
+        ps = subprocess.CompletedProcess(
+            args=["ps"],
+            returncode=0,
+            stdout="101 codex exec review\n102 qwen review\n",
+            stderr="",
+        )
+        root = Path("/Users/test/.hermes")
+        with (
+            patch.object(cleanup.subprocess, "run", return_value=ps),
+            patch.object(
+                cleanup,
+                "_process_cwd",
+                side_effect=lambda pid: Path(f"/Users/test/other-{pid}"),
+            ),
+        ):
+            active = cleanup.active_test_processes({"active_process_markers": ["codex", "qwen"]}, root)
+
+        self.assertEqual(active, [])
+
+    def test_active_process_probe_keeps_workspace_scoped_agent(self) -> None:
+        ps = subprocess.CompletedProcess(
+            args=["ps"],
+            returncode=0,
+            stdout="101 claude review\n102 pytest -q /Users/test/.hermes/tests\n",
+            stderr="",
+        )
+        root = Path("/Users/test/.hermes")
+        with (
+            patch.object(cleanup.subprocess, "run", return_value=ps),
+            patch.object(cleanup, "_process_cwd", return_value=root / "hermes-agent"),
+        ):
+            active = cleanup.active_test_processes({"active_process_markers": ["pytest", "claude"]}, root)
+
+        self.assertEqual(len(active), 2)
+
+    def test_active_process_cwd_probe_failure_is_not_treated_as_external(self) -> None:
+        ps = subprocess.CompletedProcess(args=["ps"], returncode=0, stdout="101 pytest -q\n", stderr="")
+        with (
+            patch.object(cleanup.subprocess, "run", return_value=ps),
+            patch.object(
+                cleanup,
+                "_process_cwd",
+                side_effect=RuntimeError("cwd unavailable"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "cwd unavailable"):
+                cleanup.active_test_processes({"active_process_markers": ["pytest"]}, Path("/tmp/hermes"))
+
+    def test_apply_fails_closed_when_process_probe_errors(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as root_raw,
+            tempfile.TemporaryDirectory() as trash_raw,
+        ):
+            root = Path(root_raw)
+            trash = Path(trash_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            policy_path = write_policy(root)
+
+            with patch.object(
+                cleanup,
+                "active_test_processes",
+                side_effect=RuntimeError("active process probe failed"),
+            ):
+                result, exit_code = cleanup.run(args_for(root, policy_path, trash, apply=True))
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("active process probe failed", result["policy_errors"])
+
     def test_repository_policy_tracks_final_audit_and_evidence_self_tests(self) -> None:
         root = Path(__file__).resolve().parents[1]
         policy = cleanup.load_policy(root / "scripts/cleanup_policy.json")

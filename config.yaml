@@ -634,7 +634,7 @@ feishu:
   attachment_backfill_window_seconds: 300
   attachment_backfill_max_messages: 3
   attachment_backfill_max_files: 6
-  attachment_backfill_timeout_seconds: 8
+  attachment_backfill_timeout_seconds: 60
   missed_event_backfill: true
   missed_event_backfill_seconds: 21600
   missed_event_backfill_limit: 50

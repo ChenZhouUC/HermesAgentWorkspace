@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -141,3 +143,18 @@ def test_read_docx_include_images_appends_relative_manifest(monkeypatch, tmp_pat
     assert captured["blocks"][0]["asset_role"] == "cover"
     assert manifest["images"][0]["image_path"].startswith("feishu-doc-images/")
     assert "tenant-secret" not in output
+
+
+def test_slides_url_returns_explicit_unsupported_failure():
+    url = "https://whales.feishu.cn/slides/RFgisuPWylnGhodv48hcvmU3nm2"
+    stdout = io.StringIO()
+
+    with redirect_stdout(stdout):
+        returncode = reader.main([url])
+
+    payload = json.loads(stdout.getvalue())
+    assert returncode != 0
+    assert payload["success"] is False
+    assert payload["status"] == "unsupported"
+    assert payload["resource_type"] == "slides"
+    assert url not in payload.get("content", "")

@@ -124,6 +124,7 @@ PATCHED_FILES=(
     "hermes_cli/config_defaults.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
+    "agent/auxiliary_client.py"
     "agent/skill_commands.py"
     "agent/skill_utils.py"
     "tools/approval.py"
@@ -166,7 +167,9 @@ PATCHED_FILES=(
     "agent/models_dev.py"
     "agent/transports/chat_completions.py"
     "tests/agent/transports/test_chat_completions.py"
+    "tests/agent/test_auxiliary_client.py"
     "tests/agent/test_image_routing.py"
+    "tests/agent/test_skill_commands.py"
     "tests/gateway/test_image_input_routing_runtime.py"
     "tools/vision_tools.py"
     "tests/tools/test_video_analyze.py"
@@ -349,7 +352,11 @@ _acquire_upstream_target_with_retry() {
         if _valid_git_sha "${_origin}"; then
             _TX_TARGET_SHA="${_origin}"
             _TX_PHASE="pinned"
-            _write_transaction
+            if ! _write_transaction; then
+                cat "${_fetch_log}"
+                fail "Could not persist the acquired upstream target"
+                return 1
+            fi
             cat "${_fetch_log}"
             note "Acquired and pinned official main at ${_TX_TARGET_SHA}"
             return 0
@@ -384,9 +391,22 @@ _create_pinned_git_wrapper() {
     printf '%s\n' \
         '#!/usr/bin/env bash' \
         'set -euo pipefail' \
-        'case "${1:-}" in' \
+        'argv=("$@")' \
+        'command_name=""' \
+        'command_index=-1' \
+        'for ((i=0; i<${#argv[@]}; i++)); do' \
+        '    case "${argv[$i]}" in' \
+        '        fetch|pull|ls-remote|clone)' \
+        '            command_name="${argv[$i]}"' \
+        '            command_index=$i' \
+        '            break' \
+        '            ;;' \
+        '    esac' \
+        'done' \
+        'case "${command_name}" in' \
         '    fetch)' \
-        '        if [[ "$#" -eq 3 && "${2:-}" == "origin" && "${3:-}" == "main" ]]; then' \
+        '        tail=("${argv[@]:$((command_index + 1))}")' \
+        '        if [[ "${#tail[@]}" -eq 2 && "${tail[0]}" == "origin" && "${tail[1]}" == "main" ]]; then' \
         '            printf "pinned git: skipped network fetch origin main\\n" >&2' \
         '            exit 0' \
         '        fi' \
@@ -442,7 +462,11 @@ _run_pinned_hermes_update() {
             grep -qE 'Restarted ai\.hermes\.gateway|Restart required' "${_update_log}" 2>/dev/null; then
             _TX_RUNTIME_DIRTY="1"
         fi
-        _write_transaction
+        if ! _write_transaction; then
+            printf 'Could not persist successful pinned-updater state\n' >>"${_update_log}"
+            UPDATE_RC=1
+            return 1
+        fi
         return 0
     fi
     if [[ ${UPDATE_RC} -eq 0 ]]; then
@@ -451,7 +475,10 @@ _run_pinned_hermes_update() {
     fi
     if [[ ${UPDATE_RC} -ne 0 ]]; then
         _TX_RUNTIME_DIRTY="1"
-        _write_transaction
+        if ! _write_transaction; then
+            printf 'Could not persist failed pinned-updater state\n' >>"${_update_log}"
+            return 1
+        fi
     fi
     return "${UPDATE_RC}"
 }
@@ -532,6 +559,35 @@ _write_transaction() {
             "runtime_dirty=${_TX_RUNTIME_DIRTY}" >"${_tmp}" &&
             mv -f "${_tmp}" "${TRANSACTION_FILE}"
     )
+}
+
+_restore_extra_stash() {
+    local _stash_oid="$1"
+    local _current_oid
+    [[ -n "${_stash_oid}" ]] || {
+        fail "Extra stash restore requested without a recorded stash OID"
+        return 1
+    }
+    _current_oid=$(git stash list --format='%H' -n 1 2>/dev/null || true)
+    if [[ "${_current_oid}" != "${_stash_oid}" ]]; then
+        fail "Extra stash changed before restore; refusing an ambiguous apply"
+        add_warn "Expected stash ${_stash_oid}, current top is ${_current_oid:-none}"
+        add_act "Recover explicitly: cd ${HERMES_AGENT} && git stash show --stat ${_stash_oid}"
+        return 1
+    fi
+    if ! git stash apply --quiet "${_stash_oid}"; then
+        fail "Extra stash could not auto-merge; conflict state and stash are preserved"
+        add_warn "Unrestored extra changes remain in stash ${_stash_oid}"
+        add_act "Resolve the conflict, then inspect: cd ${HERMES_AGENT} && git stash show --stat ${_stash_oid}"
+        return 1
+    fi
+    if ! git stash drop --quiet stash@{0}; then
+        fail "Extra changes were restored, but stash ${_stash_oid} could not be dropped"
+        add_warn "Restored changes may also remain duplicated in stash ${_stash_oid}"
+        add_act "Inspect: cd ${HERMES_AGENT} && git stash list"
+        return 1
+    fi
+    ok "Restored extra changes from stash ${_stash_oid:0:12}"
 }
 
 _print_transaction_status() {
@@ -635,6 +691,18 @@ _self_test_transaction() {
     HERMES_UPDATE_REAL_GIT="${_wrapper_dir}/real-git" \
         HERMES_UPDATE_PINNED_SHA="3333333333333333333333333333333333333333" \
         HERMES_UPDATE_FAKE_LOG="${_fake_log}" \
+        "${_wrapper_dir}/git" -C /tmp fetch origin main 2>/dev/null
+    [[ ! -e "${_fake_log}" ]]
+    if HERMES_UPDATE_REAL_GIT="${_wrapper_dir}/real-git" \
+        HERMES_UPDATE_PINNED_SHA="3333333333333333333333333333333333333333" \
+        HERMES_UPDATE_FAKE_LOG="${_fake_log}" \
+        "${_wrapper_dir}/git" -c protocol.version=2 ls-remote origin 2>/dev/null; then
+        printf 'self-test: git global options bypassed the pinned network guard\n' >&2
+        return 1
+    fi
+    HERMES_UPDATE_REAL_GIT="${_wrapper_dir}/real-git" \
+        HERMES_UPDATE_PINNED_SHA="3333333333333333333333333333333333333333" \
+        HERMES_UPDATE_FAKE_LOG="${_fake_log}" \
         "${_wrapper_dir}/git" rev-list HEAD..origin/main --count
     grep -qF 'rev-list HEAD..3333333333333333333333333333333333333333 --count' "${_fake_log}"
 
@@ -688,6 +756,92 @@ _self_test_transaction() {
     git -C "${HERMES_AGENT}" update-ref -d "${TRANSACTION_TARGET_REF}"
     rm -rf -- "${_git_root}/official.git" "${_git_root}/seed" "${_git_root}/work"
     rmdir "${_git_root}" 2>/dev/null || true
+
+    # A state write failure after a local fast-forward must propagate instead
+    # of being masked by the following success log line.
+    if (
+        set -euo pipefail
+        _failure_root=$(mktemp -d -t hermes-transaction-write-test.XXXXXX)
+        trap 'rm -rf -- "${_failure_root}"' EXIT
+        git init -q -b main "${_failure_root}/repo"
+        git -C "${_failure_root}/repo" config user.name hermes-update-test
+        git -C "${_failure_root}/repo" config user.email hermes-update-test@example.invalid
+        git -C "${_failure_root}/repo" config core.hooksPath /dev/null
+        git -C "${_failure_root}/repo" commit -q --allow-empty -m first
+        _first=$(git -C "${_failure_root}/repo" rev-parse HEAD)
+        git -C "${_failure_root}/repo" commit -q --allow-empty -m second
+        _second=$(git -C "${_failure_root}/repo" rev-parse HEAD)
+        git -C "${_failure_root}/repo" reset --hard -q "${_first}"
+        HERMES_AGENT="${_failure_root}/repo"
+        _TX_TARGET_SHA="${_second}"
+        _PINNED_HEAD_ADVANCED=false
+        _mark_runtime_dirty() { return 1; }
+        _reconcile_pinned_head >/dev/null 2>&1
+    ); then
+        printf 'self-test: runtime-dirty transaction write failure was ignored\n' >&2
+        return 1
+    fi
+
+    # A conflicting extra stash must fail closed, preserve the exact stash,
+    # and leave conflict state for explicit recovery instead of reset --hard.
+    if (
+        set -euo pipefail
+        _stash_root=$(mktemp -d -t hermes-stash-conflict-test.XXXXXX)
+        trap 'rm -rf -- "${_stash_root}"' EXIT
+        git init -q -b main "${_stash_root}/repo"
+        git -C "${_stash_root}/repo" config user.name hermes-update-test
+        git -C "${_stash_root}/repo" config user.email hermes-update-test@example.invalid
+        git -C "${_stash_root}/repo" config core.hooksPath /dev/null
+        printf 'base\n' >"${_stash_root}/repo/tracked.txt"
+        git -C "${_stash_root}/repo" add tracked.txt
+        git -C "${_stash_root}/repo" commit -q -m base
+        printf 'user\n' >"${_stash_root}/repo/tracked.txt"
+        git -C "${_stash_root}/repo" stash push -q -m hermes-update-extra-test
+        _stash_oid=$(git -C "${_stash_root}/repo" rev-parse refs/stash)
+        printf 'upstream\n' >"${_stash_root}/repo/tracked.txt"
+        git -C "${_stash_root}/repo" commit -qam upstream
+        HERMES_AGENT="${_stash_root}/repo"
+        cd "${HERMES_AGENT}"
+        if _restore_extra_stash "${_stash_oid}" >/dev/null 2>&1; then
+            exit 1
+        fi
+        [[ "$(git rev-parse refs/stash)" == "${_stash_oid}" ]]
+        [[ -n "$(git diff --name-only --diff-filter=U)" ]]
+    ); then
+        :
+    else
+        printf 'self-test: conflicting extra stash was not preserved fail-closed\n' >&2
+        return 1
+    fi
+
+    # The public final-audit entrypoint must hold the same transaction lock for
+    # the complete child audit process and release it afterwards.
+    if ! (
+        set -euo pipefail
+        _fake_home=$(mktemp -d -t hermes-final-audit-lock-test.XXXXXX)
+        trap 'rm -rf -- "${_fake_home}"' EXIT
+        mkdir -p "${_fake_home}/.hermes"
+        _fake_audit="${_fake_home}/audit.py"
+        _fake_marker="${_fake_home}/ran"
+        cat >"${_fake_audit}" <<'PY'
+import os
+from pathlib import Path
+
+lock = Path.home() / ".hermes/.hermes-update-transaction.lock/pid"
+if not lock.is_file():
+    raise SystemExit(91)
+Path(os.environ["HERMES_FINAL_AUDIT_MARKER"]).write_text(lock.read_text())
+PY
+        HOME="${_fake_home}" \
+            HERMES_FINAL_AUDIT_SCRIPT="${_fake_audit}" \
+            HERMES_FINAL_AUDIT_MARKER="${_fake_marker}" \
+            bash "${BASH_SOURCE[0]}" --final-audit --json
+        [[ -s "${_fake_marker}" ]]
+        [[ ! -e "${_fake_home}/.hermes/.hermes-update-transaction.lock" ]]
+    ); then
+        printf 'self-test: final audit did not hold/release the transaction lock\n' >&2
+        return 1
+    fi
 
     HERMES_AGENT="${_real_agent}"
     TRANSACTION_FILE="${_real_file}"
@@ -757,6 +911,28 @@ EOF
     ); then
         rm -rf -- "${_root}"
         printf 'fetch-retry self-test: transport-fail → success did not retry exactly once\n' >&2
+        return 1
+    fi
+
+    if ! (
+        set -euo pipefail
+        export PATH="${_root}:${PATH}"
+        export HERMES_FAKE_GIT_STATE="${_state}"
+        export HERMES_FAKE_GIT_SHA="${_sha}"
+        export HERMES_FAKE_GIT_MODE=retry
+        : >"${_state}"
+        HERMES_AGENT="${_root}/work"
+        TRANSACTION_TARGET_REF="refs/hermes-update/test-target"
+        _TX_TARGET_SHA=""
+        _TX_PHASE="acquiring"
+        _write_transaction() { return 1; }
+        if _acquire_upstream_target_with_retry "${_log}" >/dev/null 2>&1; then
+            exit 1
+        fi
+        [[ "$(<"${_state}")" == 2 ]]
+    ); then
+        rm -rf -- "${_root}"
+        printf 'fetch-retry self-test: pinned target survived a failed transaction write\n' >&2
         return 1
     fi
 
@@ -1149,7 +1325,15 @@ case "${1:-}" in
         printf 'No Python interpreter available for final audit.\n' >&2
         exit 1
     }
-    exec "${_audit_python}" "${HERMES_HOME}/scripts/final_upgrade_audit.py" "$@"
+    if ! _acquire_transaction_lock; then
+        exit 1
+    fi
+    trap '_release_transaction_lock' EXIT
+    set +e
+    "${_audit_python}" "${HERMES_FINAL_AUDIT_SCRIPT:-${HERMES_HOME}/scripts/final_upgrade_audit.py}" "$@"
+    _audit_rc=$?
+    set -e
+    exit "${_audit_rc}"
     ;;
 *)
     printf 'Usage: %s [--update|--reconcile|--transaction-status|--print-restart-wait-seconds|--print-patched-files|--print-patched-tests|--self-test-transaction|--self-test-fetch-retry|--self-test-patch-gates|--self-test-patch-evidence|--final-audit [--json] [--require-clean-outer]]\n' "$0" >&2
@@ -1261,7 +1445,7 @@ _prepare_transaction() {
 _mark_runtime_dirty() {
     if [[ "${_TX_RUNTIME_DIRTY}" != "1" ]]; then
         _TX_RUNTIME_DIRTY="1"
-        _write_transaction
+        _write_transaction || return 1
     fi
 }
 
@@ -1289,7 +1473,7 @@ _reconcile_pinned_head() {
     fi
 
     _PINNED_HEAD_ADVANCED=true
-    _mark_runtime_dirty
+    _mark_runtime_dirty || return 1
     ok "Fast-forwarded locally to pinned target ${_TX_TARGET_SHA:0:12} (no fetch/pull)"
 }
 
@@ -1555,9 +1739,11 @@ echo ""
 
 cd "${HERMES_AGENT}"
 _EXTRA_STASHED=false
+_EXTRA_STASH_OID=""
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
     if git stash push -u -m "hermes-update-extra-$(date +%Y%m%d-%H%M%S)" >/dev/null 2>&1; then
         _EXTRA_STASHED=true
+        _EXTRA_STASH_OID=$(git rev-parse refs/stash)
         ok "Stashed extra uncommitted changes (including untracked files)"
     else
         warn "Could not stash extra changes — leaving tree untouched"
@@ -1645,18 +1831,15 @@ if [[ $UPDATE_RC -ne 0 ]]; then
     FINAL_RC=1
 fi
 
-# If we stashed extra changes above, silently pop them back.
-# Conflicts are expected (upstream may have changed same files); use checkout
-# --theirs to prefer upstream, since our patches are re-applied from the diff.
+# If we stashed extra changes above, restore that exact stash. A conflict is a
+# user-visible recovery boundary: preserve both the stash and conflict state,
+# fail the workflow, and never hide the loss behind a broad reset.
 if $_EXTRA_STASHED; then
     cd "${HERMES_AGENT}"
-    if git stash pop --quiet 2>/dev/null; then
-        ok "Restored extra changes from stash"
-    else
-        # Pop failed (conflict) — reset to clean and leave stash for manual recovery
-        git reset --hard HEAD >/dev/null 2>&1
-        note "Extra stash could not auto-merge — kept in stash for manual recovery"
-        note "  Recover with: cd ${HERMES_AGENT} && git stash list"
+    if ! _restore_extra_stash "${_EXTRA_STASH_OID}"; then
+        FINAL_RC=1
+        cd - >/dev/null
+        exit "${FINAL_RC}"
     fi
     cd - >/dev/null
 fi
@@ -2041,7 +2224,8 @@ _TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK=false
 
 # PATCH-SKILL-CREATE-ROOT: new skills must land in the first configured
 # external skill directory rather than the upstream-managed bundled root.
-if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" ]]; then
+SKILL_MANAGER_TEST_PY="${HERMES_AGENT}/tests/tools/test_skill_manager_tool.py"
+if [[ -f "${VENV_PY}" && -f "${SKILL_TOOL}" && -f "${SKILL_MANAGER_TEST_PY}" ]]; then
     _SKILL_CHECK=$(
         cd "${HERMES_AGENT}" &&
             "${VENV_PY}" - <<'PYEOF' 2>/dev/null
@@ -2054,7 +2238,8 @@ expected_root = str(Path.home() / ".hermes" / "my-skills") + "/"
 print("ok" if result.startswith(expected_root) else "native")
 PYEOF
     )
-    if [[ "${_SKILL_CHECK}" == "ok" ]]; then
+    if [[ "${_SKILL_CHECK}" == "ok" ]] &&
+        grep -q 'test_create_fails_closed_when_skill_root_config_cannot_be_read' "${SKILL_MANAGER_TEST_PY}" 2>/dev/null; then
         ok "Skill routing patch: active (new skills → my-skills/)"
         _SKILL_PATCH_OK=true
     else
@@ -2200,6 +2385,7 @@ if [[ -f "${ENV_LOADER_PY}" && -f "${ENV_LOADER_TEST_PY}" ]]; then
         grep -q 'def _clear_ambient_hermes_env' "${ENV_LOADER_PY}" &&
         grep -q 'ignore_ambient_credentials' "${ENV_LOADER_PY}" &&
         grep -q 'test_strict_profile_ignores_ambient_hermes_credentials' "${ENV_LOADER_TEST_PY}" &&
+        grep -q 'test_strict_profile_without_dotenv_still_ignores_ambient_credentials' "${ENV_LOADER_TEST_PY}" &&
         grep -q 'ignore_ambient_credentials: true' "${HERMES_HOME}/config.yaml"; then
         ok "PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION active: shell credentials excluded"
         _AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK=true
@@ -2225,7 +2411,11 @@ if [[ -f "${MODEL_SWITCH_PY}" && -f "${MODEL_SLASH_COMMANDS_PY}" && -f "${MODEL_
         grep -q 'Configured-only model policy disables /model --global' "${MODEL_SLASH_COMMANDS_PY}" &&
         grep -q 'test_model_command_rejects_chain_out_and_global' "${MODEL_GATEWAY_TEST_PY}" &&
         grep -q 'test_model_command_expands_configured_route_environment_references' "${MODEL_GATEWAY_TEST_PY}" &&
+        grep -q 'test_model_command_fails_closed_when_config_is_unparseable' "${MODEL_GATEWAY_TEST_PY}" &&
         grep -q 'test_switch_model_core_rejects_chain_out_and_global' "${MODEL_CONFIGURED_TEST_PY}" &&
+        grep -q 'test_configured_model_routes_preserve_endpoint_identity_and_overrides' "${MODEL_CONFIGURED_TEST_PY}" &&
+        grep -q 'test_switch_model_fails_closed_when_policy_config_cannot_be_loaded' "${MODEL_CONFIGURED_TEST_PY}" &&
+        grep -q 'test_switch_model_uses_complete_configured_route' "${MODEL_CONFIGURED_TEST_PY}" &&
         grep -q 'test_primary_fallback_a_skips_duplicate_and_falls_to_b' "${MODEL_FALLBACK_TEST_PY}" &&
         grep -q 'test_primary_fallback_b_uses_a_before_skipping_duplicate' "${MODEL_FALLBACK_TEST_PY}" &&
         grep -q 'summary_model == "independent-summary-model"' "${COMPRESSOR_FALLBACK_TEST_PY}" &&
@@ -2298,6 +2488,7 @@ TOOLS_CONFIG_PY="${HERMES_AGENT}/hermes_cli/tools_config.py"
 FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admission.py"
 FEISHU_BOT_AUTH_BYPASS_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_auth_bypass.py"
 FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
+GATEWAY_CONFIG_TEST_PY="${HERMES_AGENT}/tests/gateway/test_config.py"
 FEISHU_MESSAGING_DOC="${HERMES_AGENT}/website/docs/user-guide/messaging/feishu.md"
 SESSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session.py"
 SESSION_ENV_TEST_PY="${HERMES_AGENT}/tests/gateway/test_session_env.py"
@@ -2403,6 +2594,7 @@ else
 fi
 
 SKILL_UTILS_PY="${HERMES_AGENT}/agent/skill_utils.py"
+SKILL_COMMANDS_TEST_PY="${HERMES_AGENT}/tests/agent/test_skill_commands.py"
 PROMPT_BUILDER_PY="${HERMES_AGENT}/agent/prompt_builder.py"
 SKILLS_TOOL_PY="${HERMES_AGENT}/tools/skills_tool.py"
 SKILLS_TOOL_TEST_PY="${HERMES_AGENT}/tests/tools/test_skills_tool.py"
@@ -2412,12 +2604,13 @@ APPROVAL_TEST_PY="${HERMES_AGENT}/tests/tools/test_approval.py"
 
 # PATCH-PLATFORM-CAPABILITY-SCOPE: reusable platform capability scoping
 # primitives. Group approval is deliberately verified separately.
-if [[ -f "${SKILL_UTILS_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${SKILLS_TOOL_TEST_PY}" && -f "${TOOLSETS_PY}" ]]; then
+if [[ -f "${SKILL_UTILS_PY}" && -f "${SKILL_COMMANDS_TEST_PY}" && -f "${PROMPT_BUILDER_PY}" && -f "${SKILLS_TOOL_PY}" && -f "${SKILLS_TOOL_TEST_PY}" && -f "${TOOLSETS_PY}" ]]; then
     if grep -q 'get_allowed_skill_names' "${SKILL_UTILS_PY}" 2>/dev/null &&
         grep -q 'def hide_bundled_skills' "${SKILL_UTILS_PY}" 2>/dev/null &&
         grep -q 'iter_visible_skill_index_files' "${SKILLS_TOOL_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${PROMPT_BUILDER_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${SKILLS_TOOL_PY}" 2>/dev/null &&
+        grep -q 'test_scan_uses_session_platform_config_key_allowlist' "${SKILL_COMMANDS_TEST_PY}" 2>/dev/null &&
         grep -q 'test_hidden_bundled_skill_is_not_discovered_but_external_is' "${HERMES_AGENT}/tests/hermes_cli/test_skills_config.py" 2>/dev/null &&
         grep -q 'test_qualified_local_skill_allowed_by_bare_name' "${SKILLS_TOOL_TEST_PY}" 2>/dev/null &&
         grep -q 'skills_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
@@ -2775,13 +2968,14 @@ fi
 FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
 FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
 PLATFORMS_BASE_PY="${HERMES_AGENT}/gateway/platforms/base.py"
-if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${PLATFORMS_BASE_PY}" ]]; then
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${PLATFORMS_BASE_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${GATEWAY_CONFIG_TEST_PY}" ]]; then
     if grep -q 'def _backfill_sender_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_BACKFILL_WINDOW_SECONDS' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_BACKFILL_MSG_TYPES = frozenset({"image", "file", "media", "audio"})' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'attachment_backfill_window_seconds' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'attachment_backfill_timeout_seconds' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q '_backfilled_attachment_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'if text == "/":' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'can_backfill_group = ' "${FEISHU_PY}" 2>/dev/null &&
@@ -2797,6 +2991,7 @@ if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" 
         grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_explicit_requote_is_not_suppressed_and_media_video_is_preserved' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_sender_window_backfill_includes_audio_and_uses_configured_window' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_bridges_feishu_attachment_backfill_limits_into_adapter' "${GATEWAY_CONFIG_TEST_PY}" 2>/dev/null &&
         grep -q 'test_fetch_message_text_uses_path_free_attachment_placeholder' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_group_attachment_backfill_failure_reaches_model_as_status' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quoted_resource_matrix_reaches_event_across_dm_and_group_triggers' "${FEISHU_TEST_PY}" 2>/dev/null &&
@@ -2830,11 +3025,14 @@ if [[ -f "${GATEWAY_RUN_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TE
         grep -q 'def _attachment_failure_note' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q 'def _extract_pdf' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'def pdf_needs_visual_fallback' "${READ_EXTRACT_PY}" 2>/dev/null &&
+        grep -q 'PPTX visual coverage status: INCOMPLETE' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'def _extract_html_file' "${READ_EXTRACT_PY}" 2>/dev/null &&
         grep -q 'class TestCommonDocumentExtraction' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_native_overlap_formats_remain_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_native_pdf_remains_extractable_when_anydoc_is_unavailable' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_anydoc_only_formats_not_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_pptx_visual_only_slides_are_explicitly_incomplete' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_pptx_pure_image_deck_returns_coverage_marker' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_extract_inbound_html_without_terminal_access' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_text_note_mentions_included_content_without_path' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_adds_pdf_visual_sidecar_when_text_coverage_has_gaps' "${GROUP_MEDIA_RUNTIME_TEST_PY}" 2>/dev/null &&
@@ -3059,6 +3257,7 @@ fi
 # azure-foundry via the models.dev catalog it was missing a provider mapping for.
 IMAGE_ROUTING_PY="${HERMES_AGENT}/agent/image_routing.py"
 IMAGE_ROUTING_TEST_PY="${HERMES_AGENT}/tests/agent/test_image_routing.py"
+AUXILIARY_CLIENT_TEST_PY="${HERMES_AGENT}/tests/agent/test_auxiliary_client.py"
 IMAGE_ROUTING_RUNTIME_TEST_PY="${HERMES_AGENT}/tests/gateway/test_image_input_routing_runtime.py"
 MODELS_DEV_PY="${HERMES_AGENT}/agent/models_dev.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
@@ -3109,7 +3308,7 @@ fi
 # video_url→image_url compatibility retry for Vertex video tool calls.
 VISION_TOOLS_PY="${HERMES_AGENT}/tools/vision_tools.py"
 VIDEO_ANALYZE_TEST_PY="${HERMES_AGENT}/tests/tools/test_video_analyze.py"
-if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${VISION_TOOLS_PY}" && -f "${VIDEO_ANALYZE_TEST_PY}" ]]; then
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${AUXILIARY_CLIENT_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${VISION_TOOLS_PY}" && -f "${VIDEO_ANALYZE_TEST_PY}" ]]; then
     if grep -q 'def pick_multimodal_sidecar_route' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'def _known_provider_model_supports_audio' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'def build_multimodal_sidecar_data_url' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
@@ -3126,6 +3325,7 @@ if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_R
         grep -q 'test_none_when_no_link_can_read_video' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_audio_sidecar_follows_chain_to_vertex' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_pdf_sidecar_data_url_uses_pdf_mime' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_pinned_vision_route_does_not_fall_back_to_auto' "${AUXILIARY_CLIENT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_runs_video_sidecar_when_main_model_lacks_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_reports_path_free_failure_when_no_link_can_read_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_runs_audio_sidecar_for_audio_attachment' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
@@ -3192,6 +3392,7 @@ if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MC
         grep -q 'direct_task_response(messages)' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
         grep -q 'test_mcp_task_handle_ends_turn_without_second_model_call' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_advertises_extension_and_accepts_task_handle' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_task_metadata_requires_negotiated_result_provenance' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'types.CallToolRequest(' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
         grep -q 'name_param: ClassVar\[str | None\] = None' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_uses_sdk_request_model_with_name_metadata' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
@@ -3516,9 +3717,16 @@ if $_PATCH_APPLY_OK && [[ "${_TX_RUNTIME_DIRTY}" == "1" ]]; then
             fi
         done
         if [[ ${_GW_RESTART_RC} -eq 0 && -n "${_GW_NEW_PID:-}" && "${_GW_NEW_PID}" != "${_GW_OLD_PID}" ]]; then
-            ok "Gateway restarted — patched modules now active (PID ${_GW_OLD_PID} → ${_GW_NEW_PID})"
             _TX_RUNTIME_DIRTY="0"
-            _write_transaction
+            if _write_transaction; then
+                ok "Gateway restarted — patched modules now active (PID ${_GW_OLD_PID} → ${_GW_NEW_PID})"
+            else
+                _TX_RUNTIME_DIRTY="1"
+                warn "Gateway restarted, but the clean runtime state could not be persisted"
+                add_warn "Gateway PID changed ${_GW_OLD_PID} → ${_GW_NEW_PID}, transaction write failed"
+                add_act "Repair ${TRANSACTION_FILE} permissions/storage, then rerun: bash ${HERMES_HOME}/hermes-update.sh --reconcile"
+                FINAL_RC=1
+            fi
         else
             warn "Gateway did not complete a drain-aware replacement (old PID ${_GW_OLD_PID}, current ${_GW_NEW_PID:-none})"
             if [[ ${_GW_RESTART_RC} -ne 0 ]]; then
