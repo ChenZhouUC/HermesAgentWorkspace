@@ -84,6 +84,38 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
 
         self.assertEqual(active, [])
 
+    def test_active_process_probe_does_not_treat_root_prefix_sibling_as_workspace(self) -> None:
+        ps = subprocess.CompletedProcess(
+            args=["ps"],
+            returncode=0,
+            stdout="101 pytest -q /Users/test/.hermes-copy/tests\n",
+            stderr="",
+        )
+        root = Path("/Users/test/.hermes")
+        with (
+            patch.object(cleanup.subprocess, "run", return_value=ps),
+            patch.object(cleanup, "_process_cwd", return_value=Path("/Users/test/.hermes-copy")),
+        ):
+            active = cleanup.active_test_processes({"active_process_markers": ["pytest"]}, root)
+
+        self.assertEqual(active, [])
+
+    def test_active_process_probe_resolves_relative_argv_from_parent_cwd(self) -> None:
+        ps = subprocess.CompletedProcess(
+            args=["ps"],
+            returncode=0,
+            stdout="101 pytest -q .hermes/tests\n",
+            stderr="",
+        )
+        root = Path("/Users/test/.hermes")
+        with (
+            patch.object(cleanup.subprocess, "run", return_value=ps),
+            patch.object(cleanup, "_process_cwd", return_value=Path("/Users/test")),
+        ):
+            active = cleanup.active_test_processes({"active_process_markers": ["pytest"]}, root)
+
+        self.assertEqual(active, ["101 pytest -q .hermes/tests"])
+
     def test_active_process_probe_keeps_workspace_scoped_agent(self) -> None:
         ps = subprocess.CompletedProcess(
             args=["ps"],
@@ -270,7 +302,7 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             state_file.write_text("version=1\nphase=upstream_applied\n")
             lock_dir = root / ".hermes-update-transaction.lock"
             lock_dir.mkdir()
-            (lock_dir / "owner").write_text("test")
+            (lock_dir / "owner").write_text("version=1\npid=123\nstart=Thu Sep  3 12:00:00 2026\ntoken=test-owner\n")
             policy_path = write_policy(
                 root,
                 ignored_keep={

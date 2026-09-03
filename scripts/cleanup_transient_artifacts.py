@@ -12,6 +12,8 @@ import argparse
 import fnmatch
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -400,6 +402,67 @@ def _process_cwd(pid: int) -> Path | None:
     raise RuntimeError(f"active process cwd probe returned no cwd for live pid {pid}")
 
 
+def _command_references_root(command: str, cwd: Path | None, root: Path) -> bool:
+    """Return whether argv names ``root`` or a descendant path.
+
+    A raw substring check confuses sibling workspaces such as ``.hermes-copy``
+    with ``.hermes`` and misses cwd-relative paths such as ``.hermes/tests``.
+    Use a boundary-aware absolute-path check, then resolve path-like argv
+    tokens against the inspected process cwd.
+    """
+    root = root.resolve()
+    root_text = str(root)
+    absolute_pattern = re.compile(
+        rf"(?<![A-Za-z0-9._-]){re.escape(root_text)}(?=$|[/\s\"'=:,;)\]])",
+        re.IGNORECASE,
+    )
+    if absolute_pattern.search(command):
+        return True
+    if cwd is None:
+        return False
+
+    try:
+        initial = shlex.split(command, posix=True)
+    except ValueError:
+        initial = command.split()
+    queue = list(initial[:512])
+    seen: set[str] = set()
+    while queue:
+        token = queue.pop(0)
+        if token in seen:
+            continue
+        seen.add(token)
+        # ``bash -c 'pytest .hermes/tests'`` leaves the command body as one
+        # token; split it once more so its relative path is still visible.
+        if any(char.isspace() for char in token):
+            try:
+                nested = shlex.split(token, posix=True)
+            except ValueError:
+                nested = token.split()
+            if nested != [token]:
+                queue.extend(nested[:512])
+        values = [token]
+        if "=" in token:
+            values.append(token.split("=", 1)[1])
+        for raw in values:
+            raw = raw.strip("\"'()[]{};,:")
+            if not raw or "\x00" in raw:
+                continue
+            expanded = os.path.expanduser(raw)
+            candidate = Path(expanded)
+            if not candidate.is_absolute():
+                if "/" not in expanded and not expanded.startswith("."):
+                    continue
+                candidate = cwd / candidate
+            try:
+                resolved = candidate.resolve(strict=False)
+            except OSError:
+                continue
+            if _is_within(resolved, root):
+                return True
+    return False
+
+
 def active_test_processes(policy: dict[str, Any], root: Path | None = None) -> list[str]:
     """Return matching processes that can touch this Hermes workspace.
 
@@ -421,7 +484,6 @@ def active_test_processes(policy: dict[str, Any], root: Path | None = None) -> l
         raise RuntimeError(f"active process probe exited {result.returncode}: {detail[:500]}")
     markers = [str(value).lower() for value in policy["active_process_markers"]]
     scoped_root = (root or Path.cwd()).expanduser().resolve()
-    root_marker = str(scoped_root).lower()
     current_pid = os.getpid()
     active: list[str] = []
     for line in result.stdout.splitlines():
@@ -436,11 +498,11 @@ def active_test_processes(policy: dict[str, Any], root: Path | None = None) -> l
         lowered = command.lower()
         if not any(marker in lowered for marker in markers):
             continue
-        if root_marker in lowered:
+        if _command_references_root(command, None, scoped_root):
             active.append(stripped[:500])
             continue
         cwd = _process_cwd(pid)
-        if cwd is not None and _is_within(cwd, scoped_root):
+        if cwd is not None and (_is_within(cwd, scoped_root) or _command_references_root(command, cwd, scoped_root)):
             active.append(stripped[:500])
     return active
 

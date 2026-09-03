@@ -8,9 +8,9 @@
 #
 # What it checks (in order, cheapest first):
 #   1. Upstream VALID_HOOKS still declares all hook names we depend on
-#      (pre_gateway_dispatch, pre_tool_call, post_tool_call). HARD FAIL if missing — the
+#      (pre_gateway_dispatch, pre_tool_call, post_tool_call, post_llm_call). HARD FAIL if missing — the
 #      plugin's register() will be a no-op when the hook name is gone.
-#   2. Fire sites for both hooks still exist in upstream source.
+#   2. Fire sites for all hooks still exist in upstream source.
 #   3. Structured tool registration remains available upstream.
 #   4. Root/plugin YAML keeps the owner-DM and group capability contracts,
 #      fixed script map, and manual approval posture.
@@ -29,6 +29,7 @@ HERMES_AGENT="${HERMES_HOME}/hermes-agent"
 PLUGINS_SRC="${HERMES_AGENT}/hermes_cli/plugins.py"
 GATEWAY_RUN="${HERMES_AGENT}/gateway/run.py"
 MODEL_TOOLS="${HERMES_AGENT}/model_tools.py"
+TURN_FINALIZER="${HERMES_AGENT}/agent/turn_finalizer.py"
 AGENT_LOG="${HERMES_HOME}/logs/agent.log"
 ROOT_CONFIG="${HERMES_HOME}/config.yaml"
 PLUGIN_CONFIG="${HERMES_HOME}/plugins/sandbox/config.yaml"
@@ -56,7 +57,7 @@ trap cleanup_verify_tmp EXIT
 echo "=== sandbox plugin compatibility check ==="
 
 # 1. VALID_HOOKS membership (HARD)
-for hook in pre_gateway_dispatch pre_tool_call post_tool_call; do
+for hook in pre_gateway_dispatch pre_tool_call post_tool_call post_llm_call; do
     if [[ -r "${PLUGINS_SRC}" ]] && grep -qF "\"${hook}\"" "${PLUGINS_SRC}"; then
         echo "OK   ${hook} is in VALID_HOOKS"
     else
@@ -83,6 +84,12 @@ if [[ -r "${MODEL_TOOLS}" ]] && grep -q 'post_tool_call' "${MODEL_TOOLS}"; then
     echo "OK   post_tool_call fired from model_tools.py"
 else
     echo "FAIL post_tool_call fire site not found in model_tools.py"
+    fail=1
+fi
+if [[ -r "${TURN_FINALIZER}" ]] && grep -q 'post_llm_call' "${TURN_FINALIZER}"; then
+    echo "OK   post_llm_call fired from agent/turn_finalizer.py"
+else
+    echo "FAIL post_llm_call fire site not found in agent/turn_finalizer.py"
     fail=1
 fi
 
@@ -130,7 +137,7 @@ for server_name, server in (root.get("mcp_servers") or {}).items():
                 f"mcp_servers.{server_name}.headers.{header_name} must use an environment reference"
             )
 
-assert manifest.get("version") == "0.7.13"
+assert manifest.get("version") == "0.7.14"
 
 assert people, "people.yaml must contain the active Feishu roster"
 open_ids = [str(person.get("open_id") or "") for person in people if isinstance(person, dict)]

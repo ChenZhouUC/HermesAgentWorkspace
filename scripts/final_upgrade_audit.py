@@ -52,6 +52,67 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _optional_sha256_file(path: Path) -> str:
+    return _sha256_file(path) if path.is_file() else "missing"
+
+
+def _workspace_snapshot(root: Path, *, step: str) -> dict[str, object]:
+    """Bind one Git checkout's HEAD, index, worktree, and untracked content."""
+
+    def run_bytes(argv: list[str]) -> bytes:
+        result = subprocess.run(
+            argv,
+            cwd=root,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode:
+            tail = (result.stdout + result.stderr)[-2000:].decode("utf-8", "replace")
+            raise FinalAuditError(step, f"command failed ({result.returncode}): {' '.join(argv)}\n{tail}")
+        return result.stdout
+
+    head = run_bytes(["git", "rev-parse", "HEAD"]).strip().decode("ascii")
+    tree = run_bytes(["git", "rev-parse", "HEAD^{tree}"]).strip().decode("ascii")
+    status = run_bytes(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"])
+    tracked_diff = run_bytes(["git", "diff", "--binary", "HEAD", "--"])
+    cached_diff = run_bytes(["git", "diff", "--cached", "--binary", "HEAD", "--"])
+    untracked_raw = run_bytes(["git", "ls-files", "--others", "--exclude-standard", "-z"])
+    untracked = [os.fsdecode(raw) for raw in untracked_raw.split(b"\0") if raw]
+    digest = hashlib.sha256()
+    for label, value in (
+        (b"head\0", head.encode("ascii")),
+        (b"tree\0", tree.encode("ascii")),
+        (b"status\0", status),
+        (b"tracked\0", tracked_diff),
+        (b"cached\0", cached_diff),
+    ):
+        digest.update(label)
+        digest.update(value)
+        digest.update(b"\0")
+    for rel in sorted(untracked):
+        path = root / rel
+        digest.update(b"untracked\0")
+        digest.update(rel.encode("utf-8", "surrogateescape"))
+        digest.update(b"\0")
+        digest.update(str(path.lstat().st_mode).encode("ascii"))
+        digest.update(b"\0")
+        if path.is_symlink():
+            digest.update(os.readlink(path).encode("utf-8", "surrogateescape"))
+        elif path.is_file():
+            digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return {
+        "digest": digest.hexdigest(),
+        "head": head,
+        "tree": tree,
+        "status_bytes": len(status),
+        "tracked_diff_bytes": len(tracked_diff),
+        "cached_diff_bytes": len(cached_diff),
+        "untracked_files": len(untracked),
+    }
+
+
 def _parse_patch_base(text: str) -> tuple[str, str]:
     match = re.fullmatch(
         r"([0-9a-f]{40}) (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\n?",
@@ -68,11 +129,19 @@ def _parse_patch_base(text: str) -> tuple[str, str]:
 def _audit_snapshot() -> dict[str, str]:
     base_text = (ROOT / "patches/.local-patches.base").read_text(encoding="utf-8")
     base_sha, _ = _parse_patch_base(base_text)
+    inner = _workspace_snapshot(INNER, step="snapshot-inner-workspace")
+    outer = _workspace_snapshot(ROOT, step="snapshot-outer-workspace")
     return {
-        "head": _run("snapshot-head", ["git", "rev-parse", "HEAD"], cwd=INNER).stdout.strip(),
+        "head": str(inner["head"]),
+        "inner_tree": str(inner["tree"]),
+        "inner_workspace_digest": str(inner["digest"]),
+        "outer_head": str(outer["head"]),
+        "outer_tree": str(outer["tree"]),
         "base": base_sha,
         "base_text_sha256": hashlib.sha256(base_text.encode("utf-8")).hexdigest(),
         "bundle_sha256": _sha256_file(ROOT / "patches/local-patches.diff"),
+        "package_lock_sha256": _optional_sha256_file(INNER / "package-lock.json"),
+        "package_lock_review_sha256": _optional_sha256_file(PACKAGE_LOCK_REVIEW),
     }
 
 
@@ -1007,50 +1076,7 @@ def _cleanup_final() -> dict[str, object]:
 
 def _outer_workspace_snapshot() -> dict[str, object]:
     """Fingerprint tracked changes and non-ignored untracked files without exposing contents."""
-
-    def run_bytes(step: str, argv: list[str]) -> bytes:
-        result = subprocess.run(
-            argv,
-            cwd=ROOT,
-            capture_output=True,
-            timeout=60,
-            check=False,
-        )
-        if result.returncode:
-            tail = (result.stdout + result.stderr)[-2000:].decode("utf-8", "replace")
-            raise FinalAuditError(step, f"command failed ({result.returncode}): {' '.join(argv)}\n{tail}")
-        return result.stdout
-
-    status = run_bytes(
-        "outer-workspace-snapshot",
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-    )
-    tracked_diff = run_bytes(
-        "outer-workspace-snapshot",
-        ["git", "diff", "--binary", "HEAD", "--"],
-    )
-    untracked_raw = run_bytes(
-        "outer-workspace-snapshot",
-        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-    )
-    untracked = [os.fsdecode(raw) for raw in untracked_raw.split(b"\0") if raw]
-    digest = hashlib.sha256()
-    digest.update(status)
-    digest.update(tracked_diff)
-    for rel in sorted(untracked):
-        path = ROOT / rel
-        digest.update(rel.encode("utf-8", "surrogateescape"))
-        digest.update(str(path.lstat().st_mode).encode("ascii"))
-        if path.is_symlink():
-            digest.update(os.readlink(path).encode("utf-8", "surrogateescape"))
-        elif path.is_file():
-            digest.update(path.read_bytes())
-    return {
-        "digest": digest.hexdigest(),
-        "status_bytes": len(status),
-        "tracked_diff_bytes": len(tracked_diff),
-        "untracked_files": len(untracked),
-    }
+    return _workspace_snapshot(ROOT, step="outer-workspace-snapshot")
 
 
 def _validate_outer_workspace_stability(
@@ -1191,6 +1217,12 @@ def main() -> int:
         repository = _repository_checks(patched_files)
         cleanup = _cleanup_final()
         runtime = _gateway_runtime()
+        repository_final = _repository_checks(patched_files)
+        if repository_final != repository:
+            raise FinalAuditError(
+                "repository-stability",
+                f"repository result changed after cleanup/runtime checks: before={repository} after={repository_final}",
+            )
         transaction_after = _run(
             "transaction-status-final",
             ["bash", str(UPDATE), "--transaction-status"],

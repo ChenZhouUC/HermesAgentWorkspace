@@ -48,7 +48,7 @@ from urllib.parse import urlparse
 import yaml
 
 logger = logging.getLogger(__name__)
-_PLUGIN_VERSION = "0.7.13"
+_PLUGIN_VERSION = "0.7.14"
 
 
 _current_chat_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -202,6 +202,7 @@ _TURN_PUBLIC_URLS_MAX_ENTRIES = 512
 _TURN_CAPABILITY_CLAIMS_BY_KEY: Dict[Tuple[str, str, str], float] = {}
 _TURN_CAPABILITY_CLAIMS_LOCK = threading.Lock()
 _TURN_CAPABILITY_CLAIMS_MAX_ENTRIES = 2048
+_TURN_CAPABILITY_CLAIM_TTL_SECONDS = 7 * 24 * 60 * 60
 _BEARER_OUTPUT_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _SECRET_OUTPUT_RE = re.compile(
     r"""(?ix)
@@ -693,15 +694,29 @@ def _redact_tool_output(value: str) -> str:
 
 
 def _redact_workspace_output(value: str, workspace: Path) -> str:
-    """Redact secrets and render workspace-local absolute paths as relative paths."""
+    """Redact secrets and all Hermes-local host paths from tool output."""
     text = _redact_tool_output(value)
-    roots = {
+    workspace_roots = {
         str(workspace.absolute()).rstrip(os.sep),
         str(workspace.resolve(strict=False)).rstrip(os.sep),
     }
-    for root in sorted((item for item in roots if item), key=len, reverse=True):
+    for root in sorted((item for item in workspace_roots if item), key=len, reverse=True):
         text = text.replace(root + os.sep, "")
         text = re.sub(rf"{re.escape(root)}(?=$|[\s\"'])", ".", text)
+
+    configured_home = os.getenv("HERMES_HOME", "").strip()
+    hermes_roots = {
+        str(Path(__file__).resolve().parents[2]).rstrip(os.sep),
+        str((Path.home() / ".hermes").resolve(strict=False)).rstrip(os.sep),
+        "/root/.hermes",
+    }
+    if configured_home:
+        configured = Path(os.path.expandvars(os.path.expanduser(configured_home)))
+        hermes_roots.add(str(configured.absolute()).rstrip(os.sep))
+        hermes_roots.add(str(configured.resolve(strict=False)).rstrip(os.sep))
+    for root in sorted((item for item in hermes_roots if item), key=len, reverse=True):
+        text = text.replace(root + os.sep, "<HERMES_HOME>/")
+        text = re.sub(rf"{re.escape(root)}(?=$|[\s\"'])", "<HERMES_HOME>", text)
     return text
 
 
@@ -991,12 +1006,25 @@ def _claim_turn_capability(capability: str, *, turn_id: str = "") -> bool:
     if chat_id and resolved_turn_id:
         key = (chat_id, resolved_turn_id, capability)
         with _TURN_CAPABILITY_CLAIMS_LOCK:
-            if key in _TURN_CAPABILITY_CLAIMS_BY_KEY:
+            now = time.monotonic()
+            existing_expiry = _TURN_CAPABILITY_CLAIMS_BY_KEY.get(key)
+            if existing_expiry is not None and existing_expiry > now:
                 return False
-            _TURN_CAPABILITY_CLAIMS_BY_KEY[key] = time.monotonic()
-            while len(_TURN_CAPABILITY_CLAIMS_BY_KEY) > _TURN_CAPABILITY_CLAIMS_MAX_ENTRIES:
-                oldest = next(iter(_TURN_CAPABILITY_CLAIMS_BY_KEY))
-                _TURN_CAPABILITY_CLAIMS_BY_KEY.pop(oldest, None)
+            if existing_expiry is not None:
+                _TURN_CAPABILITY_CLAIMS_BY_KEY.pop(key, None)
+            if len(_TURN_CAPABILITY_CLAIMS_BY_KEY) >= _TURN_CAPABILITY_CLAIMS_MAX_ENTRIES:
+                for stale_key, expires_at in tuple(_TURN_CAPABILITY_CLAIMS_BY_KEY.items()):
+                    if expires_at <= now:
+                        _TURN_CAPABILITY_CLAIMS_BY_KEY.pop(stale_key, None)
+            if len(_TURN_CAPABILITY_CLAIMS_BY_KEY) >= _TURN_CAPABILITY_CLAIMS_MAX_ENTRIES:
+                logger.warning(
+                    "sandbox: capability claim table is full; denying new claim chat=%s turn=%s capability=%s",
+                    chat_id,
+                    resolved_turn_id,
+                    capability,
+                )
+                return False
+            _TURN_CAPABILITY_CLAIMS_BY_KEY[key] = now + _TURN_CAPABILITY_CLAIM_TTL_SECONDS
         return True
 
     # Hooks outside a gateway dispatch may not have a stable turn id. Preserve
@@ -1012,6 +1040,17 @@ def _claim_turn_capability(capability: str, *, turn_id: str = "") -> bool:
         return False
     counter.set(1)
     return True
+
+
+def _release_turn_capability_claims(turn_id: str, *, chat_id: str = "") -> None:
+    resolved_turn_id = str(turn_id or "").strip()
+    resolved_chat_id = str(chat_id or _current_chat_id.get() or "").strip()
+    if not resolved_turn_id:
+        return
+    with _TURN_CAPABILITY_CLAIMS_LOCK:
+        for key in tuple(_TURN_CAPABILITY_CLAIMS_BY_KEY):
+            if key[1] == resolved_turn_id and (not resolved_chat_id or key[0] == resolved_chat_id):
+                _TURN_CAPABILITY_CLAIMS_BY_KEY.pop(key, None)
 
 
 def _prepare_hypertex_call(tool_name: str, args: Any, *, turn_id: str = "") -> Optional[Dict[str, Any]]:
@@ -2685,6 +2724,12 @@ def _on_post_tool_call(
     return None
 
 
+def _on_post_llm_call(turn_id: str = "", **_kwargs: Any) -> None:
+    """Release bounded capability claims only after an explicit turn completion."""
+    _release_turn_capability_claims(turn_id)
+    return None
+
+
 def _on_pre_tool_call(
     tool_name: str = "",
     args: Any = None,
@@ -2822,6 +2867,7 @@ def register(ctx: Any) -> None:
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("post_tool_call", _on_post_tool_call)
+    ctx.register_hook("post_llm_call", _on_post_llm_call)
     logger.info(
         "sandbox: registered (pid=%s, version=%s, active=%s, owner_chats=%s, group_allowed=%s, read_roots=%s, "
         "workspace_root=%s, private_doc_workspace_root=%s, script_actions=%s, mutation_users=%s, doc_delete_only=%s, "

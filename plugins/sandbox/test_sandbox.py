@@ -1254,6 +1254,35 @@ def test_per_turn_capability_claim_is_atomic_across_worker_contexts(
     )
 
 
+def test_capability_claim_capacity_never_evicts_an_unfinished_turn(group_config):
+    original_turn = "long-running-turn"
+    original_key = ("group-one", original_turn, "image")
+    assert sandbox._claim_turn_capability("image", turn_id=original_turn) is True
+
+    for index in range(sandbox._TURN_CAPABILITY_CLAIMS_MAX_ENTRIES - 1):
+        assert sandbox._claim_turn_capability("image", turn_id=f"pressure-{index}") is True
+
+    assert len(sandbox._TURN_CAPABILITY_CLAIMS_BY_KEY) == sandbox._TURN_CAPABILITY_CLAIMS_MAX_ENTRIES
+    assert sandbox._claim_turn_capability("image", turn_id="overflow-turn") is False
+    assert original_key in sandbox._TURN_CAPABILITY_CLAIMS_BY_KEY
+    assert sandbox._claim_turn_capability("image", turn_id=original_turn) is False
+
+    sandbox._on_post_llm_call(turn_id=original_turn)
+    assert original_key not in sandbox._TURN_CAPABILITY_CLAIMS_BY_KEY
+    assert sandbox._claim_turn_capability("image", turn_id="overflow-turn") is True
+
+
+def test_capability_claim_can_reuse_only_after_safe_ttl_expiry(group_config, monkeypatch):
+    clock = {"now": 100.0}
+    monkeypatch.setattr(sandbox.time, "monotonic", lambda: clock["now"])
+
+    assert sandbox._claim_turn_capability("chart", turn_id="orphaned-turn") is True
+    clock["now"] += sandbox._TURN_CAPABILITY_CLAIM_TTL_SECONDS - 1
+    assert sandbox._claim_turn_capability("chart", turn_id="orphaned-turn") is False
+    clock["now"] += 2
+    assert sandbox._claim_turn_capability("chart", turn_id="orphaned-turn") is True
+
+
 def test_outsider_dm_keeps_safe_base_allowlist(group_config):
     sandbox._current_chat_id.set("outsider-dm")
     sandbox._current_chat_type.set("private")
@@ -2081,6 +2110,34 @@ def test_group_slides_reader_reports_explicit_unsupported_status(group_config, m
     assert result["returncode"] == 2
 
 
+def test_group_fixed_script_failure_redacts_all_hermes_host_paths(group_config, monkeypatch):
+    url = "https://whales.feishu.cn/docx/doxcnFailureToken"
+    sandbox._current_resource_refs.set(sandbox._resource_ref_candidates(url))
+    workspace = sandbox._workspace_for_chat("group-one")
+    hermes_home = Path(sandbox.__file__).resolve().parents[2]
+    reader_path = hermes_home / "my-skills/productivity/feishu-docs/scripts/read_feishu_url.py"
+    plugin_path = hermes_home / "plugins/sandbox/__init__.py"
+
+    def fake_run(_script, _argv, _workspace):
+        return subprocess.CompletedProcess(
+            [],
+            1,
+            f"failed while reading {reader_path}\nworkspace={workspace / 'report.xlsx'}",
+            f'Traceback:\n  File "{reader_path}", line 1\n  File "{plugin_path}", line 2\n',
+        )
+
+    monkeypatch.setattr(sandbox, "_run_trusted_script", fake_run)
+    result = _result(sandbox._handle_feishu_doc_manage({"action": "read_url", "url": url}))
+    rendered = json.dumps(result, ensure_ascii=False)
+
+    assert result["success"] is False
+    assert str(hermes_home) not in rendered
+    assert str(workspace) not in rendered
+    assert "<HERMES_HOME>/my-skills/productivity/feishu-docs/scripts/read_feishu_url.py" in rendered
+    assert "<HERMES_HOME>/plugins/sandbox/__init__.py" in rendered
+    assert "workspace=report.xlsx" in result["stdout"]
+
+
 def test_upload_failure_traceback_does_not_leak_tenant_token(monkeypatch, tmp_path):
     scripts_root = Path(__file__).resolve().parents[2] / "my-skills/productivity/feishu-docs/scripts"
     monkeypatch.syspath_prepend(str(scripts_root))
@@ -2801,7 +2858,7 @@ def test_chart_renderer_rejects_misaligned_series(tmp_path):
 
 
 def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
-    assert sandbox._PLUGIN_VERSION == "0.7.13"
+    assert sandbox._PLUGIN_VERSION == "0.7.14"
     assert sandbox._load_config() is True
     assert sandbox._OWNER_CHAT_IDS
     assert sandbox._PRIVATE_DOC_WORKSPACE_ROOT is not None
@@ -2855,6 +2912,7 @@ def test_actual_config_loads_and_registers_structured_tools(monkeypatch):
         "pre_gateway_dispatch",
         "pre_tool_call",
         "post_tool_call",
+        "post_llm_call",
     }
 
     sandbox._current_platform.set("feishu")

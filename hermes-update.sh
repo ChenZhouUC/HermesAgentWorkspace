@@ -182,6 +182,8 @@ PATCHED_FILES=(
     "agent/conversation_loop.py"
     "agent/tool_executor.py"
     "agent/mcp_task_protocol.py"
+    "run_agent.py"
+    "hermes_state.py"
     "tools/mcp_tool.py"
     "tools/mcp_tasks_extension.py"
     "tests/run_agent/test_tool_call_incremental_persistence.py"
@@ -497,6 +499,8 @@ _TX_STARTED_AT=""
 _TX_RUNTIME_DIRTY="0"
 _TRANSACTION_INITIALIZED=false
 _TRANSACTION_LOCK_HELD=false
+_TRANSACTION_LOCK_TOKEN=""
+_TRANSACTION_LOCK_START=""
 
 _valid_git_sha() {
     [[ "${1:-}" =~ ^[0-9a-f]{40,64}$ ]]
@@ -561,6 +565,15 @@ _write_transaction() {
     )
 }
 
+_complete_transaction_state() {
+    git -C "${HERMES_AGENT}" update-ref -d "${TRANSACTION_TARGET_REF}" 2>/dev/null &&
+        rm -f -- "${TRANSACTION_FILE}"
+}
+
+_retain_transaction_state() {
+    _write_transaction
+}
+
 _restore_extra_stash() {
     local _stash_oid="$1"
     local _current_oid
@@ -579,6 +592,13 @@ _restore_extra_stash() {
         fail "Extra stash could not auto-merge; conflict state and stash are preserved"
         add_warn "Unrestored extra changes remain in stash ${_stash_oid}"
         add_act "Resolve the conflict, then inspect: cd ${HERMES_AGENT} && git stash show --stat ${_stash_oid}"
+        return 1
+    fi
+    _current_oid=$(git stash list --format='%H' -n 1 2>/dev/null || true)
+    if [[ "${_current_oid}" != "${_stash_oid}" ]]; then
+        fail "Extra stash changed during restore; refusing to drop an unrelated stash"
+        add_warn "Restored changes are present, and the original stash ${_stash_oid} was preserved"
+        add_act "Inspect both worktree and stash stack: cd ${HERMES_AGENT} && git status --short && git stash list"
         return 1
     fi
     if ! git stash drop --quiet stash@{0}; then
@@ -814,6 +834,149 @@ _self_test_transaction() {
         return 1
     fi
 
+    # A second stash created after the exact-OID precheck must never be
+    # dropped as though it were this workflow's stash.
+    if ! (
+        set -euo pipefail
+        _stash_root=$(mktemp -d -t hermes-stash-race-test.XXXXXX)
+        trap 'rm -rf -- "${_stash_root}"' EXIT
+        git init -q -b main "${_stash_root}/repo"
+        git -C "${_stash_root}/repo" config user.name hermes-update-test
+        git -C "${_stash_root}/repo" config user.email hermes-update-test@example.invalid
+        git -C "${_stash_root}/repo" config core.hooksPath /dev/null
+        printf 'base\n' >"${_stash_root}/repo/tracked.txt"
+        git -C "${_stash_root}/repo" add tracked.txt
+        git -C "${_stash_root}/repo" commit -q -m base
+        printf 'user\n' >"${_stash_root}/repo/user.txt"
+        git -C "${_stash_root}/repo" stash push -q -u -m hermes-update-extra-test
+        _stash_oid=$(git -C "${_stash_root}/repo" rev-parse refs/stash)
+        HERMES_AGENT="${_stash_root}/repo"
+        cd "${HERMES_AGENT}"
+        git() {
+            if [[ "${1:-}" == "stash" && "${2:-}" == "apply" ]]; then
+                command git "$@"
+                printf 'concurrent\n' >concurrent.txt
+                command git stash push -q -u -m concurrent-stash
+            else
+                command git "$@"
+            fi
+        }
+        if _restore_extra_stash "${_stash_oid}" >/dev/null 2>&1; then
+            exit 1
+        fi
+        [[ "$(command git stash list --format='%H' | wc -l | tr -d '[:space:]')" == "2" ]]
+        command git stash list --format='%H' | grep -qF "${_stash_oid}"
+    ); then
+        printf 'self-test: concurrent stash creation was not preserved fail-closed\n' >&2
+        return 1
+    fi
+
+    # Lock publication is fail-closed while ownership metadata is absent, and
+    # a failed owner write cannot leave a lock that this process claims to own.
+    if ! (
+        set -euo pipefail
+        _lock_root=$(mktemp -d -t hermes-lock-publication-test.XXXXXX)
+        trap 'rm -rf -- "${_lock_root}"' EXIT
+        TRANSACTION_LOCK_DIR="${_lock_root}/lock"
+        _TRANSACTION_LOCK_HELD=false
+        mkdir "${TRANSACTION_LOCK_DIR}"
+        if _acquire_transaction_lock >/dev/null 2>&1; then
+            exit 1
+        fi
+        [[ -d "${TRANSACTION_LOCK_DIR}" ]]
+        [[ ! -e "${TRANSACTION_LOCK_DIR}/owner" ]]
+    ); then
+        printf 'self-test: unpublished lock ownership was not treated as busy\n' >&2
+        return 1
+    fi
+    if ! (
+        set -euo pipefail
+        _lock_root=$(mktemp -d -t hermes-lock-write-test.XXXXXX)
+        trap 'rm -rf -- "${_lock_root}"' EXIT
+        TRANSACTION_LOCK_DIR="${_lock_root}/lock"
+        _TRANSACTION_LOCK_HELD=false
+        _write_transaction_lock_owner_candidate() { return 1; }
+        if _acquire_transaction_lock >/dev/null 2>&1; then
+            exit 1
+        fi
+        [[ ! -e "${TRANSACTION_LOCK_DIR}" ]]
+    ); then
+        printf 'self-test: failed lock-owner write was accepted\n' >&2
+        return 1
+    fi
+    if ! (
+        set -euo pipefail
+        _lock_root=$(mktemp -d -t hermes-lock-contention-test.XXXXXX)
+        trap 'rm -rf -- "${_lock_root}"' EXIT
+        TRANSACTION_LOCK_DIR="${_lock_root}/lock"
+        _TRANSACTION_LOCK_HELD=false
+        _acquire_transaction_lock >/dev/null
+        _first_owner=$(<"${TRANSACTION_LOCK_DIR}/owner")
+        _TRANSACTION_LOCK_HELD=false
+        _TRANSACTION_LOCK_TOKEN=""
+        _TRANSACTION_LOCK_START=""
+        if _acquire_transaction_lock >/dev/null 2>&1; then
+            exit 1
+        fi
+        [[ "$(<"${TRANSACTION_LOCK_DIR}/owner")" == "${_first_owner}" ]]
+    ); then
+        printf 'self-test: a competing lock acquisition replaced the live owner\n' >&2
+        return 1
+    fi
+    if ! (
+        set -euo pipefail
+        _lock_root=$(mktemp -d -t hermes-lock-release-test.XXXXXX)
+        trap 'rm -rf -- "${_lock_root}"' EXIT
+        TRANSACTION_LOCK_DIR="${_lock_root}/lock"
+        _TRANSACTION_LOCK_HELD=false
+        _acquire_transaction_lock >/dev/null
+        printf '%s\n' \
+            'version=1' \
+            "pid=$$" \
+            "start=${_TRANSACTION_LOCK_START}" \
+            'token=another-owner' >"${TRANSACTION_LOCK_DIR}/owner"
+        if _release_transaction_lock >/dev/null 2>&1; then
+            exit 1
+        fi
+        [[ -d "${TRANSACTION_LOCK_DIR}" ]]
+        [[ -f "${TRANSACTION_LOCK_DIR}/owner" ]]
+    ); then
+        printf 'self-test: lock release removed another owner\n' >&2
+        return 1
+    fi
+    if ! (
+        set -euo pipefail
+        _write_transaction() { return 1; }
+        if _retain_transaction_state >/dev/null 2>&1; then
+            exit 1
+        fi
+    ); then
+        printf 'self-test: failed transaction retention write was accepted\n' >&2
+        return 1
+    fi
+    if ! (
+        set -euo pipefail
+        _completion_root=$(mktemp -d -t hermes-transaction-complete-test.XXXXXX)
+        trap 'rm -rf -- "${_completion_root}"' EXIT
+        git init -q -b main "${_completion_root}/repo"
+        git -C "${_completion_root}/repo" config user.name hermes-update-test
+        git -C "${_completion_root}/repo" config user.email hermes-update-test@example.invalid
+        git -C "${_completion_root}/repo" config core.hooksPath /dev/null
+        git -C "${_completion_root}/repo" commit -q --allow-empty -m base
+        HERMES_AGENT="${_completion_root}/repo"
+        TRANSACTION_TARGET_REF="refs/hermes-update/test-target"
+        git -C "${HERMES_AGENT}" update-ref "${TRANSACTION_TARGET_REF}" HEAD
+        TRANSACTION_FILE="${_completion_root}/state-directory"
+        mkdir "${TRANSACTION_FILE}"
+        if _complete_transaction_state >/dev/null 2>&1; then
+            exit 1
+        fi
+        [[ -d "${TRANSACTION_FILE}" ]]
+    ); then
+        printf 'self-test: failed transaction completion cleanup was accepted\n' >&2
+        return 1
+    fi
+
     # The public final-audit entrypoint must hold the same transaction lock for
     # the complete child audit process and release it afterwards.
     if ! (
@@ -827,8 +990,8 @@ _self_test_transaction() {
 import os
 from pathlib import Path
 
-lock = Path.home() / ".hermes/.hermes-update-transaction.lock/pid"
-if not lock.is_file():
+lock = Path.home() / ".hermes/.hermes-update-transaction.lock/owner"
+if not lock.is_file() or "token=" not in lock.read_text():
     raise SystemExit(91)
 Path(os.environ["HERMES_FINAL_AUDIT_MARKER"]).write_text(lock.read_text())
 PY
@@ -989,41 +1152,127 @@ _self_test_patch_evidence() {
     "${_audit_py}" "${HERMES_HOME}/scripts/test_patch_evidence.py" --quick
 }
 
+_process_start_fingerprint() {
+    local _pid="$1"
+    ps -p "${_pid}" -o lstart= 2>/dev/null |
+        sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' |
+        head -n 1
+}
+
+_lock_owner_value() {
+    local _key="$1"
+    local _file="$2"
+    sed -n "s/^${_key}=//p" "${_file}" 2>/dev/null | head -n 1
+}
+
+_read_transaction_lock_owner() {
+    local _owner="${TRANSACTION_LOCK_DIR}/owner"
+    [[ -f "${_owner}" && ! -L "${_owner}" ]] || return 1
+    [[ "$(wc -l <"${_owner}" | tr -d '[:space:]')" == "4" ]] || return 1
+    ! grep -qEv '^(version|pid|start|token)=' "${_owner}" || return 1
+    local _key
+    for _key in version pid start token; do
+        [[ "$(grep -c "^${_key}=" "${_owner}" 2>/dev/null || true)" == "1" ]] || return 1
+    done
+    _LOCK_OWNER_VERSION=$(_lock_owner_value version "${_owner}")
+    _LOCK_OWNER_PID=$(_lock_owner_value pid "${_owner}")
+    _LOCK_OWNER_START=$(_lock_owner_value start "${_owner}")
+    _LOCK_OWNER_TOKEN=$(_lock_owner_value token "${_owner}")
+    [[ "${_LOCK_OWNER_VERSION}" == "1" ]] || return 1
+    [[ "${_LOCK_OWNER_PID}" =~ ^[0-9]+$ ]] || return 1
+    [[ -n "${_LOCK_OWNER_START}" ]] || return 1
+    [[ "${_LOCK_OWNER_TOKEN}" =~ ^[A-Za-z0-9._:-]+$ ]] || return 1
+}
+
+_write_transaction_lock_owner_candidate() {
+    local _path="$1"
+    local _pid="$2"
+    local _start="$3"
+    local _token="$4"
+    (
+        umask 077
+        printf '%s\n' \
+            'version=1' \
+            "pid=${_pid}" \
+            "start=${_start}" \
+            "token=${_token}" >"${_path}"
+    )
+}
+
 _acquire_transaction_lock() {
-    local _holder=""
+    local _candidate _start _token _live_start _legacy_holder=""
+    _start=$(_process_start_fingerprint "$$")
+    if [[ -z "${_start}" ]]; then
+        fail "Could not fingerprint the update lock owner process"
+        return 1
+    fi
+    _token="$$:${PPID:-0}:$(date +%s):${RANDOM:-0}"
+    _candidate=$(mktemp -t hermes-update-lock-owner.XXXXXX) || {
+        fail "Could not stage update lock ownership metadata"
+        return 1
+    }
+    if ! _write_transaction_lock_owner_candidate "${_candidate}" "$$" "${_start}" "${_token}"; then
+        rm -f -- "${_candidate}" 2>/dev/null || true
+        fail "Could not write update lock ownership metadata"
+        return 1
+    fi
+
     if mkdir "${TRANSACTION_LOCK_DIR}" 2>/dev/null; then
-        printf '%s\n' "$$" >"${TRANSACTION_LOCK_DIR}/pid"
+        if ! mv -f -- "${_candidate}" "${TRANSACTION_LOCK_DIR}/owner"; then
+            rm -f -- "${_candidate}" 2>/dev/null || true
+            rmdir "${TRANSACTION_LOCK_DIR}" 2>/dev/null || true
+            fail "Could not publish update lock ownership metadata"
+            return 1
+        fi
+        _TRANSACTION_LOCK_TOKEN="${_token}"
+        _TRANSACTION_LOCK_START="${_start}"
         _TRANSACTION_LOCK_HELD=true
         return 0
     fi
+    rm -f -- "${_candidate}" 2>/dev/null || true
 
+    if _read_transaction_lock_owner; then
+        _live_start=$(_process_start_fingerprint "${_LOCK_OWNER_PID}")
+        if [[ -n "${_live_start}" && "${_live_start}" == "${_LOCK_OWNER_START}" ]]; then
+            fail "Another hermes-update workflow is active (PID ${_LOCK_OWNER_PID})"
+        else
+            fail "A stale update transaction lock requires explicit recovery: ${TRANSACTION_LOCK_DIR}"
+        fi
+        return 1
+    fi
     if [[ -f "${TRANSACTION_LOCK_DIR}/pid" ]]; then
-        _holder=$(sed -nE 's/^([0-9]+)$/\1/p' "${TRANSACTION_LOCK_DIR}/pid" | head -n 1)
+        _legacy_holder=$(sed -nE 's/^([0-9]+)$/\1/p' "${TRANSACTION_LOCK_DIR}/pid" | head -n 1)
     fi
-    if [[ -n "${_holder}" ]] && kill -0 "${_holder}" 2>/dev/null; then
-        fail "Another hermes-update workflow is active (PID ${_holder})"
-        return 1
+    if [[ -n "${_legacy_holder}" ]] && kill -0 "${_legacy_holder}" 2>/dev/null; then
+        fail "Another legacy hermes-update workflow is active (PID ${_legacy_holder})"
+    else
+        fail "Update transaction lock has missing or invalid ownership metadata: ${TRANSACTION_LOCK_DIR}"
     fi
-
-    # Recover only this exact stale lock; never remove a broad or unresolved
-    # path. rmdir also fails closed if unexpected files appeared inside it.
-    rm -f -- "${TRANSACTION_LOCK_DIR}/pid" 2>/dev/null || true
-    if ! rmdir "${TRANSACTION_LOCK_DIR}" 2>/dev/null ||
-        ! mkdir "${TRANSACTION_LOCK_DIR}" 2>/dev/null; then
-        fail "Could not acquire update transaction lock: ${TRANSACTION_LOCK_DIR}"
-        return 1
-    fi
-    printf '%s\n' "$$" >"${TRANSACTION_LOCK_DIR}/pid"
-    _TRANSACTION_LOCK_HELD=true
+    return 1
 }
 
 # Invoked indirectly from the EXIT handler.
 # shellcheck disable=SC2329
 _release_transaction_lock() {
     $_TRANSACTION_LOCK_HELD || return 0
-    rm -f -- "${TRANSACTION_LOCK_DIR}/pid" 2>/dev/null || true
-    rmdir "${TRANSACTION_LOCK_DIR}" 2>/dev/null || true
+    local _current_start
+    _current_start=$(_process_start_fingerprint "$$")
+    if ! _read_transaction_lock_owner ||
+        [[ "${_LOCK_OWNER_PID}" != "$$" ]] ||
+        [[ "${_LOCK_OWNER_START}" != "${_TRANSACTION_LOCK_START}" ]] ||
+        [[ "${_LOCK_OWNER_START}" != "${_current_start}" ]] ||
+        [[ "${_LOCK_OWNER_TOKEN}" != "${_TRANSACTION_LOCK_TOKEN}" ]]; then
+        fail "Refusing to release an update lock not owned by this process"
+        return 1
+    fi
+    if ! rm -f -- "${TRANSACTION_LOCK_DIR}/owner" ||
+        ! rmdir "${TRANSACTION_LOCK_DIR}"; then
+        fail "Could not release update transaction lock: ${TRANSACTION_LOCK_DIR}"
+        return 1
+    fi
     _TRANSACTION_LOCK_HELD=false
+    _TRANSACTION_LOCK_TOKEN=""
+    _TRANSACTION_LOCK_START=""
 }
 
 # Print the active gateway PID, accepting both the older JSON-like status
@@ -1333,6 +1582,10 @@ case "${1:-}" in
     "${_audit_python}" "${HERMES_FINAL_AUDIT_SCRIPT:-${HERMES_HOME}/scripts/final_upgrade_audit.py}" "$@"
     _audit_rc=$?
     set -e
+    if ! _release_transaction_lock; then
+        _audit_rc=1
+    fi
+    trap - EXIT
     exit "${_audit_rc}"
     ;;
 *)
@@ -1539,9 +1792,13 @@ _on_exit() {
 
     if $_TRANSACTION_INITIALIZED; then
         if [[ "${_rc}" -eq 0 ]]; then
-            rm -f -- "${TRANSACTION_FILE}"
-            git -C "${HERMES_AGENT}" update-ref -d "${TRANSACTION_TARGET_REF}" 2>/dev/null || true
-            printf '  %s✓%s Update transaction complete — removed pinned state.\n' "${GRN}" "${NC}"
+            if ! _complete_transaction_state; then
+                printf '  %s✗%s Could not remove completed transaction state/ref: %s\n' \
+                    "${RED}" "${NC}" "${TRANSACTION_FILE}"
+                _rc=1
+            else
+                printf '  %s✓%s Update transaction complete — removed pinned state.\n' "${GRN}" "${NC}"
+            fi
         else
             # Best-effort crash recovery: if acquisition moved a local ref before
             # the normal pin step ran, preserve that SHA for the next process.
@@ -1559,12 +1816,19 @@ _on_exit() {
                     _TX_RUNTIME_DIRTY="1"
                 fi
             fi
-            _write_transaction >/dev/null 2>&1 || true
-            printf '  %s→%s Update transaction retained at %s (target %s).\n' \
-                "${BOLD}" "${NC}" "${TRANSACTION_FILE}" "${_TX_TARGET_SHA:-pending}"
+            if _retain_transaction_state >/dev/null 2>&1; then
+                printf '  %s→%s Update transaction retained at %s (target %s).\n' \
+                    "${BOLD}" "${NC}" "${TRANSACTION_FILE}" "${_TX_TARGET_SHA:-pending}"
+            else
+                printf '  %s✗%s Could not persist failed transaction recovery state at %s.\n' \
+                    "${RED}" "${NC}" "${TRANSACTION_FILE}"
+                _rc=1
+            fi
         fi
     fi
-    _release_transaction_lock
+    if ! _release_transaction_lock; then
+        _rc=1
+    fi
     exit "${_rc}"
 }
 trap _on_exit EXIT
@@ -2386,6 +2650,7 @@ if [[ -f "${ENV_LOADER_PY}" && -f "${ENV_LOADER_TEST_PY}" ]]; then
         grep -q 'ignore_ambient_credentials' "${ENV_LOADER_PY}" &&
         grep -q 'test_strict_profile_ignores_ambient_hermes_credentials' "${ENV_LOADER_TEST_PY}" &&
         grep -q 'test_strict_profile_without_dotenv_still_ignores_ambient_credentials' "${ENV_LOADER_TEST_PY}" &&
+        grep -q 'test_malformed_config_fails_closed_for_ambient_credentials' "${ENV_LOADER_TEST_PY}" &&
         grep -q 'ignore_ambient_credentials: true' "${HERMES_HOME}/config.yaml"; then
         ok "PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION active: shell credentials excluded"
         _AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK=true
@@ -2412,10 +2677,15 @@ if [[ -f "${MODEL_SWITCH_PY}" && -f "${MODEL_SLASH_COMMANDS_PY}" && -f "${MODEL_
         grep -q 'test_model_command_rejects_chain_out_and_global' "${MODEL_GATEWAY_TEST_PY}" &&
         grep -q 'test_model_command_expands_configured_route_environment_references' "${MODEL_GATEWAY_TEST_PY}" &&
         grep -q 'test_model_command_fails_closed_when_config_is_unparseable' "${MODEL_GATEWAY_TEST_PY}" &&
+        grep -q 'test_model_command_fails_closed_when_config_root_is_not_mapping' "${MODEL_GATEWAY_TEST_PY}" &&
+        grep -q 'test_model_command_preserves_duplicate_endpoint_selector' "${MODEL_GATEWAY_TEST_PY}" &&
         grep -q 'test_switch_model_core_rejects_chain_out_and_global' "${MODEL_CONFIGURED_TEST_PY}" &&
         grep -q 'test_configured_model_routes_preserve_endpoint_identity_and_overrides' "${MODEL_CONFIGURED_TEST_PY}" &&
+        grep -q 'test_configured_model_picker_exposes_duplicate_endpoints_as_unique_routes' "${MODEL_CONFIGURED_TEST_PY}" &&
         grep -q 'test_switch_model_fails_closed_when_policy_config_cannot_be_loaded' "${MODEL_CONFIGURED_TEST_PY}" &&
         grep -q 'test_switch_model_uses_complete_configured_route' "${MODEL_CONFIGURED_TEST_PY}" &&
+        grep -q 'test_complete_configured_route_bypasses_ambient_provider_resolver' "${MODEL_CONFIGURED_TEST_PY}" &&
+        grep -q 'test_switch_model_uses_picker_selector_for_duplicate_endpoint' "${MODEL_CONFIGURED_TEST_PY}" &&
         grep -q 'test_primary_fallback_a_skips_duplicate_and_falls_to_b' "${MODEL_FALLBACK_TEST_PY}" &&
         grep -q 'test_primary_fallback_b_uses_a_before_skipping_duplicate' "${MODEL_FALLBACK_TEST_PY}" &&
         grep -q 'summary_model == "independent-summary-model"' "${COMPRESSOR_FALLBACK_TEST_PY}" &&
@@ -2611,8 +2881,11 @@ if [[ -f "${SKILL_UTILS_PY}" && -f "${SKILL_COMMANDS_TEST_PY}" && -f "${PROMPT_B
         grep -q 'get_allowed_skill_names' "${PROMPT_BUILDER_PY}" 2>/dev/null &&
         grep -q 'get_allowed_skill_names' "${SKILLS_TOOL_PY}" 2>/dev/null &&
         grep -q 'test_scan_uses_session_platform_config_key_allowlist' "${SKILL_COMMANDS_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_scan_uses_session_platform_config_key_disabled_rules' "${SKILL_COMMANDS_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_scan_fails_closed_when_skill_policy_config_is_malformed' "${SKILL_COMMANDS_TEST_PY}" 2>/dev/null &&
         grep -q 'test_hidden_bundled_skill_is_not_discovered_but_external_is' "${HERMES_AGENT}/tests/hermes_cli/test_skills_config.py" 2>/dev/null &&
         grep -q 'test_qualified_local_skill_allowed_by_bare_name' "${SKILLS_TOOL_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_malformed_config_fails_closed' "${HERMES_AGENT}/tests/hermes_cli/test_skills_config.py" 2>/dev/null &&
         grep -q 'skills_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
         grep -q 'file_readonly' "${TOOLSETS_PY}" 2>/dev/null &&
         (cd "${HERMES_AGENT}" && "${VENV_PY}" -c '
@@ -2999,6 +3272,14 @@ if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" 
         grep -q 'group_drive_pdf' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quoted_merge_forward_expands_children_and_attachments' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_merge_forward_reply_context_is_not_cut_at_generic_500_chars' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_failed_resources_still_consume_file_budget' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_direct_post_resources_share_one_deadline_and_surface_failure' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_merge_forward_failed_child_resource_is_model_visible' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_quoted_attachment_all_downloads_failed_is_explicit' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_cancelled_queued_download_releases_admission_permit' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_drive_links_share_file_budget_even_when_downloads_fail' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_quote_and_sender_backfill_share_deadline_and_remaining_file_budget' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'class _AttachmentDownloadBudget' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'class TestFeishuDriveFileLinks' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_doc_read_builds_env_client_outside_comment_context' "${FEISHU_TOOLS_TEST_PY}" 2>/dev/null; then
         ok "PATCH-FEISHU-RESOURCE-ACCESS active: complete quote/backfill matrix + merged transcripts + Drive/doc access"
@@ -3033,10 +3314,13 @@ if [[ -f "${GATEWAY_RUN_PY}" && -f "${READ_EXTRACT_PY}" && -f "${READ_EXTRACT_TE
         grep -q 'test_anydoc_only_formats_not_extractable_without_anydoc' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_pptx_visual_only_slides_are_explicitly_incomplete' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_pptx_pure_image_deck_returns_coverage_marker' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_pptx_text_plus_visual_is_explicitly_incomplete' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_xlsx_uses_format_specific_fifty_mib_limit' "${READ_EXTRACT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_extract_inbound_html_without_terminal_access' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_text_note_mentions_included_content_without_path' "${DOCUMENT_CONTEXT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_adds_pdf_visual_sidecar_when_text_coverage_has_gaps' "${GROUP_MEDIA_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_document_matrix_reaches_user_turn' "${GROUP_MEDIA_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_pptx_visual_marker_reaches_user_turn' "${GROUP_MEDIA_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'pypdf==6.14.2' "${PYPROJECT}" 2>/dev/null &&
         grep -q 'pypdf==6.14.2' "${LAZY_DEPS_PY}" 2>/dev/null; then
         ok "PATCH-DOCUMENT-EXTRACTION active: trusted PDF/HTML/Office/OpenDocument readers + inbound wiring"
@@ -3326,6 +3610,7 @@ if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${AUXILIA
         grep -q 'test_audio_sidecar_follows_chain_to_vertex' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_pdf_sidecar_data_url_uses_pdf_mime' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_pinned_vision_route_does_not_fall_back_to_auto' "${AUXILIARY_CLIENT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_pinned_async_vision_route_does_not_fall_back_to_auto' "${AUXILIARY_CLIENT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_runs_video_sidecar_when_main_model_lacks_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_reports_path_free_failure_when_no_link_can_read_video' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_runs_audio_sidecar_for_audio_attachment' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
@@ -3379,18 +3664,23 @@ MCP_TASK_PROTOCOL_PY="${HERMES_AGENT}/agent/mcp_task_protocol.py"
 MCP_TASKS_EXTENSION_PY="${HERMES_AGENT}/tools/mcp_tasks_extension.py"
 MCP_TOOL_PY="${HERMES_AGENT}/tools/mcp_tool.py"
 CONVERSATION_LOOP_PY="${HERMES_AGENT}/agent/conversation_loop.py"
+RUN_AGENT_PY="${HERMES_AGENT}/run_agent.py"
+HERMES_STATE_PY="${HERMES_AGENT}/hermes_state.py"
 MCP_TASKS_EXTENSION_TEST_PY="${HERMES_AGENT}/tests/tools/test_mcp_tasks_extension.py"
 MCP_TASK_PERSIST_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_tool_call_incremental_persistence.py"
 MCP_UTILITY_GATE_TEST_PY="${HERMES_AGENT}/tests/tools/test_mcp_utility_capability_gating.py"
 if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MCP_TOOL_PY}" &&
-    -f "${CONVERSATION_LOOP_PY}" && -f "${MCP_TASKS_EXTENSION_TEST_PY}" &&
+    -f "${CONVERSATION_LOOP_PY}" && -f "${RUN_AGENT_PY}" && -f "${HERMES_STATE_PY}" && -f "${MCP_TASKS_EXTENSION_TEST_PY}" &&
     -f "${MCP_TASK_PERSIST_TEST_PY}" && -f "${MCP_UTILITY_GATE_TEST_PY}" ]]; then
     if grep -q 'TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
         grep -q 'server_supports_tasks(server.initialize_result)' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'mcp_prefixed_tool_name(server_name, "tasks_get")' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'add_task_routing_headers(request)' "${MCP_TOOL_PY}" 2>/dev/null &&
         grep -q 'direct_task_response(messages)' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
+        grep -q '_mcp_task_result' "${RUN_AGENT_PY}" 2>/dev/null &&
+        grep -q '_mcp_task_result' "${HERMES_STATE_PY}" 2>/dev/null &&
         grep -q 'test_mcp_task_handle_ends_turn_without_second_model_call' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_mcp_task_provenance_survives_concurrent_worker_and_persistence' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_advertises_extension_and_accepts_task_handle' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_task_metadata_requires_negotiated_result_provenance' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'types.CallToolRequest(' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&

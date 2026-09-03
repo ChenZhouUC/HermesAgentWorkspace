@@ -384,6 +384,35 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
                 {"head": "b", "base": "a", "bundle_sha256": "one"},
             )
 
+    def test_workspace_snapshot_binds_clean_head_and_untracked_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_raw:
+            root = Path(temp_raw)
+            subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "audit-test"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.email", "audit@example.invalid"],
+                check=True,
+            )
+            subprocess.run(["git", "-C", str(root), "config", "core.hooksPath", "/dev/null"], check=True)
+            tracked = root / "tracked.txt"
+            tracked.write_text("one\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "tracked.txt"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "one"], check=True)
+
+            first = final_audit._workspace_snapshot(root, step="test")
+            tracked.write_text("two\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "commit", "-qam", "two"], check=True)
+            second = final_audit._workspace_snapshot(root, step="test")
+            self.assertNotEqual(first["head"], second["head"])
+            self.assertNotEqual(first["digest"], second["digest"])
+
+            untracked = root / "draft.txt"
+            untracked.write_text("first", encoding="utf-8")
+            third = final_audit._workspace_snapshot(root, step="test")
+            untracked.write_text("second", encoding="utf-8")
+            fourth = final_audit._workspace_snapshot(root, step="test")
+            self.assertNotEqual(third["digest"], fourth["digest"])
+
     def test_dirty_package_lock_requires_matching_review_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_raw:
             root = Path(temp_raw)
