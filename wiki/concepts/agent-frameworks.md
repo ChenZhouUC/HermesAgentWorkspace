@@ -1,7 +1,7 @@
 ---
 title: AI Agent Frameworks Selection
 created: 2026-05-14
-updated: 2026-07-11
+updated: 2026-09-03
 type: concept
 tags: [agent, ops, llm]
 sources: [_living/AI-Infrastructure/AI-Agent-Frameworks.md]
@@ -61,4 +61,4 @@ confidence: high
 - **极长周期复杂软件工程**：DeepAgents（虚拟文件系统 + 任务列表引擎）
 - **多模态感知 + 垂直业务（安防/IoT）**：Agno（多模态较好 + Pydantic 工具挂载控制 API）^[[[_living/AI-Infrastructure/AI-Agent-Frameworks|AI-Agent-Frameworks]]]
 
-本仓库自身的多模态 Agent 实体 [[hermes-agent]]（及其前代 [[openclaw]]）即属于阵营一的 [[agent-harness|Harness]] 形态，并以 Markdown 作为人机交互的底层文本载体。
+本仓库中的 [[hermes-agent]] 属于阵营一的 [[agent-harness|Harness]] 形态，并以 Markdown 作为人机交互的底层文本载体。

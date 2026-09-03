@@ -1,7 +1,7 @@
 ---
 title: Hermes Agent
 created: 2026-05-17
-updated: 2026-07-14
+updated: 2026-09-03
 type: entity
 tags: [agent, ops, macos]
 sources: [_living/AI-Applications/Hermes-Agent-macOS-Ops.md]
@@ -10,26 +10,30 @@ confidence: high
 
 # Hermes Agent
 
-Hermes Agent 是一个先进的多模态大语言模型（LLM）端到端框架。它实现了完整的 [[agent-harness|Agent Harness]] 五层架构（编排/上下文/沙盒/HITL/协议），其底层设计高度注重工程化实践与全栈运维集成，使得其可以在多环境（如本地 macOS 以及公有云环境）稳定长期运行。
+Hermes Agent 是一个可长期运行的多模态 Agent Runtime，也是 [[agent-harness|Agent Harness]] 的具体实现。它把模型调用、工具编排、会话状态、长期记忆、定时任务、平台适配和本地服务管理组织在同一运行边界内。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
 
-## 核心架构与环境集成
+## 运行组成
 
-在 macOS 等本地环境下，Hermes Agent 被设计为与系统的底层守护进程（Daemon）紧密融合：
+- **Gateway**：承接消息平台和长期运行任务，并由操作系统服务管理器监督。
+- **模型路由**：主模型、fallback 和辅助任务可以使用不同 provider/transport；每条路由独立鉴权和验证。
+- **状态层**：SOUL、用户画像、长期记忆、会话、cron 和业务数据库构成持久状态，不能与可重建源码混在一起覆盖。
+- **能力层**：内置 tools、外部 skills、插件和 [[model-context-protocol|MCP]] 服务共同提供可调用能力；协议接入本身不等同于授权或沙盒。
+- **安全层**：平台身份、群聊 allowlist、工具权限、人工审批、进程沙箱和敏感信息脱敏共同限制副作用。
 
-- **进程拓扑**：Hermes 作为一个长期运行的常驻 Gateway 进程启动。它集成了飞书 (Feishu) Bot、定时任务 (Cron)、Dashboard 及 API 提供服务。
-- **环境隔离**：使用高速 Python 包管理器 `uv` 在独立虚拟环境中构建隔离运行依赖。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
+## 运维边界
 
-## 多模型 Fallback 机制
+Hermes 的安装目录不是一个可以整体复制的同质目录。源码与 lockfile 属于可复现代码；SOUL、memory、sessions、cron 和数据库属于目标机状态；`.env` 与 credentials 属于独立的秘密平面；skills、插件和专用运行时则需要按功能 allowlist 迁移。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
 
-Hermes 框架内置了强大的模型冗余与故障转移能力，旨在降低生产环境的推断停机时间：
+这种分层决定了升级和跨机器迁移必须使用“重建代码、保留状态、重建配置、逐项授权凭据”的方式。具体决策流程见 [[how-to-migrate-stateful-agent-runtime|如何迁移有状态 Agent Runtime]]。
 
-- **主模型 (Main Model)**：原生支持无缝桥接至企业级云端算力节点。例如将流量接入到基于 Google GCP Service Account 鉴权的 **Vertex AI** 兼容端点上。由于该 Token 具备时效限制（通常为 1 小时），需要搭配系统的 `launchd` 以及唤醒守护脚本（Wake Watcher）自动刷期。
-- **备用模型 (Fallback Model)**：当主端点由于网络抖动、频控或限流导致 4xx/5xx 报错时，系统会自动切轨到备用提供商（例如阿里云的 DashScope/Qwen），直到原通道恢复。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
+## 模型与凭据
 
-## 核心演进
+模型路由应通过配置中的 provider 身份和环境变量引用声明，避免内联密钥。主模型、每个 fallback 和 compression 路由都需要通过 Hermes 自身做最小端到端调用；供应商的模型目录或手写 HTTP 请求不能替代真实 transport 验证。
 
-Hermes 是前代智能体架构 OpenClaw 的继任者，不仅支持核心技能与记忆库的无缝平滑迁移，更强化了 [[model-context-protocol|MCP]] 外部能力接入与 PTY 交互终端的内置能力。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
+标准云认证应优先使用 SDK 的原生生命周期。例如 Vertex service account 由进程内认证库获取并刷新短期访问令牌，不需要额外的定时刷新脚本或唤醒守护进程。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
 
-## 连续对话调度
+## macOS 服务模型
 
-Hermes Gateway 在用户 mid-turn 追加输入时实现了 [[agent-mid-turn-input-modes]] 三种调度模式（interrupt / queue / steer），通过 `/busy` 命令热切换；其中 `steer` 模式利用工具调用边界注入引导上下文，避免破坏 Prompt Cache。^[[[_living/AI-Applications/Hermes-Agent-macOS-Ops|Hermes-Agent-macOS-Ops]]]
+生产运行应由唯一的 gateway LaunchAgent 托管。验证时既要确认 plist 指向当前解释器和源码，也要确认 launchd supervisor 与实际子进程都存在；普通 detached 进程即使有 PID，也不具备登录自启和崩溃拉起语义。
+
+退役旧服务时，必须同时清理脚本、plist、launchd 注册和残留进程。迁移暂存、回滚快照和过程文档只能在验收期存在，用户确认后应从目标机删除。

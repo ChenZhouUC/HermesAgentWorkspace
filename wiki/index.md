@@ -1,7 +1,7 @@
 ---
 title: Wiki Index
 created: 2026-05-14
-updated: 2026-08-05
+updated: 2026-09-03
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -12,7 +12,7 @@ confidence: high
 
 > 内容目录中枢。每个生成的知识节点都会在此处登记（一行一个代码路径 + 一句话摘要）。
 > 本文件是 Active Layer 2（尤其 `concepts/` 与 `entities/`）的**唯一注册表**；检索、新增、重命名、归档、删除前，Agent 都必须先检查并同步此文件。
-> Last structural update: 2026-08-05 | Total pages: 44
+> Last structural update: 2026-09-03 | Total pages: 43
 > (Content updates tracked in individual page frontmatter)
 > 结构规范参见 `SCHEMA.md`；操作追踪参见 `log.md`。Meta 页面使用纯文本路径，避免进入语义图谱。
 
@@ -33,11 +33,10 @@ Registry Rules
 - `entities/edge-algo.md` - 边缘端算法服务：轨迹与事件抽取、弱网缓存机制
 - `entities/edge-rk3576.md` - RK3576 边缘 SoC 的稳定规格、RKNN 工具链与整机边界
 - `entities/edge-sophon.md` - SOPHGO CV186AH、BM1688、BM1684X 边缘 SoC 平台
-- `entities/hermes-agent.md` - 多模态 Agent 端到端框架，包含 macOS 核心网关与 Fallback 机制
+- `entities/hermes-agent.md` - 有状态多模态 Agent Runtime，统一模型、工具、记忆、平台和服务边界
 - `entities/hidalgo.md` - ReID 顶层项目与计算层服务：特征数据 → 行人 ID + 角色 + 轨迹
 - `entities/model-context-protocol.md` - 连接 AI Host 与外部 tools、resources、prompts 的开放协议
 - `entities/obsidian.md` - 本地 Markdown 知识库与双链图谱工具
-- `entities/openclaw.md` - 早期的智能体前代框架（现已被 Hermes 继承并自动迁移）
 - `entities/ruview.md` - 将 WiFi CSI 转换为人体感知结果的应用平台
 - `entities/spacesight.md` - 线下门店与展陈场景的视觉智能产品线
 - `entities/trajex.md` - ReID 感知层服务：边缘轨迹 + 图像 → 特征数据 + 角色标签
@@ -46,7 +45,6 @@ Registry Rules
 
 - `concepts/agent-frameworks.md` - 什么是真正的 Agent 框架及深度选型分析
 - `concepts/agent-harness.md` - Agent Harness 底座架构：五层系统（编排/上下文/沙盒/HITL/协议）
-- `concepts/agent-mid-turn-input-modes.md` - Agent 在用户 mid-turn 追加输入时的 interrupt/queue/steer 三模式调度对偶
 - `concepts/chain-of-thought.md` - 思维链提示词族（CoT/Zero-shot/Self-Consistency/ToT/ReAct）
 - `concepts/customer-flow-post-processing.md` - 客流加工的三阶段顺序漏斗：感知侧基础过滤、中台清洗与核心业务指标衍生
 - `concepts/edge-ai-deployment-stack.md` - 从整机、SoC、BSP、Runtime 到模型包和视频处理的边缘 AI 部署栈
@@ -81,5 +79,6 @@ Registry Rules
 ## Queries (深度问答/探索存档)
 
 - `queries/diagnose-spacesight-traffic-count-mismatch.md` - 如何先验证客户基准，再分层排查 SpaceSight 客流数据偏差
+- `queries/how-to-migrate-stateful-agent-runtime.md` - 如何分离代码、状态、身份、凭据和过程材料，安全迁移有状态 Agent Runtime
 - `queries/how-to-roll-out-a-new-reid-model.md` - 如何把一个新的 ReID 特征模型安全上线到生产（影子部署 + 灰度切换 + 回滚 SOP）
 - `queries/how-to-size-spacesight-edge-algo-capacity.md` - 如何按 ALGO 包型、测试边界和现场输入流为 SpaceSight AI Hub 选型

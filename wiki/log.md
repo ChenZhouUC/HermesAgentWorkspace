@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-09-02
+updated: 2026-09-03
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,33 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-09-03] daily | Hermes agent operations runbook
+
+### refactor | Agent-oriented Hermes operations runbook
+
+- Trigger: 用户要求将 Hermes peer 迁移原则与后处理清理纳入既有 `_living` 运维文档，并明确文档应以日常运维为主、迁移为辅，服务于负责执行和验证的 agent。
+- Actions:
+  - 将 `_living/AI-Applications/Hermes-Agent-macOS-Ops.md` 从面向新手的安装教程重构为 agent runbook；主线覆盖运行面与状态边界、健康巡检、Gateway/launchd、配置与凭据、模型路由、飞书身份、cron/记忆/会话、skills/插件/MCP、日志排障和升级维护。
+  - 将 peer 迁移收束为低频变更章节，把迁移原则、暂存与切换、后处理清理放在日常运维主线之后，避免用一次迁移覆盖整篇文档定位。
+  - 删除固定主机、人员、数量、测试结果、提交 SHA 和过时版本示例，改为跨环境可复用的判断规则与验证证据。
+  - 固化“干净 Git 基线后 apply”“目标持久状态不覆盖”“凭据逐字段授权”“飞书按 tenant user_id 重映射 open_id”“整列字段缺失时保留旧值”等迁移原则。
+  - 增加清理前置条件、应删除/不应删除清单和清理后证明，明确迁移备份在验收前用于回滚、用户确认后不得继续作为目标机过程材料残留。
+- Boundary: 未修改 `SCHEMA.md`、`scripts/wiki_lint.py`、Active Layer 2、index 或 Obsidian 配置；未在文档中记录主机地址、用户 ID、chat ID、密钥、具体人员画像或单次迁移数字。
+- Verification: `python3 scripts/wiki_lint.py`、Markdown 解析检查与 `git diff --check`。
+
+### ingest | Stateful Agent Runtime migration
+
+- Trigger: 用户要求根据重构后的 Hermes macOS 运维文档重新 ingest，使 Active Layer 2 与当前来源保持一致。
+- Actions:
+  - 重写 `entities/hermes-agent.md`，删除依赖外部 Vertex token 刷新守护进程、固定 fallback 和旧迁移关系的过时描述，改为代码、状态、凭据、能力和服务五类运行边界。
+  - 新建 `queries/how-to-migrate-stateful-agent-runtime.md`，提炼有状态 Agent Runtime 的盘点、授权矩阵、干净基线、身份重映射、运行时验证、原子切换和验收后清理方法。
+  - 更新 `concepts/agent-harness.md`，补充 Harness 迁移时各状态平面的生命周期分离，并建立到新 query 的有证据关系。
+  - 更新 `concepts/agent-frameworks.md`，移除不再由当前来源支持的前代框架关系。
+  - 删除失去有效来源支撑的 `entities/openclaw.md` 与 `concepts/agent-mid-turn-input-modes.md`，同步清理引用和 index 登记。
+  - 更新 `index.md`，登记新 query，并将 Active Layer 2 总数调整为 43。
+- Boundary: 未修改 SCHEMA、lint 规则或 Obsidian 配置；Active Layer 2 只提炼当前 living 来源能够支持的稳定知识，未纳入具体主机、人员、模型版本、测试数量或凭据值。
+- Verification: `python3 scripts/wiki_lint.py`、`python3 scripts/wiki_lint.py --json`、Markdown 解析、全库引用审计与 `git diff --check`。
 
 ## [2026-09-02] daily | Hermes peer Mac deployment procedure
 

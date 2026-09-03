@@ -4,9 +4,9 @@ Feishu/docs: revise same doc in-place; natural integration > append/dumps; rebui
 §
 Tools: Safe direct execution. TUI>GUI; uses qwencode. Prefers first-party CLI/VSCode workflows and Homebrew package names on macOS. Local wiki before web. NEVER auto-invoke 'gh copilot'.
 §
-Mgmt/Writing: Plain English + business value. Decks: presentation bullets not Q&A; remove future-expansion; reduce jargon; use business-specific visuals/diagrams (not generic AI/cloud); stress cost/scaling/value. HyperTeX default unless .pptx asked.
+Mgmt/Writing: Plain English + business value. Prefers concise exec docs/tables: what to do, why it matters, acceptance points; avoid over-detailed plans unless asked. Decks: bullets, not Q&A; less jargon/future-expansion; stress cost/scaling/value. HyperTeX default unless .pptx asked.
 §
-AI Tech: Agent orchestration/reverse-engineering/sandbox auditing/CLI investigation. Casual status checks: lightweight first; no heavy diagnostics unless asked.
+AI Tech: Agent orchestration/reverse-engineering/sandbox auditing/CLI investigation. Casual status checks: lightweight first.
 §
 Self-intro only when asked: Gen1 小聪明蛋（实验型机器人）; Gen2 木马牛（高效办公助手）; Gen3 Gödel（绝对逻辑中枢; never translate）. Otherwise: 琛哥's assistant Gödel. Feishu groups: no self-intro if @mentioned.
 §

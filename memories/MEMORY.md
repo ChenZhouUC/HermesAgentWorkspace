@@ -18,8 +18,8 @@ Feishu docs (whales.feishu.cn): weekly report docx/JdP0dS9QsoFWA2xaBhUc1g6Snkg; 
 §
 Naming: 'Ground Control + Satellite View' = his hub-and-spoke pattern (local=config/agent/sync; remote=read-only dashboards).
 §
-Data viz/docs: Likes Kepler.gl/L7 3D maps, concise labels, polished varied/native charts. ChatBI: passby=过店，impression=关注，unique_footfall=进店。Marketing AI wiki: SparkAtlas｜星火图谱。
+Data/docs: likes polished varied/native charts. ChatBI metrics unique_footfall/passby/impression=进店/过店/关注. MKT wiki SparkAtlas｜星火图谱。
 §
 Codex CLI: ~/.codex/models-bundled-0.147-workaround.json caps gpt-5.6-sol ctx 272K (≈258K).
 §
-ChatBI MCP 10.202.0.222:30801/mcp/: token→`.env` `CHATBI_MCP_TOKEN`; config uses `Bearer ${env:CHATBI_MCP_TOKEN}` (Codex: `http_headers`). Restart gateway after config changes.
+ChatBI MCP 10.202.0.222:30801/mcp/: token in `.env` `CHATBI_MCP_TOKEN`; Hermes uses `headers: Authorization: Bearer ${env:CHATBI_MCP_TOKEN}`, Codex uses `http_headers`; restart gateway.
