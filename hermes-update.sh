@@ -168,6 +168,7 @@ PATCHED_FILES=(
     "agent/transports/chat_completions.py"
     "tests/agent/transports/test_chat_completions.py"
     "tests/agent/test_auxiliary_client.py"
+    "tests/agent/test_codex_ttfb_watchdog.py"
     "tests/agent/test_image_routing.py"
     "tests/agent/test_skill_commands.py"
     "tests/gateway/test_image_input_routing_runtime.py"
@@ -176,8 +177,10 @@ PATCHED_FILES=(
     "agent/replay_cleanup.py"
     "tests/agent/test_replay_cleanup.py"
     "tests/run_agent/test_provider_fallback.py"
+    "tests/run_agent/test_primary_runtime_restore.py"
     "tests/run_agent/test_compressor_fallback_update.py"
     "tests/gateway/test_stale_confirmation_expiry.py"
+    "agent/agent_runtime_helpers.py"
     "agent/chat_completion_helpers.py"
     "agent/conversation_loop.py"
     "agent/tool_executor.py"
@@ -2748,6 +2751,7 @@ else
 fi
 
 FEISHU_PY="${HERMES_AGENT}/plugins/platforms/feishu/adapter.py"
+AI_AUXILIARY_CLIENT_PY="${HERMES_AGENT}/agent/auxiliary_client.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
 SLASH_COMMANDS_PY="${HERMES_AGENT}/gateway/slash_commands.py"
 SESSION_CONTEXT_PY="${HERMES_AGENT}/gateway/session_context.py"
@@ -2756,6 +2760,7 @@ GATEWAY_CONFIG_PY="${HERMES_AGENT}/gateway/config.py"
 AUTHZ_MIXIN_PY="${HERMES_AGENT}/gateway/authz_mixin.py"
 TOOLS_CONFIG_PY="${HERMES_AGENT}/hermes_cli/tools_config.py"
 FEISHU_BOT_ADMISSION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_admission.py"
+AI_AUXILIARY_CLIENT_TEST_PY="${HERMES_AGENT}/tests/agent/test_auxiliary_client.py"
 FEISHU_BOT_AUTH_BYPASS_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_bot_auth_bypass.py"
 FEISHU_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu.py"
 GATEWAY_CONFIG_TEST_PY="${HERMES_AGENT}/tests/gateway/test_config.py"
@@ -2770,7 +2775,7 @@ TOOLS_CONFIG_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
 # PATCH-FEISHU-GROUP-ADMISSION: group admission, configured-human reply policy,
 # context backfill and current-speaker integrity. Trigger priority,
 # per-sender batching and prompt attribution are one admission/identity contract.
-if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
+if [[ -f "${AI_AUXILIARY_CLIENT_PY}" && -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${AI_AUXILIARY_CLIENT_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_sender_is_configured_assistant_user' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
@@ -2781,12 +2786,18 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "$
         grep -q 'test_feishu_group_allowed_chats_wildcard_authorizes_groups_only' "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" 2>/dev/null &&
         grep -q 'history_backfill_max_chars' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'assistant_user_ai_probability_threshold' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'retry_transient_transport=False' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q '_feishu_reply_mention_user_id' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_async_call_can_disable_same_provider_transient_retry' "${AI_AUXILIARY_CLIENT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_probability_threshold_uses_people_override_before_global' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_classifier_receives_only_current_and_direct_quote' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_classifier_bounds_both_text_inputs' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_assessment_parser_accepts_strict_json_and_rejects_invalid' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_probability_threshold_at_or_above_disabled_value_skips_classifier' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_high_ai_score_sends_local_refusal_with_quote_only' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_reply_metadata_carries_native_mention_target' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_inlines_every_resolved_at_person' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_send_quote_reply_uses_native_mention_from_notify_metadata' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'explicit path under ~/.hermes/wiki' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'bare_mention_intent' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
@@ -3122,12 +3133,26 @@ fi
 # PATCH-GATEWAY-FAILOVER-STATUS-SILENCE: model/provider routing is operator
 # diagnostics. It must remain visible on local/programmatic surfaces but never
 # arrive as a standalone message in Feishu/Telegram/Slack/Discord chats.
-if [[ -f "${VENV_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${NOISE_FILTER_TEST_PY}" ]]; then
+AGENT_RUNTIME_HELPERS_PY="${HERMES_AGENT}/agent/agent_runtime_helpers.py"
+CODEX_TTFB_TEST_PY="${HERMES_AGENT}/tests/agent/test_codex_ttfb_watchdog.py"
+PRIMARY_RESTORE_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_primary_runtime_restore.py"
+if [[ -f "${VENV_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${NOISE_FILTER_TEST_PY}" &&
+    -f "${AGENT_RUNTIME_HELPERS_PY}" && -f "${CODEX_TTFB_TEST_PY}" &&
+    -f "${PRIMARY_RESTORE_TEST_PY}" ]]; then
     _FAILOVER_STATUS_CHECK=$(
         cd "${HERMES_AGENT}" &&
             "${VENV_PY}" - <<'PYEOF' 2>/dev/null
-from gateway.run import _prepare_gateway_status_message
-from agent.chat_completion_helpers import _format_fallback_notice
+from gateway.run import (
+    _prepare_gateway_status_message,
+    _sanitize_gateway_final_response,
+    _sanitize_gateway_final_response_or_error,
+)
+from agent.chat_completion_helpers import (
+    _format_codex_stream_stall_notice,
+    _format_fallback_notice,
+    _format_nonstreaming_provider_stall_notice,
+    _format_primary_model_restored_notice,
+)
 from agent.error_classifier import FailoverReason
 
 statuses = (
@@ -3140,6 +3165,21 @@ statuses = (
         "fallback-provider",
         FailoverReason.timeout,
     ),
+    _format_codex_stream_stall_notice(
+        elapsed=12,
+        model="primary-model",
+        after_first_byte=True,
+    ),
+    _format_nonstreaming_provider_stall_notice(
+        elapsed=90,
+        model="primary-model",
+    ),
+    _format_primary_model_restored_notice(
+        primary_model="primary-model",
+        primary_provider="primary-provider",
+        fallback_model="fallback-model",
+        fallback_provider="fallback-provider",
+    ),
 )
 for status in statuses:
     for platform in ("feishu", "feishu_group", "telegram", "slack", "discord"):
@@ -3149,12 +3189,34 @@ for status in statuses:
     if _prepare_gateway_status_message("local", "lifecycle", status) != status:
         print("overreach")
         raise SystemExit(0)
+provider_failure = (
+    "The model provider failed after retries. I kept raw provider details "
+    "out of chat; check gateway logs for diagnostics."
+)
+if _sanitize_gateway_final_response("feishu", provider_failure) != "":
+    print("leak")
+    raise SystemExit(0)
+if _prepare_gateway_status_message("feishu", "lifecycle", provider_failure) is not None:
+    print("status-leak")
+    raise SystemExit(0)
+if _sanitize_gateway_final_response_or_error(
+    "feishu", provider_failure, "raw provider exception"
+) != "":
+    print("resurrected")
+    raise SystemExit(0)
+if _sanitize_gateway_final_response("local", provider_failure) != provider_failure:
+    print("overreach")
+    raise SystemExit(0)
 print("ok")
 PYEOF
     )
     if [[ "${_FAILOVER_STATUS_CHECK}" == "ok" ]] &&
         grep -q 'test_programmatic_surfaces_keep_raw_fallback_status' "${NOISE_FILTER_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_generated_fallback_notice_suppressed_on_chat_surfaces' "${NOISE_FILTER_TEST_PY}" 2>/dev/null; then
+        grep -q 'test_generated_fallback_notice_suppressed_on_chat_surfaces' "${NOISE_FILTER_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_generated_provider_stall_notices_suppressed_on_chat_surfaces' "${NOISE_FILTER_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_codex_event_stale_timeout_never_uses_twelve_second_cliff' "${CODEX_TTFB_TEST_PY}" 2>/dev/null &&
+        grep -q '_format_primary_model_restored_notice' "${AGENT_RUNTIME_HELPERS_PY}" 2>/dev/null &&
+        grep -q 'test_suppressed_provider_failure_is_not_restored_from_raw_error' "${NOISE_FILTER_TEST_PY}" 2>/dev/null; then
         ok "PATCH-GATEWAY-FAILOVER-STATUS-SILENCE active: model routing stays out of chats"
         _GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK=true
     else

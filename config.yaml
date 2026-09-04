@@ -139,8 +139,8 @@ auxiliary:
     model: gpt-5.5
     base_url: ''
     api_key: ''
-    timeout: 15
-    reasoning_effort: low
+    timeout: 10
+    reasoning_effort: none
   vision:
     provider: auto
     model: ''
