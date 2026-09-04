@@ -1,7 +1,7 @@
 ---
 title: Wiki Log
 created: 2026-05-14
-updated: 2026-09-03
+updated: 2026-09-04
 type: summary
 tags: [wiki, tool]
 sources: []
@@ -13,6 +13,49 @@ confidence: high
 > 知识库操作追踪日志 (Daily rollup)
 > 格式：`## [YYYY-MM-DD] daily | subject`
 > 同一天默认最多一条顶层日志；多项维护用 `###` 子段或 bullet 合并。
+
+## [2026-09-04] daily | Hermes Agent AI operations runbook refinement
+
+### audit + refine | Operations-first, agent-executable runbook
+
+- Trigger: 用户要求审计并 refine Hermes 手册，确保内容重点是 Hermes Agent 运维、保留 peer machine 迁移章节，且主要面向执行任务的 AI Agent 而非人类用户。
+- Actions:
+  - 将 `_living/AI-Applications/Hermes-Agent-macOS-Ops.md` 明确定位为“AI Agent 执行版”runbook，并新增按健康检查、故障、配置、Gateway、升级和 peer 迁移分类的入口路由。
+  - 增加 Discover → Classify → Protect → Act → Verify → Persist → Report 决策循环、授权边界、停止条件和证据优先级，使无会话记忆的 Agent 能按现场事实执行。
+  - 强化日常运维主线：新增 incident 闭环、P0–P3 风险分级、Gateway 写屏障、配置 fail-closed、模型 route identity、飞书附件 acquisition/interpretation 分层、文档视觉完整性状态、插件 claim/traceback 边界和最小故障证据包。
+  - 将升级章节重构为 outer/inner Git 所有权、单次 update 与 no-network reconcile、PATCH evidence、提交与回滚纪律；避免把 inner overlay 误当成待提交源码。
+  - 保留并扩写 peer machine 章节，增加逐对象授权矩阵、staging/cutover 顺序、目标机验收和回滚条件；迁移与后处理清理仍位于日常运维主线之后。
+  - 调整巡检命令，使用 outer/inner HEAD、transaction、Gateway status 和 doctor 作为事实来源，不用可能触发隐式 update-check 的版本命令代替 checkout 证据。
+- Boundary: 未修改 Active Layer 2、`index.md`、`SCHEMA.md`、lint 规则或 Obsidian 配置；未记录主机地址、用户 ID、chat ID、凭据值、固定模型或一次性测试数量。
+- Verification: Wiki schema/lint、Markdown 格式、标题结构、运维/迁移内容比例和 `git diff --check`。
+
+### import + refactor | AI coding agent tooling landscape
+
+- Trigger: 用户要求将外部 Engineering Notes 中的 `Agent Tooling.md` 移入 `_living/AI-Applications`，按 Wiki 既有风格改造；每个成熟方向固定保留两个代表，新热门方向按大维度新增。
+- Actions:
+  - 将源文件移动为 `_living/AI-Applications/AI-Coding-Agent-Tooling.md`，加入 Layer 1 使用的精简 frontmatter、CalVer 记录、维护原则和官方来源清单。
+  - 保留 AI IDE、CLI/TUI、开源 Agent Runtime、Kanban/编排四个方向，每个方向维持两个代表；将 Vibe Kanban 明确标记为 sunset 生命周期参考，而非新生产部署建议。
+  - 新增“异步自主工程 Agent”方向，以 Jules 与 Factory Droids 形成双代表，区分自主任务交付与交互式 IDE、Kanban 编排。
+  - 增加 chezmoi managed inventory 排除规则：已被 chezmoi 跟踪的工具族不进入正文、代表表、观察结论或来源清单；替换后每个方向仍保持两个代表。
+  - 将正文从一次性产品榜单改造成长期工程参考：统一比较产品定位、执行位置、模型与账户、上下文、工具、Git 隔离、review、自动化、可观测性和生命周期。
+  - 补充安装版本、权限沙箱、Git/worktree、上下文 provenance、预算日志、隔离试验、受控上线和退出替换等运维基线。
+- Boundary: 该文件属于 Layer 1 living source，不加入 Active Layer 2 index，不使用本地 wikilink；未创建新的实体/概念节点，未把价格、stars、模型清单等易变事实写成永久结论。
+- Sources: 2026-09-04 以 Cursor、Devin、Crush、Aider、Cline、Kilo Code、Jules、Factory、MCP、ACP、LSP 和 Vibe Kanban 官方页面为主重新核验。
+- Verification: 源路径移除、目标文件存在；Wiki lint、Markdown/Prettier、Layer 1 边界和 `git diff --check`。
+
+### maintenance | Agent tooling representative and lifecycle sweep
+
+- Trigger: 用户要求按新文档的运维规范执行一次完整维护。
+- Actions:
+  - 读取 chezmoi source/managed inventory，确认文档中受管工具族命中为 0；排除规则由机器清单驱动，不在文档复制第二份排除名单。
+  - 逐项复核五个方向的十个代表工具，确认每个方向仍恰好保留两个代表；本轮不需要新增第六个大方向。
+  - 通过官方文档复核 IDE cloud agent、本地/云 Agent command center、terminal session/LSP/MCP、Git-first repo map、统一 runtime、Kanban workflow、cloud/runtime gateway、自主云端任务和 SDLC Agent harness 等定位。
+  - 再次确认 Vibe Kanban 已进入 sunset，继续仅作为生命周期与迁移参考；其他九个代表未发现需要换位的维护状态变化。
+  - 修正接入层分类：Git hooks 从协议表移到 Git/workspace 治理，明确其属于 Git 原生生命周期自动化；协议章节收敛为 Agent/Host/语言服务/外部调用入口的互操作边界。
+  - 根据用户反馈把 Agent lifecycle/event hooks 纳入互操作表，并与 Git hooks 明确分离；同时为 MCP、ACP、LSP、CLI、SDK、API 补充英文全称、类型和连接对象。
+  - 检查全部官方来源入口、Layer 1 边界、CalVer 同日合并规则和运维/退出治理章节；未安装、升级或调用任何第三方 Agent 产品。
+- Boundary: 本次是文档和工具版图运维，不修改 chezmoi、第三方工具配置、账户、凭据或本机安装状态；不新增 Active Layer 2 节点。
+- Verification: chezmoi tracked tool 零命中；五个方向 × 两个代表；官方来源复核；Wiki lint、Prettier 和 `git diff --check`。
 
 ## [2026-09-03] daily | Hermes agent operations runbook
 

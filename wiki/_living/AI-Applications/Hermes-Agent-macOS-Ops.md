@@ -1,14 +1,27 @@
 ---
 title: Hermes Agent macOS Operations Runbook
 created: 2026-05-14
-updated: 2026-09-03
+updated: 2026-09-04
 ---
 
-# Hermes Agent macOS 运维 Runbook
+# Hermes Agent macOS 运维 Runbook（AI Agent 执行版）
 
-> 主要读者：负责 Hermes Agent 安装、配置、运行、排障、升级和迁移的自动化 agent。
+> **主要读者**：负责 Hermes Agent 安装、配置、运行、排障、升级和迁移的 AI Agent。
 >
-> 本文以日常运维为主；peer 迁移是其中一个低频、可回滚的变更流程。
+> **主要目标**：让接手现场的 Agent 只依赖当前磁盘状态和本手册，就能完成安全诊断、最小修复、验证、恢复与交接。
+>
+> 本文以 Hermes Agent 日常运维为主；peer machine 迁移是其中一个低频、可回滚的发布流程。本文不是面向人类用户的逐屏安装教程，也不替代当前仓库中的升级 playbook、PATCH 注册表和真实配置 schema。
+
+### Runbook 路由
+
+| 当前任务                       | 首选入口                        | 完成标准                              |
+| ------------------------------ | ------------------------------- | ------------------------------------- |
+| 健康检查或状态确认             | §3 日常健康巡检                 | 当前运行态、配置和关键依赖有证据      |
+| 线上故障或功能回归             | §3.4 事件处置闭环、§10 日志诊断 | 根因明确，最小修复和回归闭合          |
+| 配置、凭据或模型变更           | §5–§7                           | 新配置真实生效，权限未扩大            |
+| Gateway、插件、MCP 运维        | §4、§9                          | supervisor、子进程和能力注册一致      |
+| upstream 升级或本地 PATCH 维护 | §11                             | reconcile、full audit 和 Git 记录闭合 |
+| 迁移到 peer machine            | §12–§13                         | 目标状态保留，身份重建，切换可回滚    |
 
 ## 1. Agent 执行契约
 
@@ -28,6 +41,39 @@ updated: 2026-09-03
 - 不在命令、日志、测试报告或最终回复中打印密钥。
 - 不用“进程存在”代替“服务健康”，也不用“版本满足”代替“依赖可用”。
 - 不扩大用户授权范围；未明确授权的凭据、群、工具和任务默认不迁移。
+
+### 1.1 标准决策循环
+
+每个运维任务按以下顺序执行：
+
+1. **Discover**：读取 outer/inner Git、配置、事务、服务 PID、日志和数据状态。
+2. **Classify**：区分代码、配置、秘密、持久状态、运行态和可再生临时产物。
+3. **Protect**：记录目标、回滚点和用户已有改动；确认允许修改的范围。
+4. **Act**：执行最小、可逆、与任务直接相关的变更。
+5. **Verify**：先跑便宜的定向检查，再按风险升级到真实 runtime、full audit 或 canary。
+6. **Persist**：同步测试、PATCH、playbook、Wiki 和 Git 提交，使下一位 Agent 不依赖本次会话。
+7. **Report**：说明结果、证据、未解决风险和是否发生外部副作用。
+
+不得跳过 Discover 直接根据旧记录修复；不得只凭单个绿色命令宣称整条链路完成。
+
+### 1.2 授权与停止条件
+
+- 只读诊断、目标范围内的最小修复和必要测试可直接执行。
+- push、扩大工具/群/凭据权限、引入新外部依赖、删除用户持久状态需要独立授权。
+- 活跃任务、未知文件、未分类秘密或无法确认的 destructive target 会阻断修改。
+- 同一失败连续出现时先重新定性，不机械重复命令。
+- full audit 已闭合且无新证据时停止深挖；后续转为事故、结构变化和周期触发式审计。
+
+### 1.3 证据优先级
+
+从强到弱：
+
+1. 当前目标机的真实运行态与端到端 canary。
+2. 当前 checkout 上的完整测试、verifier 和 final audit。
+3. 配置解析、静态 gate 和代码检查。
+4. 历史日志、旧报告和文档描述。
+
+低等级证据不能覆盖更高等级现场事实。来源机器、旧 PID 或另一 peer 的绿色报告不能替目标机背书。
 
 ## 2. Hermes 运行面与状态边界
 
@@ -63,11 +109,16 @@ Hermes 在 macOS 上通常包含：
 ### 3.1 最小巡检顺序
 
 ```bash
-hermes --version
-hermes doctor
-hermes gateway status
+git -C ~/.hermes rev-parse HEAD
+git -C ~/.hermes status --short
+git -C ~/.hermes/hermes-agent rev-parse HEAD
 git -C ~/.hermes/hermes-agent status --short
+bash ~/.hermes/hermes-update.sh --transaction-status
+hermes gateway status
+hermes doctor
 ```
+
+不要在升级 preflight 中用可能触发网络 update-check 的版本命令代替 checkout 事实。版本、upstream SHA、outer commit 和运行 PID 是不同对象，应分别记录。
 
 随后按需检查：
 
@@ -102,6 +153,28 @@ git -C ~/.hermes/hermes-agent status --short
 | cron          | 列表、next run、手动 dry-run、投递目标      |
 | runtime       | import、依赖一致性、关键测试、服务重启      |
 
+### 3.4 事件处置闭环
+
+当用户报告“无法读取、没有回复、权限错误、工具失败或行为退化”时：
+
+1. **固定现场**：记录绝对时间、平台、chat/session、输入类型、资源标识、当前 HEAD 和 Gateway PID。
+2. **定位失败层**：区分消息准入、资源获取、内容解析、模型路由、工具执行、结果发送和前端展示。
+3. **复现最小路径**：优先使用同一输入的只读路径；不要用扩大权限或关闭沙箱来证明功能“可以工作”。
+4. **检查诚实状态**：确认系统返回 `SUCCESS`、`INCOMPLETE`、`FAILED` 或 `UNSUPPORTED` 的哪一种，而不是只看退出码。
+5. **修最小责任层**：配置桥接问题不在解析器修；内容解析问题不通过延长无限 timeout 掩盖。
+6. **补负向回归**：证明旧实现会失败或假绿，新实现会明确通过或 fail closed。
+7. **重载运行态**：运行时代码或插件变化后完成 drain-aware restart，并绑定新 PID 验证。
+8. **持久化经验**：同步 PATCH、playbook 或本 runbook 中可复用的判断规则。
+
+### 3.5 变更风险分级
+
+| 等级 | 示例                                                     | 运维要求                            |
+| ---- | -------------------------------------------------------- | ----------------------------------- |
+| P0   | Gateway 中断、越权、秘密泄露、状态丢失、补丁无法回放     | 当轮修复，未闭合不得报告完成        |
+| P1   | 关键功能失败、配置 fail-open、错误成功语义、并发状态污染 | 当轮修复并增加回归                  |
+| P2   | 非主链路依赖 advisory、受上游 range 阻挡的兼容问题       | 明确影响面、监控条件和退场条件      |
+| P3   | 低风险维护性或文档精度问题                               | 顺手修复或进入明确待办，不伪装成 P0 |
+
 ## 4. Gateway 与 launchd
 
 ### 4.1 服务操作
@@ -131,9 +204,24 @@ hermes gateway start
 ### 4.3 重启纪律
 
 - 普通配置变更完成后重启 gateway。
-- 长任务运行期间优先使用带 drain 的正常重启路径。
+- 长任务运行期间使用带 drain 的正常重启路径，不以 `stop && start` 的短宽限强杀替代。
 - 重启后重新读取状态，不把命令成功返回当作服务已经稳定。
 - 检查旧 PID 是否退出、新 PID 是否由 launchd 监督。
+- 插件或运行时代码变化后，在新子进程 PID 下重新验证插件注册和关键工具。
+
+进程保护必须按当前 Hermes workspace 归属判断。其他项目中长期运行的 Codex、Claude、Gemini、Qwen 或 pytest 不应阻塞本实例；当前 Hermes 根目录内、或 argv 明确指向本实例的进程则必须等待或明确处理。无法确定 cwd/owner 时 fail closed。
+
+### 4.4 Gateway 写屏障
+
+以下变化会使已有 PID 的验证证据失效：
+
+- `hermes-agent` 运行时代码；
+- `config.yaml` 或 `.env`；
+- `plugins/`、toolset、MCP 配置；
+- LaunchAgent plist、解释器或 PATH；
+- 进程身份和状态文件实现。
+
+完成这些变化后，最终证据应包含：旧 supervisor PID、新 supervisor PID、真实 Gateway 子 PID、子进程加载的代码 SHA/插件版本，以及新 PID 下的 health/verifier 结果。
 
 ## 5. 配置与凭据运维
 
@@ -145,6 +233,8 @@ hermes gateway start
 - LaunchAgent 只保存启动所需环境，不复制整份秘密配置。
 
 不要在多个位置同时保存同一密钥。重复来源会让轮换、诊断和删除变得不可验证。
+
+配置异常应区分“文件不存在”和“文件存在但无效”。语法错误、顶层非 mapping、关键 section 类型错误不能静默退回宽松默认值；安全边界、凭据隔离、configured-only 和平台 allowlist 应 fail closed。修改配置时优先使用临时文件校验后原子替换，避免 Gateway 读到半写 YAML。
 
 ### 5.2 凭据变更
 
@@ -177,6 +267,8 @@ hermes gateway start
 - OpenAI Responses 兼容入口与 Anthropic Messages 兼容入口不能混用协议。
 - 标准云认证优先使用 SDK 原生生命周期；短期 token 不应由外部 cron 或唤醒脚本维护。
 - 移除一个 provider 时，同时检查主模型、fallback、辅助任务、环境变量和旧服务。
+- `configured_only` 场景只允许配置中明确列出的 route；同 provider/model 的不同 endpoint 是不同身份，不能只按模型名去重。
+- 显式 auxiliary/vision route 失败时不得把媒体自动发送给 ambient provider；失败应可见，但权限不能自动扩大。
 
 ### 6.2 验证模型
 
@@ -246,6 +338,24 @@ hermes gateway start
 - 人员存在于通讯录，不代表拥有高风险工具权限。
 - 文档修改、删除、图片生成和其他副作用能力应分别授权。
 
+### 7.5 附件与文档读取
+
+把附件处理拆成两个独立阶段：
+
+1. **Acquisition**：从当前消息、引用、sender window 或 Drive 获取受限字节。
+2. **Interpretation**：从 PDF、Office、HTML、文本或媒体中提取模型可用内容。
+
+两阶段分别设置文件数、单文件大小、总 deadline、并发 admission 和失败状态。预算必须在尝试下载前消耗；失败和超限也计入尝试，不能让大量无效资源绕过上限。
+
+模型可见状态统一解释为：
+
+- `SUCCESS`：目标内容已实际取得；
+- `INCOMPLETE`：只得到部分内容，例如 PPTX 文字已读但图片/图表未读；
+- `FAILED`：资源存在但获取或解析失败；
+- `UNSUPPORTED`：当前能力明确不支持该格式或动作。
+
+一页 PPT 有标题文字，不代表图表、截图或流程图已经读取。任何视觉元素缺口都应显式标记，不能用“文本抽取成功”替代完整阅读。生产 canary 要穿过真实消息获取、解析、prompt 注入和回复链路，而不是只单测 extractor。
+
 ## 8. Cron、记忆与会话
 
 ### 8.1 Cron
@@ -284,6 +394,9 @@ hermes gateway start
 - 私聊、群聊和不同用户角色使用独立权限集合。
 - 文件、网络、脚本和不可逆操作分别设边界。
 - 配置要求但当前未启用的兼容字段可以保留惰性值，但不得重新暴露对应工具。
+- 一轮一次的 capability claim 必须跨 worker 共享，且不能因容量上限驱逐仍在运行的 turn；满载时宁可拒绝新 claim。
+- tool stdout、stderr 和 traceback 在进入模型前必须移除秘密和宿主绝对路径；正常输出脱敏不足以证明失败路径安全。
+- verifier 必须同时证明 hook 已注册、真实执行点存在、行为测试通过，以及当前 Gateway 子进程加载了同一插件版本。
 
 ### 9.3 MCP
 
@@ -311,8 +424,22 @@ MCP 只定义能力接入协议，不负责调用授权和执行隔离。禁用�
 - 日志中出现 secret redaction disabled 必须先修复，再继续测试。
 - 报告错误类型、状态码和调用阶段，不复制可能包含秘密的完整请求。
 - Gateway、模型、MCP、媒体和 cron 的错误应分层定位。
+- 同一错误的 producer、transport、consumer 和用户可见状态分别记录，避免把下载超时误诊为解析失败。
+- 只引用当前启动 PID 之后的注册/错误日志；旧进程和 doctor 产生的同名日志不能为 Gateway 借绿。
 
-### 10.2 常见故障矩阵
+### 10.2 最小证据包
+
+一次可交接的故障记录至少包含：
+
+- 发生时间、平台/chat/session 和输入类型；
+- outer commit、inner upstream SHA、Gateway supervisor/child PID；
+- 失败发生在 acquisition、interpretation、routing、execution 还是 delivery；
+- 脱敏错误类别和用户可见状态；
+- 最小复现与对应修复；
+- 新增测试节点、verifier 或 canary 结果；
+- 是否需要 restart、回滚或上游跟进。
+
+### 10.3 常见故障矩阵
 
 | 现象                              | 判断与处置                                                      |
 | --------------------------------- | --------------------------------------------------------------- |
@@ -327,25 +454,61 @@ MCP 只定义能力接入协议，不负责调用授权和执行隔离。禁用�
 | Python 版本合规但启动失败         | 检查 venv 重复包、错误平台 wheel、native extra 和 editable path |
 | shell 能找到 Node、launchd 找不到 | 修复 LaunchAgent PATH，并重新 bootstrap/kickstart               |
 
-## 11. 升级与补丁维护
+## 11. 升级、PATCH 与 Git 运维
 
-### 11.1 升级前
+### 11.1 仓库所有权
 
-- 确认工作树中哪些修改属于本地补丁、哪些是临时文件。
-- 保存当前 HEAD、补丁集合和必要状态快照。
-- 检查上游目标版本与 Python/Node 约束。
-- 停止会产生持续写入的服务或等待任务排空。
+Hermes 本地部署有两个不同的 Git 语义：
 
-### 11.2 补丁重放
+- outer `~/.hermes`：保存配置仓库、升级脚本、PATCH 注册表、replay bundle、插件、运维文档和 Wiki，应正常 commit。
+- inner `~/.hermes/hermes-agent`：保持官方 upstream HEAD；本地工程补丁以未提交 overlay 存在，由 outer 的 `patches/local-patches.diff` 持久化，默认不在 inner 创建 commit。
 
-- 在干净目标基线上先执行 apply check。
-- 冲突必须按当前上游语义重新解决，不能机械选择任一侧。
-- 补丁应用后执行 diff check、相关单测和集成验证。
-- 不因测试通过就忽略未跟踪文件或依赖漂移。
+看到 inner 大量 modified 文件不等于工作树失控。先用 outer 的 `PATCHED_FILES`、bundle 和 package-lock review receipt 判断是否为完整预期 overlay；缺项、额外项或 staged index 才是异常。
 
-### 11.3 回滚
+### 11.2 升级事务入口
 
-回滚单位应包含源码、配置和必要运行时，但不能覆盖升级期间产生的新用户状态。优先把失败版本移出活动路径，再恢复先前已验证版本；不要使用会同时清除未知用户改动的宽泛 Git 或文件系统命令。
+```bash
+bash ~/.hermes/hermes-update.sh --transaction-status
+bash ~/.hermes/hermes-update.sh --update       # 新事务唯一一次官方获取
+bash ~/.hermes/hermes-update.sh --reconcile    # 固定 SHA 的本地收敛
+bash ~/.hermes/hermes-update.sh --final-audit --json
+```
+
+规则：
+
+- 没有未完成事务、且用户明确要求升级 upstream 时，才执行一次 `--update`。
+- 一旦取得 target SHA，冲突修复、测试补洞、文档调整和跨会话接管都只运行 `--reconcile`。
+- transaction 存在时不得再次 fetch/pull 或移动目标。
+- update/reconcile/final-audit 使用同一所有权锁；锁 owner 不完整或无法确认时停止，不自动抢占。
+- 其他 workspace 的 Agent 不阻塞本实例；当前 Hermes workspace 内的测试和任务需要排空。
+
+完整升级算法和补丁吸收条件以 `~/.hermes/hermes-update.md` 与 `~/.hermes/patches/PATCHES.md` 为权威，本节只保留运维入口。
+
+### 11.3 PATCH 重放与审计
+
+- 在固定 upstream 基线上生成/校验完整 full-index bundle。
+- 冲突按当前上游语义重新解决，不能机械选择 ours/theirs。
+- 每个 active PATCH 都必须有 owner files、独立 gate、精确测试/probe 和上游吸收条件。
+- 测试存在不等于 evidence 有效；节点必须实际执行该 PATCH 拥有的生产文件。
+- final audit 首尾绑定 outer/inner HEAD、tree、index、worktree、untracked、bundle、base 和 reviewed lockfile。
+- 插件变化必须在新 Gateway 子 PID 下复验，磁盘测试不能代替 runtime freshness。
+
+### 11.4 提交纪律
+
+用户明确要求 commit 时：
+
+1. 区分本任务文件、inner overlay 和用户无关改动。
+2. 先运行 full final audit。
+3. 仅 stage 应进入 outer Git 的文件。
+4. 执行本机 commit approval hook，再创建 commit。
+5. 在 clean outer 上运行 post-commit `--require-clean-outer` final audit。
+6. 临时 stash 的无关用户改动按精确 OID 恢复。
+
+commit 不自动授权 push。push 前再次汇总 branch/outgoing commits，并取得用户确认。
+
+### 11.5 回滚
+
+回滚单位应包含源码、配置和必要运行时，但不能覆盖升级期间产生的新用户状态。优先把失败版本移出活动路径，再恢复先前已验证版本；不要使用会同时清除未知用户改动的宽泛 Git、`reset --hard` 或递归删除命令。PATCH 冲突、stash 恢复冲突和 transaction 写失败都应保留可接管现场并返回非零。
 
 ## 12. Peer 迁移
 
@@ -378,6 +541,37 @@ Peer 迁移是一次受控发布事务，不是目录镜像。详细方法已提
 6. 原子替换源码和明确授权的外围资产。
 7. 重建 launchd 服务。
 8. 对比状态不变量并复跑关键测试。
+
+### 12.4 Peer 授权矩阵
+
+迁移 Agent 在写入前生成逐项矩阵：
+
+| 对象                   | 默认来源          | 是否复制         | 验证方式                         |
+| ---------------------- | ----------------- | ---------------- | -------------------------------- |
+| upstream checkout      | 固定官方 SHA      | 是，或目标机重建 | HEAD/remote/bundle               |
+| 本地 PATCH             | 来源 outer bundle | 是               | apply/reverse/full audit         |
+| plugins 与 my-skills   | 明确 allowlist    | 按需             | 注册、正例、拒绝反例             |
+| SOUL、USER、MEMORY     | 目标机            | 否               | 哈希/内容不变量                  |
+| sessions、cron、数据库 | 目标机            | 否               | 计数、哈希、可恢复性             |
+| `.env` 与 credentials  | 单独授权          | 逐字段           | 引用存在、真实请求、不输出值     |
+| 飞书人员和群 ID        | 目标应用重建      | 否               | tenant ID 映射、唯一性、权限拒绝 |
+| cache/tmp/test home    | 不迁移            | 否               | 目标不存在或可再生               |
+
+不能用“复制整个 `~/.hermes` 后再删不需要的文件”代替该矩阵。
+
+### 12.5 切换验收与回滚条件
+
+切换成功至少要求：
+
+- target upstream SHA、PATCH bundle 和 runtime import 一致；
+- 目标 SOUL、memory、sessions、cron、数据库未被来源覆盖；
+- 主模型、每个关键 fallback 和 auxiliary route 通过 Hermes transport canary；
+- 飞书 owner、群 allowlist、普通成员拒绝路径和附件链路通过；
+- launchd supervisor 与 Gateway 子进程来自目标安装；
+- 插件版本、MCP 工具集和 sandbox verifier 属于目标 PID；
+- 迁移中间态没有混入 active runtime。
+
+任一身份、持久状态或权限不变量不成立时立即回滚；可选 provider 或非主链路工具失败时可保留 staging、标记部分完成，不得把目标机切到未经验证的混合状态。
 
 ## 13. 迁移后清理
 
@@ -429,13 +623,17 @@ Peer 迁移是一次受控发布事务，不是目录镜像。详细方法已提
 ### 14.1 Agent 检查清单
 
 - [ ] 用户授权边界已逐项落实。
-- [ ] Git 基线与补丁集合可证明。
+- [ ] outer Git、inner upstream、PATCH overlay 和 reviewed lockfile 已正确区分。
+- [ ] Git 基线、补丁集合、transaction 和 replay bundle 可证明。
 - [ ] 当前配置不含未授权 provider、MCP 或内联秘密。
 - [ ] 目标状态未被源机覆盖。
 - [ ] 人员身份、主人排序、群聊与权限边界正确。
 - [ ] Python、Node、npm 和独立运行时通过实际验证。
 - [ ] 模型、平台、插件、媒体和 cron 的必要测试通过。
 - [ ] Gateway 由唯一、正确的系统服务托管。
+- [ ] supervisor PID、Gateway 子 PID、代码 SHA 和插件版本一致。
+- [ ] 文档/媒体读取对缺失内容使用明确 `INCOMPLETE`、`FAILED` 或 `UNSUPPORTED`。
+- [ ] cleanup 没有 candidate、review、policy error 或误阻塞其他 workspace。
 - [ ] 旧服务与迁移过程材料已按授权删除。
 
 ### 14.2 汇报格式
@@ -443,12 +641,12 @@ Peer 迁移是一次受控发布事务，不是目录镜像。详细方法已提
 最终报告只包含：
 
 1. 完成、部分完成或阻塞状态。
-2. 源码基线与补丁验证。
-3. 运行时和服务状态。
+2. outer commit、inner upstream SHA、PATCH/bundle/transaction 结果。
+3. supervisor/child PID、运行时代码与插件版本。
 4. 持久状态保护结果。
-5. 身份与权限结果。
-6. 凭据来源和空缺字段，不包含具体值。
-7. 测试和真实调用结果。
-8. 清理结果与仍需用户处理的事项。
+5. 身份、群聊、工具和凭据边界，不包含具体秘密。
+6. 测试、verifier、final audit 和必要 canary 结果。
+7. 发生的外部副作用、回滚状态和清理结果。
+8. 仍需用户处理的事项及其风险等级。
 
 不要把命令流水、调试噪音、密钥、个人标识或一次性迁移数字写成长期知识。
