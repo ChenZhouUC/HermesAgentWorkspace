@@ -1289,7 +1289,15 @@ def audit_npm_dependency_hygiene() -> dict[str, object]:
     for needle in ("npm audit fix", "npm audit --json", "do not use --force"):
         if needle not in script:
             raise EvidenceError(f"npm audit evidence is missing {needle!r}")
-    result = _run(["npm", "audit", "--json"], cwd=INNER, timeout=180)
+    try:
+        result = _run(["npm", "audit", "--json"], cwd=INNER, timeout=180)
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "status": "telemetry_unavailable",
+            "reason": "timeout",
+            "timeout_seconds": exc.timeout,
+            "stderr_tail": str(exc.stderr or "")[-500:],
+        }
     try:
         report = json.loads(result.stdout)
     except json.JSONDecodeError:

@@ -2767,8 +2767,8 @@ BACKGROUND_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_background_comman
 VERBOSE_COMMAND_TEST_PY="${HERMES_AGENT}/tests/gateway/test_verbose_command.py"
 TOOLS_CONFIG_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
 
-# PATCH-FEISHU-GROUP-ADMISSION: group admission, context backfill and current-
-# speaker integrity. Trigger priority,
+# PATCH-FEISHU-GROUP-ADMISSION: group admission, configured-human reply policy,
+# context backfill and current-speaker integrity. Trigger priority,
 # per-sender batching and prompt attribution are one admission/identity contract.
 if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
@@ -2780,6 +2780,13 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "$
         grep -q 'FEISHU_GROUP_ALLOWED_CHATS' "${AUTHZ_MIXIN_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_allowed_chats_wildcard_authorizes_groups_only' "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" 2>/dev/null &&
         grep -q 'history_backfill_max_chars' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'assistant_user_ai_probability_threshold' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'test_ai_probability_threshold_uses_people_override_before_global' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ai_authorship_classifier_receives_only_current_and_direct_quote' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ai_authorship_classifier_bounds_both_text_inputs' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ai_authorship_assessment_parser_accepts_strict_json_and_rejects_invalid' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ai_probability_threshold_at_or_above_disabled_value_skips_classifier' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_process_inbound_message_high_ai_score_sends_local_refusal_with_quote_only' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'explicit path under ~/.hermes/wiki' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'bare_mention_intent' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
@@ -2794,7 +2801,7 @@ if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "$
         grep -q 'test_text_batch_does_not_merge_different_senders' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_group_turn_body_keeps_current_author_next_to_question' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'Current message author' "${SESSION_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-FEISHU-GROUP-ADMISSION active: context + current-speaker integrity"
+        ok "PATCH-FEISHU-GROUP-ADMISSION active: configured-human reply policy + context + current-speaker integrity"
         _FEISHU_GROUP_ADMISSION_PATCH_OK=true
     else
         warn "PATCH-FEISHU-GROUP-ADMISSION inactive or partial"

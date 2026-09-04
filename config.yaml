@@ -134,6 +134,13 @@ bedrock:
     stream_processing_mode: async
     trace: disabled
 auxiliary:
+  feishu_ai_authorship:
+    provider: auto
+    model: gpt-5.5
+    base_url: ''
+    api_key: ''
+    timeout: 15
+    reasoning_effort: low
   vision:
     provider: auto
     model: ''
@@ -625,6 +632,9 @@ feishu:
   assistant_user_ids:
     - ou_33eeacfbd0c0559b7b734f83503719ab
   assistant_identity_label: 琛哥的赛博助手「Gödel」
+  # Global default for third-party @琛哥 AI-authorship scoring; >= 1.1 disables it.
+  # A matching people.yaml entry can override this value for one sender.
+  assistant_user_ai_probability_threshold: 1.1
   assistant_identity_throttle_messages: 20
   assistant_identity_throttle_seconds: 600
   history_backfill: true

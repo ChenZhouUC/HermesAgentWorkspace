@@ -30,6 +30,14 @@ def patch_block(validation: str) -> str:
 
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
+    def test_npm_audit_timeout_is_reported_as_telemetry_unavailable(self) -> None:
+        timeout = subprocess.TimeoutExpired(["npm", "audit", "--json"], 180)
+        with patch.object(evidence, "_run", side_effect=timeout):
+            result = evidence.audit_npm_dependency_hygiene()
+        self.assertEqual(result["status"], "telemetry_unavailable")
+        self.assertEqual(result["reason"], "timeout")
+        self.assertEqual(result["timeout_seconds"], 180)
+
     def test_patch_trace_plugin_caches_code_filename_resolution(self) -> None:
         source = evidence._patch_trace_plugin_source()
         self.assertIn("_relative_cache", source)
