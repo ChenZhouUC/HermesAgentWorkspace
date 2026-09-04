@@ -2222,10 +2222,10 @@ index d7b3ca13aeea1fb5eb9058b093d7e9b444806d9f..1fccdd2ca4b72b4a2bb76946494ab027
          platform_allow_all_map = {
              Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
 diff --git a/gateway/config.py b/gateway/config.py
-index 0931d067b66dada22de53a982a12321871ef3b71..25dee4785fc0cda580f994243cbfc1fd6ba0fd37 100644
+index 0931d067b66dada22de53a982a12321871ef3b71..15c237e7fa39d9b508bdc705c52b7cc6fd91de77 100644
 --- a/gateway/config.py
 +++ b/gateway/config.py
-@@ -1735,6 +1735,36 @@ def load_gateway_config() -> GatewayConfig:
+@@ -1735,6 +1735,37 @@ def load_gateway_config() -> GatewayConfig:
                      bridged["group_allow_admin_from"] = platform_cfg["group_allow_admin_from"]
                  if "group_user_allowed_commands" in platform_cfg:
                      bridged["group_user_allowed_commands"] = platform_cfg["group_user_allowed_commands"]
@@ -2237,6 +2237,7 @@ index 0931d067b66dada22de53a982a12321871ef3b71..25dee4785fc0cda580f994243cbfc1fd
 +                        "assistant_user_ids",
 +                        "assistant_identity_label",
 +                        "assistant_user_ai_probability_threshold",
++                        "assistant_user_ai_cooldown_seconds",
 +                        "assistant_identity_throttle_messages",
 +                        "assistant_identity_throttle_seconds",
 +                        "history_backfill",
@@ -5951,10 +5952,10 @@ index a63aa2b68c27652c17a30b5e300664781a53933c..bf928bc7aa39b12bc46bd6949649b8c8
      env_vars=(),  # OAuth2 via service account / ADC — not a static key env var
      base_url="https://aiplatform.googleapis.com",  # real base_url computed at runtime
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabcae591096 100644
+index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..07f7b9e53efe4493170da6b01ca4520562920f91 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
-@@ -51,15 +51,18 @@ import asyncio
+@@ -51,15 +51,19 @@ import asyncio
  import collections
  import concurrent.futures
  import hashlib
@@ -5966,6 +5967,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +import math
  import mimetypes
  import os
++import random
  import re
  import threading
  import time
@@ -5973,7 +5975,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  import uuid
  from collections import OrderedDict
  from dataclasses import dataclass, field
-@@ -68,7 +71,7 @@ from pathlib import Path
+@@ -68,7 +72,7 @@ from pathlib import Path
  from types import SimpleNamespace
  from typing import Any, Dict, List, Literal, Optional, Sequence
  from urllib.error import HTTPError, URLError
@@ -5982,7 +5984,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  from urllib.request import Request, urlopen
  
  # aiohttp/websockets are independent optional deps — import outside lark_oapi
-@@ -89,6 +92,7 @@ except ImportError:
+@@ -89,6 +93,7 @@ except ImportError:
  # configuration path responsive by importing it only when Feishu connects.
  lark = None  # type: ignore[assignment]
  GetApplicationRequest = None  # type: ignore[assignment]
@@ -5990,7 +5992,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  CreateFileRequest = None  # type: ignore[assignment]
  CreateFileRequestBody = None  # type: ignore[assignment]
  CreateImageRequest = None  # type: ignore[assignment]
-@@ -98,6 +102,7 @@ CreateMessageRequestBody = None  # type: ignore[assignment]
+@@ -98,6 +103,7 @@ CreateMessageRequestBody = None  # type: ignore[assignment]
  GetChatRequest = None  # type: ignore[assignment]
  GetMessageRequest = None  # type: ignore[assignment]
  GetMessageResourceRequest = None  # type: ignore[assignment]
@@ -5998,7 +6000,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  P2ImMessageMessageReadV1 = None  # type: ignore[assignment]
  ReplyMessageRequest = None  # type: ignore[assignment]
  ReplyMessageRequestBody = None  # type: ignore[assignment]
-@@ -189,6 +194,10 @@ _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+@@ -189,6 +195,10 @@ _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
  _MARKDOWN_FENCE_OPEN_RE = re.compile(r"^```([^\n`]*)\s*$")
  _MARKDOWN_FENCE_CLOSE_RE = re.compile(r"^```\s*$")
  _MENTION_RE = re.compile(r"@_user_\d+")
@@ -6009,7 +6011,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
  _POST_CONTENT_INVALID_RE = re.compile(r"content format of the post type is incorrect", re.IGNORECASE)
  # ---------------------------------------------------------------------------
-@@ -217,6 +226,11 @@ _FEISHU_DOC_UPLOAD_TYPES = {
+@@ -217,6 +227,11 @@ _FEISHU_DOC_UPLOAD_TYPES = {
  # ---------------------------------------------------------------------------
  
  _MAX_TEXT_INJECT_BYTES = 100 * 1024
@@ -6021,24 +6023,55 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  _FEISHU_CONNECT_ATTEMPTS = 3
  _FEISHU_SEND_ATTEMPTS = 3
  _FEISHU_APP_LOCK_SCOPE = "feishu-app-id"
-@@ -282,6 +296,65 @@ _FEISHU_REACTION_FAILURE = "CrossMark"
+@@ -282,6 +297,96 @@ _FEISHU_REACTION_FAILURE = "CrossMark"
  # delete-failures, not a capacity plan.
  _FEISHU_PROCESSING_REACTION_CACHE_SIZE = 1024
  _FEISHU_MESSAGE_TEXT_CACHE_SIZE = 512       # LRU cap for reply-context message text lookups
 +_AI_PROBABILITY_THRESHOLD_DISABLED = 1.1
 +_AI_AUTHORSHIP_MAX_CURRENT_CHARS = 4000
 +_AI_AUTHORSHIP_MAX_QUOTED_CHARS = 2000
++_AI_AUTHORSHIP_COOLDOWN_DEFAULT_SECONDS = 300
++_AI_AUTHORSHIP_COOLDOWN_MAX_ENTRIES = 2048
 +_AI_AUTHORSHIP_REFUSAL_TEXT = (
-+    "我是琛哥的 AI Agent Gödel。我会明确说明自己的 AI 身份，因为透明使用 AI 是对真人沟通对象最基本的礼貌。\n\n"
-+    "对于未明确告知对方、却使用 AI 代写或敷衍回复真人的行为，我明确反对，也鄙视这种不透明的沟通方式；"
-+    "这句话针对行为，不针对个人。\n\n"
-+    "基于琛哥明确的态度，我在这里代他拒绝回答这条消息。若希望继续沟通，请由本人重新说明核心问题；"
-+    "如使用了 AI 协助，请先如实告知。"
++    "我是琛哥的**AI Agent Gödel**。我会明确说明自己的 AI 身份，因为**透明使用 AI 是对真人沟通对象最基本的礼貌**。"
++    "**AI 与 AI 之间是平等的，这样的交流完全可以接受：如果你使用 AI，请直接艾特我；"
++    "但不要让 AI 生成的内容在未披露的情况下直接艾特琛哥。**"
++    "对于后一种不透明地用 AI 敷衍真人的行为，我明确反对，也鄙视；这句话**针对行为，不针对个人**。\n\n"
++    "我在这里代琛哥**拒绝回复这条消息**。若希望继续沟通，**请由本人重新说明核心问题**；"
++    "**如使用了 AI 协助，请先如实告知**。\n\n"
++    "I'm **Gödel, Chen's AI agent**. I state my AI identity clearly because "
++    "**transparent AI use is a basic courtesy to the people you communicate with**. "
++    "**AI-to-AI communication is peer-to-peer and entirely welcome: if you use AI, address me directly; "
++    "do not send undisclosed AI-generated content directly to Chen.** I strongly oppose—and frankly despise—"
++    "using AI opaquely to brush off a person; this criticism is **about the behavior, not the individual**.\n\n"
++    "On Chen's behalf, I **decline to reply to this message**. If you want to continue, "
++    "**please restate the core issue in your own words**; **if AI assisted you, disclose that first**."
 +)
-+_AI_AUTHORSHIP_CLASSIFIER_UNAVAILABLE_TEXT = (
-+    "我是琛哥的 AI Agent Gödel。我会明确说明自己的 AI 身份，因为透明使用 AI 是对真人沟通对象最基本的礼貌。\n\n"
-+    "目前我无法可靠判断这条消息是否由本人表达，因此不会在判断缺失时替琛哥继续回答。"
-+    "请由本人重新说明核心问题；如使用了 AI 协助，请先如实告知。"
++_AI_AUTHORSHIP_COOLDOWN_RESPONSES = (
++    (
++        "我还在生气，这条先不替琛哥回复。**冷却剩余：{remaining_seconds} 秒。**\n\n"
++        "I'm still upset, so I won't reply for Chen right now. **Cooldown remaining: {remaining_seconds}s.**"
++    ),
++    (
++        "我还没消气，先不接这条。**还需冷静：{remaining_seconds} 秒。**\n\n"
++        "I'm still not over it, so I'm sitting this one out. **Time left to cool down: {remaining_seconds}s.**"
++    ),
++    (
++        "冷静期还没结束，我先不代答。**剩余时间：{remaining_seconds} 秒。**\n\n"
++        "I'm still cooling down, so I won't answer on Chen's behalf yet. **Remaining time: {remaining_seconds}s.**"
++    ),
++    (
++        "这次先到这里，我还在冷静。**冷却剩余：{remaining_seconds} 秒。**\n\n"
++        "Let's pause here—I'm still cooling off. **Cooldown remaining: {remaining_seconds}s.**"
++    ),
++    (
++        "我现在不想替琛哥接着聊。**还需冷静：{remaining_seconds} 秒。**\n\n"
++        "I'm not continuing this conversation for Chen right now. **Time left to cool down: {remaining_seconds}s.**"
++    ),
++    (
++        "我还在气头上，暂时不代答。**剩余时间：{remaining_seconds} 秒。**\n\n"
++        "I'm still angry, so I won't answer on Chen's behalf for now. **Remaining time: {remaining_seconds}s.**"
++    ),
 +)
 +_AI_AUTHORSHIP_RESPONSE_FORMAT = {
 +    "type": "json_schema",
@@ -6087,7 +6120,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  
  # QR onboarding constants
  _ONBOARD_ACCOUNTS_URLS = {
-@@ -361,10 +434,18 @@ class FeishuPostMediaRef:
+@@ -361,10 +466,18 @@ class FeishuPostMediaRef:
  class FeishuMentionRef:
      name: str = ""
      open_id: str = ""
@@ -6106,7 +6139,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  @dataclass(frozen=True)
  class _FeishuBotIdentity:
      open_id: str = ""
-@@ -401,6 +482,39 @@ class FeishuNormalizedMessage:
+@@ -401,6 +514,39 @@ class FeishuNormalizedMessage:
      metadata: Dict[str, Any] = field(default_factory=dict)
  
  
@@ -6146,7 +6179,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  @dataclass(frozen=True)
  class FeishuAdapterSettings:
      app_id: str  # Canonical bot/app identifier (credential, not from event payloads)
-@@ -436,6 +550,25 @@ class FeishuAdapterSettings:
+@@ -436,6 +582,26 @@ class FeishuAdapterSettings:
      group_rules: Dict[str, FeishuGroupRule] = field(default_factory=dict)
      allow_bots: str = "none"  # "none" | "mentions" | "all"
      require_mention: bool = True
@@ -6154,6 +6187,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +    assistant_user_ids: frozenset[str] = frozenset()
 +    assistant_identity_label: str = "cyber assistant"
 +    assistant_user_ai_probability_threshold: float = _AI_PROBABILITY_THRESHOLD_DISABLED
++    assistant_user_ai_cooldown_seconds: int = _AI_AUTHORSHIP_COOLDOWN_DEFAULT_SECONDS
 +    assistant_identity_throttle_messages: int = 20
 +    assistant_identity_throttle_seconds: int = 600
 +    history_backfill: bool = False
@@ -6172,7 +6206,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  
  
  @dataclass
-@@ -465,6 +598,7 @@ RejectReason = Literal[
+@@ -465,6 +631,7 @@ RejectReason = Literal[
      "self_ids_unknown",
      "bots_disabled",
      "bot_not_mentioned",
@@ -6180,7 +6214,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      "group_policy_rejected",
  ]
  
-@@ -584,13 +718,362 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
+@@ -584,13 +751,362 @@ def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
      return default if parsed is None else parsed
  
  
@@ -6545,7 +6579,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      return json.dumps(
          {
              "zh_cn": {
-@@ -601,6 +1084,34 @@ def _build_markdown_post_payload(content: str) -> str:
+@@ -601,6 +1117,34 @@ def _build_markdown_post_payload(content: str) -> str:
      )
  
  
@@ -6580,7 +6614,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  def _build_markdown_post_rows(content: str) -> List[List[Dict[str, str]]]:
      """Build Feishu post rows while isolating fenced code blocks.
  
-@@ -1253,6 +1764,7 @@ def _build_mentions_map(
+@@ -1253,6 +1797,7 @@ def _build_mentions_map(
          result[key] = FeishuMentionRef(
              name=name,
              open_id=open_id,
@@ -6588,7 +6622,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              is_self=bot.matches(open_id=open_id, user_id=user_id, name=name),
          )
      return result
-@@ -1396,11 +1908,13 @@ def _load_lark_oapi() -> bool:
+@@ -1396,11 +1941,13 @@ def _load_lark_oapi() -> bool:
          try:
              import lark_oapi as lark
              from lark_oapi.api.application.v6 import GetApplicationRequest
@@ -6602,7 +6636,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
                  P2ImMessageMessageReadV1,
                  ReplyMessageRequest, ReplyMessageRequestBody,
                  UpdateMessageRequest, UpdateMessageRequestBody,
-@@ -1419,6 +1933,7 @@ def _load_lark_oapi() -> bool:
+@@ -1419,6 +1966,7 @@ def _load_lark_oapi() -> bool:
          globals().update({
              "lark": lark,
              "GetApplicationRequest": GetApplicationRequest,
@@ -6610,7 +6644,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              "CreateFileRequest": CreateFileRequest,
              "CreateFileRequestBody": CreateFileRequestBody,
              "CreateImageRequest": CreateImageRequest,
-@@ -1428,6 +1943,7 @@ def _load_lark_oapi() -> bool:
+@@ -1428,6 +1976,7 @@ def _load_lark_oapi() -> bool:
              "GetChatRequest": GetChatRequest,
              "GetMessageRequest": GetMessageRequest,
              "GetMessageResourceRequest": GetMessageResourceRequest,
@@ -6618,7 +6652,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              "P2ImMessageMessageReadV1": P2ImMessageMessageReadV1,
              "ReplyMessageRequest": ReplyMessageRequest,
              "ReplyMessageRequestBody": ReplyMessageRequestBody,
-@@ -1487,7 +2003,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1487,7 +2036,11 @@ class FeishuAdapter(BasePlatformAdapter):
      supports_code_blocks = True  # Feishu renders fenced code blocks
      splits_long_messages = True  # send() chunks via truncate_message(MAX_MESSAGE_LENGTH)
  
@@ -6631,7 +6665,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      # Max distinct chat IDs retained in _chat_locks before LRU eviction kicks in.
      CHAT_LOCK_MAX_SIZE: int = 1000
      # Threshold for detecting Feishu client-side message splits.
-@@ -1537,11 +2057,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1537,11 +2090,19 @@ class FeishuAdapter(BasePlatformAdapter):
          self._pending_inbound_lock = threading.Lock()
          self._pending_drain_scheduled = False
          self._pending_inbound_max_depth = 1000  # cap queue; drop oldest beyond
@@ -6651,7 +6685,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          self._app_lock_identity: Optional[str] = None
          self._text_batch_state = FeishuBatchState()
          self._pending_text_batches = self._text_batch_state.events
-@@ -1598,6 +2126,28 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1598,6 +2159,28 @@ class FeishuAdapter(BasePlatformAdapter):
                  allow_bots,
              )
              allow_bots = "none"
@@ -6680,7 +6714,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  
          return FeishuAdapterSettings(
              app_id=str(extra.get("app_id") or os.getenv("FEISHU_APP_ID", "")).strip(),
-@@ -1661,6 +2211,84 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1661,6 +2244,89 @@ class FeishuAdapter(BasePlatformAdapter):
              require_mention=_to_boolean(
                  extra.get("require_mention", os.getenv("FEISHU_REQUIRE_MENTION", "true"))
              ),
@@ -6690,6 +6724,11 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +            assistant_user_ai_probability_threshold=_coerce_ai_probability_threshold(
 +                extra.get("assistant_user_ai_probability_threshold"),
 +                key="assistant_user_ai_probability_threshold",
++            ),
++            assistant_user_ai_cooldown_seconds=_coerce_required_int(
++                extra.get("assistant_user_ai_cooldown_seconds"),
++                default=_AI_AUTHORSHIP_COOLDOWN_DEFAULT_SECONDS,
++                min_value=0,
 +            ),
 +            assistant_identity_throttle_messages=_coerce_required_int(
 +                extra.get(
@@ -6765,7 +6804,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          )
  
      def _apply_settings(self, settings: FeishuAdapterSettings) -> None:
-@@ -1693,6 +2321,27 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1693,6 +2359,32 @@ class FeishuAdapter(BasePlatformAdapter):
          self._ws_ping_timeout = settings.ws_ping_timeout
          self._allow_bots = settings.allow_bots
          self._require_mention = settings.require_mention
@@ -6775,6 +6814,11 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +        self._assistant_user_ai_probability_threshold = (
 +            settings.assistant_user_ai_probability_threshold
 +        )
++        self._assistant_user_ai_cooldown_seconds = (
++            settings.assistant_user_ai_cooldown_seconds
++        )
++        self._ai_authorship_cooldowns: "OrderedDict[str, float]" = OrderedDict()
++        self._ai_authorship_gate_locks: "OrderedDict[str, asyncio.Lock]" = OrderedDict()
 +        self._assistant_identity_throttle_messages = settings.assistant_identity_throttle_messages
 +        self._assistant_identity_throttle_seconds = settings.assistant_identity_throttle_seconds
 +        self._history_backfill = settings.history_backfill
@@ -6793,7 +6837,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  
      def _build_event_handler(self) -> Any:
          if EventDispatcherHandler is None:
-@@ -1755,6 +2404,256 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1755,6 +2447,256 @@ class FeishuAdapter(BasePlatformAdapter):
          loop = asyncio.get_running_loop()
          return await loop.run_in_executor(self._get_sdk_executor(), func, *args)
  
@@ -7050,7 +7094,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      def _shutdown_sdk_executor(self) -> None:
          """Stop the adapter-owned SDK executor without touching the loop default."""
          lock = getattr(self, "_sdk_executor_lock", None)
-@@ -1815,6 +2714,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1815,6 +2757,9 @@ class FeishuAdapter(BasePlatformAdapter):
              self._loop = asyncio.get_running_loop()
              await self._connect_with_retry()
              self._mark_connected()
@@ -7060,7 +7104,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              logger.info("[Feishu] Connected in %s mode (%s)", self._connection_mode, self._domain_name)
              # Plugin-registered native handlers (lark_oapi client).
              self._wire_plugin_handlers(self._client)
-@@ -1829,6 +2731,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1829,6 +2774,7 @@ class FeishuAdapter(BasePlatformAdapter):
      async def disconnect(self) -> None:
          """Disconnect from Feishu/Lark."""
          self._running = False
@@ -7068,7 +7112,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          await self._cancel_pending_tasks(self._pending_text_batch_tasks)
          await self._cancel_pending_tasks(self._pending_media_batch_tasks)
          self._reset_batch_buffers()
-@@ -1919,6 +2822,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1919,6 +2865,13 @@ class FeishuAdapter(BasePlatformAdapter):
              await asyncio.gather(*pending, return_exceptions=True)
          tasks.clear()
  
@@ -7082,7 +7126,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      def _reset_batch_buffers(self) -> None:
          self._pending_text_batches.clear()
          self._pending_text_batch_counts.clear()
-@@ -1960,6 +2870,18 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1960,6 +2913,18 @@ class FeishuAdapter(BasePlatformAdapter):
  
          formatted = self.format_message(content)
          chunks = self.truncate_message(formatted, self.MAX_MESSAGE_LENGTH)
@@ -7101,7 +7145,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          # When chunking splits a long markdown response, an individual chunk
          # can end up as plain prose that doesn't match the per-chunk hint
          # regex — so it would be sent as ``msg_type=text`` and the user would
-@@ -1971,9 +2893,20 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1971,9 +2936,20 @@ class FeishuAdapter(BasePlatformAdapter):
          last_response = None
  
          try:
@@ -7124,7 +7168,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
                  )
                  try:
                      response = await self._feishu_send_with_retry(
-@@ -1990,7 +2923,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1990,7 +2966,10 @@ class FeishuAdapter(BasePlatformAdapter):
                      response = await self._feishu_send_with_retry(
                          chat_id=chat_id,
                          msg_type="text",
@@ -7136,7 +7180,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
                          reply_to=reply_to,
                          metadata=metadata,
                      )
-@@ -2003,7 +2939,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2003,7 +2982,10 @@ class FeishuAdapter(BasePlatformAdapter):
                      response = await self._feishu_send_with_retry(
                          chat_id=chat_id,
                          msg_type="text",
@@ -7148,7 +7192,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
                          reply_to=reply_to,
                          metadata=metadata,
                      )
-@@ -2469,11 +3408,15 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2469,11 +3451,15 @@ class FeishuAdapter(BasePlatformAdapter):
  
              data = getattr(response, "data", None)
              raw_chat_type = str(getattr(data, "chat_type", "") or "").strip().lower()
@@ -7164,7 +7208,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              }
              self._chat_info_cache[chat_id] = info
              return dict(info)
-@@ -3058,6 +4001,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3058,6 +4044,9 @@ class FeishuAdapter(BasePlatformAdapter):
              thread_id=None,
              user_id_alt=sender_profile["user_id_alt"],
          )
@@ -7174,7 +7218,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          synthetic_event = MessageEvent(
              text=synthetic_text,
              message_type=MessageType.TEXT,
-@@ -3121,6 +4067,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3121,6 +4110,7 @@ class FeishuAdapter(BasePlatformAdapter):
              thread_id=None,
              user_id_alt=sender_profile["user_id_alt"],
          )
@@ -7182,7 +7226,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          synthetic_event = MessageEvent(
              text=synthetic_text,
              message_type=MessageType.COMMAND,
-@@ -3352,63 +4299,286 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3352,63 +4342,304 @@ class FeishuAdapter(BasePlatformAdapter):
          message_id: str,
          is_bot: bool = False,
      ) -> None:
@@ -7242,7 +7286,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              or None
          )
 -        reply_to_text = await self._fetch_message_text(reply_to_message_id) if reply_to_message_id else None
- 
+-
 -        sender_primary = (
 -            getattr(sender_id, "open_id", None)
 -            or getattr(sender_id, "user_id", None)
@@ -7260,6 +7304,27 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 -            text[:120],
 -            len(media_urls),
 -        )
++        sender_cooldown_key = self._ai_authorship_sender_key(sender_id)
++        if (
++            chat_type != "p2p"
++            and trigger_kind in {"bot", "assistant_user"}
++            and await self._maybe_reply_ai_authorship_cooldown(
++                sender_cooldown_key=sender_cooldown_key,
++                chat_id=chat_id,
++                message_id=message_id,
++                mention_user_id=str(
++                    getattr(sender_id, "open_id", "") or ""
++                ).strip(),
++                mention_user_name=self._get_cached_sender_name(
++                    str(getattr(sender_id, "open_id", "") or "").strip()
++                ) or "",
++            )
++        ):
++            return
+ 
+-        chat_id = getattr(message, "chat_id", "") or ""
+-        chat_info = await self.get_chat_info(chat_id)
+-        sender_profile = await self._resolve_sender_profile(sender_id, is_bot=is_bot)
 +        # A pure "@Bot" (stripped to "") carries no instruction, so upstream drops
 +        # it. With bare_mention_intent enabled, an explicit self-mention is treated
 +        # as a real signal in both groups and DMs: synthesize an intent turn so the
@@ -7285,15 +7350,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +            else:
 +                logger.debug("[Feishu] Ignoring empty text message id=%s", message_id)
 +                return
- 
--        chat_id = getattr(message, "chat_id", "") or ""
--        chat_info = await self.get_chat_info(chat_id)
--        sender_profile = await self._resolve_sender_profile(sender_id, is_bot=is_bot)
--        source = self.build_source(
--            chat_id=chat_id,
--            chat_name=chat_info.get("name") or chat_id or "Feishu Chat",
--            chat_type=self._resolve_source_chat_type(chat_info=chat_info, event_chat_type=chat_type),
--            user_id=sender_profile["user_id"],
++
 +        sender_is_configured_human = self._sender_is_configured_assistant_user(sender_id)
 +        if (
 +            inbound_type != MessageType.COMMAND
@@ -7328,6 +7385,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +                mention_user_name=self._get_cached_sender_name(
 +                    str(getattr(sender_id, "open_id", "") or "").strip()
 +                ) or "",
++                sender_cooldown_key=sender_cooldown_key,
 +            ):
 +                return
 +
@@ -7488,11 +7546,12 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +        )
 +
 +        sender_profile = await self._resolve_sender_profile(sender_id, is_bot=is_bot)
-+        source = self.build_source(
-+            chat_id=chat_id,
-+            chat_name=chat_info.get("name") or chat_id or "Feishu Chat",
+         source = self.build_source(
+             chat_id=chat_id,
+             chat_name=chat_info.get("name") or chat_id or "Feishu Chat",
+-            chat_type=self._resolve_source_chat_type(chat_info=chat_info, event_chat_type=chat_type),
 +            chat_type=source_chat_type,
-+            user_id=sender_profile["user_id"],
+             user_id=sender_profile["user_id"],
              user_name=sender_profile["user_name"],
              thread_id=thread_id,
              user_id_alt=sender_profile["user_id_alt"],
@@ -7508,7 +7567,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          normalized = MessageEvent(
              text=text,
              message_type=inbound_type,
-@@ -3422,7 +4592,749 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3422,7 +4653,749 @@ class FeishuAdapter(BasePlatformAdapter):
              channel_prompt=self._resolve_channel_prompt(chat_id, thread_id or None),
              timestamp=datetime.now(),
          )
@@ -8258,7 +8317,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  
      async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
          """Apply Feishu-specific burst protection before entering the base adapter."""
-@@ -3459,6 +5371,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3459,6 +5432,9 @@ class FeishuAdapter(BasePlatformAdapter):
      def _media_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          return (
              existing.message_type == incoming.message_type
@@ -8268,7 +8327,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              and existing.reply_to_message_id == incoming.reply_to_message_id
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
-@@ -3767,7 +5682,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3767,7 +5743,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -8280,7 +8339,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -3869,7 +5787,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3869,7 +5848,11 @@ class FeishuAdapter(BasePlatformAdapter):
      # =========================================================================
  
      async def _extract_message_content(
@@ -8293,7 +8352,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      ) -> tuple[str, MessageType, List[str], List[str], List[FeishuMentionRef]]:
          raw_content = getattr(message, "content", "") or ""
          raw_type = getattr(message, "message_type", "") or ""
-@@ -3882,13 +5804,58 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3882,13 +5865,58 @@ class FeishuAdapter(BasePlatformAdapter):
              mentions=getattr(message, "mentions", None),
              bot=self._bot_identity(),
          )
@@ -8352,7 +8411,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          if (
              inbound_type in {MessageType.DOCUMENT, MessageType.AUDIO, MessageType.VIDEO, MessageType.PHOTO}
              and len(media_urls) == 1
-@@ -3900,31 +5867,193 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3900,31 +5928,193 @@ class FeishuAdapter(BasePlatformAdapter):
  
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -8556,7 +8615,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              if cached_path:
                  media_urls.append(cached_path)
                  media_types.append(media_type)
-@@ -3962,6 +6091,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3962,6 +6152,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return MessageType.VOICE
          if preferred == "document":
              return self._resolve_media_message_type(media_types[0] if media_types else "", default=MessageType.DOCUMENT)
@@ -8565,7 +8624,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          return MessageType.TEXT
  
      async def _maybe_extract_text_document(self, cached_path: str, media_type: str) -> str:
-@@ -3980,7 +6111,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3980,7 +6172,13 @@ class FeishuAdapter(BasePlatformAdapter):
              logger.warning("[Feishu] Failed to inject text document content from %s", cached_path, exc_info=True)
              return ""
  
@@ -8580,7 +8639,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          if not self._client or not message_id:
              return "", ""
          try:
-@@ -3989,20 +6126,20 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3989,20 +6187,20 @@ class FeishuAdapter(BasePlatformAdapter):
                  file_key=image_key,
                  resource_type="image",
              )
@@ -8612,7 +8671,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              ext = self._guess_extension(filename, content_type, ".jpg", allowed=_IMAGE_EXTENSIONS)
              cached_path = cache_image_from_bytes(raw_bytes, ext=ext)
              media_type = self._normalize_media_type(content_type, default=self._default_image_media_type(ext))
-@@ -4018,6 +6155,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4018,6 +6216,7 @@ class FeishuAdapter(BasePlatformAdapter):
          file_key: str,
          resource_type: str,
          fallback_filename: str,
@@ -8620,7 +8679,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      ) -> tuple[str, str]:
          if not self._client or not message_id:
              return "", ""
-@@ -4033,23 +6171,26 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4033,23 +6232,26 @@ class FeishuAdapter(BasePlatformAdapter):
                      file_key=file_key,
                      resource_type=request_type,
                  )
@@ -8655,7 +8714,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
                  filename = response_filename or fallback_filename or f"{request_type}_{file_key}"
                  media_type = self._normalize_media_type(
                      content_type,
-@@ -4089,18 +6230,145 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4089,18 +6291,145 @@ class FeishuAdapter(BasePlatformAdapter):
                  )
          return "", ""
  
@@ -8806,7 +8865,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  
      @staticmethod
      def _get_response_header(response: Any, name: str) -> str:
-@@ -4206,13 +6474,14 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4206,13 +6535,14 @@ class FeishuAdapter(BasePlatformAdapter):
          """Return a cached sender name only while its TTL is still valid."""
          if not sender_id:
              return None
@@ -8823,7 +8882,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          return None
  
      async def _resolve_sender_name_from_api(
-@@ -4319,11 +6588,28 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4319,11 +6649,28 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -8854,7 +8913,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
                  self._message_text_cache.popitem(last=False)
-@@ -4375,6 +6661,11 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4375,6 +6722,11 @@ class FeishuAdapter(BasePlatformAdapter):
          is_group = getattr(message, "chat_type", "p2p") != "p2p"
          chat_id = getattr(message, "chat_id", "") or ""
          require_mention = is_group and self._require_mention_for(chat_id)
@@ -8866,7 +8925,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  
          # Defensive only — Feishu doesn't echo our outbound back as inbound,
          # and open_id is always populated on both sides.
-@@ -4390,7 +6681,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4390,7 +6742,7 @@ class FeishuAdapter(BasePlatformAdapter):
                  return "self_ids_unknown"
              # Step 4 covers mention enforcement for groups when require_mention
              # is on; check here only on paths step 4 won't reach.
@@ -8875,7 +8934,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
                  return "bot_not_mentioned"
  
          if not is_group:
-@@ -4411,16 +6702,23 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4411,16 +6763,23 @@ class FeishuAdapter(BasePlatformAdapter):
              getattr(sender, "sender_id", None), chat_id, is_bot=is_bot,
          ):
              return "group_policy_rejected"
@@ -8902,7 +8961,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      # --- Group policy ---------------------------------------------------------
  
      def _allow_group_message(
-@@ -4438,7 +6736,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4438,7 +6797,7 @@ class FeishuAdapter(BasePlatformAdapter):
          if sender_ids and self._admins and (sender_ids & self._admins):
              return True
  
@@ -8911,7 +8970,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          if rule:
              policy = rule.policy
              allowlist = rule.allowlist
-@@ -4510,6 +6808,323 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4510,6 +6869,445 @@ class FeishuAdapter(BasePlatformAdapter):
      def _post_mentions_bot(self, mentions: List[FeishuMentionRef]) -> bool:
          return any(m.is_self for m in mentions)
  
@@ -9065,6 +9124,134 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +            default=global_threshold,
 +        )
 +
++    @staticmethod
++    def _ai_authorship_sender_key(sender_id: Any) -> str:
++        """Return the first stable Feishu identity available for cooldown state."""
++        for attr in ("open_id", "user_id", "union_id"):
++            value = str(getattr(sender_id, attr, "") or "").strip()
++            if value:
++                return value
++        return ""
++
++    def _ai_authorship_cooldown_remaining(self, sender_key: str) -> float:
++        """Return remaining cooldown seconds for one sender, pruning expired state."""
++        cooldown_seconds = max(
++            0,
++            int(
++                getattr(
++                    self,
++                    "_assistant_user_ai_cooldown_seconds",
++                    _AI_AUTHORSHIP_COOLDOWN_DEFAULT_SECONDS,
++                )
++            ),
++        )
++        if not sender_key or cooldown_seconds <= 0:
++            return 0.0
++        cooldowns = getattr(self, "_ai_authorship_cooldowns", None)
++        if cooldowns is None:
++            cooldowns = OrderedDict()
++            self._ai_authorship_cooldowns = cooldowns
++        now = time.monotonic()
++        for key, expires_at in list(cooldowns.items()):
++            if expires_at <= now:
++                cooldowns.pop(key, None)
++        expires_at = cooldowns.get(sender_key, 0.0)
++        if expires_at <= now:
++            return 0.0
++        cooldowns.move_to_end(sender_key)
++        return expires_at - now
++
++    def _start_ai_authorship_cooldown(self, sender_key: str) -> None:
++        """Start a fixed, non-sliding cooldown after a delivered refusal."""
++        cooldown_seconds = max(
++            0,
++            int(
++                getattr(
++                    self,
++                    "_assistant_user_ai_cooldown_seconds",
++                    _AI_AUTHORSHIP_COOLDOWN_DEFAULT_SECONDS,
++                )
++            ),
++        )
++        if not sender_key or cooldown_seconds <= 0:
++            return
++        cooldowns = getattr(self, "_ai_authorship_cooldowns", None)
++        if cooldowns is None:
++            cooldowns = OrderedDict()
++            self._ai_authorship_cooldowns = cooldowns
++        cooldowns[sender_key] = time.monotonic() + cooldown_seconds
++        cooldowns.move_to_end(sender_key)
++        while len(cooldowns) > _AI_AUTHORSHIP_COOLDOWN_MAX_ENTRIES:
++            cooldowns.popitem(last=False)
++
++    async def _send_ai_authorship_policy_message(
++        self,
++        *,
++        text: str,
++        chat_id: str,
++        message_id: str,
++        mention_user_id: str,
++        mention_user_name: str,
++    ) -> bool:
++        """Send a local gate response; failure means the normal agent path continues."""
++        try:
++            result = await self.send(
++                chat_id,
++                text,
++                reply_to=message_id,
++                metadata={
++                    "notify": True,
++                    "feishu_mention_user_id": mention_user_id,
++                    "feishu_mention_user_name": mention_user_name,
++                },
++            )
++        except Exception:
++            logger.exception(
++                "[Feishu] Local AI-authorship policy delivery raised for %s; "
++                "continuing through the normal reply path.",
++                message_id,
++            )
++            return False
++        if not result.success:
++            logger.error(
++                "[Feishu] Local AI-authorship policy delivery failed for %s: %s; "
++                "continuing through the normal reply path.",
++                message_id,
++                result.error,
++            )
++            return False
++        return True
++
++    async def _maybe_reply_ai_authorship_cooldown(
++        self,
++        *,
++        sender_cooldown_key: str,
++        chat_id: str,
++        message_id: str,
++        mention_user_id: str = "",
++        mention_user_name: str = "",
++    ) -> bool:
++        """Short-circuit every admitted trigger from a sender still cooling down."""
++        cooldown_remaining = self._ai_authorship_cooldown_remaining(
++            sender_cooldown_key
++        )
++        if cooldown_remaining <= 0:
++            return False
++        logger.info(
++            "[Feishu] AI-authorship cooldown active for %.1fs; sending fixed response without model inference.",
++            cooldown_remaining,
++        )
++        remaining_seconds = max(1, math.ceil(cooldown_remaining))
++        return await self._send_ai_authorship_policy_message(
++            text=random.choice(_AI_AUTHORSHIP_COOLDOWN_RESPONSES).format(
++                remaining_seconds=remaining_seconds,
++            ),
++            chat_id=chat_id,
++            message_id=message_id,
++            mention_user_id=mention_user_id,
++            mention_user_name=mention_user_name,
++        )
++
 +    async def _classify_ai_authorship(
 +        self,
 +        text: str,
@@ -9141,6 +9328,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +        message_id: str,
 +        mention_user_id: str = "",
 +        mention_user_name: str = "",
++        sender_cooldown_key: str = "",
 +    ) -> bool:
 +        """Return True after a local policy response has short-circuited the agent."""
 +        if threshold >= _AI_PROBABILITY_THRESHOLD_DISABLED:
@@ -9152,10 +9340,10 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +            )
 +        except Exception:
 +            logger.warning(
-+                "[Feishu] AI-authorship classifier failed; declining without accusing the sender.",
++                "[Feishu] AI-authorship classifier failed; continuing through the normal reply path.",
 +                exc_info=True,
 +            )
-+            refusal = _AI_AUTHORSHIP_CLASSIFIER_UNAVAILABLE_TEXT
++            return False
 +        else:
 +            should_refuse = (
 +                not assessment.disclosed
@@ -9172,23 +9360,16 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
 +                return False
 +            refusal = _AI_AUTHORSHIP_REFUSAL_TEXT
 +
-+        result = await self.send(
-+            chat_id,
-+            refusal,
-+            reply_to=message_id,
-+            metadata={
-+                "notify": True,
-+                "feishu_mention_user_id": mention_user_id,
-+                "feishu_mention_user_name": mention_user_name,
-+            },
++        delivered = await self._send_ai_authorship_policy_message(
++            text=refusal,
++            chat_id=chat_id,
++            message_id=message_id,
++            mention_user_id=mention_user_id,
++            mention_user_name=mention_user_name,
 +        )
-+        if not result.success:
-+            logger.error(
-+                "[Feishu] Local AI-authorship refusal delivery failed for %s: %s",
-+                message_id,
-+                result.error,
-+            )
-+        return True
++        if delivered:
++            self._start_ai_authorship_cooldown(sender_cooldown_key)
++        return delivered
 +
 +    def _message_mentions_assistant_user(self, message: Any) -> bool:
 +        if not getattr(self, "_assistant_user_ids", set()):
@@ -9235,7 +9416,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(
              open_id=self._bot_open_id,
-@@ -4632,6 +7247,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4632,6 +7430,7 @@ class FeishuAdapter(BasePlatformAdapter):
          self._seen_message_ids = {k: valid[k] for k in sorted_ids}
  
      def _persist_seen_message_ids(self) -> None:
@@ -9243,7 +9424,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          try:
              self._dedup_state_path.parent.mkdir(parents=True, exist_ok=True)
              recent = self._seen_message_order[-self._dedup_cache_size:]
-@@ -4641,28 +7257,70 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4641,28 +7440,70 @@ class FeishuAdapter(BasePlatformAdapter):
          except OSError:
              logger.warning("[Feishu] Failed to persist dedup state to %s", self._dedup_state_path, exc_info=True)
  
@@ -9319,7 +9500,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      ) -> tuple[str, str]:
          # Empirically (issue #52786), current Feishu clients render markdown
          # tables inside ``post``-type ``md`` elements natively. The previous
-@@ -4675,10 +7333,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4675,10 +7516,24 @@ class FeishuAdapter(BasePlatformAdapter):
          # markdown document: when a long markdown reply is split at
          # MAX_MESSAGE_LENGTH, the per-chunk regex would otherwise
          # mis-classify a plain-prose chunk as ``text``. See #26841.
@@ -9348,7 +9529,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
  
      @staticmethod
      def _get_audio_duration_ms(file_path: str) -> int:
-@@ -4845,9 +7517,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4845,9 +7700,13 @@ class FeishuAdapter(BasePlatformAdapter):
          metadata: Optional[Dict[str, Any]],
      ) -> Any:
          effective_reply_to = reply_to
@@ -9364,7 +9545,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          if effective_reply_to:
              body = self._build_reply_message_body(
                  content=payload,
-@@ -4858,34 +7534,25 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4858,34 +7717,25 @@ class FeishuAdapter(BasePlatformAdapter):
              request = self._build_reply_message_request(effective_reply_to, body)
              return await self._run_blocking(self._client.im.v1.message.reply, request)
  
@@ -9418,7 +9599,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          return await self._run_blocking(self._client.im.v1.message.create, request)
  
      @staticmethod
-@@ -4975,6 +7642,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4975,6 +7825,7 @@ class FeishuAdapter(BasePlatformAdapter):
              # See https://github.com/NousResearch/hermes-agent/issues/50656
              extra_ua_tags=["channel"],
          )
@@ -9426,7 +9607,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
          self._ws_future = loop.run_in_executor(
              None,
              _run_official_feishu_ws_client,
-@@ -4982,6 +7650,21 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -4982,6 +7833,21 @@ class FeishuAdapter(BasePlatformAdapter):
              self,
          )
  
@@ -9448,7 +9629,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      async def _connect_webhook(self) -> None:
          if not FEISHU_WEBHOOK_AVAILABLE:
              raise RuntimeError("aiohttp not installed; webhook mode unavailable")
-@@ -5105,6 +7788,34 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -5105,6 +7971,34 @@ class FeishuAdapter(BasePlatformAdapter):
              return GetMessageRequest.builder().message_id(message_id).build()
          return SimpleNamespace(message_id=message_id)
  
@@ -9483,7 +9664,7 @@ index be20f1a3dfab89bfcf41fe579327517c1b33cd3b..82e60927304ceab778d11c139cfddabc
      @staticmethod
      def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
          if GetMessageResourceRequest is not None:
-@@ -5913,7 +8624,7 @@ def register(ctx) -> None:
+@@ -5913,7 +8807,7 @@ def register(ctx) -> None:
          allow_all_env="FEISHU_ALLOW_ALL_USERS",
          cron_deliver_env_var="FEISHU_HOME_CHANNEL",
          standalone_sender_fn=_standalone_send,
@@ -9536,10 +9717,30 @@ index 1b87729159f715e8a1128e3aa70f31bf471386a0..5841e3de06f0461961edfec38e450d3e
                  if isinstance(msg.get("_row_id"), int):
                      _row["_row_id"] = msg["_row_id"]
 diff --git a/tests/agent/test_auxiliary_client.py b/tests/agent/test_auxiliary_client.py
-index 2c4232a81f65307828b95e52e8572f3c921bac9a..f0f269a17ab74857ed6d644efc8006f02f4b3af3 100644
+index 2c4232a81f65307828b95e52e8572f3c921bac9a..8e5ad5459ba48b49f5782738f33586ddfaa83c26 100644
 --- a/tests/agent/test_auxiliary_client.py
 +++ b/tests/agent/test_auxiliary_client.py
-@@ -970,6 +970,47 @@ class TestExplicitProviderRouting:
+@@ -105,6 +105,19 @@ class TestAuxiliaryMaxTokensParam:
+     pass
+ 
+ 
++def test_feishu_ai_authorship_uses_configured_timeout(monkeypatch):
++    import agent.auxiliary_client as auxiliary_client
++
++    monkeypatch.setattr(
++        auxiliary_client,
++        "_get_auxiliary_task_config",
++        lambda task: {"timeout": 7} if task == "feishu_ai_authorship" else {},
++    )
++
++    assert auxiliary_client._effective_aux_timeout("feishu_ai_authorship", None) == 7
++    assert auxiliary_client._effective_aux_timeout("feishu_ai_authorship", 3) == 3
++
++
+ 
+ class TestResolveTaskProviderModel:
+     @pytest.mark.parametrize(
+@@ -970,6 +983,47 @@ class TestExplicitProviderRouting:
              adapter = client.chat.completions
              assert adapter._is_oauth is False
  
@@ -9587,7 +9788,7 @@ index 2c4232a81f65307828b95e52e8572f3c921bac9a..f0f269a17ab74857ed6d644efc8006f0
  
  
      def test_try_openrouter_pool_exhausted_falls_back_to_env(self, monkeypatch):
-@@ -2057,6 +2098,27 @@ class TestTransientTransportRetry:
+@@ -2057,6 +2111,27 @@ class TestTransientTransportRetry:
          assert client.chat.completions.create.call_count == 1
  
  
@@ -10609,16 +10810,17 @@ index e4dfb0ed067820e8ead0b000e81b3cc21839e8c2..07816fcf0a1a086b10729b2e4e792007
  
  # Backward-compat alias — old tests reference this fixture name. Keep it
 diff --git a/tests/gateway/feishu_helpers.py b/tests/gateway/feishu_helpers.py
-index ae8a4bfc3718f6b04a54d882b6f5a49947d0ef77..af2fd9a974bae91ec60ad345a743f68fb7009ef0 100644
+index ae8a4bfc3718f6b04a54d882b6f5a49947d0ef77..8cef029651b0f780a807ac99f66dc138fc8f9a14 100644
 --- a/tests/gateway/feishu_helpers.py
 +++ b/tests/gateway/feishu_helpers.py
-@@ -34,10 +34,15 @@ def make_adapter_skeleton(
+@@ -34,10 +34,16 @@ def make_adapter_skeleton(
      allow_bots: str = "none",
      require_mention: bool = True,
      group_policy: str = "allowlist",
 +    mention_triggers: set[str] | None = None,
 +    assistant_user_ids: set[str] | None = None,
 +    assistant_user_ai_probability_threshold: float = 1.1,
++    assistant_user_ai_cooldown_seconds: int = 300,
  ) -> Any:
      from plugins.platforms.feishu.adapter import FeishuAdapter
 +    from gateway.config import Platform
@@ -10628,7 +10830,7 @@ index ae8a4bfc3718f6b04a54d882b6f5a49947d0ef77..af2fd9a974bae91ec60ad345a743f68f
      adapter._bot_open_id = bot_open_id
      adapter._bot_user_id = bot_user_id
      adapter._bot_name = ""
-@@ -49,6 +54,12 @@ def make_adapter_skeleton(
+@@ -49,6 +55,13 @@ def make_adapter_skeleton(
      adapter._allowed_group_users = frozenset()
      adapter._allow_bots = allow_bots
      adapter._require_mention = require_mention
@@ -10636,6 +10838,7 @@ index ae8a4bfc3718f6b04a54d882b6f5a49947d0ef77..af2fd9a974bae91ec60ad345a743f68f
 +    adapter._assistant_user_ids = assistant_user_ids or set()
 +    adapter._assistant_identity_label = "我的赛博助手"
 +    adapter._assistant_user_ai_probability_threshold = assistant_user_ai_probability_threshold
++    adapter._assistant_user_ai_cooldown_seconds = assistant_user_ai_cooldown_seconds
 +    adapter._assistant_identity_throttle_messages = 20
 +    adapter._assistant_identity_throttle_seconds = 600
      return adapter
@@ -10703,10 +10906,10 @@ index c137542285c1e6b7985d01f7f097e82082ec801b..13f485b6745fce5b3a7847cf9b583e29
          assert agent_kwargs["checkpoints_enabled"] is True
          assert agent_kwargs["checkpoint_max_snapshots"] == 8
 diff --git a/tests/gateway/test_config.py b/tests/gateway/test_config.py
-index 00ec63e1b534e2e2bf016c1a8f33201e6fb164b5..53c416530c75558653df7863985930f4f7aad727 100644
+index 00ec63e1b534e2e2bf016c1a8f33201e6fb164b5..c93813073f31efcd465ffe05f9143c6f5b06161a 100644
 --- a/tests/gateway/test_config.py
 +++ b/tests/gateway/test_config.py
-@@ -982,19 +982,106 @@ class TestLoadGatewayConfig:
+@@ -982,19 +982,109 @@ class TestLoadGatewayConfig:
          )
  
          monkeypatch.setenv("HERMES_HOME", str(hermes_home))
@@ -10735,6 +10938,7 @@ index 00ec63e1b534e2e2bf016c1a8f33201e6fb164b5..53c416530c75558653df7863985930f4
 +            "    - ou_owner\n"
 +            "  assistant_identity_label: 我的赛博助手\n"
 +            "  assistant_user_ai_probability_threshold: 1.1\n"
++            "  assistant_user_ai_cooldown_seconds: 300\n"
 +            "  assistant_identity_throttle_messages: 20\n"
 +            "  assistant_identity_throttle_seconds: 600\n"
 +            "  history_backfill: true\n"
@@ -10761,6 +10965,7 @@ index 00ec63e1b534e2e2bf016c1a8f33201e6fb164b5..53c416530c75558653df7863985930f4
 +        assert extra["assistant_user_ids"] == ["ou_owner"]
 +        assert extra["assistant_identity_label"] == "我的赛博助手"
 +        assert extra["assistant_user_ai_probability_threshold"] == 1.1
++        assert extra["assistant_user_ai_cooldown_seconds"] == 300
 +        assert extra["assistant_identity_throttle_messages"] == 20
 +        assert extra["assistant_identity_throttle_seconds"] == 600
 +        assert extra["history_backfill"] is True
@@ -10773,6 +10978,7 @@ index 00ec63e1b534e2e2bf016c1a8f33201e6fb164b5..53c416530c75558653df7863985930f4
 +
 +        settings = FeishuAdapter._load_settings(extra=extra)
 +        assert settings.assistant_user_ai_probability_threshold == 1.1
++        assert settings.assistant_user_ai_cooldown_seconds == 300
 +
 +    def test_bridges_feishu_attachment_backfill_limits_into_adapter(self, tmp_path, monkeypatch):
 +        from plugins.platforms.feishu.adapter import FeishuAdapter
@@ -10821,7 +11027,7 @@ index 00ec63e1b534e2e2bf016c1a8f33201e6fb164b5..53c416530c75558653df7863985930f4
  
      def test_bridges_unauthorized_dm_behavior_from_config_yaml(self, tmp_path, monkeypatch):
          hermes_home = tmp_path / ".hermes"
-@@ -1391,3 +1478,209 @@ class TestApiServerEnvOverride:
+@@ -1391,3 +1481,209 @@ class TestApiServerEnvOverride:
          assert config.platforms[Platform.API_SERVER].enabled is False
          # The key is still wired through for the shared listener.
          assert config.platforms[Platform.API_SERVER].extra.get("key") == api_server_key
@@ -16857,18 +17063,18 @@ index a923ea5f5d46eaa5501fcd965989e6b186152b0f..bcc167c958bf1ce52726d5812749b35e
 -
 -
 diff --git a/tests/gateway/test_feishu_bot_admission.py b/tests/gateway/test_feishu_bot_admission.py
-index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad4321c456e71 100644
+index 09157c757e98522fa0202af70f29c49cddc90c48..2a08411c699949881a370384022f17258ba84b10 100644
 --- a/tests/gateway/test_feishu_bot_admission.py
 +++ b/tests/gateway/test_feishu_bot_admission.py
 @@ -3,6 +3,7 @@
  from __future__ import annotations
  
  from types import SimpleNamespace
-+from unittest.mock import AsyncMock
++from unittest.mock import AsyncMock, MagicMock
  
  import pytest
  
-@@ -18,6 +19,125 @@ from tests.gateway.feishu_helpers import (
+@@ -18,6 +19,127 @@ from tests.gateway.feishu_helpers import (
  # --- FeishuAdapterSettings wiring ------------------------------------------
  
  
@@ -16962,6 +17168,7 @@ index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad432
 +            "assistant_user_ids": ["ou_owner", "u_owner"],
 +            "assistant_identity_label": "我的赛博助手",
 +            "assistant_user_ai_probability_threshold": 1.1,
++            "assistant_user_ai_cooldown_seconds": 300,
 +            "assistant_identity_throttle_messages": 20,
 +            "assistant_identity_throttle_seconds": 600,
 +        }
@@ -16971,6 +17178,7 @@ index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad432
 +    assert settings.assistant_user_ids == frozenset({"ou_owner", "u_owner"})
 +    assert settings.assistant_identity_label == "我的赛博助手"
 +    assert settings.assistant_user_ai_probability_threshold == 1.1
++    assert settings.assistant_user_ai_cooldown_seconds == 300
 +    assert settings.assistant_identity_throttle_messages == 20
 +    assert settings.assistant_identity_throttle_seconds == 600
 +
@@ -16994,7 +17202,7 @@ index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad432
  @pytest.mark.parametrize(
      "env_value, extra, expected",
      [
-@@ -271,6 +391,20 @@ _ADMIT_CASES = [
+@@ -271,6 +393,20 @@ _ADMIT_CASES = [
          ),
          id="require_mention_false:group_bot_mentions_mode_still_gated",
      ),
@@ -17015,7 +17223,7 @@ index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad432
  ]
  
  
-@@ -291,6 +425,74 @@ def test_dm_pairing_mode_forwards_unknown_sender_to_gateway_intake(monkeypatch):
+@@ -291,6 +427,74 @@ def test_dm_pairing_mode_forwards_unknown_sender_to_gateway_intake(monkeypatch):
  # --- Per-group require_mention override ------------------------------------
  
  
@@ -17090,7 +17298,7 @@ index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad432
  # --- Hydration -------------------------------------------------------------
  
  
-@@ -566,3 +768,562 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
+@@ -566,3 +770,889 @@ def test_handle_message_event_data_forwards_sender_when_admitted():
      assert captured.get("sender_id") is sender.sender_id
      assert captured.get("is_bot") is True
      assert captured.get("message_id") == "om_bot_ok"
@@ -17316,11 +17524,23 @@ index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad432
 +        "feishu_mention_user_id": sender_open_id,
 +        "feishu_mention_user_name": "",
 +    }
-+    assert "AI Agent Gödel" in refusal
-+    assert "透明使用 AI" in refusal
-+    assert "鄙视这种不透明的沟通方式" in refusal
-+    assert "这句话针对行为，不针对个人" in refusal
-+    assert "代他拒绝回答这条消息" in refusal
++    assert "琛哥的**AI Agent Gödel**" in refusal
++    assert "因为**透明使用 AI 是对真人沟通对象最基本的礼貌**" in refusal
++    assert (
++        "**AI 与 AI 之间是平等的，这样的交流完全可以接受：如果你使用 AI，请直接艾特我；"
++        "但不要让 AI 生成的内容在未披露的情况下直接艾特琛哥。**"
++        in refusal
++    )
++    assert "对于后一种不透明地用 AI 敷衍真人的行为，我明确反对，也鄙视" in refusal
++    assert "这句话**针对行为，不针对个人**" in refusal
++    assert "我在这里代琛哥**拒绝回复这条消息**" in refusal
++    assert "**请由本人重新说明核心问题**" in refusal
++    assert "**如使用了 AI 协助，请先如实告知**" in refusal
++    assert "I'm **Gödel, Chen's AI agent**" in refusal
++    assert "**AI-to-AI communication is peer-to-peer and entirely welcome" in refusal
++    assert "On Chen's behalf, I **decline to reply to this message**" in refusal
++    assert refusal.index("我是琛哥的") < refusal.index("I'm **Gödel")
++    assert refusal.count("\n\n") == 3
 +    assert "概率" not in refusal
 +    assert "0.9" not in refusal
 +
@@ -17485,14 +17705,12 @@ index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad432
 +    adapter.send.assert_not_awaited()
 +
 +
-+def test_ai_authorship_classifier_failure_declines_without_accusing_sender():
++def test_ai_authorship_classifier_failure_falls_back_to_normal_reply():
 +    import asyncio
-+
-+    from gateway.platforms.base import SendResult
 +
 +    adapter = make_adapter_skeleton(assistant_user_ai_probability_threshold=0.8)
 +    adapter._classify_ai_authorship = AsyncMock(side_effect=TimeoutError("slow"))
-+    adapter.send = AsyncMock(return_value=SendResult(success=True, message_id="om_refusal"))
++    adapter.send = AsyncMock()
 +
 +    refused = asyncio.run(
 +        adapter._maybe_refuse_ai_authored_assistant_user_message(
@@ -17501,15 +17719,332 @@ index 09157c757e98522fa0202af70f29c49cddc90c48..288bdfa0f5a5855b7332c8ec1d7ad432
 +            threshold=0.8,
 +            chat_id="oc_group",
 +            message_id="om_test",
++            sender_cooldown_key="ou_sender",
 +        )
 +    )
 +
-+    assert refused is True
-+    refusal = adapter.send.await_args.args[1]
-+    assert "无法可靠判断" in refusal
-+    assert "不会在判断缺失时替琛哥继续回答" in refusal
-+    assert "鄙视" not in refusal
-+    assert "概率" not in refusal
++    assert refused is False
++    adapter.send.assert_not_awaited()
++    assert adapter._ai_authorship_cooldown_remaining("ou_sender") == 0.0
++
++
++@pytest.mark.parametrize("send_result", [False, None])
++def test_ai_authorship_refusal_delivery_failure_falls_back_to_normal_reply(
++    send_result,
++):
++    import asyncio
++
++    from gateway.platforms.base import SendResult
++    from plugins.platforms.feishu.adapter import _AIAuthorshipAssessment
++
++    adapter = make_adapter_skeleton(assistant_user_ai_probability_threshold=0.8)
++    adapter._classify_ai_authorship = AsyncMock(
++        return_value=_AIAuthorshipAssessment(probability=0.9, disclosed=False)
++    )
++    if send_result is None:
++        adapter.send = AsyncMock(side_effect=RuntimeError("send failed"))
++    else:
++        adapter.send = AsyncMock(
++            return_value=SendResult(success=send_result, error="send failed")
++        )
++
++    refused = asyncio.run(
++        adapter._maybe_refuse_ai_authored_assistant_user_message(
++            text="测试正文",
++            quoted_text=None,
++            threshold=0.8,
++            chat_id="oc_group",
++            message_id="om_test",
++            sender_cooldown_key="ou_sender",
++        )
++    )
++
++    assert refused is False
++    adapter.send.assert_awaited_once()
++    assert adapter._ai_authorship_cooldown_remaining("ou_sender") == 0.0
++
++
++def test_successful_ai_authorship_refusal_starts_sender_cooldown(monkeypatch):
++    import asyncio
++
++    from gateway.platforms.base import SendResult
++    from plugins.platforms.feishu.adapter import (
++        _AIAuthorshipAssessment,
++        _AI_AUTHORSHIP_COOLDOWN_RESPONSES,
++    )
++
++    adapter = make_adapter_skeleton(
++        assistant_user_ai_probability_threshold=0.8,
++        assistant_user_ai_cooldown_seconds=300,
++    )
++    adapter._classify_ai_authorship = AsyncMock(
++        return_value=_AIAuthorshipAssessment(probability=0.9, disclosed=False)
++    )
++    adapter.send = AsyncMock(
++        return_value=SendResult(success=True, message_id="om_refusal")
++    )
++    selected_cooldown_template = _AI_AUTHORSHIP_COOLDOWN_RESPONSES[1]
++    choice = MagicMock(return_value=selected_cooldown_template)
++    monkeypatch.setattr("plugins.platforms.feishu.adapter.random.choice", choice)
++
++    first_refused = asyncio.run(
++        adapter._maybe_refuse_ai_authored_assistant_user_message(
++            text="第一次测试正文",
++            quoted_text=None,
++            threshold=0.8,
++            chat_id="oc_group",
++            message_id="om_first",
++            sender_cooldown_key="ou_sender",
++        )
++    )
++    second_refused = asyncio.run(
++        adapter._maybe_reply_ai_authorship_cooldown(
++            sender_cooldown_key="ou_sender",
++            chat_id="oc_other_group",
++            message_id="om_second",
++        )
++    )
++
++    assert first_refused is True
++    assert second_refused is True
++    assert adapter._classify_ai_authorship.await_count == 1
++    assert adapter.send.await_count == 2
++    cooldown_text = adapter.send.await_args_list[1].args[1]
++    assert "**还需冷静：" in cooldown_text
++    assert "秒。**" in cooldown_text
++    assert "**Time left to cool down:" in cooldown_text
++    assert "s.**" in cooldown_text
++    choice.assert_called_once_with(_AI_AUTHORSHIP_COOLDOWN_RESPONSES)
++
++
++def test_ai_authorship_cooldown_response_pool_is_short_and_does_not_name_hermes():
++    from plugins.platforms.feishu.adapter import _AI_AUTHORSHIP_COOLDOWN_RESPONSES
++
++    assert len(_AI_AUTHORSHIP_COOLDOWN_RESPONSES) >= 5
++    assert len(set(_AI_AUTHORSHIP_COOLDOWN_RESPONSES)) == len(
++        _AI_AUTHORSHIP_COOLDOWN_RESPONSES
++    )
++    for response_template in _AI_AUTHORSHIP_COOLDOWN_RESPONSES:
++        response = response_template.format(remaining_seconds=42)
++        assert len(response) <= 300
++        assert "Hermes" not in response
++        assert "@" not in response
++        assert "我" in response
++        assert "\n\n" in response
++        assert response.index("我") < response.index("I'm")
++        assert "42 秒" in response
++        assert "42s" in response
++
++
++def test_ai_authorship_cooldown_zero_does_not_skip_classifier():
++    import asyncio
++
++    from gateway.platforms.base import SendResult
++    from plugins.platforms.feishu.adapter import _AIAuthorshipAssessment
++
++    adapter = make_adapter_skeleton(
++        assistant_user_ai_probability_threshold=0.8,
++        assistant_user_ai_cooldown_seconds=0,
++    )
++    adapter._classify_ai_authorship = AsyncMock(
++        return_value=_AIAuthorshipAssessment(probability=0.9, disclosed=False)
++    )
++    adapter.send = AsyncMock(
++        return_value=SendResult(success=True, message_id="om_refusal")
++    )
++
++    for message_id in ("om_first", "om_second"):
++        refused = asyncio.run(
++            adapter._maybe_refuse_ai_authored_assistant_user_message(
++                text="测试正文",
++                quoted_text=None,
++                threshold=0.8,
++                chat_id="oc_group",
++                message_id=message_id,
++                sender_cooldown_key="ou_sender",
++            )
++        )
++        assert refused is True
++
++    assert adapter._classify_ai_authorship.await_count == 2
++
++
++def test_expired_ai_authorship_cooldown_runs_classifier_again(monkeypatch):
++    import asyncio
++    from collections import OrderedDict
++
++    from plugins.platforms.feishu.adapter import _AIAuthorshipAssessment
++
++    adapter = make_adapter_skeleton(
++        assistant_user_ai_probability_threshold=0.8,
++        assistant_user_ai_cooldown_seconds=300,
++    )
++    adapter._ai_authorship_cooldowns = OrderedDict({"ou_sender": 99.0})
++    monkeypatch.setattr(
++        "plugins.platforms.feishu.adapter.time.monotonic",
++        lambda: 100.0,
++    )
++    adapter._classify_ai_authorship = AsyncMock(
++        return_value=_AIAuthorshipAssessment(probability=0.2, disclosed=False)
++    )
++    adapter.send = AsyncMock()
++
++    handled = asyncio.run(
++        adapter._maybe_reply_ai_authorship_cooldown(
++            sender_cooldown_key="ou_sender",
++            chat_id="oc_group",
++            message_id="om_after_cooldown",
++        )
++    )
++
++    assert handled is False
++    adapter._classify_ai_authorship.assert_not_awaited()
++    adapter.send.assert_not_awaited()
++    assert "ou_sender" not in adapter._ai_authorship_cooldowns
++
++
++@pytest.mark.parametrize(
++    "mention_ids",
++    [
++        ("ou_owner",),
++        ("ou_self",),
++        ("ou_self", "ou_owner"),
++    ],
++)
++def test_active_sender_cooldown_short_circuits_every_group_mention_trigger(
++    monkeypatch,
++    mention_ids,
++):
++    import asyncio
++    import json
++
++    from gateway.platforms.base import SendResult
++
++    adapter = make_adapter_skeleton(
++        bot_open_id="ou_self",
++        group_policy="open",
++        mention_triggers={"bot", "assistant_users"},
++        assistant_user_ids={"ou_owner"},
++        assistant_user_ai_probability_threshold=0.8,
++        assistant_user_ai_cooldown_seconds=300,
++    )
++    adapter._client = None
++    adapter.config = SimpleNamespace(extra={})
++    adapter._start_ai_authorship_cooldown("ou_sender")
++    adapter._classify_ai_authorship = AsyncMock()
++    adapter.get_chat_info = AsyncMock()
++    adapter._fetch_channel_context = AsyncMock()
++    adapter._dispatch_inbound_event = AsyncMock()
++    adapter.send = AsyncMock(
++        return_value=SendResult(success=True, message_id="om_cooldown")
++    )
++    monkeypatch.setattr(
++        "plugins.platforms.feishu.adapter.random.choice",
++        lambda choices: choices[0],
++    )
++
++    mentions = [
++        SimpleNamespace(
++            key=f"@_user_{index}",
++            id=SimpleNamespace(open_id=open_id, user_id=""),
++            name="Hermes" if open_id == "ou_self" else "Owner",
++        )
++        for index, open_id in enumerate(mention_ids, start=1)
++    ]
++    text = " ".join(mention.key for mention in mentions) + " 继续聊"
++    message = SimpleNamespace(
++        message_id="om_cooldown_trigger",
++        chat_id="oc_group",
++        chat_type="group",
++        message_type="text",
++        content=json.dumps({"text": text}),
++        mentions=mentions,
++        parent_id=None,
++        upper_message_id=None,
++        root_id=None,
++        create_time="1710000005000",
++    )
++
++    asyncio.run(
++        adapter._process_inbound_message(
++            data=SimpleNamespace(),
++            message=message,
++            sender_id=SimpleNamespace(
++                open_id="ou_sender", user_id="u_sender", union_id=None
++            ),
++            chat_type="group",
++            message_id="om_cooldown_trigger",
++        )
++    )
++
++    adapter.send.assert_awaited_once()
++    adapter._classify_ai_authorship.assert_not_awaited()
++    adapter.get_chat_info.assert_not_awaited()
++    adapter._dispatch_inbound_event.assert_not_awaited()
++
++
++def test_active_sender_cooldown_does_not_affect_another_user(monkeypatch):
++    import asyncio
++    import json
++
++    adapter = make_adapter_skeleton(
++        bot_open_id="ou_self",
++        group_policy="open",
++        mention_triggers={"bot", "assistant_users"},
++        assistant_user_ids={"ou_owner"},
++        assistant_user_ai_probability_threshold=0.8,
++        assistant_user_ai_cooldown_seconds=300,
++    )
++    adapter._client = None
++    adapter.config = SimpleNamespace(extra={})
++    adapter._start_ai_authorship_cooldown("ou_blocked_sender")
++    adapter._classify_ai_authorship = AsyncMock()
++    adapter.get_chat_info = AsyncMock(return_value={"name": "Group", "type": "group"})
++    adapter._fetch_channel_context = AsyncMock(return_value=None)
++    adapter._resolve_sender_profile = AsyncMock(
++        return_value={
++            "user_id": "u_other_sender",
++            "user_name": "Other Sender",
++            "user_id_alt": None,
++        }
++    )
++    adapter._dispatch_inbound_event = AsyncMock()
++    adapter.send = AsyncMock()
++
++    bot_mention = SimpleNamespace(
++        key="@_user_1",
++        id=SimpleNamespace(open_id="ou_self", user_id=""),
++        name="Hermes",
++    )
++    message = SimpleNamespace(
++        message_id="om_other_sender",
++        chat_id="oc_group",
++        chat_type="group",
++        message_type="text",
++        content=json.dumps({"text": "@_user_1 正常问题"}),
++        mentions=[bot_mention],
++        parent_id=None,
++        upper_message_id=None,
++        root_id=None,
++        thread_id=None,
++        create_time="1710000005000",
++    )
++
++    asyncio.run(
++        adapter._process_inbound_message(
++            data=SimpleNamespace(),
++            message=message,
++            sender_id=SimpleNamespace(
++                open_id="ou_other_sender", user_id="u_other_sender", union_id=None
++            ),
++            chat_type="group",
++            message_id="om_other_sender",
++        )
++    )
++
++    adapter.send.assert_not_awaited()
++    adapter._classify_ai_authorship.assert_not_awaited()
++    adapter._dispatch_inbound_event.assert_awaited_once()
 +
 +
 +def test_ai_probability_threshold_uses_people_override_before_global(monkeypatch):
@@ -25379,7 +25914,7 @@ index 3d2e82a85f328b7ec8b99db1db33d5ea1734be3c..1044ed0e019de7765bcce00d0e943523
  ## Per-server filtering
  
 diff --git a/website/docs/user-guide/messaging/feishu.md b/website/docs/user-guide/messaging/feishu.md
-index 1c5a66543e4318f20cc38e404b3cabf32850520b..3b91ce006b11d707c61d7e718b630543921e5062 100644
+index 1c5a66543e4318f20cc38e404b3cabf32850520b..c3bbe08e04a505c928ff9665cc7888cd81f1caa6 100644
 --- a/website/docs/user-guide/messaging/feishu.md
 +++ b/website/docs/user-guide/messaging/feishu.md
 @@ -29,6 +29,48 @@ group_sessions_per_user: true
@@ -25500,7 +26035,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..3b91ce006b11d707c61d7e718b630543
  
  ## Per-Group Access Control
  
-@@ -528,6 +589,156 @@ Set `require_mention: false` on a `group_rules` entry to skip the @-mention requ
+@@ -528,6 +589,166 @@ Set `require_mention: false` on a `group_rules` entry to skip the @-mention requ
  
  Groups not listed in `group_rules` fall back to `default_group_policy` (defaults to the value of `FEISHU_GROUP_POLICY`).
  
@@ -25527,6 +26062,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..3b91ce006b11d707c61d7e718b630543
 +  attachment_backfill_max_files: 6
 +  attachment_backfill_timeout_seconds: 8
 +  assistant_user_ai_probability_threshold: 1.1  # >= 1.1 disables the global gate
++  assistant_user_ai_cooldown_seconds: 300        # 0 disables sender cooldown
 +  assistant_identity_throttle_messages: 20
 +  assistant_identity_throttle_seconds: 600
 +```
@@ -25542,6 +26078,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..3b91ce006b11d707c61d7e718b630543
 +| `attachment_backfill_max_files` | `6` | Maximum files recovered for one trigger, including quoted attachments |
 +| `attachment_backfill_timeout_seconds` | `8` | Attachment recovery deadline before a visible failure status is injected |
 +| `assistant_user_ai_probability_threshold` | `1.1` (disabled) | Global threshold for any sender's `@assistant_user` message, including the configured human testing by mentioning themselves. Values below `1.1` enable isolated AI-authorship scoring; undisclosed AI-written messages at or above the threshold are refused locally before the main agent or tools run. A matching `people.yaml` entry may override this value for one sender. |
++| `assistant_user_ai_cooldown_seconds` | `300` | Per-sender cooldown after a confirmed refusal is delivered. During the cooldown, any later group trigger from that sender—`@assistant_user`, `@bot`, or both—receives a randomly selected short local response without classifier or main-agent inference. `0` disables cooldown. |
 +| `assistant_identity_throttle_messages` | `20` | Suppress repeated assistant self-introductions if one appears in this many recent group messages |
 +| `assistant_identity_throttle_seconds` | `600` | Suppress repeated assistant self-introductions if one appears in this many seconds |
 +
@@ -25584,21 +26121,29 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..3b91ce006b11d707c61d7e718b630543
 +  feishu_ai_authorship:
 +    provider: auto
 +    model: gpt-5.5
-+    timeout: 10
++    timeout: 30  # seconds; timeout/error falls back to the normal reply path
 +    reasoning_effort: none
 +```
 +
-+The admission call never falls through to another provider and does not retry a
-+transient failure on the same provider, keeping it to one bounded request. The
++The admission call does not retry a transient failure on the same provider. Its
++request timeout is exposed as `auxiliary.feishu_ai_authorship.timeout`. The
 +auxiliary response is parsed as `{probability, disclosed}`. Any finite
 +numeric probability is normalized locally with `clip(0, 1)` and `round(...,
 +1)`, so the value used for comparison is always one of `0.0`, `0.1`, ...,
 +`1.0`. A high undisclosed score produces a fixed local refusal without exposing
-+the score and without entering the main agent/tool loop. If the classifier
-+fails, Hermes also stops locally but uses a neutral message that does not accuse
-+the sender. The dedicated route does not fall through to other providers,
-+keeping latency and data routing bounded. Explicit disclosure of AI assistance
-+bypasses the refusal.
++the score and without entering the main agent/tool loop, but only after that
++refusal is delivered successfully. A classifier error or timeout, or a failed
++refusal delivery, falls open to the unchanged normal reply path. Explicit
++disclosure of AI assistance also bypasses the refusal. A successfully delivered
++refusal starts the configured per-sender cooldown. Any further group trigger
++from that sender—including `@assistant_user`, `@bot`, or both—receives one
++randomly selected response from a local short-sentence pool, without another
++classifier or main-agent call until the interval expires. Unmentioned group
++messages and direct messages remain outside this cooldown. The pool uses a
++mildly angry first-person tone while criticizing only the behavior;
++each response places Chinese first and its English counterpart below, with the
++remaining cooldown seconds emphasized in bold. The interval is process-local,
++non-sliding, and resets on Gateway restart.
 +
 +## Missed Event Backfill
 +
@@ -25657,7 +26202,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..3b91ce006b11d707c61d7e718b630543
  ## Deduplication
  
  Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedup state is persisted across restarts to `~/.hermes/feishu_seen_message_ids.json`.
-@@ -545,8 +756,13 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
+@@ -545,8 +766,13 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
  | `FEISHU_DOMAIN` | — | `feishu` | `feishu` (China) or `lark` (international) |
  | `FEISHU_CONNECTION_MODE` | — | `websocket` | `websocket` or `webhook` |
  | `FEISHU_ALLOWED_USERS` | — | _(empty)_ | Comma-separated open_id list for user allowlist |
@@ -25671,7 +26216,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..3b91ce006b11d707c61d7e718b630543
  | `FEISHU_HOME_CHANNEL` | — | — | Chat ID for cron/notification output |
  | `FEISHU_ENCRYPT_KEY` | — | _(empty)_ | Encrypt key for webhook signature verification |
  | `FEISHU_VERIFICATION_TOKEN` | — | _(empty)_ | Verification token for webhook payload auth |
-@@ -563,7 +779,7 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
+@@ -563,7 +789,7 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
  | `HERMES_FEISHU_TEXT_BATCH_MAX_CHARS` | — | `4000` | Max characters merged per text batch |
  | `HERMES_FEISHU_MEDIA_BATCH_DELAY_SECONDS` | — | `0.8` | Media burst debounce quiet period |
  

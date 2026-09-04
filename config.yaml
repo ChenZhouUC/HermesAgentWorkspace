@@ -139,7 +139,7 @@ auxiliary:
     model: gpt-5.5
     base_url: ''
     api_key: ''
-    timeout: 10
+    timeout: 30  # AI detection timeout; timeout/error falls back to the normal reply path.
     reasoning_effort: none
   vision:
     provider: auto
@@ -635,6 +635,8 @@ feishu:
   # Global default for third-party @琛哥 AI-authorship scoring; >= 1.1 disables it.
   # A matching people.yaml entry can override this value for one sender.
   assistant_user_ai_probability_threshold: 1.1
+  # Per-sender cooldown after a confirmed AI-authorship refusal; 0 disables it.
+  assistant_user_ai_cooldown_seconds: 300
   assistant_identity_throttle_messages: 20
   assistant_identity_throttle_seconds: 600
   history_backfill: true

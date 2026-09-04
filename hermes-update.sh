@@ -2786,13 +2786,23 @@ if [[ -f "${AI_AUXILIARY_CLIENT_PY}" && -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_P
         grep -q 'test_feishu_group_allowed_chats_wildcard_authorizes_groups_only' "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" 2>/dev/null &&
         grep -q 'history_backfill_max_chars' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'assistant_user_ai_probability_threshold' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'assistant_user_ai_cooldown_seconds' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'retry_transient_transport=False' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_feishu_reply_mention_user_id' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'test_async_call_can_disable_same_provider_transient_retry' "${AI_AUXILIARY_CLIENT_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_ai_authorship_uses_configured_timeout' "${AI_AUXILIARY_CLIENT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_probability_threshold_uses_people_override_before_global' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_classifier_receives_only_current_and_direct_quote' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_classifier_bounds_both_text_inputs' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_assessment_parser_accepts_strict_json_and_rejects_invalid' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ai_authorship_classifier_failure_falls_back_to_normal_reply' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ai_authorship_refusal_delivery_failure_falls_back_to_normal_reply' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_successful_ai_authorship_refusal_starts_sender_cooldown' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ai_authorship_cooldown_zero_does_not_skip_classifier' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_ai_authorship_cooldown_response_pool_is_short_and_does_not_name_hermes' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_expired_ai_authorship_cooldown_runs_classifier_again' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_active_sender_cooldown_short_circuits_every_group_mention_trigger' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_active_sender_cooldown_does_not_affect_another_user' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_probability_threshold_at_or_above_disabled_value_skips_classifier' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_high_ai_score_sends_local_refusal_with_quote_only' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_reply_metadata_carries_native_mention_target' "${FEISHU_TEST_PY}" 2>/dev/null &&
