@@ -172,6 +172,8 @@ PATCHED_FILES=(
     "tests/hermes_cli/test_env_loader.py"
     "tests/hermes_cli/test_skills_config.py"
     "tests/hermes_cli/test_tools_config.py"
+    "hermes_cli/update_cmd_fleet.py"
+    "tests/hermes_cli/test_update_receipt_live_freshness.py"
     "hermes_cli/prompt_size.py"
     "website/docs/reference/environment-variables.md"
     "website/docs/user-guide/configuration.md"
@@ -2496,6 +2498,7 @@ _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK=false
 _TEST_RUNTIME_STATE_ISOLATION_PATCH_OK=false
+_UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK=false
 _IMAGE_NATIVE_ROUTING_PATCH_OK=false
 _VERTEX_VIDEO_ROUTING_PATCH_OK=false
 _MULTIMODAL_SIDECAR_PATCH_OK=false
@@ -3618,6 +3621,28 @@ else
     warn "Could not locate PATCH-DOCTOR-TEST-NETWORK-ISOLATION file"
 fi
 
+# PATCH-UPDATE-FLEET-RECEIPT-FRESHNESS: a historical failed update receipt
+# must not keep warning or trigger another fleet restart after the complete
+# live Gateway identity matrix proves every running process uses current HEAD.
+UPDATE_FLEET_PY="${HERMES_AGENT}/hermes_cli/update_cmd_fleet.py"
+UPDATE_FLEET_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_update_receipt_live_freshness.py"
+if [[ -f "${UPDATE_FLEET_PY}" && -f "${UPDATE_FLEET_TEST_PY}" ]]; then
+    if grep -q 'from hermes_cli.gateway import find_profile_gateway_processes' "${UPDATE_FLEET_PY}" 2>/dev/null &&
+        grep -q 'from hermes_cli.update_receipt import collect_fleet_versions' "${UPDATE_FLEET_PY}" 2>/dev/null &&
+        grep -q 'fleet_pids != live_pids' "${UPDATE_FLEET_PY}" 2>/dev/null &&
+        grep -q 'row.get("state") == "current"' "${UPDATE_FLEET_PY}" 2>/dev/null &&
+        grep -q 'row.get("code_sha") == expected_sha' "${UPDATE_FLEET_PY}" 2>/dev/null &&
+        grep -q 'test_startup_warn_ignores_stale_receipt_when_live_fleet_is_current' "${UPDATE_FLEET_TEST_PY}" 2>/dev/null; then
+        ok "Update fleet receipt freshness patch: active (live current fleet overrides stale historical receipt)"
+        _UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK=true
+    else
+        warn "Update fleet receipt freshness patch inactive or partial"
+        add_act "Re-apply: see PATCHES.md § [PATCH-UPDATE-FLEET-RECEIPT-FRESHNESS]"
+    fi
+else
+    warn "Could not locate PATCH-UPDATE-FLEET-RECEIPT-FRESHNESS files"
+fi
+
 # PATCH-TEST-RUNTIME-STATE-ISOLATION: even tests that temporarily clear the
 # entire environment must keep process identity/status writes inside the
 # per-test Hermes home rather than falling back to the operator's live root.
@@ -3977,7 +4002,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_TEST_RUNTIME_STATE_ISOLATION_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_TEST_RUNTIME_STATE_ISOLATION_PATCH_OK && $_UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

@@ -31,6 +31,28 @@ def patch_block(validation: str) -> str:
 
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
+    def test_final_audit_rejects_pending_gateway_restart_warning(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["hermes", "doctor"],
+            0,
+            "\n".join(
+                (
+                    "No active security advisories",
+                    "Config version up to date",
+                    "No deprecated config keys or env vars",
+                )
+            ),
+            "A previous `hermes update` pulled new code but did not restart running gateways.\n",
+        )
+        with (
+            patch.object(final_audit, "_run", return_value=completed),
+            self.assertRaisesRegex(
+                final_audit.FinalAuditError,
+                "pending gateway restart",
+            ),
+        ):
+            final_audit._doctor_health()
+
     def test_final_audit_runs_independent_checks_concurrently(self) -> None:
         barrier = threading.Barrier(4)
 

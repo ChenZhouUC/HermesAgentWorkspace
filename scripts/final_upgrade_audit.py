@@ -948,6 +948,12 @@ def _gateway_runtime() -> dict[str, object]:
 
 def _doctor_health() -> dict[str, object]:
     result = _run("hermes-doctor", ["hermes", "doctor"], timeout=300)
+    pending_restart_warning = "previous `hermes update` pulled new code but did not restart running gateways"
+    if pending_restart_warning in f"{result.stdout}\n{result.stderr}":
+        raise FinalAuditError(
+            "hermes-doctor",
+            "doctor reports a pending gateway restart from an earlier update",
+        )
     required = (
         "No active security advisories",
         "Config version up to date",

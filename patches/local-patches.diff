@@ -5566,6 +5566,47 @@ index e10af182e79e2ac246b2d2aa979bfbf4b0406876..f8f31802759abdece356809677993471
      if plugin_ts_keys:
          enabled_toolsets |= _enabled_plugin_toolsets(config, platform, toolset_names, plugin_ts_keys)
  
+diff --git a/hermes_cli/update_cmd_fleet.py b/hermes_cli/update_cmd_fleet.py
+index f81bf0b4d8c5797a0bd2e9344c3b2e3fc108be41..599351d75d445aef6165ac3cf50b8fcb2f531255 100644
+--- a/hermes_cli/update_cmd_fleet.py
++++ b/hermes_cli/update_cmd_fleet.py
+@@ -139,7 +139,35 @@ def _pending_fleet_restart_needed() -> bool:
+     with suppress(OSError):
+         if _fleet_restart_pending_marker_path().is_file():
+             return True
+-    return _receipt_reports_stale_runtime()
++    if not _receipt_reports_stale_runtime():
++        return False
++
++    # A failed historical receipt is only a fallback breadcrumb.  A later
++    # supervised restart can make every currently running gateway current
++    # without rewriting that receipt, so do not keep warning (or restart the
++    # fleet again) when the live identity matrix now proves the skew is gone.
++    try:
++        from hermes_cli.gateway import find_profile_gateway_processes
++        from hermes_cli.update_receipt import collect_fleet_versions
++
++        expected_sha = _current_checkout_sha()
++        live_pids = {process.pid for process in find_profile_gateway_processes(strict=True)}
++        fleet = collect_fleet_versions()
++    except Exception:
++        return True
++    fleet_pids = {
++        int(row.get("pid"))
++        for row in fleet
++        if isinstance(row, dict) and isinstance(row.get("pid"), int)
++    }
++    if not expected_sha or not live_pids or fleet_pids != live_pids:
++        return True
++    return not all(
++        isinstance(row, dict)
++        and row.get("state") == "current"
++        and row.get("code_sha") == expected_sha
++        for row in fleet
++    )
+ 
+ 
+ def _warn_pending_fleet_restart(*, startup: bool = False) -> None:
 diff --git a/hermes_state_messages.py b/hermes_state_messages.py
 index 9f09886b5f4a6f157eadda8cc821633c21af154f..23e19e0f392285ee0055d2e4b38498c0360f3521 100644
 --- a/hermes_state_messages.py
@@ -21125,6 +21166,121 @@ index 5af3c3e37cbbf4198546699b0115abae329c411e..24aca7a51ca8094ba1700300a86d70bf
 +    assert result.success is True, result.error_message
 +    assert result.base_url == "https://fallback.example/v1"
 +    assert result.api_key == "fallback-secret"
+diff --git a/tests/hermes_cli/test_update_receipt_live_freshness.py b/tests/hermes_cli/test_update_receipt_live_freshness.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..dd8d385cc469259f30da518b0d04720f5cd92b1d
+--- /dev/null
++++ b/tests/hermes_cli/test_update_receipt_live_freshness.py
+@@ -0,0 +1,109 @@
++"""Regression coverage for stale update receipts versus the live Gateway fleet."""
++
++from __future__ import annotations
++
++import json
++from types import SimpleNamespace
++
++import pytest
++
++from hermes_cli import update_cmd
++import hermes_cli.update_cmd_fleet as update_cmd_fleet
++import hermes_cli.update_receipt as update_receipt
++
++
++def _write_stale_receipt(hermes_home, disk_sha: str) -> None:
++    receipt_dir = hermes_home / "logs" / "update_receipts"
++    receipt_dir.mkdir(parents=True)
++    (receipt_dir / "latest.json").write_text(
++        json.dumps(
++            {
++                "exit_code": 1,
++                "stop_reason": "KeyboardInterrupt: ",
++                "outcome": "failed",
++                "plan": {
++                    "expected_sha": disk_sha,
++                    "runtimes": [
++                        {
++                            "kind": "gateway",
++                            "profile": "default",
++                            "pid": 42,
++                            "code_sha": "7" * 40,
++                        }
++                    ],
++                },
++            }
++        ),
++        encoding="utf-8",
++    )
++
++
++def test_startup_warn_ignores_stale_receipt_when_live_fleet_is_current(
++    monkeypatch, tmp_path, capsys
++):
++    hermes_home = tmp_path / "hermes"
++    disk_sha = "e" * 40
++    _write_stale_receipt(hermes_home, disk_sha)
++    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
++    monkeypatch.setattr(update_cmd_fleet, "_current_checkout_sha", lambda: disk_sha)
++    import hermes_cli.gateway as gateway_cli
++
++    monkeypatch.setattr(
++        gateway_cli,
++        "find_profile_gateway_processes",
++        lambda strict=False: [SimpleNamespace(pid=84)],
++    )
++    monkeypatch.setattr(
++        update_receipt,
++        "collect_fleet_versions",
++        lambda: [
++            {
++                "profile": "default",
++                "pid": 84,
++                "code_sha": disk_sha,
++                "code_version": "1.0",
++                "state": "current",
++                "source": "socket",
++            }
++        ],
++    )
++
++    assert update_cmd_fleet._pending_fleet_restart_needed() is False
++    update_cmd._warn_pending_fleet_restart_on_startup()
++    captured = capsys.readouterr()
++    assert captured.err == ""
++    assert captured.out == ""
++
++
++@pytest.mark.parametrize(
++    "fleet",
++    [
++        [],
++        [{"profile": "default", "pid": 84, "code_sha": None, "state": "unknown"}],
++        [{"profile": "default", "pid": 84, "code_sha": "7" * 40, "state": "stale"}],
++        [{"profile": "default", "pid": 84, "code_sha": "7" * 40, "state": "current"}],
++        [
++            {"profile": "default", "pid": 84, "code_sha": "e" * 40, "state": "current"},
++            {"profile": "work", "pid": 85, "code_sha": "7" * 40, "state": "stale"},
++        ],
++    ],
++)
++def test_stale_receipt_remains_pending_without_complete_current_fleet(
++    monkeypatch, tmp_path, fleet
++):
++    hermes_home = tmp_path / "hermes"
++    disk_sha = "e" * 40
++    _write_stale_receipt(hermes_home, disk_sha)
++    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
++    monkeypatch.setattr(update_cmd_fleet, "_current_checkout_sha", lambda: disk_sha)
++    import hermes_cli.gateway as gateway_cli
++
++    live_pids = sorted({row.get("pid") for row in fleet if isinstance(row.get("pid"), int)}) or [84]
++    monkeypatch.setattr(
++        gateway_cli,
++        "find_profile_gateway_processes",
++        lambda strict=False: [SimpleNamespace(pid=pid) for pid in live_pids],
++    )
++    monkeypatch.setattr(update_receipt, "collect_fleet_versions", lambda: fleet)
++
++    assert update_cmd_fleet._pending_fleet_restart_needed() is True
 diff --git a/tests/hermes_cli/test_vertex_provider.py b/tests/hermes_cli/test_vertex_provider.py
 index 129c44a8eb3ad7bed02770913493364e5412a7da..78300a51b6a1f6a5f1a345962393e67ec0c06c5a 100644
 --- a/tests/hermes_cli/test_vertex_provider.py
