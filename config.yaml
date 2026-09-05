@@ -632,7 +632,7 @@ feishu:
   assistant_user_ids:
     - ou_33eeacfbd0c0559b7b734f83503719ab
   assistant_identity_label: 琛哥的赛博助手「Gödel」
-  assistant_user_ai_probability_threshold: 1.1
+  assistant_user_ai_probability_threshold: 0.9
   assistant_user_ai_cooldown_seconds: 300
   assistant_identity_throttle_messages: 20
   assistant_identity_throttle_seconds: 600
