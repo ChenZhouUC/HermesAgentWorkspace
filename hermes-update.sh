@@ -2825,6 +2825,8 @@ if [[ -f "${AI_AUXILIARY_CLIENT_PY}" && -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_P
         grep -q 'test_feishu_ai_authorship_uses_configured_timeout' "${AI_AUXILIARY_CLIENT_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_probability_threshold_uses_people_override_before_global' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_classifier_receives_only_current_and_direct_quote' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
+        grep -q '_ai_authorship_classifier_inputs' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_bare_human_mention_promotes_quoted_ai_prose_into_authorship_check' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_classifier_bounds_both_text_inputs' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_assessment_parser_accepts_strict_json_and_rejects_invalid' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_ai_authorship_classifier_failure_falls_back_to_normal_reply' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
