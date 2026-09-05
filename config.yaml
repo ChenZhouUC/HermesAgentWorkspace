@@ -139,7 +139,7 @@ auxiliary:
     model: gpt-5.5
     base_url: ''
     api_key: ''
-    timeout: 30  # AI detection timeout; timeout/error falls back to the normal reply path.
+    timeout: 30
     reasoning_effort: none
   vision:
     provider: auto
@@ -405,6 +405,7 @@ goals:
   max_turns: 20
 skills:
   hide_bundled: true
+  create_dir: ~/.hermes/my-skills
   external_dirs:
     - ~/.hermes/my-skills
   template_vars: true
@@ -528,7 +529,6 @@ logging:
 model_catalog:
   enabled: true
   url: https://hermes-agent.nousresearch.com/docs/api/model-catalog.json
-  ttl_hours: 1
   configured_only: true
 network:
   force_ipv4: false
@@ -592,7 +592,7 @@ paste_collapse_char_threshold: 2000
 vertex:
   project_id: ''
   region: global
-_config_version: 39
+_config_version: 40
 session_reset:
   mode: idle
   idle_minutes: 1440
@@ -632,10 +632,7 @@ feishu:
   assistant_user_ids:
     - ou_33eeacfbd0c0559b7b734f83503719ab
   assistant_identity_label: 琛哥的赛博助手「Gödel」
-  # Global default for third-party @琛哥 AI-authorship scoring; >= 1.1 disables it.
-  # A matching people.yaml entry can override this value for one sender.
   assistant_user_ai_probability_threshold: 1.1
-  # Per-sender cooldown after a confirmed AI-authorship refusal; 0 disables it.
   assistant_user_ai_cooldown_seconds: 300
   assistant_identity_throttle_messages: 20
   assistant_identity_throttle_seconds: 600
@@ -685,7 +682,7 @@ mcp_servers:
   chatbi:
     url: http://10.202.0.222:30801/mcp/
     headers:
-      Authorization: "Bearer ${env:CHATBI_MCP_TOKEN}"
+      Authorization: Bearer ${env:CHATBI_MCP_TOKEN}
     connect_timeout: 15
     timeout: 120
     trust: untrusted

@@ -28,6 +28,7 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 HERMES_AGENT="${HERMES_HOME}/hermes-agent"
 PLUGINS_SRC="${HERMES_AGENT}/hermes_cli/plugins.py"
 GATEWAY_RUN="${HERMES_AGENT}/gateway/run.py"
+GATEWAY_RUN_INBOUND="${HERMES_AGENT}/gateway/run_inbound.py"
 MODEL_TOOLS="${HERMES_AGENT}/model_tools.py"
 TURN_FINALIZER="${HERMES_AGENT}/agent/turn_finalizer.py"
 AGENT_LOG="${HERMES_HOME}/logs/agent.log"
@@ -68,10 +69,10 @@ for hook in pre_gateway_dispatch pre_tool_call post_tool_call post_llm_call; do
 done
 
 # 2. Fire-site presence (HARD)
-if [[ -r "${GATEWAY_RUN}" ]] && grep -q 'pre_gateway_dispatch' "${GATEWAY_RUN}"; then
-    echo "OK   pre_gateway_dispatch fired from gateway/run.py"
+if [[ -r "${GATEWAY_RUN_INBOUND}" ]] && grep -q 'pre_gateway_dispatch' "${GATEWAY_RUN_INBOUND}"; then
+    echo "OK   pre_gateway_dispatch fired from gateway/run_inbound.py"
 else
-    echo "FAIL pre_gateway_dispatch fire site not found in gateway/run.py"
+    echo "FAIL pre_gateway_dispatch fire site not found in gateway/run_inbound.py"
     fail=1
 fi
 if [[ -r "${MODEL_TOOLS}" ]] && grep -q 'pre_tool_call' "${MODEL_TOOLS}"; then
@@ -440,7 +441,7 @@ from hermes_cli.tools_config import _get_platform_tools
 from model_tools import get_tool_definitions, handle_function_call
 from toolsets import resolve_toolset
 from tools import tool_search
-from tools.mcp_tool import discover_mcp_tools
+from tools.mcp_tool_discovery import discover_mcp_tools
 
 discover_plugins(force=True)
 config = load_config()
@@ -468,7 +469,7 @@ assert {
 }.issubset(owner_toolsets)
 assert {
     "terminal",
-    "process",
+    "process_manage",
     "read_file",
     "write_file",
     "patch",

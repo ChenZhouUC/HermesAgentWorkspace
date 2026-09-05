@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import ExitStack
 from datetime import date
@@ -30,6 +31,80 @@ def patch_block(validation: str) -> str:
 
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
+    def test_final_audit_runs_independent_checks_concurrently(self) -> None:
+        barrier = threading.Barrier(4)
+
+        def wait_and_return(value):
+            barrier.wait(timeout=2)
+            return value
+
+        with tempfile.TemporaryDirectory() as temp_raw:
+            with (
+                patch.dict(os.environ, {"HERMES_FINAL_AUDIT_PARALLELISM": "4"}),
+                patch.object(
+                    final_audit,
+                    "_load_full_patch_evidence",
+                    side_effect=lambda _path: wait_and_return(({"status": "ok"}, {"passed": 1})),
+                ),
+                patch.object(
+                    final_audit,
+                    "_run_canonical_patch_tests",
+                    side_effect=lambda _files: wait_and_return({"files": 1}),
+                ),
+                patch.object(
+                    final_audit,
+                    "_run_wiki_lint",
+                    side_effect=lambda: wait_and_return({"issues": 0}),
+                ),
+                patch.object(
+                    final_audit,
+                    "_doctor_health",
+                    side_effect=lambda: wait_and_return({"issue_count": 0}),
+                ),
+            ):
+                results, durations = final_audit._run_parallel_readonly_audits(
+                    ["tests/test_contract.py"],
+                    Path(temp_raw) / "evidence.json",
+                )
+
+        self.assertEqual(set(results), {"patch_evidence", "canonical_tests", "wiki_lint", "doctor"})
+        self.assertEqual(results["canonical_tests"], {"files": 1})
+        self.assertEqual(set(durations), {*results, "parallel_wall"})
+
+    def test_patch_evidence_parallelism_is_bounded(self) -> None:
+        with patch.dict(os.environ, {"HERMES_PATCH_EVIDENCE_JOBS": "999"}):
+            self.assertEqual(evidence._patch_evidence_parallelism(100), 8)
+        with patch.dict(os.environ, {"HERMES_PATCH_EVIDENCE_JOBS": "invalid"}):
+            self.assertEqual(evidence._patch_evidence_parallelism(3), 3)
+
+    def test_registered_patch_audits_run_concurrently_with_stable_results(self) -> None:
+        barrier = threading.Barrier(3)
+        specs = {
+            "PATCH-A": ("audit_a", "quick"),
+            "PATCH-B": ("audit_b", "quick"),
+            "PATCH-C": ("audit_c", "quick"),
+        }
+
+        def resolve(name):
+            def run():
+                barrier.wait(timeout=2)
+                return {"name": name}
+
+            return run
+
+        with (
+            patch.dict(os.environ, {"HERMES_PATCH_EVIDENCE_JOBS": "3"}),
+            patch.object(evidence, "_registered_probe_specs", return_value=specs),
+            patch.object(evidence, "_resolve_audit_function", side_effect=resolve),
+        ):
+            result = evidence._run_registered_patch_audits({}, {}, mode="full")
+
+        self.assertEqual(list(result), list(specs))
+        self.assertEqual(
+            [result[patch_id][0]["details"]["name"] for patch_id in specs],
+            ["audit_a", "audit_b", "audit_c"],
+        )
+
     def test_npm_audit_timeout_is_reported_as_telemetry_unavailable(self) -> None:
         timeout = subprocess.TimeoutExpired(["npm", "audit", "--json"], 180)
         with patch.object(evidence, "_run", side_effect=timeout):

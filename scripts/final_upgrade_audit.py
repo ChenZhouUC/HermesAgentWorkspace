@@ -20,7 +20,9 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -1110,6 +1112,96 @@ def _validate_sandbox_result(details: object, *, label: str) -> dict[str, object
     return dict(details)
 
 
+def _load_full_patch_evidence(evidence_path: Path) -> tuple[dict[str, object], dict[str, object]]:
+    """Run and validate the full evidence report, including its sandbox receipt."""
+    _run(
+        "patch-evidence-full",
+        [sys.executable, str(EVIDENCE), "--report-json", str(evidence_path)],
+        timeout=1200,
+    )
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    if evidence.get("status") != "ok" or evidence.get("mode") != "full":
+        raise FinalAuditError("patch-evidence-full", "evidence report is not status=ok/mode=full")
+    if evidence.get("execution_scope") != "per_patch_process":
+        raise FinalAuditError(
+            "patch-evidence-full",
+            "active PATCH evidence was not executed in per-PATCH process isolation",
+        )
+    probe_summary = evidence.get("probes", {})
+    if (
+        probe_summary.get("registered", 0) <= 0
+        or probe_summary.get("registered") != probe_summary.get("executed")
+        or probe_summary.get("deferred") != 0
+    ):
+        raise FinalAuditError(
+            "patch-evidence-full",
+            f"registered PATCH probes did not fully execute: {probe_summary}",
+        )
+    patch_records = evidence.get("patches", [])
+    patch_ids = [record.get("id") for record in patch_records]
+    if len(patch_ids) != len(set(patch_ids)) or any(record.get("status") != "passed" for record in patch_records):
+        raise FinalAuditError(
+            "patch-evidence-full",
+            "per-PATCH report has duplicates, deferred contracts, or non-passing outcomes",
+        )
+    sandbox_record = next(
+        (record for record in patch_records if record.get("id") == "PATCH-FEISHU-GROUP-SANDBOX"),
+        None,
+    )
+    sandbox_probes = sandbox_record.get("probe_results", []) if sandbox_record else []
+    sandbox_details = sandbox_probes[0].get("details", {}) if len(sandbox_probes) == 1 else {}
+    return evidence, _validate_sandbox_result(sandbox_details, label="initial")
+
+
+def _run_wiki_lint() -> dict[str, object]:
+    wiki = json.loads(_run("wiki-lint", [sys.executable, str(WIKI_LINT), "--json"]).stdout)
+    if any(wiki.values()):
+        raise FinalAuditError("wiki-lint", "wiki lint JSON contains issues")
+    return wiki
+
+
+def _audit_parallelism() -> int:
+    """Bound concurrent read-only audit jobs; set to 1 for serial diagnostics."""
+    try:
+        configured = int(os.environ.get("HERMES_FINAL_AUDIT_PARALLELISM", "2"))
+    except ValueError:
+        configured = 2
+    return max(1, min(4, configured))
+
+
+def _run_parallel_readonly_audits(
+    test_files: list[str],
+    evidence_path: Path,
+) -> tuple[dict[str, object], dict[str, float]]:
+    """Run independent, non-mutating audit branches concurrently."""
+    jobs = {
+        "patch_evidence": lambda: _load_full_patch_evidence(evidence_path),
+        "canonical_tests": lambda: _run_canonical_patch_tests(test_files),
+        "wiki_lint": _run_wiki_lint,
+        "doctor": _doctor_health,
+    }
+
+    def timed(job):
+        started = time.monotonic()
+        return job(), round(time.monotonic() - started, 3)
+
+    started = time.monotonic()
+    results: dict[str, object] = {}
+    durations: dict[str, float] = {}
+    with ThreadPoolExecutor(
+        max_workers=min(_audit_parallelism(), len(jobs)),
+        thread_name_prefix="final-audit",
+    ) as executor:
+        futures = {name: executor.submit(timed, job) for name, job in jobs.items()}
+        # Resolve in declaration order for deterministic error precedence.
+        for name in jobs:
+            value, duration = futures[name].result()
+            results[name] = value
+            durations[name] = duration
+    durations["parallel_wall"] = round(time.monotonic() - started, 3)
+    return results, durations
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1141,52 +1233,24 @@ def main() -> int:
         test_files = _patched_tests()
         with tempfile.TemporaryDirectory(prefix="hermes-final-audit-") as temp_raw:
             evidence_path = Path(temp_raw) / "patch-evidence.json"
-            _run(
-                "patch-evidence-full",
-                [sys.executable, str(EVIDENCE), "--report-json", str(evidence_path)],
-                timeout=1200,
+            parallel_results, phase_durations = _run_parallel_readonly_audits(
+                test_files,
+                evidence_path,
             )
-            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-            if evidence.get("status") != "ok" or evidence.get("mode") != "full":
-                raise FinalAuditError("patch-evidence-full", "evidence report is not status=ok/mode=full")
-            if evidence.get("execution_scope") != "per_patch_process":
-                raise FinalAuditError(
-                    "patch-evidence-full",
-                    "active PATCH evidence was not executed in per-PATCH process isolation",
-                )
-            probe_summary = evidence.get("probes", {})
-            if (
-                probe_summary.get("registered", 0) <= 0
-                or probe_summary.get("registered") != probe_summary.get("executed")
-                or probe_summary.get("deferred") != 0
-            ):
-                raise FinalAuditError(
-                    "patch-evidence-full",
-                    f"registered PATCH probes did not fully execute: {probe_summary}",
-                )
-            patch_records = evidence.get("patches", [])
-            patch_ids = [record.get("id") for record in patch_records]
-            if len(patch_ids) != len(set(patch_ids)) or any(
-                record.get("status") != "passed" for record in patch_records
-            ):
-                raise FinalAuditError(
-                    "patch-evidence-full",
-                    "per-PATCH report has duplicates, deferred contracts, or non-passing outcomes",
-                )
-            sandbox_record = next(
-                (record for record in patch_records if record.get("id") == "PATCH-FEISHU-GROUP-SANDBOX"),
-                None,
-            )
-            sandbox_probes = sandbox_record.get("probe_results", []) if sandbox_record else []
-            sandbox_details = sandbox_probes[0].get("details", {}) if len(sandbox_probes) == 1 else {}
-            initial_sandbox = _validate_sandbox_result(sandbox_details, label="initial")
+            evidence, initial_sandbox = parallel_results["patch_evidence"]
+            canonical_tests = parallel_results["canonical_tests"]
+            wiki = parallel_results["wiki_lint"]
+            doctor = parallel_results["doctor"]
             sandbox_passed = int(initial_sandbox["passed"])
 
-        canonical_tests = _run_canonical_patch_tests(test_files)
         _validate_canonical_coverage(canonical_tests, evidence)
-        wiki = json.loads(_run("wiki-lint", [sys.executable, str(WIKI_LINT), "--json"]).stdout)
-        if any(wiki.values()):
-            raise FinalAuditError("wiki-lint", "wiki lint JSON contains issues")
+        derived = _derived_checks(
+            patched_files,
+            evidence,
+            canonical_tests,
+            sandbox_passed,
+        )
+        sandbox_started = time.monotonic()
         try:
             final_sandbox = patch_evidence.audit_sandbox_verifier()
         except (
@@ -1206,14 +1270,10 @@ def main() -> int:
                 "sandbox verifier result changed during final audit: "
                 f"initial={initial_sandbox} final={final_sandbox_details}",
             )
-
-        derived = _derived_checks(
-            patched_files,
-            evidence,
-            canonical_tests,
-            sandbox_passed,
+        phase_durations["sandbox_final"] = round(
+            time.monotonic() - sandbox_started,
+            3,
         )
-        doctor = _doctor_health()
         repository = _repository_checks(patched_files)
         cleanup = _cleanup_final()
         runtime = _gateway_runtime()
@@ -1265,6 +1325,7 @@ def main() -> int:
                 },
                 "outer_git_status": outer_status,
                 "inner_git_status_count": repository["inner_overlay_paths"],
+                "phase_durations_seconds": phase_durations,
             }
         )
     except (

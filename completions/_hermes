@@ -187,6 +187,7 @@ _hermes() {
                     local -a cron_cmds
                     cron_cmds=(
                     'create:Create a scheduled job'
+                    'doctor:Check scheduled jobs for common health issues'
                     'edit:Edit an existing scheduled job'
                     'incidents:List or acknowledge durable cron failure incidents'
                     'list:List scheduled jobs'
@@ -430,6 +431,9 @@ _hermes() {
                     'dm:Message an agent on a peer gateway and print its reply'
                     'list:List registered peers'
                     'remove:Remove a peer'
+                    'run:Start a long peer turn asynchronously and return its run ID'
+                    'status:Read the status and final output of an asynchronous peer run'
+                    'stop:Stop one asynchronous peer run without affecting another tur'
                     )
                     _describe 'peer command' peer_cmds
                     ;;
@@ -451,6 +455,7 @@ _hermes() {
                     local -a plugins_cmds
                     plugins_cmds=(
                     'capabilities:Show declared vs granted capabilities per plugin'
+                    'compat:Show installed plugins that import paths removed by the Sep '
                     'disable:Disable a plugin without removing it'
                     'doctor:Validate a plugin with the real runtime contracts'
                     'enable:Enable a disabled plugin'

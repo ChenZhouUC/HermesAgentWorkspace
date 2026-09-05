@@ -218,25 +218,40 @@ PATCHED_FILES=(
     "website/docs/guides/migrate-from-openclaw.md"
     "website/i18n/zh-Hans/docusaurus-plugin-content-docs/current/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
-    "gateway/config.py"
     "gateway/display_config.py"
     "plugins/platforms/feishu/adapter.py"
     "gateway/platforms/base.py"
     "gateway/run.py"
+    "gateway/run_agent_cache.py"
+    "gateway/run_busy.py"
+    "gateway/run_inbound.py"
+    "gateway/run_turn.py"
+    "gateway/run_turn_runner.py"
     "gateway/slash_commands.py"
+    "gateway/slash_commands_model.py"
+    "gateway/slash_commands_session.py"
     "gateway/session.py"
     "gateway/session_context.py"
+    "gateway/session_state.py"
     "gateway/stream_consumer.py"
+    "gateway/stream_consumer_fallback.py"
+    "gateway/stream_consumer_transport.py"
     "hermes_cli/doctor.py"
+    "hermes_cli/doctor_config.py"
     "hermes_cli/env_loader.py"
     "hermes_cli/model_switch.py"
     "hermes_cli/config_defaults.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/auxiliary_client.py"
+    "agent/session_persistence.py"
     "agent/skill_commands.py"
     "agent/skill_utils.py"
+    "agent/turn_tool_round.py"
+    "agent/turn_tool_validation.py"
+    "agent/turn_truncation.py"
     "tools/approval.py"
+    "tools/approval_detection.py"
     "tests/tools/test_approval.py"
     "tools/skills_tool.py"
     "tests/tools/test_skills_tool.py"
@@ -291,13 +306,16 @@ PATCHED_FILES=(
     "tests/gateway/test_stale_confirmation_expiry.py"
     "agent/agent_runtime_helpers.py"
     "agent/chat_completion_helpers.py"
-    "agent/conversation_loop.py"
     "agent/tool_executor.py"
     "agent/mcp_task_protocol.py"
-    "run_agent.py"
-    "hermes_state.py"
-    "tools/mcp_tool.py"
+    "hermes_state_messages.py"
     "tools/mcp_tasks_extension.py"
+    "tools/mcp_tool_discovery.py"
+    "tools/mcp_tool_errors.py"
+    "tools/mcp_tool_handlers.py"
+    "tools/mcp_tool_registration.py"
+    "tools/mcp_tool_schema.py"
+    "tools/mcp_tool_transport.py"
     "tests/run_agent/test_tool_call_incremental_persistence.py"
     "tests/run_agent/test_run_agent.py"
     "tests/tools/test_mcp_tasks_extension.py"
@@ -310,7 +328,7 @@ PATCHED_FILES=(
 )
 ```
 
-> 以上为 `hermes-update.sh` 中数组的快照（98 文件，2026-09-04 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
+> 以上为 `hermes-update.sh` 中数组的快照（116 文件，2026-09-05 与脚本核对一致）。**脚本数组是唯一权威来源**；增删补丁文件后请同步刷新本快照。机器读取请用 `bash ~/.hermes/hermes-update.sh --print-patched-files`，不要解析本快照。
 
 ### 手动恢复
 
@@ -331,26 +349,19 @@ cat ~/.hermes/patches/.local-patches.base
 
 ---
 
-## 当前版本：v0.20.6 (upstream `main` `11c8c05dc31c6e49ddef16dae8695a708d6bce6a`，2026-08-30)
+## 当前版本：v0.21.0 (upstream `main` `79445a496c86a19332ad786494b8384d2167e2d0`，2026-09-05)
 
 **活跃补丁**：当前共 43 个语义补丁。35 个工程内补丁由 Step 8b/8c 管理；`PATCH-NPM-DEPENDENCY-HYGIENE`、`PATCH-REPLAY-BUNDLE-FULL-INDEX`、`PATCH-UPDATE-GATE-EXIT-STATUS`、`PATCH-UPDATE-GIT-FETCH-RETRY`、`PATCH-UPDATE-TRANSACTION-PIN`、`PATCH-SKILLS-MIRROR-METADATA`、`PATCH-GATEWAY-RESTART-CLEANUP` 是运行时补丁，由对应 update step 管理；`PATCH-FEISHU-GROUP-SANDBOX` 是配置仓库用户插件补丁、由 Step 8e 管理。完整活跃 ID 以上方执行链清单为准；Archive 中的定义只保留历史与重新启用条件，不计入活跃数。
 
-**最近一次升级（v0.20.6，`e387cbc0aa` → `11c8c05dc3`，+162 commits，2026-08-30）要点**：
+**最近一次升级（v0.21.0，`11c8c05dc3` → `79445a496c`，+5603 commits，2026-09-05）要点**：
 
-- 上游主线：唯一 acquisition 固定 `TARGET_SHA=11c8c05dc3`；本轮覆盖 Skills Hub support-file/revision/canonicalization 修复、`/plan` 内建化、`/busy`/`/btw` 路由、cron 自然语言周期语义、request overrides 在 Gateway/model fallback/delegation 的传递、Anthropic OAuth/adapter 拆分、真实浏览器 profile，以及 Alibaba Token Plan、Nebius 与 Ramp Router provider 接入；取得 SHA 后全部恢复只使用 no-network `--reconcile`。
-- patch apply / registry：逐项轮询 43 个 active + 10 个 Archive PATCH；本轮 19 个 active 与 24 个受管路径相交，7 个 Archive 与 11 个声明路径相交，去重后 30 条。初次 replay 仅 `hermes_cli/doctor.py` 发生 3-way 冲突，按“上游 `TOKENPLAN_API_KEY` + 本地 Azure/Vertex 提示并存”解决；`PATCH-DOCUMENT-EXTRACTION` 与 `PATCH-MCP-STDIO-WATCHER-LIFECYCLE` 维持既有部分吸收，其余相交 active 未达到吸收条件，Archive 探针继续保留，无新增归档。
-  吸收矩阵：`PATCH-MCP-TASKS-ASYNC-HANDOFF`=未吸收；`PATCH-SKILL-CREATE-ROOT`=未吸收；`PATCH-FEISHU-GROUP-ADMISSION`=未吸收；`PATCH-FEISHU-MISSED-EVENT-BACKFILL`=未吸收；`PATCH-FEISHU-GROUP-SCOPE`=未吸收；`PATCH-PLATFORM-CAPABILITY-SCOPE`=未吸收；`PATCH-GATEWAY-FAILOVER-STATUS-SILENCE`=未吸收；`PATCH-LOCAL-PROFILES`=未吸收；`PATCH-FEISHU-RESOURCE-ACCESS`=未吸收；`PATCH-DOCUMENT-EXTRACTION`=部分吸收；`PATCH-FEISHU-RESPONSE-BUDGET`=未吸收；`PATCH-TRUNCATED-TOOL-CALL-RECOVERY`=未吸收；`PATCH-MODEL-CONFIGURED-ONLY`=未吸收；`PATCH-VERTEX-DOCTOR`=未吸收；`PATCH-TEST-RUNTIME-STATE-ISOLATION`=未吸收；`PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY`=未吸收；`PATCH-VERTEX-VIDEO-ROUTING`=未吸收；`PATCH-MULTIMODAL-SIDECAR`=未吸收；`PATCH-HISTORY-RETENTION`=未吸收；`PATCH-COMPACTION-LIFECYCLE-SILENCE`=完全吸收；`PATCH-LAUNCHD-WRAPPER-SUPERVISOR`=完全吸收；`PATCH-VERTEX-FALLBACK`=完全吸收；`PATCH-GEMINI-CUSTOM-NATIVE-BASE`=完全吸收；`PATCH-DOCTOR-ENABLED-TOOLSETS`=完全吸收；`PATCH-DASHBOARD-BUILD-CACHE`=完全吸收；`PATCH-DELEGATE-ACP-ROUTING`=完全吸收；无路径相交=24。
-  本轮相交路径全集（active/Archive 去重后 30 条）：`agent/agent_runtime_helpers.py`、`agent/auxiliary_client.py`、`agent/chat_completion_helpers.py`、`agent/conversation_compression.py`、`agent/conversation_loop.py`、`agent/prompt_builder.py`、`gateway/platforms/base.py`、`gateway/run.py`、`gateway/slash_commands.py`、`hermes_cli/auth.py`、`hermes_cli/config_defaults.py`、`hermes_cli/doctor.py`、`hermes_cli/gateway.py`、`hermes_cli/main.py`、`hermes_cli/model_switch.py`、`hermes_cli/runtime_provider.py`、`hermes_state.py`、`run_agent.py`、`tests/agent/test_auxiliary_client.py`、`tests/agent/transports/test_chat_completions.py`、`tests/conftest.py`、`tests/gateway/test_background_command.py`、`tests/run_agent/test_primary_runtime_restore.py`、`tests/run_agent/test_provider_fallback.py`、`tests/run_agent/test_run_agent.py`、`tools/delegate_tool.py`、`tools/skill_manager_tool.py`、`website/docs/reference/environment-variables.md`、`website/docs/user-guide/configuration.md`、`website/docs/user-guide/features/mcp.md`。
-- 依赖：Python 依赖未变化；官方 bundled skills 更新 9 个并移除 1 个 manifest 项，外层 mirror 新增 `research/llm-wiki`、移除旧 `software-development/plan`；`npm audit fix` 仍只剩 Electron/extract-zip 2 high，修复需越过 upstream stated range 到 Electron 40.10.6，按 P2 保留且不使用 `--force`，不影响飞书主链路。
-- 已知摩擦：`hermes_cli/doctor.py` 的 provider 环境变量列表发生单点并存冲突并已语义合并。更新器首次安装稳定 macOS TCC Python anchor 后，旧 Documents 授权尚未迁移，导致 launchd Gateway 的 HyperTeX stdio 子进程在读取入口脚本时阻塞并被 30 秒握手超时取消；Step 8e 正确拒绝假绿。确认新 anchor 获得 Documents allow 后恢复 canonical plist 并 planned restart，真实 PID 下 5 个 MCP Tasks 工具重新注册；诊断期间的兼容实验已全部撤回。主会话另已原地 compact：493 → 265 messages、约 466k → 184k tokens。
-- 配置漂移：config 保持 v39；终态为 43 active + 10 Archive，**53/53 full PATCH evidence**、43 files / 2130 collected、21/21 probe，canonical suite 为 **43 files / 2124 passed / 0 failed / 6 skipped**，另有 2 个 test support modules；98-file bundle、35 active + 7 archived gates、sandbox/identity-sync **161 passed**。Gateway、Doctor、cleanup 与深度 toolchain 审计由最终 JSON 再闭合。
-- 2026-09-02 peer-machine 自演进：迁移边界从整目录覆盖改为能力层/目标状态分离；人员同步 owner 从目标 `feishu.assistant_user_ids` 推导；HyperTeX verifier 支持有/无部署并保留显式 trust-list 审批边界；tracked MCP sensitive headers 只允许 env ref，literal credential 由 Step 8e 与 final-audit 双重拒绝；updater 仅在系统没有 `uv` 时回退 `~/.hermes/bin/uv`。
-
-**2026-09-01 运行态 PATCH 收束（no-network）**：主会话 Task 62 初次创建只把飞书文档 URL 写入 prompt，HyperTeX 记录 `assets=[]`；Task 64 补救轮虽先导出 11 张文档图片并显式提交 6 个 `asset_paths`，旧 owner-DM bridge 仍只保留当前入站附件，因该消息 `media=0` 再次清空素材。首轮修复又误把一次性手工目录当成长期契约，真实重试按安全边界被拒；最终未放宽该历史目录，而是把 owner DM 纳入固定 `feishu_doc_manage(read_url, include_images=true)`，输出只落到按 chat hash 隔离的私有文档 workspace，再以相对 `image_path` 进入 HyperTeX 私有 staging。外层插件升级到 `0.7.11`，任意宿主路径、旧手工目录、symlink 与跨会话路径继续 fail closed；`PATCH-FEISHU-GROUP-SANDBOX` 生命周期不新增 ID、不进入内层 replay bundle。
-
-**2026-09-03 飞书文档读取事故与两轮全 PATCH 风险收束（no-network）**：SpaceSight 国内业务交流中的 `[标题](.../sheets/TOKEN)正文` 被 sandbox 裸 URL 扫描错误拼接为 `URL)正文`；SpaceSight Tech Sharing Group 的 53.8 MiB PPTX 三次回填均在 8 秒截止，直接下载约 22 秒，且 11 个“标题 + 图片”页面未报告视觉缺口。修复并入既有语义 PATCH：sandbox `0.7.14` 使用不可容量驱逐的当前 turn 原子 claim、精确资源 provenance、全 `HERMES_HOME` traceback 路径脱敏与 `/slides/` 明确 unsupported；Feishu 资源链补齐配置桥接、认证流式 100 MiB 硬上限和整 turn 文件预算/deadline，所有 direct/quote/merge/sender/Drive 失败显式到模型；PPTX 任意图片/chart/OLE 页均标 `INCOMPLETE`，现场 deck 列出 1-2、6-8、13-16、26-27 页。两轮深审同时收紧损坏配置下的 ambient/configured-only、重复 endpoint selector、sidecar async 路由、MCP task provenance SQLite 持久化、skill disabled scope，以及 update/final-audit 的原子 owner 锁、完整 outer/inner snapshot、stash/EXIT、cleanup cwd/argv 归属、base/lockfile 审核。权限来源和群聊工具面未放宽。
-
-**2026-09-01 深度 toolchain 审计增量**：提交前 full audit 连续两次在 `PATCH-MODEL-CONFIGURED-ONLY` 的 4 个节点卡满 300 秒，而同组普通 pytest 仅 6 秒。根因是 `patch_trace_plugin` 在每次 Python `call` 事件中执行 `Path(frame.f_code.co_filename).resolve()`，高调用量节点把证据采集自身放大为超时。修复把 code filename → repo 相对路径的 realpath 结果按文件名缓存，后续 call 只做字典查询；新增 `test_patch_trace_plugin_caches_code_filename_resolution` 负向锁定，禁止恢复逐调用 resolve。该变化归入 `PATCH-UPDATE-GATE-EXIT-STATUS`，不提高 300 秒预算、不允许以重试绿灯替代完整 evidence。
+- 上游主线：唯一 acquisition 固定 `TARGET_SHA=79445a496c`，升级到 Hermes Agent v0.21.0（release 2026.8.31）；随后所有恢复均使用 no-network `--reconcile`。本轮上游包含大规模模块拆分，Agent turn、Gateway inbound/turn、MCP transport/registration、Doctor 配置与 CLI 子命令均迁入独立 owner modules。
+- patch apply / registry：逐项复核 43 个 active + 10 个 Archive PATCH；将原来位于 `conversation_loop.py`、`run_agent.py`、`hermes_state.py`、`gateway/run.py`、`tools/mcp_tool.py`、`hermes_cli/doctor.py` 的本地语义，迁移到新的 `turn_*`、`session_persistence`、`run_*`、`mcp_tool_*`、`slash_commands_*` 与 `doctor_*` 模块。补齐 Feishu AI-authorship、原生 mention/Markdown、configured-only model 与 MCP watcher 的遗漏回归，并把 gate/文件归属同步到真实 owner。
+- 依赖：官方安装与 Python/Node 环境更新完成；bundled skills 镜像新增 `research/llm-wiki`，runtime state 保持。`npm audit fix` 后仅余 Electron / extract-zip 的 2 个 high advisory；修复要求 `--force` 升到超出上游声明范围的 Electron 40.10.6，按 P2 上游阻挡项保留，不强制升级。
+- 已知摩擦：初次 replay 因上游大规模拆分产生冲突，按语义逐项移植；旧 gate 与 sandbox verifier 仍引用已拆分模块或旧符号，现改为验证新 owner modules。完整 upstream 测试曾因宿主进程保护、全局 Git 审批 hook、macOS CUA 等环境边界出现非补丁相关失败，因此发布判据继续采用 Playbook 定义的 canonical patch suite、逐补丁 evidence、Doctor、sandbox 与运行时审计。
+- 上游重叠/吸收审查：本轮 33 个 active 与 90 个受管路径相交，9 个 Archive 与 19 个声明路径相交，active/Archive 去重后 100 条。逐项审计本轮相交路径，未发现可直接删除而不损失本地契约的 active patch；已归档能力按新模块位置保留回归 sentinel。相交路径全集：`agent/agent_runtime_helpers.py`、`agent/auxiliary_client.py`、`agent/chat_completion_helpers.py`、`agent/conversation_compression.py`、`agent/gemini_native_adapter.py`、`agent/image_routing.py`、`agent/models_dev.py`、`agent/prompt_builder.py`、`agent/replay_cleanup.py`、`agent/session_persistence.py`、`agent/skill_commands.py`、`agent/skill_utils.py`、`agent/tool_executor.py`、`agent/transports/chat_completions.py`、`agent/transports/types.py`、`agent/turn_tool_round.py`、`agent/turn_tool_validation.py`、`agent/turn_truncation.py`、`agent/vertex_adapter.py`、`gateway/authz_mixin.py`、`gateway/display_config.py`、`gateway/platforms/base.py`、`gateway/run_agent_cache.py`、`gateway/run_busy.py`、`gateway/run_inbound.py`、`gateway/run_turn.py`、`gateway/run_turn_runner.py`、`gateway/session.py`、`gateway/session_context.py`、`gateway/session_state.py`、`gateway/slash_commands.py`、`gateway/slash_commands_model.py`、`gateway/slash_commands_session.py`、`gateway/stream_consumer.py`、`gateway/stream_consumer_fallback.py`、`gateway/stream_consumer_transport.py`、`hermes_cli/auth.py`、`hermes_cli/config_defaults.py`、`hermes_cli/doctor_config.py`、`hermes_cli/env_loader.py`、`hermes_cli/gateway.py`、`hermes_cli/main.py`、`hermes_cli/model_switch.py`、`hermes_cli/prompt_size.py`、`hermes_cli/runtime_provider.py`、`hermes_cli/tools_config.py`、`hermes_state_messages.py`、`plugins/model-providers/vertex/__init__.py`、`plugins/platforms/feishu/adapter.py`、`pyproject.toml`、`tests/agent/test_auxiliary_client.py`、`tests/agent/test_codex_ttfb_watchdog.py`、`tests/agent/test_skill_commands.py`、`tests/agent/transports/test_chat_completions.py`、`tests/conftest.py`、`tests/gateway/feishu_helpers.py`、`tests/gateway/test_background_command.py`、`tests/gateway/test_config.py`、`tests/gateway/test_document_context_note.py`、`tests/gateway/test_feishu.py`、`tests/gateway/test_feishu_bot_admission.py`、`tests/gateway/test_run_progress_topics.py`、`tests/gateway/test_session.py`、`tests/hermes_cli/test_doctor.py`、`tests/hermes_cli/test_tools_config.py`、`tests/run_agent/test_primary_runtime_restore.py`、`tests/run_agent/test_provider_fallback.py`、`tests/run_agent/test_run_agent.py`、`tests/run_agent/test_tool_call_incremental_persistence.py`、`tests/tools/test_approval.py`、`tests/tools/test_lazy_deps.py`、`tests/tools/test_mcp_tool.py`、`tests/tools/test_mcp_utility_capability_gating.py`、`tests/tools/test_read_extract.py`、`tests/tools/test_skill_manager_tool.py`、`tests/tools/test_skills_tool.py`、`tests/tools/test_tool_search.py`、`tools/approval.py`、`tools/approval_detection.py`、`tools/delegate_tool.py`、`tools/feishu_doc_tool.py`、`tools/lazy_deps.py`、`tools/mcp_tool_discovery.py`、`tools/mcp_tool_errors.py`、`tools/mcp_tool_handlers.py`、`tools/mcp_tool_registration.py`、`tools/mcp_tool_schema.py`、`tools/mcp_tool_transport.py`、`tools/read_extract.py`、`tools/skill_manager_tool.py`、`tools/skills_tool.py`、`tools/tool_search.py`、`tools/vision_tools.py`、`toolsets.py`、`uv.lock`、`website/docs/reference/environment-variables.md`、`website/docs/user-guide/configuration.md`、`website/docs/user-guide/features/mcp.md`。
+  吸收矩阵：`PATCH-APPROVAL-DARWIN-TMP`=未吸收；`PATCH-COMPACTION-LIFECYCLE-SILENCE`=完全吸收；`PATCH-DASHBOARD-BUILD-CACHE`=完全吸收；`PATCH-DELEGATE-ACP-ROUTING`=完全吸收；`PATCH-DOCTOR-ENABLED-TOOLSETS`=完全吸收；`PATCH-DOCTOR-TEST-NETWORK-ISOLATION`=未吸收；`PATCH-DOCUMENT-EXTRACTION`=部分吸收；`PATCH-ENV-AMBIENT-CREDENTIAL-ISOLATION`=未吸收；`PATCH-FEISHU-FINAL-ONLY`=未吸收；`PATCH-FEISHU-GROUP-ADMISSION`=未吸收；`PATCH-FEISHU-GROUP-APPROVAL`=未吸收；`PATCH-FEISHU-GROUP-SCOPE`=未吸收；`PATCH-FEISHU-MARKDOWN`=未吸收；`PATCH-FEISHU-MISSED-EVENT-BACKFILL`=未吸收；`PATCH-FEISHU-NORMAL-REPLY`=未吸收；`PATCH-FEISHU-QUOTE-CHAIN-SESSION`=未吸收；`PATCH-FEISHU-RESOURCE-ACCESS`=未吸收；`PATCH-FEISHU-RESPONSE-BUDGET`=未吸收；`PATCH-FEISHU-SOCKS-DEPENDENCY`=未吸收；`PATCH-FEISHU-SSRF-TEST-SYSPROXY`=未吸收；`PATCH-GATEWAY-FAILOVER-STATUS-SILENCE`=未吸收；`PATCH-GEMINI-CROSS-PROVIDER-TOOL-HISTORY`=未吸收；`PATCH-GEMINI-CUSTOM-NATIVE-BASE`=完全吸收；`PATCH-GEMINI-THOUGHT-SIGNATURE`=完全吸收；`PATCH-HISTORY-RETENTION`=未吸收；`PATCH-IMAGE-NATIVE-ROUTING`=未吸收；`PATCH-LAUNCHD-WRAPPER-SUPERVISOR`=完全吸收；`PATCH-LAZY-ACTIVATION`=完全吸收；`PATCH-LOCAL-PROFILES`=未吸收；`PATCH-MCP-STDIO-WATCHER-LIFECYCLE`=部分吸收；`PATCH-MCP-TASKS-ASYNC-HANDOFF`=未吸收；`PATCH-MODEL-CONFIGURED-ONLY`=未吸收；`PATCH-MULTIMODAL-SIDECAR`=未吸收；`PATCH-PLATFORM-CAPABILITY-SCOPE`=未吸收；`PATCH-SKILL-CREATE-ROOT`=未吸收；`PATCH-TEST-RUNTIME-STATE-ISOLATION`=未吸收；`PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY`=未吸收；`PATCH-TRUNCATED-TOOL-CALL-RECOVERY`=未吸收；`PATCH-VERTEX-DOCTOR`=未吸收；`PATCH-VERTEX-FALLBACK`=完全吸收；`PATCH-VERTEX-HIDDEN-THOUGHTS`=未吸收；`PATCH-VERTEX-VIDEO-ROUTING`=未吸收；无路径相交=10。
+- 配置漂移：config 已迁移到 v40；新增的 `install_id`、`.install_id.lock` 与 `runtime/` 已纳入保留/忽略策略。终态为 43 active + 10 Archive，**53/53 full PATCH evidence**、43 files / **2185 passed / 0 failed / 6 skipped**、另有 2 个 test support modules、2191 collected、21/21 probe、116-file bundle、35 active + 7 archived gates、sandbox/identity-sync **161 passed**；最终状态由本轮 `--final-audit --json` 闭合。
 
 ---
 
@@ -360,10 +371,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-MCP-TASKS-ASYNC-HANDOFF] 标准异步 task handle 即时回执
 
-| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                              |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/{conversation_loop.py,tool_executor.py,mcp_task_protocol.py}`, `run_agent.py`, `hermes_state.py`, `tools/{mcp_tool.py,mcp_tasks_extension.py}`, `tests/run_agent/test_tool_call_incremental_persistence.py`, `tests/tools/{test_mcp_tasks_extension.py,test_mcp_utility_capability_gating.py,test_mcp_tool.py}`, `website/docs/user-guide/features/mcp.md` |
-| **状态** | 🟡 未上游合并：当前 upstream MCP client 只把 `tools/call` 解析成普通 `CallToolResult`，Agent 工具轮后仍无条件进入下一次模型调用；没有标准 Tasks extension capability negotiation、task lifecycle utilities 或确定性 receipt 终止路径。                                                                                                                            |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/{tool_executor.py,mcp_task_protocol.py,session_persistence.py,turn_tool_round.py}`, `hermes_state_messages.py`, `tools/{mcp_tasks_extension.py,mcp_tool_errors.py,mcp_tool_handlers.py,mcp_tool_registration.py,mcp_tool_schema.py,mcp_tool_transport.py}`, `tests/run_agent/test_tool_call_incremental_persistence.py`, `tests/tools/{test_mcp_tasks_extension.py,test_mcp_utility_capability_gating.py,test_mcp_tool.py}`, `website/docs/user-guide/features/mcp.md` |
+| **状态** | 🟡 未上游合并：当前 upstream MCP client 只把 `tools/call` 解析成普通 `CallToolResult`，Agent 工具轮后仍无条件进入下一次模型调用；没有标准 Tasks extension capability negotiation、task lifecycle utilities 或确定性 receipt 终止路径。                                                                                                                                                                                                                                        |
 
 **问题**：MCP 长任务即使在 server 侧已异步入队并立即返回 durable handle，Hermes 仍把结果当普通工具文本追加到上下文，再发起一次 LLM 调用组织回复。真实飞书 turn 中 HyperTeX `tools/call` 仅 0.54s，第二次 Azure Responses 推理却 120s 无 SSE，导致用户 160.5s 后才收到 task ID；同类 provider 抖动会把“任务已受理”伪装成主会话卡死。依靠特定 server/tool 名称短路会把第三方产品耦合进 core，也无法覆盖其它符合 MCP Tasks 规范的 server。MCP SDK 2.x 另有一层更早的假阴性：握手时代协议把 `tools/call` 返回值预校验为普通 `CallToolResult`，该校验先于调用方传入的 raw result model；因此 server 已创建 task 并返回 `resultType="task"` 后，Hermes 仍会因缺少 `content` 抛 `ValidationError`，丢失 task handle 并让模型误以为创建失败。修复回执后又暴露 ID provenance 缺口：task/job/case 是三套独立 ID，财务群用户明确问 task `8` 时模型仍从历史 case 状态取 `job 99` 调 `tasks_get(99)`，把 caller error 报成“task not found”。
 
@@ -371,7 +382,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **2026-09-03 provenance 持久化加固**：普通 MCP JSON 即使伪造 `resultType/taskId/status` 也不可信；只有协商过 Tasks extension 的 handler 才能附加一次性、工具名绑定的内部 provenance。该 provenance 必须随 worker 返回父线程，并通过 `run_agent.py → hermes_state.py` 的内部 `display_metadata` sidecar 落入 SQLite；恢复会话时再提升为 `_mcp_task_result`，不会作为普通显示 metadata 暴露。这样 task handle 在并发 executor、进程内增量持久化和 SessionDB 重开后仍可被确定性识别，同时普通 JSON 不能冒充。
 
-**验证**：Step 8b 同时锚定 extension ID、task-aware dispatch、SDK 正式 `CallToolRequest`、custom request `name_param=None`、SDK 2.x legacy core-result bypass、exact taskId schema、只读 suggested-ID 单次重试与 mutation 不纠错反例、MCP 1.x/2.x 错误字段/结果校验兼容、动态 `tasks_get` schema、HTTP routing hook、conversation-loop `direct_task_response` 和行为测试。`test_task_aware_call_advertises_extension_and_accepts_task_handle` 与 `test_task_aware_call_bypasses_sdk2_legacy_core_result_prevalidation` 直接执行 `tools/mcp_tasks_extension.py`；`test_mcp_task_provenance_survives_concurrent_worker_and_persistence` 真实穿过 concurrent worker、父 executor、SQLite flush、SessionDB 关闭/重开和 transcript 恢复，断言两个 task ID 顺序与内部 metadata 均保留；`test_task_metadata_requires_negotiated_result_provenance` 继续证明普通 JSON 不能伪造。2026-08-19 财务群真实 create/list 在入队前均复现 `AttributeError: name_param`，HyperTeX `active-jobs=[]`，证明首层故障位于 Hermes request construction 而非 worker；修复后第二次真实 create 已在 HyperTeX 建立 case/job，但 Hermes 复现 `CallToolResult.content Field required`，证明 SDK core-result 预校验发生在 task-aware parser 之前。2026-08-20 财务群又实抓用户问 task `8`、模型误传 job `99`；Data Pipeline task `9` 首次超时但后续同 ID 成功，证明 ID 错误与 transport 卡顿是两类独立故障。2026-08-24 又实抓英文群聊仍收到硬编码中文任务回执，定位到问题在 Hermes deterministic receipt formatter 而非 HyperTeX MCP server。`test_mcp_task_handle_ends_turn_without_second_model_call` 在最初修复前真实得到 4 次 API 调用（第二次断言失败后进入 3 次 retry），修复后严格为 1；`test_mcp_tasks_extension.py` 使用无产品语义的 `demo` server/payload，既在 fake session 中执行 SDK 2.x 同款 `type(request).name_param` 访问，也用真实 SDK 2.x `ClientSession` + fake dispatcher/adopted `2025-11-25` session 复现并锁死 legacy prevalidation：task handle 必须成功返回、wire 必须保留 protocol stamp 与 request body tool name，缺失 `content` 的伪普通结果仍必须被拒绝；同文件另断言 server 建议 `99 → 8` 时 `tasks/get` 只重试一次，而 cancel 不跟随建议。其余测试继续覆盖 custom task request 显式 opt-out、公共/旧版 validation 两代路径、错误字段双拼写、创建/查询回执的固定 GFM 表格、规范化状态、phase/error 选择、表格单元格转义、完成链接分类与去重、无链接时隐藏业务 payload、`input_required`/混合工具批次不短路，以及三种 lifecycle request 的标准 HTTP 路由头与非法 header 值反例；`tests/tools/test_mcp_tool.py::TestUtilitySchemas::test_builds_resource_prompt_and_task_utility_schemas` 直接执行 `tools/mcp_tool.py` 的 task utility 注册边界，另有 redirect 用例锁定跨源剥离 task routing headers；既有 Feishu table Markdown 回归证明该输出走 post 富文本而非 plain text；`test_mcp_utility_capability_gating.py` 覆盖仅广告 Tasks 时三工具注册、exact-ID 文案及配置关闭。规范 runner、full-index bundle、cached 正向、worktree 反向、index-clean 与最终 Gateway PID 下的 MCP/sandbox verifier 共同构成终态门禁。
+**验证**：Step 8b 同时锚定 extension ID、task-aware dispatch、SDK 正式 `CallToolRequest`、custom request `name_param=None`、SDK 2.x legacy core-result bypass、exact taskId schema、只读 suggested-ID 单次重试与 mutation 不纠错反例、MCP 1.x/2.x 错误字段/结果校验兼容、动态 `tasks_get` schema、HTTP routing hook、conversation-loop `direct_task_response` 和行为测试。`test_task_aware_call_advertises_extension_and_accepts_task_handle` 与 `test_task_aware_call_bypasses_sdk2_legacy_core_result_prevalidation` 直接执行 `tools/mcp_tasks_extension.py`；`test_mcp_task_provenance_survives_concurrent_worker_and_persistence` 真实穿过 concurrent worker、父 executor、SQLite flush、SessionDB 关闭/重开和 transcript 恢复，断言两个 task ID 顺序与内部 metadata 均保留；`test_task_metadata_requires_negotiated_result_provenance` 继续证明普通 JSON 不能伪造。2026-08-19 财务群真实 create/list 在入队前均复现 `AttributeError: name_param`，HyperTeX `active-jobs=[]`，证明首层故障位于 Hermes request construction 而非 worker；修复后第二次真实 create 已在 HyperTeX 建立 case/job，但 Hermes 复现 `CallToolResult.content Field required`，证明 SDK core-result 预校验发生在 task-aware parser 之前。2026-08-20 财务群又实抓用户问 task `8`、模型误传 job `99`；Data Pipeline task `9` 首次超时但后续同 ID 成功，证明 ID 错误与 transport 卡顿是两类独立故障。2026-08-24 又实抓英文群聊仍收到硬编码中文任务回执，定位到问题在 Hermes deterministic receipt formatter 而非 HyperTeX MCP server。`test_mcp_task_handle_ends_turn_without_second_model_call` 在最初修复前真实得到 4 次 API 调用（第二次断言失败后进入 3 次 retry），修复后严格为 1；`test_mcp_tasks_extension.py` 使用无产品语义的 `demo` server/payload，既在 fake session 中执行 SDK 2.x 同款 `type(request).name_param` 访问，也用真实 SDK 2.x `ClientSession` + fake dispatcher/adopted `2025-11-25` session 复现并锁死 legacy prevalidation：task handle 必须成功返回、wire 必须保留 protocol stamp 与 request body tool name，缺失 `content` 的伪普通结果仍必须被拒绝；同文件另断言 server 建议 `99 → 8` 时 `tasks/get` 只重试一次，而 cancel 不跟随建议。其余测试继续覆盖 custom task request 显式 opt-out、公共/旧版 validation 两代路径、错误字段双拼写、创建/查询回执的固定 GFM 表格、规范化状态、phase/error 选择、表格单元格转义、完成链接分类与去重、无链接时隐藏业务 payload、`input_required`/混合工具批次不短路，以及三种 lifecycle request 的标准 HTTP 路由头与非法 header 值反例；`tests/tools/test_mcp_tool.py::TestMCPServerTask::test_start_connects_and_discovers_tools` 穿过 transport，`tests/tools/test_mcp_tool.py::TestToolHandler::test_successful_call` 与 `tests/tools/test_mcp_tool.py::TestUtilityToolRegistration::test_utility_tools_registered` 分别执行 handler 和动态注册路径，`tests/tools/test_mcp_tool.py::TestRedirectHeaderStripper::test_default_strips_authorization_and_task_routing_headers` 锁定跨源剥离 task routing headers，`tests/tools/test_mcp_tool.py::TestUtilitySchemas::test_builds_resource_prompt_and_task_utility_schemas` 锁定 task utility schema；既有 Feishu table Markdown 回归证明该输出走 post 富文本而非 plain text；`test_mcp_utility_capability_gating.py` 覆盖仅广告 Tasks 时三工具注册、exact-ID 文案及配置关闭。规范 runner、full-index bundle、cached 正向、worktree 反向、index-clean 与最终 Gateway PID 下的 MCP/sandbox verifier 共同构成终态门禁。
 
 **上游吸收判断**：当 upstream Hermes MCP client 原生支持当前 `io.modelcontextprotocol/tasks` extension 的 capability negotiation、`CreateTaskResult`/`tasks/get|update|cancel` 生命周期和 capability-gated model tools，并且 Agent 在标准 task handle 已持久化后能用确定性回执结束交互 turn、无需第二次 LLM 调用，同时有等价的串行/并行与角色配对回归时，可删除本补丁。仅 SDK 出现 Task 类型、仅 server 返回自定义 `task_id`、或仅 UI 提前显示工具结果都不算吸收。
 
@@ -379,10 +390,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-MCP-STDIO-WATCHER-LIFECYCLE] MCP stdio watcher 生命周期与进程身份回执
 
-| 字段     | 内容                                                                 |
-| -------- | -------------------------------------------------------------------- |
-| **文件** | `tools/mcp_tool.py`, `tests/tools/test_mcp_tool.py`                  |
-| **状态** | 🟡 部分吸收（上游已修复并覆盖 PID liveness；watcher 工厂仍调用两次） |
+| 字段     | 内容                                                                                 |
+| -------- | ------------------------------------------------------------------------------------ |
+| **文件** | `tools/{mcp_tool_discovery.py,mcp_tool_handlers.py}`, `tests/tools/test_mcp_tool.py` |
+| **状态** | 🟡 部分吸收（上游已修复并覆盖 PID liveness；watcher 工厂仍调用两次）                 |
 
 **问题**：上游为 MCP stdio RPC 增加子进程死亡快速失败时，先调用一次异步 `_watch_stdio_children()` 检查返回值是否 awaitable，真正调度时又调用第二次；第一支 coroutine 从未被 await 或关闭，每个正常工具调用都会产生 `RuntimeWarning: coroutine ... was never awaited`。旧版同时存在 PID 存活判定反转，曾把健康 HyperTeX 子进程误报为退出；该子问题已由 upstream `98fce8e52d` / `2663117f72` 修复，并由 `ef46ec03e1` 增加 alive/dead/mixed 与 fail-open 回归，本地不再维护对应实现或重复测试。2026-08-30 深度审计又发现运行态 verifier 只按日志先后匹配 MCP 注册行：Gateway 本身注册失败时，后启动的 doctor/CLI 进程可能产生一条同名成功回执，造成跨进程借绿。
 
@@ -407,7 +418,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 **修复**：让 `_resolve_skill_dir()` 直接按配置顺序读取 `skills.external_dirs`，第一个非官方目录作为新 skill 的基准路径；即使目录尚不存在也由 create 建立，避免 discovery helper 只返回既存目录时错误回落官方 root。`_create_skill()` / `_delete_skill()` 同步适配，并加 `tests/tools/test_skill_manager_tool.py` 回归测试覆盖 external dir 路由、缺失目录创建与删除。
 
-**验证**：Step 8b 用真实 Python import + 调用 `_resolve_skill_dir("_patch_test")`，**严格断言**返回路径 startswith `~/.hermes/my-skills/`（2026-08-07 审计修复：旧断言含 `or "/skills/_patch_test" not in result` 的 fail-open 分支，官方 skills root 改名时会把回落误报为 active，已删除）。行为回归 `test_create_uses_first_external_dir`、`test_create_fails_closed_when_skill_root_config_cannot_be_read` 与 `test_delete_skill_created_in_external_dir`，同时锁定配置读取失败不得静默回退官方目录。
+**验证**：Step 8b 用真实 Python import + 调用 `_resolve_skill_dir("_patch_test")`，**严格断言**返回路径 startswith `~/.hermes/my-skills/`（2026-08-07 审计修复：旧断言含 `or "/skills/_patch_test" not in result` 的 fail-open 分支，官方 skills root 改名时会把回落误报为 active，已删除）。行为回归 `test_create_uses_configured_create_dir`、`test_create_fails_closed_when_skill_root_config_cannot_be_read` 与 `test_delete_skill_created_in_external_dir`，同时锁定配置读取失败不得静默回退官方目录。
 
 **上游吸收判断**：仅当上游 create 路径已支持把首个 external skill root 作为默认写入目录，且对应创建/删除测试覆盖不存在目录时，才可移除本补丁；当前上游仍固定写入 `SKILLS_DIR / name`。**语义张力提示**（2026-08-03 审计）：post-26e0b1c 上游新增 `_background_review_write_guard()`，经 `is_external_skill_path()` 将 external_dirs 视为"externally owned、对自主 curation 只读"。该 guard 目前只作用于 background review fork，与本补丁的前台 create 不互斥；但上游把 external 当只读、本补丁把它当默认写入目标，方向相反——每轮升级须复核该 guard 的作用范围未扩大到 create 路径，若扩大则需与上游治理策略重新对齐而不是静默让 create 失败。
 
@@ -472,7 +483,7 @@ cat ~/.hermes/patches/.local-patches.base
 
 本轮把上述第二、三轮缺口统一收敛到同一条链：ownership 只认反引号内展开后的完整路径，并拒绝零受管文件的 active engineering/dedicated PATCH；active 与 Archive gate header、唯一置绿变量、Step 8c 消费集合三方闭合；每个 PATCH 的 evidence node 在独立 pytest 进程执行，完整 node ID 精确绑定 path/class/function，调用轨迹忽略 `<module>` import；每个可执行 `test_*.py` 必须至少 collect 一个 node，`conftest.py` / helper 等 support module 不计入测试文件数、另做语法/ownership 校验；Archive/dedicated pytest 统一用 hermetic JUnit 严格拒绝 skip/xfail/xpass/零执行；Step 8e verifier 数组必须与 external registry 路径全集一致，verifier 只在全部 JUnit case clean passed 后发出唯一机器回执。PATCHES 当前摘要以 `` `PATCH-ID`=未吸收 | 部分吸收 | 完全吸收 `` 逐项登记全部 upstream-overlap PATCH，Archive overlap 直接来自其声明路径、不再依赖当前 bundle ownership，并记录无 overlap active 数；evidence range 必须为 ancestor→当前 HEAD。canonical `passed+skipped` 必须等于 full collect；final-audit 在 canonical 后再次执行 sandbox verifier 与 bundle byte/cached/reverse/index-clean，最终 cleanup 后再验证持久 `gateway_state.json` 的 PID/start-time/argv/code SHA 属于当前真实 Gateway，并比较审计前后外层 tracked/untracked fingerprint，spawn ledger 不含 pytest 记录。
 
-**验证**：静态检查 Step 8c 的失败分支都设置 `FINAL_RC=1`；`bash hermes-update.sh --self-test-patch-gates` 必须证明声明/消费集合相等并能抓到 fault injection。Step 8d 必须只用 planned restart、比较 old/new PID，`runtime_dirty=0` 跳过 churn；stale plist 只有在 current definition + wrapper PID + real child PID 同时成立后才进入 verifier。临时 Git repo 覆盖完整/部分/裸 overlay、3-way staged/冲突和 byte/cached/reverse replay。`python3 scripts/test_patch_evidence_auditor.py` 以负例证明缺四段、同名测试歧义、跨 PATCH 共用同一 node、从未登记测试文件借证据、evidence 只命中部分 owned Python production file、skip outcome、quick 模式错误执行 bundle parity、runtime PATCH 漏登记实际 probe、full 报告试图提升未执行 probe、canonical flake retry 假绿、后台线程/对象终结器/未 await coroutine/返回值/collection warning 假绿、直接 pytest 命令绕过严格参数、overlap 路径派生计数漂移、同版本跨周记录误判，以及 tracked MCP literal credential 都会被拒绝；`bash hermes-update.sh --final-audit --json` 必须输出 `status=ok`、完整逐 PATCH evidence（含 `executed_owned_files` / `probe_results`）、canonical suite 0 failed 且 file retry=0、文档/表格/周记录派生一致、Doctor 无 active advisory/config 漂移/deprecated key、runtime/verifier 健康、tracked config secret-safe 和 cleanup candidate/review 归零。终态若发生 Step 8d 后的运行时修改，仍须先 reconcile/restart，再重新执行 final audit。
+**验证**：静态检查 Step 8c 的失败分支都设置 `FINAL_RC=1`；`bash hermes-update.sh --self-test-patch-gates` 必须证明声明/消费集合相等并能抓到 fault injection。Step 8d 必须只用 planned restart、比较 old/new PID，`runtime_dirty=0` 跳过 churn；stale plist 只有在 current definition + wrapper PID + real child PID 同时成立后才进入 verifier。临时 Git repo 覆盖完整/部分/裸 overlay、3-way staged/冲突和 byte/cached/reverse replay。`python3 scripts/test_patch_evidence_auditor.py` 以负例证明缺四段、同名测试歧义、跨 PATCH 共用同一 node、从未登记测试文件借证据、evidence 只命中部分 owned Python production file、skip outcome、quick 模式错误执行 bundle parity、runtime PATCH 漏登记实际 probe、full 报告试图提升未执行 probe、canonical flake retry 假绿、后台线程/对象终结器/未 await coroutine/返回值/collection warning 假绿、直接 pytest 命令绕过严格参数、overlap 路径派生计数漂移、同版本跨周记录误判，以及 tracked MCP literal credential 都会被拒绝；`test_final_audit_runs_independent_checks_concurrently` 用 barrier 证明四条只读分支确实并发启动，`test_patch_evidence_parallelism_is_bounded` 锁定逐 PATCH worker 的默认/上限与串行回退，`test_registered_patch_audits_run_concurrently_with_stable_results` 锁定 probe 并发与确定性结果顺序；`bash hermes-update.sh --final-audit --json` 必须输出 `status=ok`、完整逐 PATCH evidence（含 `executed_owned_files` / `probe_results`）、canonical suite 0 failed 且 file retry=0、文档/表格/周记录派生一致、Doctor 无 active advisory/config 漂移/deprecated key、runtime/verifier 健康、tracked config secret-safe、`phase_durations_seconds` 可观测和 cleanup candidate/review 归零。终态若发生 Step 8d 后的运行时修改，仍须先 reconcile/restart，再重新执行 final audit。
 
 2026-08-30 深度审计新增 `test_sandbox_mcp_receipt_must_bind_current_gateway_pid`：删除 Step 8e 对 MCP 注册回执的 Gateway PID 绑定后必须非零，禁止后启动的 doctor/CLI 进程替当前 Gateway 借绿。
 
@@ -623,10 +634,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-GROUP-ADMISSION] 群聊触发、本人代答策略与当前发言人完整性
 
-| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **文件** | `agent/auxiliary_client.py`, `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/authz_mixin.py`, `gateway/platforms/base.py`, `gateway/run.py`, `gateway/session.py`, `tests/agent/test_auxiliary_client.py`, `tests/gateway/{feishu_helpers.py,test_feishu.py,test_feishu_bot_admission.py,test_feishu_bot_auth_bypass.py,test_session.py}`, `website/docs/{reference/environment-variables.md,user-guide/messaging/feishu.md}`；外层 `config.yaml`、私有 `people.yaml` 与 `my-skills/research/llm-wiki/SKILL.md` 不进 bundle |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/auxiliary_client.py`, `plugins/platforms/feishu/adapter.py`, `gateway/{authz_mixin.py,platforms/base.py,run.py,run_inbound.py,run_turn.py,session.py,session_state.py}`, `tests/agent/test_auxiliary_client.py`, `tests/gateway/{feishu_helpers.py,test_feishu.py,test_feishu_bot_admission.py,test_feishu_bot_auth_bypass.py,test_session.py}`, `website/docs/{reference/environment-variables.md,user-guide/messaging/feishu.md}`；外层 `config.yaml`、私有 `people.yaml` 与 `my-skills/research/llm-wiki/SKILL.md` 不进 bundle |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **问题**：群聊需要同时支持 `@bot` 与 `@配置本人账号` 触发、近期群消息回填和纯 @ 意图推断；共享 session 还必须防止 owner profile、引用内容、历史末位发言人或跨发送者 debounce 被误认成当前提问者。第三方 `@配置本人账号` 时，旧策略会无条件替本人继续回答：当发送者把未披露的 AI 代写内容直接投给本人时，既浪费本人注意力，也让本人的助手继续参与这种不礼貌的沟通。群授权也不能借通配符放开 DM。原纯 @ 分支硬编码排除 `p2p`，导致主会话里回复一条合并转发后只 @Bot 会在剥离 mention 后成为空文本并被静默丢弃。
 
@@ -650,10 +661,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-MISSED-EVENT-BACKFILL] Feishu 断线/重连漏消息补偿
 
-| 字段     | 内容                                                                                                                                                                                                                                                           |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `tests/gateway/{test_feishu.py,test_config.py}`, `website/docs/{reference/environment-variables.md,user-guide/messaging/feishu.md,user-guide/configuration.md}`（本机 `config.yaml` 启用恢复参数） |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                  |
+| 字段     | 内容                                                                                                                                                                                                                                                                              |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `tests/gateway/{test_feishu.py,test_config.py}`, `website/docs/{reference/environment-variables.md,user-guide/messaging/feishu.md,user-guide/configuration.md}`（配置桥由插件 `_apply_yaml_config` 提供；本机 `config.yaml` 启用恢复参数） |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                     |
 
 **问题**：Feishu `history_backfill` 只在 Hermes 已收到一条触发消息后补上下文，不能主动发现断网、睡眠或 stale WebSocket 期间漏掉的 `@Hermes` 触发事件。SDK 内部自动重连成功也不会通知 adapter 做补偿扫描，导致漏消息可能等 Feishu 服务端迟迟推送旧事件后才被回复；用户手动 quote 原消息再 @Hermes 触发回答后，旧事件晚到又会让 Hermes 重复回答同一问题。初版补丁另有一处主会话盲区（2026-08-08 修复）：回放重建事件用 `chat_id.startswith("oc_")` 推断 chat_type，而飞书 p2p 会话 ID 同为 `oc_` 前缀，owner DM（home channel）虽在扫描目标里，回放消息却被误标为 group、被群 mention gate 以 `trigger_mention_missing` 拒掉——主会话事实上没有恢复补偿；且 `get_chat_info` 读的 `chat_type` 是 private/public 可见性字段（DM 实测为 `None`），不能作判别源。
 
@@ -667,16 +678,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-GROUP-SCOPE] 群聊独立 capability namespace
 
-| 字段     | 内容                                                                                                                                                                                                                                                                                                                      |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/session_context.py`, `gateway/run.py`, `gateway/slash_commands.py`, `hermes_cli/tools_config.py`, `tests/gateway/test_session_env.py`, `tests/gateway/test_run_progress_topics.py`, `tests/gateway/test_background_command.py`, `tests/gateway/test_verbose_command.py`, `tests/hermes_cli/test_tools_config.py` |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                             |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/{session_context.py,run.py,run_busy.py,run_inbound.py,run_turn.py,run_turn_runner.py,slash_commands.py,slash_commands_model.py,slash_commands_session.py}`, `hermes_cli/tools_config.py`, `tests/gateway/test_session_env.py`, `tests/gateway/test_run_progress_topics.py`, `tests/gateway/test_background_command.py`, `tests/gateway/test_verbose_command.py`, `tests/hermes_cli/test_tools_config.py` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 **问题**：Feishu DM 与群聊原本都只解析 `platform=feishu`，无法对同一 bot 的 owner DM 和共享群配置不同 toolsets/skills。初版补丁虽然新增了 source-aware helper，并把 session context 正确写成 `feishu_group`，但主 `_run_agent_inner`、busy ack、最终 reasoning/footer、proxy streaming、background task 和 slash commands 仍直接用 `source.platform` / `event.source.platform` 取 key。结果静态配置和 sandbox verifier 都显示群策略正确，真实群 Agent 却拿到 DM 的 terminal/drive 工具面与 `tool_progress: new`：工具调用链被发送到群里，受控文档入口 `feishu_doc_manage` 没有进入 Agent schema，模型转而调用 `terminal` / `feishu_drive_add_comment` 再被 sandbox 拦截；群内 `/verbose` 等命令还可能读写 DM 配置。
 
 **修复**：新增 `HERMES_SESSION_PLATFORM_CONFIG_KEY`；Feishu group/forum/channel/thread 映射到 `feishu_group`，DM 仍为 `feishu`。所有按具体会话解析 display、toolsets、busy ack、reasoning/footer、proxy streaming、background task 和 slash-command 配置的运行路径统一调用 `_platform_config_key_for_source()`；仅 helper 内部允许退回通用 `_platform_config_key(source.platform)`。平台工具解析和保存逻辑识别该独立 key；群工具面不被默认能力补宽的机制是 `platform_toolset_options.<key>.recover_platform_tools: false` 的显式短路（`feishu_group` 不在 `PLATFORMS` 注册表内，靠该开关而非独立分支阻断 native recovery）。
 
-**验证**：Step 8b 单独检查 session context key、`return "feishu_group"`、`run.py` / `slash_commands.py` 所有 source/event consumer 不再绕过 source-aware helper、tool recovery 开关，以及 `test_set_session_env_sets_feishu_group_config_key` / `test_get_platform_tools_feishu_group_uses_independent_config`。`test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools` 穿过真实 `_run_agent` 边界作 DM 正例和两个群负例：DM 仍收到 `new` 工具卡并包含 `terminal`，群聊零 send/edit 且 Agent toolsets 包含承载 `feishu_doc_manage` 的 `sandbox_group`、不含 `terminal`。`test_successful_task_sends_result` 的 adapter fixture 显式把同步 `toolsets_for_source` 设为 `None`，防止 `AsyncMock` 自动生成 coroutine、掩盖 background source-aware 解析链。`test_feishu_group_updates_group_scope_without_mutating_dm` 从 `/verbose` 写回边界证明群配置独立更新、DM 值保持不变。
+**验证**：Step 8b 单独检查 session context key、`return "feishu_group"`、`run.py` 与拆分后的 `run_*` / `slash_commands_*` 所有 source/event consumer 不再绕过 source-aware helper、tool recovery 开关，以及 `test_set_session_env_sets_feishu_group_config_key` / `test_get_platform_tools_feishu_group_uses_independent_config`。`test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools` 穿过真实 `_run_agent` 边界作 DM 正例和两个群负例：DM 仍收到 `new` 工具卡并包含 `terminal`，群聊零 send/edit 且 Agent toolsets 包含承载 `feishu_doc_manage` 的 `sandbox_group`、不含 `terminal`。`test_successful_task_sends_result` 的 adapter fixture 显式把同步 `toolsets_for_source` 设为 `None`，防止 `AsyncMock` 自动生成 coroutine、掩盖 background source-aware 解析链；`test_split_command_modules_keep_source_aware_platform_scope` 锁定 reasoning/manual-compression 两个拆分模块仍使用 source-aware key。`test_feishu_group_updates_group_scope_without_mutating_dm` 从 `/verbose` 写回边界证明群配置独立更新、DM 值保持不变。
 
 **上游吸收判断**：上游提供等价的 per-chat-type capability namespace，且 Feishu DM/group 可以独立解析工具配置时可归档。
 
@@ -815,10 +826,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-LOCAL-PROFILES] 本地人物/群画像与群聊输出保密
 
-| 字段     | 内容                                                                                                                                                                                                                                                |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/{session.py,run.py,stream_consumer.py}`, `plugins/platforms/feishu/adapter.py`, `tests/gateway/{test_feishu.py,test_session.py,test_run_progress_topics.py,test_stream_consumer_silence.py}`；`people.yaml` / `groups.yaml` 为配置仓库数据 |
-| **状态** | 🟡 本地个性化功能，不预期上游直接吸收                                                                                                                                                                                                               |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                                                           |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/{session.py,run.py,run_agent_cache.py,run_turn.py,run_turn_runner.py,stream_consumer.py,stream_consumer_fallback.py,stream_consumer_transport.py}`, `plugins/platforms/feishu/adapter.py`, `tests/gateway/{test_feishu.py,test_session.py,test_run_progress_topics.py,test_stream_consumer_silence.py}`；`people.yaml` / `groups.yaml` 为配置仓库数据 |
+| **状态** | 🟡 本地个性化功能，不预期上游直接吸收                                                                                                                                                                                                                                                                                                                          |
 
 **问题**：模型只凭 open_id/显示名无法按用户维护的人物背景和群人设调整表达；画像私有字段、数据来源和 `people.yaml` 文件名又绝不能在群聊泄露。工具受限时也必须披露证据边界，不能把未验证内容包装成结论。
 
@@ -836,10 +847,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-RESOURCE-ACCESS] 附件回看、Drive 链接与 tenant 文档读取
 
-| 字段     | 内容                                                                                                                                                                                                                                      |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/config.py`, `gateway/run.py`, `gateway/platforms/base.py`, `tools/feishu_doc_tool.py`, `tests/gateway/test_config.py`, `tests/gateway/test_feishu.py`, `tests/tools/test_feishu_tools.py` |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                             |
+| 字段     | 内容                                                                                                                                                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `plugins/platforms/feishu/adapter.py`, `gateway/{run.py,run_inbound.py,platforms/base.py}`, `tools/feishu_doc_tool.py`, `tests/gateway/test_config.py`, `tests/gateway/test_feishu.py`, `tests/tools/test_feishu_tools.py` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                              |
 
 **问题**：群聊媒体与 @mention 常分成两条消息，引用里的 `/file/<token>` 也不是 IM 附件；普通 gateway 工具调用没有 comment thread-local client 时，tenant 凭据明明存在却无法读取飞书文档。旧附件补丁还只允许群 `trigger_kind == bot` 且非 command 的回填：DM 显式引用、群 `@配置本人账号`、Feishu command composer 遗留的单独 `/` 均会只留下缓存路径而不把图片/视频交给模型；显式再次引用同一资源又会被本应只约束滑动窗口的去重缓存错误抑制。另外，被引用的合并转发消息在 webhook payload 里不带子消息体，上游只把它归一化成 `[Merged forward message]` 占位符，因此群里"引用合并记录 + @Bot"只能看到占位符，而私聊直发同一条合并记录却能正常展开。初次补上展开后仍有第二层截断：Gateway 对所有 `reply_to_text` 硬编码 `[:500]`，真实卡片的 12 条子消息虽已全部从 Feishu API 取回，送模时却在第 6 条中间静默截断，导致机器人错误声称后续内容不存在。2026-08-16 的真实 PDF 回填又暴露第三层：`_fetch_message_text` 为生成引用说明先下载一次附件并把绝对 cache path 写进 `reply_to_text`，随后 `_backfill_reply_attachments` 为真正送模再次下载，同一 PDF 产生两个缓存副本；sender-window 只接受 image/file/media、遗漏原生 audio，窗口与上限也不可配置，失败后静默按纯文本继续。2026-09-03 的 53.8 MiB PPTX 现场又暴露配置桥缺口：`config.yaml` 已声明四个 `attachment_backfill_*` 键，但 `gateway/config.py` 没有把它们传入 `PlatformConfig.extra`，运行时始终退回 8 秒默认值；同一附件直接下载约 22 秒，引用与 sender-window 两条回填均稳定超时。
 
@@ -853,10 +864,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-DOCUMENT-EXTRACTION] 可信文档文本抽取
 
-| 字段     | 内容                                                                                                                                                                                                                  |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `gateway/run.py`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock`, `tests/gateway/{test_document_context_note.py,test_image_input_routing_runtime.py}`, `tests/tools/test_read_extract.py` |
-| **状态** | 🟡 部分吸收（XLSX/DOCX/IPYNB、`read_file` 接线、bundled anydoc/typed OCR 已上游合并；native PDF/HTML/PPTX/ODT 与入站接线仍本地）                                                                                      |
+| 字段     | 内容                                                                                                                                                                                                                                   |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/{run.py,run_inbound.py}`, `tools/read_extract.py`, `pyproject.toml`, `tools/lazy_deps.py`, `uv.lock`, `tests/gateway/{test_document_context_note.py,test_image_input_routing_runtime.py}`, `tests/tools/test_read_extract.py` |
+| **状态** | 🟡 部分吸收（XLSX/DOCX/IPYNB、`read_file` 接线、bundled anydoc/typed OCR 已上游合并；native PDF/HTML/PPTX/ODT 与入站接线仍本地）                                                                                                       |
 
 **问题**：附件成功下载后，PDF/HTML/PPTX/ODT 等二进制仍只给模型路径；群聊又不能临时执行解析脚本。上游 `tools/read_extract.py` 已覆盖 IPYNB/DOCX/XLSX，并通过 anydoc 覆盖 legacy Office/ODF/RTF/EPUB/PDF，但没有替代本地 native PDF/HTML/PPTX/ODT、pypdf pin 与 Gateway 入站抽取。初版入站抽取虽把文本送进 prompt，仍同时暴露原始 cache 绝对路径，真实 `Data Pipeline Workshop` turn 因此在已经拿到 PDF 文本后又调用一次 `read_file` 并被群沙箱拒绝；同时“只要任意页有文字就算成功”的分支会漏掉混合 PDF 中占比较高的扫描/图片页。
 
@@ -931,10 +942,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-TRUNCATED-TOOL-CALL-RECOVERY] 隐藏截断的工具参数提高预算后重试
 
-| 字段     | 内容                                                                                                                                       |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **文件** | `agent/{chat_completion_helpers.py,conversation_loop.py}`, `tests/run_agent/{test_tool_call_incremental_persistence.py,test_run_agent.py}` |
-| **状态** | 🟡 未上游合并；上游 `finish_reason=tool_calls` + 未闭合 JSON 分支仍立即终止                                                                |
+| 字段     | 内容                                                                                                                                                                                |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/{chat_completion_helpers.py,turn_tool_round.py,turn_tool_validation.py,turn_truncation.py}`, `tests/run_agent/{test_tool_call_incremental_persistence.py,test_run_agent.py}` |
+| **状态** | 🟡 未上游合并；上游 `finish_reason=tool_calls` + 未闭合 JSON 分支仍立即终止                                                                                                         |
 
 **问题**：大段文档/文件写入会把正文放进工具参数 JSON。Bedrock Converse 默认 `max_tokens=4096`，参数超过预算时有的 provider 返回 `finish_reason=length`，有的 router 却改写成 `tool_calls` 并留下未闭合 JSON。前者已有 4 次有界重试并把输出预算指数提高到 8k/16k/32k；后者在 JSON 校验处直接返回 `Response truncated due to output length limit`，既不重试，也把不可靠的 finish reason 当成确定诊断。2026-08-20 创建飞书需求文档正是此路径：前序工具结果存在，下一次大参数调用被截断，创建脚本从未执行。
 
@@ -948,10 +959,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-MODEL-CONFIGURED-ONLY] `/model` 只访问配置内主模型与 fallback
 
-| 字段     | 内容                                                                                                                                                                                                                                                               |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **文件** | `hermes_cli/model_switch.py`, `gateway/{run.py,slash_commands.py}`, `tests/hermes_cli/test_tools_config.py`, `tests/gateway/test_config.py`, `tests/run_agent/test_provider_fallback.py`, `tests/run_agent/test_compressor_fallback_update.py`, 外层 `config.yaml` |
-| **状态** | 🟡 本地模型访问边界；`model_catalog.configured_only: true` 时启用                                                                                                                                                                                                  |
+| 字段     | 内容                                                                                                                                                                                                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **文件** | `hermes_cli/model_switch.py`, `gateway/{run.py,slash_commands.py,slash_commands_model.py}`, `tests/hermes_cli/test_tools_config.py`, `tests/gateway/test_config.py`, `tests/run_agent/test_provider_fallback.py`, `tests/run_agent/test_compressor_fallback_update.py`, 外层 `config.yaml` |
+| **状态** | 🟡 本地模型访问边界；`model_catalog.configured_only: true` 时启用                                                                                                                                                                                                                          |
 
 **问题**：无参数 `/model` 原生调用 `list_authenticated_providers()`，展示整台机器上检测到凭据迹象的 provider 及其在线/缓存模型目录，而不是当前 profile 的配置集合。shell secrets、credential pool 或普通 `GITHUB_TOKEN` 都可能制造链外模型入口；文本 `/model <name> --provider <slug>` 还能直接切换到这些链外 provider。用户要求 Hermes 只能访问 `config.yaml` 中显式声明的主模型与 `fallback_providers`，引入新模型必须先手工改配置。Gateway 另有一层 raw-YAML 快速读取：若 fallback model 写成 `${VAR}`，列表/预校验会看到占位符，而共享切换核心看到展开后的值，导致同一合法 route 自相拒绝。
 
@@ -990,10 +1001,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-VERTEX-DOCTOR] Doctor 识别官方 Vertex provider
 
-| 字段     | 内容                                                      |
-| -------- | --------------------------------------------------------- |
-| **文件** | `hermes_cli/doctor.py`, `tests/hermes_cli/test_doctor.py` |
-| **状态** | 🟡 未上游合并                                             |
+| 字段     | 内容                                                                         |
+| -------- | ---------------------------------------------------------------------------- |
+| **文件** | `hermes_cli/{doctor.py,doctor_config.py}`, `tests/hermes_cli/test_doctor.py` |
+| **状态** | 🟡 未上游合并                                                                |
 
 **问题**：切到官方 `model.provider: vertex` 后，实际 runtime provider 已能通过 `providers.get_provider_profile("vertex")` 和 `agent.vertex_adapter` 正常拿 OAuth token 调 Vertex OpenAI-compatible endpoint，但 `hermes doctor` 仍只看 auth/catalog provider 列表，不读 model-provider plugin registry，于是误报 `model.provider 'vertex' is not a recognised provider`。同时 `google/gemini-3.1-pro-preview` 这类 Vertex 官方 OpenAI-compatible 模型名被当作 OpenRouter 风格 vendor slug，额外误报应该切 openrouter 或去掉前缀。
 
@@ -1084,16 +1095,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-VERTEX-VIDEO-ROUTING] Gemini 视频原生路由
 
-| 字段     | 内容                                                                                                                                 |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| **文件** | `agent/image_routing.py`, `gateway/run.py`, `tests/agent/test_image_routing.py`, `tests/gateway/test_image_input_routing_runtime.py` |
-| **状态** | 🟡 未上游合并；依赖 `PATCH-IMAGE-NATIVE-ROUTING` 的 Vertex/Gemini 识别                                                               |
+| 字段     | 内容                                                                                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/image_routing.py`, `gateway/{run.py,run_inbound.py,run_turn_runner.py,session_state.py}`, `tests/agent/test_image_routing.py`, `tests/gateway/test_image_input_routing_runtime.py` |
+| **状态** | 🟡 未上游合并；依赖 `PATCH-IMAGE-NATIVE-ROUTING` 的 Vertex/Gemini 识别                                                                                                                    |
 
 **问题**：上游视频只注入本地 path note，期望模型自行用 ffprobe/ffmpeg；群聊没有 terminal，因而即使附件已缓存也看不到视频内容。图片能力不能直接等同视频能力，且视频没有缩图重试，必须使用更窄的白名单和大小边界。
 
 **修复**：新增 `decide_video_input_mode`、独立 Vertex+Gemini 3.x 视频白名单、magic-byte/MIME 校验和 14 MB 内联上限。支持的视频转换为 `data:video/*;base64` content part；gateway 用 session buffer 把 native video paths 传给 content builder，超限/不支持视频继续交给 `PATCH-MULTIMODAL-SIDECAR`，若仍失败则给 path-free `FAILED` 状态。无需给群聊放开任何命令工具。**2026-08-07 审计修复两处接线缺陷**：① gateway wrapper `_decide_image_input_mode` 曾把 `kind=kind` 直传给不接受该参数的 `decide_image_input_mode`（本地=上游签名均无 `kind`），TypeError 被 fail-open except 吞掉后**所有**网关图片/视频路由静默退化为 `"text"`——视频补丁在生产路径完全失效、图片路由连带破坏（上游 `test_pre_turn_named_custom_provider_identity_selects_vision_override` 在 worktree 上 1 failed，该文件当时不在补丁测试清单故 815/0 未暴露）；现 wrapper 内按 kind 分流，`kind=="video"` 直连 `decide_video_input_mode`（无网络 I/O，同时消除 async handler 内的同步阻塞隐患），图片路径恢复上游原签名调用。② 视频 buffer 补齐与图片路径对称的**每轮重置**（`_consume_pending_native_video_paths(session_key)`），杜绝被中止 turn 的视频泄漏进同会话下一轮。
 
-**验证**：Step 8b 单独检查 video decision、native-video session buffer、**gateway 接线**（`return decide_video_input_mode(` 与 per-turn consume 锚点，2026-08-07 起——此前四个锚点全部只锚定义与测试名，功能整体失效时 gate 仍报 active）和 data-URL 回归；`test_gateway_kind_video_routes_through_video_decision_table` 从 runner 边界证明 kind="video" 真正抵达视频决策表（vertex+gemini-3 → native、非白名单 → text）；`test_prepare_resets_stale_video_buffer_per_turn` 穿过真实 `_prepare_inbound_message_text` 证明陈旧视频 buffer 与图片 buffer 一同被每轮重置；测试另覆盖 Vertex primary/fallback、非视频模型、显式配置、MIME/大小守卫和实际 content parts。
+**验证**：Step 8b 单独检查 video decision、native-video session buffer、**gateway 接线**（`return decide_video_input_mode(` 与 per-turn consume 锚点，2026-08-07 起——此前四个锚点全部只锚定义与测试名，功能整体失效时 gate 仍报 active）和 data-URL 回归；`test_gateway_kind_video_routes_through_video_decision_table` 从 runner 边界证明 kind="video" 真正抵达视频决策表（vertex+gemini-3 → native、非白名单 → text）；`test_prepare_resets_stale_video_buffer_per_turn` 穿过真实 `_prepare_inbound_message_text` 证明陈旧视频 buffer 与图片 buffer 一同被每轮重置；`test_turn_runner_attaches_buffered_native_video_once` 直接执行 v0.21 拆分后的 `TurnRunner._native_image_run_message()`，锁定视频 buffer 只消费一次并传给 native content builder；测试另覆盖 Vertex primary/fallback、非视频模型、显式配置、MIME/大小守卫和实际 content parts。
 
 **上游吸收判断**：上游提供通用 native video routing、明确的视频 capability 和等价 MIME/size safety 后可归档。
 
@@ -1101,10 +1112,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-MULTIMODAL-SIDECAR] 主力模型读不了媒体时的旁路读取
 
-| 字段     | 内容                                                                                                                                                                                                                                                                                                 |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/{auxiliary_client.py,image_routing.py}`, `gateway/run.py`, `tools/vision_tools.py`, `tests/agent/{test_auxiliary_client.py,test_image_routing.py}`, `tests/gateway/test_image_input_routing_runtime.py`, `tests/gateway/test_telegram_audio_vs_voice.py`, `tests/tools/test_video_analyze.py` |
-| **状态** | 🟡 未上游合并；主模型 native 优先，本补丁为图片/音频/视频/PDF 的有界旁路                                                                                                                                                                                                                             |
+| 字段     | 内容                                                                                                                                                                                                                                                                                                                                   |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/{auxiliary_client.py,image_routing.py}`, `gateway/{run.py,run_inbound.py,session_state.py}`, `tools/vision_tools.py`, `tests/agent/{test_auxiliary_client.py,test_image_routing.py}`, `tests/gateway/test_image_input_routing_runtime.py`, `tests/gateway/test_telegram_audio_vs_voice.py`, `tests/tools/test_video_analyze.py` |
+| **状态** | 🟡 未上游合并；主模型 native 优先，本补丁为图片/音频/视频/PDF 的有界旁路                                                                                                                                                                                                                                                               |
 
 **问题**：原 sidecar 只覆盖视频。普通音频附件只留下文件路径，语音 STT 失败后也没有媒体理解兜底；扫描 PDF/空文本 PDF 本地抽取失败后只能让 agent 再调工具；未知/文本型图片主模型还可能让 `vision_analyze:auto` 重新选择当前模型，重复分析。Google 官方 Gemini 3.5 Flash 模型卡实际支持 Text、Image、Audio、Video，并原生接受 `application/pdf`/`text/plain`；当前 Vertex OpenAI-compatible wire 已用合成 440Hz WAV（2.7s）和 ORCHID-42 PDF（3.8s）真调用验证 `image_url` + 对应 `data:` MIME 可用。初版泛化后仍把成功 sidecar 的 cache path 与具体 model ID/ARN写进主 turn，并在超限、不支持 MIME、reader 空结果时回落到“让模型自行打开绝对路径”；群聊沙箱正确拒绝该路径，却让用户看到“无法读取原文件”，也多耗一次工具调用。native content part 同样把本地路径作为文本 hint 暴露，即使媒体字节已经在相邻 data URL 中。
 
@@ -1126,16 +1137,16 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-HISTORY-RETENTION] 平台级回放历史保留窗
 
-| 字段     | 内容                                                                                                                                                                                                                    |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `agent/replay_cleanup.py`, `gateway/run.py`, `tests/agent/test_replay_cleanup.py`, `tests/gateway/test_stale_confirmation_expiry.py`（配置键 `gateway.history_retention` 在 `~/.hermes/config.yaml`，非 PATCHED_FILES） |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                           |
+| 字段     | 内容                                                                                                                                                                                                                                         |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `agent/replay_cleanup.py`, `gateway/{run.py,run_turn_runner.py}`, `tests/agent/test_replay_cleanup.py`, `tests/gateway/test_stale_confirmation_expiry.py`（配置键 `gateway.history_retention` 在 `~/.hermes/config.yaml`，非 PATCHED_FILES） |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                |
 
 **问题**：（2026-07-14 复盘 SpaceSight Tech Sharing Group 历史污染）共享群 session 每轮把**全量** transcript 回放给模型（`load_transcript` → `_build_gateway_agent_history`），唯一的历史收敛机制是按 token 触发的 hygiene/压缩——大上下文模型（Gemini 3.1 Pro）上 94 条消息远够不到 85% 阈值，从不触发；且压缩是摘要不是丢弃。结果是 7 月 10 日 随消息入库的一次性 `[Feishu assistant mode]` 指令块 + 模型照做的范例，在 7 月 14 日 第三方 @bot（零注入分支）轮次里仍然整段可见，模型据此模式补全出「我是琛哥的赛博小助手…琛哥可能在忙」的代答口吻。缺一个与 token 无关的、按**墙钟时间和条数**的回放上界。
 
 **修复**：`agent/replay_cleanup.py` 新增 `apply_history_retention(history, now, max_age_seconds, max_messages)`（sentinel `history-retention`）：视图级过滤——state.db 完整保留（审计 / `/resume` / 搜索不受影响），只裁剪发给模型的回放。语义：切点只落在**轮边界**（普通 user 行，`_retention_turn_starts`），绝不切断 assistant(tool_calls)→tool 配对；时间窗按整轮的开头 user 行 `timestamp` 判断，无时间戳的行视为"新"（兼容旧转录与内存脚手架，防止配置误伤成批丢历史）；条数上限向轮边界**向上取整**；最新一轮无论多旧/多长永远保留；两个限制同时配置取更严格的切点；无 user 行的退化历史原样返回。`gateway/run.py` 新增 `_history_retention_limits_for_source()`：从 `gateway.history_retention.<platform-key>` 读取限额，platform-key 复用工具/skill 配置同款 chat-scope 拆分（飞书群=`feishu_group`、私聊=`feishu`），未配置或值非法一律 fail-open 返回 None。注入点在 `_run_agent_inner` 的 cached-agent 守卫（`_select_cached_agent_history`）**之后**，单点同时覆盖「盘上转录」与「内存活转录」两条路径。本机 `config.yaml` 配置 `feishu_group: {max_age_seconds: 21600, max_messages: 30}`（6 小时 / 30 条），私聊与 CLI 不配置、行为不变。
 
-**验证**：Step 8b grep `agent/replay_cleanup.py` 中存在 `def apply_history_retention`、`def _retention_turn_starts`，grep `gateway/run.py` 中存在 `_history_retention_limits_for_source`、`_apply_history_retention`，并 grep `tests/agent/test_replay_cleanup.py` 中的 `test_retention_never_splits_tool_call_blocks`、`test_retention_newest_turn_always_kept_even_if_too_old` 与 `tests/gateway/test_stale_confirmation_expiry.py` 中的 `test_retention_feishu_dm_not_covered_by_group_key`。定向测试覆盖：时间窗丢整轮、条数向轮边界取整、tool-call 块不被切断、最新一轮超龄/超量仍保留、无时间戳视为新、时间 + 条数组合取更严、未配置/畸形配置 fail-open、DM 不受群键影响（`test_replay_cleanup.py` 21 passed + `test_stale_confirmation_expiry.py` 15 passed；周边 `test_session.py` 167 passed + `test_feishu.py` 237 passed）。
+**验证**：Step 8b grep `agent/replay_cleanup.py` 中存在 `def apply_history_retention`、`def _retention_turn_starts`，grep `gateway/run.py` 中存在 `_history_retention_limits_for_source`，并 grep `gateway/run_turn_runner.py` 中的实际应用点；`tests/agent/test_replay_cleanup.py` 的 `test_retention_never_splits_tool_call_blocks`、`test_retention_newest_turn_always_kept_even_if_too_old` 与 `tests/gateway/test_stale_confirmation_expiry.py` 的 `test_retention_feishu_dm_not_covered_by_group_key` / `test_turn_runner_applies_history_retention_before_media_scan` 覆盖时间窗丢整轮、条数向轮边界取整、tool-call 块不被切断、最新一轮超龄/超量仍保留、未配置/畸形配置 fail-open、DM 不受群键影响及 v0.21 split owner 接线。
 
 **上游吸收判断**：若上游为 gateway 回放历史提供原生的时间窗/条数保留配置（或给共享群 session 引入等价的 per-platform replay 上界机制），可归档本补丁。
 
@@ -1143,10 +1154,10 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-APPROVAL-DARWIN-TMP] Darwin verify-artifact 临时路径归一化
 
-| 字段     | 内容                                                                                                                                                                                                                                      |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **文件** | `tools/approval.py`（仅 `_is_verification_artifact_cleanup` 的 `allowed_spellings` hunk）, `tests/tools/test_approval.py`（仅 `test_darwin_private_alias_accepts_raw_temp_spelling`）——两文件的其余 hunk 属 `PATCH-FEISHU-GROUP-APPROVAL` |
-| **状态** | 🟡 未上游合并                                                                                                                                                                                                                             |
+| 字段     | 内容                                                                                                                                                                                                                                                  |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `tools/approval_detection.py`（仅 `_is_verification_artifact_cleanup` 的 `allowed_spellings` hunk）, `tests/tools/test_approval.py`（仅 `test_darwin_private_alias_accepts_raw_temp_spelling`）——测试文件的其余 hunk 属 `PATCH-FEISHU-GROUP-APPROVAL` |
+| **状态** | 🟡 未上游合并                                                                                                                                                                                                                                         |
 
 **问题**：上游 `0c8bcd339` 的 `_is_verification_artifact_cleanup` 给 verify/ad-hoc 临时脚本的 `rm -f` 清理开豁免（不走审批），但实现只对 `tempfile.gettempdir()` 做 `realpath` 而不动 operand：Darwin 上 temp 路径全在 `/private` 别名后（`/tmp` → `/private/tmp`、`/var/folders/…` → `/private/var/folders/…`），运行时用 `gettempdir()` 原样拼出的清理命令**永远匹配不上**，豁免恒不生效、清理仍走审批（行为等同该修复落地前）；上游自带测试 `test_nonrecursive_verification_artifact_cleanup_is_not_dangerous` 在 macOS 恒失败（Linux CI 上 raw==canonical 测不出来）。同时上游另一测试 `test_symlinked_temp_dir_only_exempts_canonical_target` 锁定「一般 symlink temp 目录只豁免 canonical 拼写」，简单放开 raw 拼写会破坏该 fail-closed 语义。
 

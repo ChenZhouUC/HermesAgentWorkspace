@@ -81,6 +81,8 @@ gateway/restart_loop.json
 .container-mode
 .gateway-launchd-unsupported
 .install_method
+.install_id.lock
+install_id
 .managed
 active_profile
 feishu_comment_pairing.json
@@ -127,6 +129,7 @@ session-exports/
 spawn-trees/
 backups/
 state-snapshots/
+runtime/
 
 # ── 日志和会话 ──────────────────────────────────────────────────
 logs/

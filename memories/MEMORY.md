@@ -18,7 +18,7 @@ Feishu docs (whales.feishu.cn): weekly report docx/JdP0dS9QsoFWA2xaBhUc1g6Snkg; 
 §
 Naming: 'Ground Control + Satellite View' = his hub-and-spoke pattern (local=config/agent/sync; remote=read-only dashboards).
 §
-Data/docs: likes polished varied/native charts. ChatBI metrics unique_footfall/passby/impression=进店/过店/关注. MKT wiki SparkAtlas｜星火图谱。
+Data/docs: polished varied/native charts. ChatBI unique_footfall/passby/impression=进店/过店/关注. MKT wiki SparkAtlas｜星火图谱。埋点：raw-data 优先，Web/App 轻采集，云端加工 PMF 指标。
 §
 Codex CLI: ~/.codex/models-bundled-0.147-workaround.json caps gpt-5.6-sol ctx 272K (≈258K).
 §

@@ -109,25 +109,40 @@ PATCHED_FILES=(
     "website/docs/guides/migrate-from-openclaw.md"
     "website/i18n/zh-Hans/docusaurus-plugin-content-docs/current/guides/migrate-from-openclaw.md"
     "gateway/authz_mixin.py"
-    "gateway/config.py"
     "gateway/display_config.py"
     "plugins/platforms/feishu/adapter.py"
     "gateway/platforms/base.py"
     "gateway/run.py"
+    "gateway/run_agent_cache.py"
+    "gateway/run_busy.py"
+    "gateway/run_inbound.py"
+    "gateway/run_turn.py"
+    "gateway/run_turn_runner.py"
     "gateway/slash_commands.py"
+    "gateway/slash_commands_model.py"
+    "gateway/slash_commands_session.py"
     "gateway/session.py"
     "gateway/session_context.py"
+    "gateway/session_state.py"
     "gateway/stream_consumer.py"
+    "gateway/stream_consumer_fallback.py"
+    "gateway/stream_consumer_transport.py"
     "hermes_cli/doctor.py"
+    "hermes_cli/doctor_config.py"
     "hermes_cli/env_loader.py"
     "hermes_cli/model_switch.py"
     "hermes_cli/config_defaults.py"
     "hermes_cli/tools_config.py"
     "agent/prompt_builder.py"
     "agent/auxiliary_client.py"
+    "agent/session_persistence.py"
     "agent/skill_commands.py"
     "agent/skill_utils.py"
+    "agent/turn_tool_round.py"
+    "agent/turn_tool_validation.py"
+    "agent/turn_truncation.py"
     "tools/approval.py"
+    "tools/approval_detection.py"
     "tests/tools/test_approval.py"
     "tools/skills_tool.py"
     "tests/tools/test_skills_tool.py"
@@ -182,13 +197,16 @@ PATCHED_FILES=(
     "tests/gateway/test_stale_confirmation_expiry.py"
     "agent/agent_runtime_helpers.py"
     "agent/chat_completion_helpers.py"
-    "agent/conversation_loop.py"
     "agent/tool_executor.py"
     "agent/mcp_task_protocol.py"
-    "run_agent.py"
-    "hermes_state.py"
-    "tools/mcp_tool.py"
+    "hermes_state_messages.py"
     "tools/mcp_tasks_extension.py"
+    "tools/mcp_tool_discovery.py"
+    "tools/mcp_tool_errors.py"
+    "tools/mcp_tool_handlers.py"
+    "tools/mcp_tool_registration.py"
+    "tools/mcp_tool_schema.py"
+    "tools/mcp_tool_transport.py"
     "tests/run_agent/test_tool_call_incremental_persistence.py"
     "tests/run_agent/test_run_agent.py"
     "tests/tools/test_mcp_tasks_extension.py"
@@ -2360,7 +2378,11 @@ step "Re-applying local patches"
 VENV_PY="${HERMES_AGENT}/venv/bin/python3"
 SKILL_TOOL="${HERMES_AGENT}/tools/skill_manager_tool.py"
 DOCTOR_PY="${HERMES_AGENT}/hermes_cli/doctor.py"
+DOCTOR_TOOLS_PY="${HERMES_AGENT}/hermes_cli/doctor_tools.py"
+DOCTOR_CONFIG_PY="${HERMES_AGENT}/hermes_cli/doctor_config.py"
+DOCTOR_CONNECTIVITY_PY="${HERMES_AGENT}/hermes_cli/doctor_connectivity.py"
 DELEGATE_TOOL="${HERMES_AGENT}/tools/delegate_tool.py"
+DELEGATE_TOOL_CONFIG="${HERMES_AGENT}/tools/delegate_tool_config.py"
 PYPROJECT="${HERMES_AGENT}/pyproject.toml"
 LAZY_DEPS_PY="${HERMES_AGENT}/tools/lazy_deps.py"
 LAZY_DEPS_TEST_PY="${HERMES_AGENT}/tests/tools/test_lazy_deps.py"
@@ -2519,8 +2541,8 @@ fi
 
 # Archived PATCH-DOCTOR-ENABLED-TOOLSETS: upstream owns the enabled-toolset
 # issue-count filter; retain a regression sentinel.
-if [[ -f "${DOCTOR_PY}" ]]; then
-    if grep -q "_get_platform_tools" "${DOCTOR_PY}" 2>/dev/null; then
+if [[ -f "${DOCTOR_TOOLS_PY}" ]]; then
+    if grep -q "_get_platform_tools" "${DOCTOR_TOOLS_PY}" 2>/dev/null; then
         ok "Doctor issue-count filter: active (upstream merged, PATCH-DOCTOR-ENABLED-TOOLSETS retired)"
         _ARCHIVED_DOCTOR_TOOLSETS_OK=true
     else
@@ -2528,15 +2550,16 @@ if [[ -f "${DOCTOR_PY}" ]]; then
         add_act "Check upstream: hermes_cli/doctor.py should filter missing API-key issues through enabled toolsets"
     fi
 else
-    warn "Could not locate hermes_cli/doctor.py — skipping doctor patch check"
+    warn "Could not locate hermes_cli/doctor_tools.py — skipping doctor patch check"
 fi
 
 # Archived PATCH-DASHBOARD-BUILD-CACHE: dashboard web-build skip was merged upstream via _web_ui_build_needed()
 # in commit 5b5a53a1; verify the upstream helper is present so we can detect
 # regressions, but no local patch is required.
 MAIN_PY="${HERMES_AGENT}/hermes_cli/main.py"
-if [[ -f "${MAIN_PY}" ]]; then
-    if grep -q '_web_ui_build_needed' "${MAIN_PY}" 2>/dev/null; then
+MAIN_WEB_BUILD_PY="${HERMES_AGENT}/hermes_cli/main_web_build.py"
+if [[ -f "${MAIN_WEB_BUILD_PY}" ]]; then
+    if grep -q '_web_ui_build_needed' "${MAIN_WEB_BUILD_PY}" 2>/dev/null; then
         ok "Dashboard web-build skip: active (upstream merged, PATCH-DASHBOARD-BUILD-CACHE retired)"
         _ARCHIVED_DASHBOARD_BUILD_CACHE_OK=true
     else
@@ -2547,9 +2570,9 @@ fi
 
 # Archived PATCH-DELEGATE-ACP-ROUTING: delegate ACP routing was merged upstream in v0.10.0.
 # Verify the behavior still exists but don't require local patch.
-if [[ -f "${DELEGATE_TOOL}" ]]; then
-    if grep -q 'override_acp_command' "${DELEGATE_TOOL}" 2>/dev/null &&
-        grep -q 'copilot-acp' "${DELEGATE_TOOL}" 2>/dev/null; then
+if [[ -f "${DELEGATE_TOOL_CONFIG}" ]]; then
+    if grep -q 'override_acp_command' "${DELEGATE_TOOL_CONFIG}" 2>/dev/null &&
+        grep -q 'copilot-acp' "${DELEGATE_TOOL_CONFIG}" 2>/dev/null; then
         ok "Delegate ACP routing: active (upstream merged, PATCH-DELEGATE-ACP-ROUTING retired)"
         _ARCHIVED_DELEGATE_ACP_ROUTING_OK=true
     else
@@ -2557,7 +2580,7 @@ if [[ -f "${DELEGATE_TOOL}" ]]; then
         add_act "Check upstream: _build_child_agent should force copilot-acp when override_acp_command is set"
     fi
 else
-    warn "Could not locate tools/delegate_tool.py — skipping delegate patch check"
+    warn "Could not locate tools/delegate_tool_config.py — skipping delegate patch check"
 fi
 
 # Archived PATCH-GEMINI-THOUGHT-SIGNATURE: merged upstream in v0.11.0. Preserve the
@@ -2566,8 +2589,8 @@ fi
 TRANSPORT_TYPES_PY="${HERMES_AGENT}/agent/transports/types.py"
 TRANSPORT_TYPES_TEST_PY="${HERMES_AGENT}/tests/agent/transports/test_types.py"
 if [[ -f "${TRANSPORT_TYPES_PY}" && -f "${TRANSPORT_TYPES_TEST_PY}" ]]; then
-    if grep -q 'def extra_content' "${TRANSPORT_TYPES_PY}" 2>/dev/null &&
-        grep -q 'provider_data or {}' "${TRANSPORT_TYPES_PY}" 2>/dev/null &&
+    if grep -q 'extra_content = property' "${TRANSPORT_TYPES_PY}" 2>/dev/null &&
+        grep -q 'self.provider_data or {}' "${TRANSPORT_TYPES_PY}" 2>/dev/null &&
         grep -q 'test_extra_content_getattr_pattern' "${TRANSPORT_TYPES_TEST_PY}" 2>/dev/null; then
         ok "Gemini thought-signature replay: active (upstream merged, PATCH-GEMINI-THOUGHT-SIGNATURE retired)"
         _ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK=true
@@ -2627,7 +2650,7 @@ GATEWAY_CLI_PY="${HERMES_AGENT}/hermes_cli/gateway.py"
 GATEWAY_EXTERNAL_SUPERVISOR_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_gateway_external_supervisor.py"
 if [[ -f "${GATEWAY_CLI_PY}" && -f "${GATEWAY_EXTERNAL_SUPERVISOR_TEST_PY}" ]]; then
     if grep -q 'external_supervisor: bool = False' "${GATEWAY_CLI_PY}" &&
-        grep -q 'inner = \[\*inner, "--external-supervisor"\]' "${GATEWAY_CLI_PY}" &&
+        grep -q 'inner.append("--external-supervisor")' "${GATEWAY_CLI_PY}" &&
         grep -q 'external_supervisor=True' "${GATEWAY_CLI_PY}" &&
         grep -q 'test_update_hands_generated_launchd_inner_argv_back_without_watcher' "${GATEWAY_EXTERNAL_SUPERVISOR_TEST_PY}" &&
         grep -q 'test_update_still_uses_detached_watcher_without_supervisor_flag' "${GATEWAY_EXTERNAL_SUPERVISOR_TEST_PY}"; then
@@ -2668,7 +2691,7 @@ fi
 # PATCH-MODEL-CONFIGURED-ONLY: /model is a session-scoped selector over the
 # config-owned primary/fallback universe, not a machine-wide credential scan.
 MODEL_SWITCH_PY="${HERMES_AGENT}/hermes_cli/model_switch.py"
-MODEL_SLASH_COMMANDS_PY="${HERMES_AGENT}/gateway/slash_commands.py"
+MODEL_SLASH_COMMANDS_PY="${HERMES_AGENT}/gateway/slash_commands_model.py"
 MODEL_CONFIGURED_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
 MODEL_GATEWAY_TEST_PY="${HERMES_AGENT}/tests/gateway/test_config.py"
 MODEL_FALLBACK_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_provider_fallback.py"
@@ -2753,7 +2776,13 @@ fi
 FEISHU_PY="${HERMES_AGENT}/plugins/platforms/feishu/adapter.py"
 AI_AUXILIARY_CLIENT_PY="${HERMES_AGENT}/agent/auxiliary_client.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
+GATEWAY_RUN_BUSY_PY="${HERMES_AGENT}/gateway/run_busy.py"
+GATEWAY_RUN_INBOUND_PY="${HERMES_AGENT}/gateway/run_inbound.py"
+GATEWAY_RUN_TURN_PY="${HERMES_AGENT}/gateway/run_turn.py"
+GATEWAY_RUN_TURN_RUNNER_PY="${HERMES_AGENT}/gateway/run_turn_runner.py"
 SLASH_COMMANDS_PY="${HERMES_AGENT}/gateway/slash_commands.py"
+SLASH_COMMANDS_MODEL_PY="${HERMES_AGENT}/gateway/slash_commands_model.py"
+SLASH_COMMANDS_SESSION_PY="${HERMES_AGENT}/gateway/slash_commands_session.py"
 SESSION_CONTEXT_PY="${HERMES_AGENT}/gateway/session_context.py"
 SESSION_PY="${HERMES_AGENT}/gateway/session.py"
 GATEWAY_CONFIG_PY="${HERMES_AGENT}/gateway/config.py"
@@ -2775,7 +2804,7 @@ TOOLS_CONFIG_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_tools_config.py"
 # PATCH-FEISHU-GROUP-ADMISSION: group admission, configured-human reply policy,
 # context backfill and current-speaker integrity. Trigger priority,
 # per-sender batching and prompt attribution are one admission/identity contract.
-if [[ -f "${AI_AUXILIARY_CLIENT_PY}" && -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${AI_AUXILIARY_CLIENT_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
+if [[ -f "${AI_AUXILIARY_CLIENT_PY}" && -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SESSION_PY}" && -f "${AUTHZ_MIXIN_PY}" && -f "${AI_AUXILIARY_CLIENT_TEST_PY}" && -f "${FEISHU_BOT_ADMISSION_TEST_PY}" && -f "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
     if grep -q 'assistant_user_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_sender_is_configured_assistant_user' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_fetch_channel_context' "${FEISHU_PY}" 2>/dev/null &&
@@ -2784,9 +2813,9 @@ if [[ -f "${AI_AUXILIARY_CLIENT_PY}" && -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_P
         grep -q 'retry with the explicit allowed path' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'FEISHU_GROUP_ALLOWED_CHATS' "${AUTHZ_MIXIN_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_allowed_chats_wildcard_authorizes_groups_only' "${FEISHU_BOT_AUTH_BYPASS_TEST_PY}" 2>/dev/null &&
-        grep -q 'history_backfill_max_chars' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
-        grep -q 'assistant_user_ai_probability_threshold' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
-        grep -q 'assistant_user_ai_cooldown_seconds' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'history_backfill_max_chars' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'assistant_user_ai_probability_threshold' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'assistant_user_ai_cooldown_seconds' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'retry_transient_transport=False' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_feishu_reply_mention_user_id' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'test_async_call_can_disable_same_provider_transient_retry' "${AI_AUXILIARY_CLIENT_TEST_PY}" 2>/dev/null &&
@@ -2810,14 +2839,14 @@ if [[ -f "${AI_AUXILIARY_CLIENT_PY}" && -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_P
         grep -q 'test_send_quote_reply_uses_native_mention_from_notify_metadata' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'explicit path under ~/.hermes/wiki' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
-        grep -q 'bare_mention_intent' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'bare_mention_intent' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_build_bare_mention_intent_text' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'test_dm_bare_mention_routes_reply_or_recent_conversation_intent' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_bare_mention_dropped_when_toggle_disabled' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'Current message author' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'Current-author rule' "${SESSION_PY}" 2>/dev/null &&
-        grep -q 'main subject of your response' "${SESSION_PY}" 2>/dev/null &&
-        grep -qF '[New message]' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'main subject' "${SESSION_PY}" 2>/dev/null &&
+        grep -qF '[New message]' "${GATEWAY_RUN_INBOUND_PY}" 2>/dev/null &&
         grep -q 'test_bot_mention_takes_priority_over_assistant_user_mention' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_text_batch_does_not_merge_different_senders' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_group_turn_body_keeps_current_author_next_to_question' "${FEISHU_TEST_PY}" 2>/dev/null &&
@@ -2835,17 +2864,17 @@ fi
 # PATCH-FEISHU-MISSED-EVENT-BACKFILL: startup/reconnect scans known chats for
 # missed trigger messages and treats quote-covered parent IDs as answered so
 # delayed pushes cannot duplicate a manual quote+@ recovery.
-if [[ -f "${FEISHU_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_MESSAGING_DOC}" ]]; then
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_MESSAGING_DOC}" ]]; then
     if grep -q 'def _run_missed_event_backfill' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _backfill_missed_events_for_chat' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _install_ws_reconnected_backfill_hook' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _mark_related_message_ids_covered' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _has_seen_message_id' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'ListMessageRequest is not None' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'def _build_list_message_request' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '"raw_mode": raw_chat_mode or None' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'chat_info.get("raw_mode") == "p2p"' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'missed_event_backfill_chats' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
-        grep -q 'ws_ping_timeout' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'missed_event_backfill_chats' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'ws_ping_timeout' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'test_missed_event_backfill_dispatches_unseen_mentions_from_known_chat' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_quote_covered_parent_is_marked_seen_for_missed_backfill' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_missed_event_backfill_dispatches_unseen_dm_from_home_chat' "${FEISHU_TEST_PY}" 2>/dev/null &&
@@ -2866,20 +2895,19 @@ fi
 
 # PATCH-FEISHU-GROUP-SCOPE: the group capability namespace. Group sessions resolve tools and
 # skill policy through feishu_group while owner DMs remain on feishu.
-if [[ -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${SLASH_COMMANDS_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${SESSION_ENV_TEST_PY}" && -f "${RUN_PROGRESS_TEST_PY}" && -f "${BACKGROUND_COMMAND_TEST_PY}" && -f "${VERBOSE_COMMAND_TEST_PY}" && -f "${TOOLS_CONFIG_TEST_PY}" ]]; then
+if [[ -f "${SESSION_CONTEXT_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${GATEWAY_RUN_BUSY_PY}" && -f "${GATEWAY_RUN_TURN_PY}" && -f "${SLASH_COMMANDS_PY}" && -f "${SLASH_COMMANDS_MODEL_PY}" && -f "${SLASH_COMMANDS_SESSION_PY}" && -f "${TOOLS_CONFIG_PY}" && -f "${SESSION_ENV_TEST_PY}" && -f "${RUN_PROGRESS_TEST_PY}" && -f "${BACKGROUND_COMMAND_TEST_PY}" && -f "${VERBOSE_COMMAND_TEST_PY}" && -f "${TOOLS_CONFIG_TEST_PY}" ]]; then
     if grep -q 'HERMES_SESSION_PLATFORM_CONFIG_KEY' "${SESSION_CONTEXT_PY}" 2>/dev/null &&
         grep -q 'return "feishu_group"' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q 'platform_key = _platform_config_key_for_source(source)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q 'platform_key = _platform_config_key_for_source(event.source)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        [[ "$(grep -F -c '_platform_config_key(source.platform)' "${GATEWAY_RUN_PY}" 2>/dev/null || true)" -eq 1 ]] &&
-        ! grep -F -q '_platform_config_key(event.source.platform)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        ! grep -F -q '_platform_config_key(source.platform)' "${SLASH_COMMANDS_PY}" 2>/dev/null &&
-        ! grep -F -q '_platform_config_key(event.source.platform)' "${SLASH_COMMANDS_PY}" 2>/dev/null &&
+        grep -q 'platform_key = _platform_config_key_for_source(source)' "${GATEWAY_RUN_TURN_PY}" 2>/dev/null &&
+        grep -q '_platform_config_key_for_source(event.source)' "${GATEWAY_RUN_BUSY_PY}" 2>/dev/null &&
+        ! grep -F -q '_platform_config_key(event.source.platform)' "${GATEWAY_RUN_PY}" "${GATEWAY_RUN_BUSY_PY}" "${GATEWAY_RUN_TURN_PY}" "${SLASH_COMMANDS_PY}" "${SLASH_COMMANDS_MODEL_PY}" 2>/dev/null &&
+        ! grep -F -q '_platform_config_key(source.platform)' "${SLASH_COMMANDS_PY}" "${SLASH_COMMANDS_SESSION_PY}" "${GATEWAY_RUN_TURN_PY}" 2>/dev/null &&
         grep -q 'recover_platform_tools' "${TOOLS_CONFIG_PY}" 2>/dev/null &&
         grep -q 'test_set_session_env_sets_feishu_group_config_key' "${SESSION_ENV_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
         grep -q 'mock_adapter.toolsets_for_source = MagicMock(return_value=None)' "${BACKGROUND_COMMAND_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_updates_group_scope_without_mutating_dm' "${VERBOSE_COMMAND_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_split_command_modules_keep_source_aware_platform_scope' "${VERBOSE_COMMAND_TEST_PY}" 2>/dev/null &&
         grep -q 'test_get_platform_tools_feishu_group_uses_independent_config' "${TOOLS_CONFIG_TEST_PY}" 2>/dev/null; then
         ok "PATCH-FEISHU-GROUP-SCOPE active: runtime display/tools use feishu_group, owner DM stays feishu"
         _FEISHU_GROUP_SCOPE_PATCH_OK=true
@@ -2898,6 +2926,7 @@ SKILLS_TOOL_PY="${HERMES_AGENT}/tools/skills_tool.py"
 SKILLS_TOOL_TEST_PY="${HERMES_AGENT}/tests/tools/test_skills_tool.py"
 TOOLSETS_PY="${HERMES_AGENT}/toolsets.py"
 APPROVAL_PY="${HERMES_AGENT}/tools/approval.py"
+APPROVAL_DETECTION_PY="${HERMES_AGENT}/tools/approval_detection.py"
 APPROVAL_TEST_PY="${HERMES_AGENT}/tests/tools/test_approval.py"
 
 # PATCH-PLATFORM-CAPABILITY-SCOPE: reusable platform capability scoping
@@ -2936,7 +2965,7 @@ fi
 if [[ -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
     if grep -q '_is_restricted_feishu_approval_session' "${APPROVAL_PY}" 2>/dev/null &&
         grep -q 'restricted_chat' "${APPROVAL_PY}" 2>/dev/null &&
-        grep -q 'PATCH-FEISHU-GROUP-APPROVAL hard floor' "${APPROVAL_PY}" 2>/dev/null &&
+        grep -q '_restricted_feishu_approval_result' "${APPROVAL_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_dangerous_command_does_not_send_approval_card' "${APPROVAL_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_block_precedes_allowlist_and_prior_approvals' "${APPROVAL_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_execute_code_guard_blocked' "${APPROVAL_TEST_PY}" 2>/dev/null &&
@@ -2956,7 +2985,7 @@ fi
 DISPLAY_CONFIG_PY="${HERMES_AGENT}/gateway/display_config.py"
 DISPLAY_CONFIG_TEST_PY="${HERMES_AGENT}/tests/gateway/test_display_config.py"
 if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" ]]; then
-    if grep -q 'reply_in_thread = False' "${FEISHU_PY}" 2>/dev/null &&
+    if grep -q 'reply_in_thread=False' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'Ignore generic thread metadata on Feishu' "${FEISHU_PY}" 2>/dev/null &&
         ! grep -q 'reply_in_thread = bool' "${FEISHU_PY}" 2>/dev/null &&
         ! grep -qF '_build_create_message_request("thread_id"' "${FEISHU_PY}" 2>/dev/null &&
@@ -2978,7 +3007,7 @@ fi
 # 3-minute long-run heartbeat. Provider-side thought suppression remains the
 # separate PATCH-VERTEX-HIDDEN-THOUGHTS contract.
 if [[ -f "${DISPLAY_CONFIG_PY}" && -f "${DISPLAY_CONFIG_TEST_PY}" && -f "${RUN_PROGRESS_TEST_PY}" && -f "${VERBOSE_COMMAND_TEST_PY}" ]]; then
-    if grep -q '"feishu":          {' "${DISPLAY_CONFIG_PY}" 2>/dev/null &&
+    if grep -Eq '"feishu":[[:space:]]*\{' "${DISPLAY_CONFIG_PY}" 2>/dev/null &&
         grep -q 'test_feishu_defaults_to_final_only' "${DISPLAY_CONFIG_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_runtime_scope_hides_progress_and_uses_group_tools' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_updates_group_scope_without_mutating_dm' "${VERBOSE_COMMAND_TEST_PY}" 2>/dev/null &&
@@ -3300,8 +3329,8 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q 'test_text_filter_applies_before_stream_delivery' "${STREAM_CONSUMER_TEST_PY}" 2>/dev/null &&
         grep -q 'test_non_dm_interim_direct_fallback_redacts_private_profile' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
         grep -q 'assert "Prompt:" not in content' "${BACKGROUND_COMMAND_TEST_PY}" 2>/dev/null &&
-        grep -q 'redact_private_person_profile_text(source, response)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q '_stts_consumer_ref.on_delta(_visible_turn_text(text))' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'redact_private_person_profile_text(source, response)' "${GATEWAY_RUN_TURN_PY}" 2>/dev/null &&
+        grep -q 'text_filter=visible_text' "${GATEWAY_RUN_TURN_RUNNER_PY}" 2>/dev/null &&
         $_PEOPLE_PROFILE_FILE_OK; then
         ok "People/group profile patch: active (people.yaml + groups.yaml owner-rw mode 0600; profile lookup; final/stream/interim/background/audio redaction; no background prompt replay; roster-source secrecy; public-only history sender join)"
         _PEOPLE_PROFILE_PATCH_OK=true
@@ -3320,14 +3349,14 @@ fi
 FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
 FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
 PLATFORMS_BASE_PY="${HERMES_AGENT}/gateway/platforms/base.py"
-if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${PLATFORMS_BASE_PY}" && -f "${GATEWAY_CONFIG_PY}" && -f "${GATEWAY_CONFIG_TEST_PY}" ]]; then
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${PLATFORMS_BASE_PY}" && -f "${GATEWAY_CONFIG_TEST_PY}" ]]; then
     if grep -q 'def _backfill_sender_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_BACKFILL_WINDOW_SECONDS' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_BACKFILL_MSG_TYPES = frozenset({"image", "file", "media", "audio"})' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'attachment_backfill_window_seconds' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'attachment_backfill_timeout_seconds' "${GATEWAY_CONFIG_PY}" 2>/dev/null &&
+        grep -q 'attachment_backfill_timeout_seconds' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_backfilled_attachment_ids' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'if text == "/":' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'can_backfill_group = ' "${FEISHU_PY}" 2>/dev/null &&
@@ -3339,7 +3368,7 @@ if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" 
         grep -q 'if normalized.raw_type == "merge_forward":' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_MERGE_FORWARD_REPLY_CONTEXT_MAX_CHARS' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q '_client_from_env' "${FEISHU_DOC_TOOL_PY}" 2>/dev/null &&
-        grep -q '"\.odt": "application/vnd.oasis.opendocument.text"' "${PLATFORMS_BASE_PY}" 2>/dev/null &&
+        grep -q '"\.odt"' "${PLATFORMS_BASE_PY}" 2>/dev/null &&
         grep -q 'test_backfill_reply_attachments_downloads_post_images' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_explicit_requote_is_not_suppressed_and_media_video_is_preserved' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_sender_window_backfill_includes_audio_and_uses_configured_window' "${FEISHU_TEST_PY}" 2>/dev/null &&
@@ -3534,7 +3563,7 @@ fi
 VERTEX_PROVIDER_PY="${HERMES_AGENT}/plugins/model-providers/vertex/__init__.py"
 VERTEX_PROVIDER_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_vertex_provider.py"
 if [[ -f "${VERTEX_PROVIDER_PY}" && -f "${VERTEX_PROVIDER_TEST_PY}" ]]; then
-    if grep -q 'include_thoughts=true' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
+    if grep -q 'thinking_config.get("include_thoughts") is True' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
         grep -q 'thinking_config\["include_thoughts"\] = False' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
         grep -q 'return {"google": {"thinking_config": thinking_config}}' "${VERTEX_PROVIDER_PY}" 2>/dev/null &&
         grep -q 'test_vertex_extra_body_preserves_disabled_reasoning' "${VERTEX_PROVIDER_TEST_PY}" 2>/dev/null &&
@@ -3553,10 +3582,10 @@ fi
 # Google-style model slugs so `hermes doctor` stays green after switching the
 # main model path from the legacy custom endpoint to provider: vertex.
 DOCTOR_TEST_PY="${HERMES_AGENT}/tests/hermes_cli/test_doctor.py"
-if [[ -f "${DOCTOR_PY}" && -f "${DOCTOR_TEST_PY}" ]]; then
-    if grep -q '_get_provider_profile' "${DOCTOR_PY}" 2>/dev/null &&
+if [[ -f "${DOCTOR_PY}" && -f "${DOCTOR_CONFIG_PY}" && -f "${DOCTOR_TEST_PY}" ]]; then
+    if grep -q 'get_provider_profile' "${DOCTOR_CONFIG_PY}" 2>/dev/null &&
         grep -q 'GOOGLE_APPLICATION_CREDENTIALS' "${DOCTOR_PY}" 2>/dev/null &&
-        grep -q '"vertex"' "${DOCTOR_PY}" 2>/dev/null &&
+        grep -q '"vertex"' "${DOCTOR_CONFIG_PY}" 2>/dev/null &&
         grep -q 'AZURE_FOUNDRY_API_KEY' "${DOCTOR_PY}" 2>/dev/null &&
         grep -q 'test_run_doctor_accepts_vertex_provider_and_google_model_slugs' "${DOCTOR_TEST_PY}" 2>/dev/null &&
         grep -q 'test_detects_vertex_region_the_adapter_actually_reads' "${DOCTOR_TEST_PY}" 2>/dev/null; then
@@ -3577,7 +3606,7 @@ fi
 if [[ -f "${DOCTOR_TEST_PY}" ]]; then
     if grep -q 'def _doctor_test_external_io_isolation' "${DOCTOR_TEST_PY}" 2>/dev/null &&
         grep -q 'test_drift_check_does_not_run_connectivity_probes' "${DOCTOR_TEST_PY}" 2>/dev/null &&
-        grep -q 'monkeypatch.setattr(doctor_mod, "_APIKEY_PROVIDERS_CACHE", \[\])' "${DOCTOR_TEST_PY}" 2>/dev/null &&
+        grep -q 'monkeypatch.setattr(doctor_connectivity, "_APIKEY_PROVIDERS_CACHE", \[\])' "${DOCTOR_TEST_PY}" 2>/dev/null &&
         grep -q 'config drift tests must not perform HTTP probes' "${DOCTOR_TEST_PY}" 2>/dev/null; then
         ok "Doctor config-test network isolation patch: active (no real connectivity probes)"
         _DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK=true
@@ -3646,14 +3675,15 @@ fi
 
 # PATCH-VERTEX-VIDEO-ROUTING: user videos use native data-URI parts and bounded
 # gateway buffering instead of relying on terminal/ffprobe access.
-if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" ]]; then
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${GATEWAY_RUN_INBOUND_PY}" ]]; then
     if grep -q 'def decide_video_input_mode' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q '_pending_native_video_paths_by_session' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q 'return decide_video_input_mode(' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q '_consume_pending_native_video_paths(session_key)' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'return decide_video_input_mode(' "${GATEWAY_RUN_INBOUND_PY}" 2>/dev/null &&
+        grep -q '_consume_pending_native_video_paths(session_key)' "${GATEWAY_RUN_INBOUND_PY}" 2>/dev/null &&
         grep -q 'test_auto_text_for_non_video_capable_models' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_gateway_kind_video_routes_through_video_decision_table' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_prepare_resets_stale_video_buffer_per_turn' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_turn_runner_attaches_buffered_native_video_once' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
         grep -q 'test_video_attached_as_data_url_part' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
         ok "PATCH-VERTEX-VIDEO-ROUTING active: Gemini videos route natively"
         _VERTEX_VIDEO_ROUTING_PATCH_OK=true
@@ -3671,17 +3701,17 @@ fi
 # video_url→image_url compatibility retry for Vertex video tool calls.
 VISION_TOOLS_PY="${HERMES_AGENT}/tools/vision_tools.py"
 VIDEO_ANALYZE_TEST_PY="${HERMES_AGENT}/tests/tools/test_video_analyze.py"
-if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${AUXILIARY_CLIENT_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${VISION_TOOLS_PY}" && -f "${VIDEO_ANALYZE_TEST_PY}" ]]; then
+if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${AUXILIARY_CLIENT_TEST_PY}" && -f "${IMAGE_ROUTING_RUNTIME_TEST_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${GATEWAY_RUN_INBOUND_PY}" && -f "${VISION_TOOLS_PY}" && -f "${VIDEO_ANALYZE_TEST_PY}" ]]; then
     if grep -q 'def pick_multimodal_sidecar_route' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'def _known_provider_model_supports_audio' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'def build_multimodal_sidecar_data_url' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'get_fallback_chain' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
-        grep -q '_enrich_message_with_multimodal_sidecar' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q 'Do not attempt to reopen a host cache path' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q '_enrich_message_with_multimodal_sidecar' "${GATEWAY_RUN_INBOUND_PY}" 2>/dev/null &&
+        grep -q 'Do not attempt to reopen a host cache path' "${GATEWAY_RUN_INBOUND_PY}" 2>/dev/null &&
         grep -q '\[Image attachment {index} included\]' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
-        grep -q 'pick_video_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q 'pick_audio_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q 'pick_document_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'pick_video_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_INBOUND_PY}" 2>/dev/null &&
+        grep -q 'pick_audio_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_INBOUND_PY}" 2>/dev/null &&
+        grep -q 'pick_document_sidecar_route(_load_gateway_config())' "${GATEWAY_RUN_INBOUND_PY}" 2>/dev/null &&
         grep -q '_MULTIMODAL_SIDECAR_CONTEXT_MAX_CHARS' "${GATEWAY_RUN_PY}" 2>/dev/null &&
         grep -q "retrying as 'image_url'" "${VISION_TOOLS_PY}" 2>/dev/null &&
         grep -q 'test_picks_fallback_when_main_model_cannot_read_video' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
@@ -3716,15 +3746,16 @@ REPLAY_CLEANUP_PY="${HERMES_AGENT}/agent/replay_cleanup.py"
 REPLAY_CLEANUP_TEST_PY="${HERMES_AGENT}/tests/agent/test_replay_cleanup.py"
 HISTORY_RETENTION_TEST_PY="${HERMES_AGENT}/tests/gateway/test_stale_confirmation_expiry.py"
 GATEWAY_RUN_PY="${HERMES_AGENT}/gateway/run.py"
-if [[ -f "${REPLAY_CLEANUP_PY}" && -f "${REPLAY_CLEANUP_TEST_PY}" && -f "${GATEWAY_RUN_PY}" ]]; then
+if [[ -f "${REPLAY_CLEANUP_PY}" && -f "${REPLAY_CLEANUP_TEST_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${GATEWAY_RUN_TURN_RUNNER_PY}" ]]; then
     if grep -q 'def apply_history_retention' "${REPLAY_CLEANUP_PY}" 2>/dev/null &&
         grep -q 'def _retention_turn_starts' "${REPLAY_CLEANUP_PY}" 2>/dev/null &&
         grep -q '_history_retention_limits_for_source' "${GATEWAY_RUN_PY}" 2>/dev/null &&
-        grep -q '_apply_history_retention' "${GATEWAY_RUN_PY}" 2>/dev/null &&
+        grep -q 'apply_history_retention(' "${GATEWAY_RUN_TURN_RUNNER_PY}" 2>/dev/null &&
         grep -q 'test_retention_never_splits_tool_call_blocks' "${REPLAY_CLEANUP_TEST_PY}" 2>/dev/null &&
         grep -q 'test_retention_newest_turn_always_kept_even_if_too_old' "${REPLAY_CLEANUP_TEST_PY}" 2>/dev/null &&
         [[ -f "${HISTORY_RETENTION_TEST_PY}" ]] &&
-        grep -q 'test_retention_feishu_dm_not_covered_by_group_key' "${HISTORY_RETENTION_TEST_PY}" 2>/dev/null; then
+        grep -q 'test_retention_feishu_dm_not_covered_by_group_key' "${HISTORY_RETENTION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_turn_runner_applies_history_retention_before_media_scan' "${HISTORY_RETENTION_TEST_PY}" 2>/dev/null; then
         ok "History retention patch: active (per-platform time+count replay window, turn-boundary safe)"
         _HISTORY_RETENTION_PATCH_OK=true
     else
@@ -3741,23 +3772,29 @@ fi
 # Long-running work stays server-side; querying happens in a later user turn.
 MCP_TASK_PROTOCOL_PY="${HERMES_AGENT}/agent/mcp_task_protocol.py"
 MCP_TASKS_EXTENSION_PY="${HERMES_AGENT}/tools/mcp_tasks_extension.py"
-MCP_TOOL_PY="${HERMES_AGENT}/tools/mcp_tool.py"
-CONVERSATION_LOOP_PY="${HERMES_AGENT}/agent/conversation_loop.py"
-RUN_AGENT_PY="${HERMES_AGENT}/run_agent.py"
-HERMES_STATE_PY="${HERMES_AGENT}/hermes_state.py"
+MCP_TOOL_HANDLERS_PY="${HERMES_AGENT}/tools/mcp_tool_handlers.py"
+MCP_TOOL_REGISTRATION_PY="${HERMES_AGENT}/tools/mcp_tool_registration.py"
+MCP_TOOL_SCHEMA_PY="${HERMES_AGENT}/tools/mcp_tool_schema.py"
+MCP_TOOL_TRANSPORT_PY="${HERMES_AGENT}/tools/mcp_tool_transport.py"
+MCP_TOOL_DISCOVERY_PY="${HERMES_AGENT}/tools/mcp_tool_discovery.py"
+TURN_TOOL_ROUND_PY="${HERMES_AGENT}/agent/turn_tool_round.py"
+TURN_TRUNCATION_PY="${HERMES_AGENT}/agent/turn_truncation.py"
+SESSION_PERSISTENCE_PY="${HERMES_AGENT}/agent/session_persistence.py"
+HERMES_STATE_MESSAGES_PY="${HERMES_AGENT}/hermes_state_messages.py"
 MCP_TASKS_EXTENSION_TEST_PY="${HERMES_AGENT}/tests/tools/test_mcp_tasks_extension.py"
 MCP_TASK_PERSIST_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_tool_call_incremental_persistence.py"
 MCP_UTILITY_GATE_TEST_PY="${HERMES_AGENT}/tests/tools/test_mcp_utility_capability_gating.py"
-if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MCP_TOOL_PY}" &&
-    -f "${CONVERSATION_LOOP_PY}" && -f "${RUN_AGENT_PY}" && -f "${HERMES_STATE_PY}" && -f "${MCP_TASKS_EXTENSION_TEST_PY}" &&
+if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MCP_TOOL_HANDLERS_PY}" &&
+    -f "${MCP_TOOL_REGISTRATION_PY}" && -f "${MCP_TOOL_SCHEMA_PY}" && -f "${MCP_TOOL_TRANSPORT_PY}" &&
+    -f "${TURN_TOOL_ROUND_PY}" && -f "${SESSION_PERSISTENCE_PY}" && -f "${HERMES_STATE_MESSAGES_PY}" && -f "${MCP_TASKS_EXTENSION_TEST_PY}" &&
     -f "${MCP_TASK_PERSIST_TEST_PY}" && -f "${MCP_UTILITY_GATE_TEST_PY}" ]]; then
     if grep -q 'TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"' "${MCP_TASKS_EXTENSION_PY}" 2>/dev/null &&
-        grep -q 'server_supports_tasks(server.initialize_result)' "${MCP_TOOL_PY}" 2>/dev/null &&
-        grep -q 'mcp_prefixed_tool_name(server_name, "tasks_get")' "${MCP_TOOL_PY}" 2>/dev/null &&
-        grep -q 'add_task_routing_headers(request)' "${MCP_TOOL_PY}" 2>/dev/null &&
-        grep -q 'direct_task_response(messages)' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
-        grep -q '_mcp_task_result' "${RUN_AGENT_PY}" 2>/dev/null &&
-        grep -q '_mcp_task_result' "${HERMES_STATE_PY}" 2>/dev/null &&
+        grep -q 'server_supports_tasks(getattr(server, "initialize_result", None))' "${MCP_TOOL_HANDLERS_PY}" 2>/dev/null &&
+        grep -q '"tasks_get": lambda server_name' "${MCP_TOOL_REGISTRATION_PY}" 2>/dev/null &&
+        grep -q 'add_task_routing_headers(request)' "${MCP_TOOL_TRANSPORT_PY}" 2>/dev/null &&
+        grep -q 'direct_task_response(messages)' "${TURN_TOOL_ROUND_PY}" 2>/dev/null &&
+        grep -q '_mcp_task_result' "${SESSION_PERSISTENCE_PY}" 2>/dev/null &&
+        grep -q '_mcp_task_result' "${HERMES_STATE_MESSAGES_PY}" 2>/dev/null &&
         grep -q 'test_mcp_task_handle_ends_turn_without_second_model_call' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_mcp_task_provenance_survives_concurrent_worker_and_persistence' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_task_aware_call_advertises_extension_and_accepts_task_handle' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
@@ -3777,6 +3814,10 @@ if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MC
         grep -q 'test_streamable_http_task_requests_get_standard_routing_headers' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_input_required_uses_normal_model_path_for_mrtr_handling' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_mixed_task_and_regular_tool_results_do_not_short_circuit_model' "${MCP_TASKS_EXTENSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_start_connects_and_discovers_tools' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
+        grep -q 'test_successful_call' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
+        grep -q 'test_utility_tools_registered' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
+        grep -q 'test_default_strips_authorization_and_task_routing_headers' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
         grep -q 'test_tasks_extension_registers_standard_task_utilities' "${MCP_UTILITY_GATE_TEST_PY}" 2>/dev/null; then
         ok "PATCH-MCP-TASKS-ASYNC-HANDOFF active: task handles return structured Markdown tables without a second LLM call"
         _MCP_TASKS_ASYNC_HANDOFF_PATCH_OK=true
@@ -3792,11 +3833,11 @@ fi
 # liveness/fail-open behavior; the remaining local invariant is that each RPC
 # materializes exactly one watcher coroutine and awaits that same object.
 MCP_STDIO_UPSTREAM_TEST_PY="${HERMES_AGENT}/tests/tools/test_mcp_stdio_children_dead.py"
-if [[ -f "${VENV_PY}" && -f "${MCP_TOOL_PY}" && -f "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" &&
+if [[ -f "${VENV_PY}" && -f "${MCP_TOOL_HANDLERS_PY}" && -f "${MCP_TOOL_DISCOVERY_PY}" && -f "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" &&
     -f "${MCP_STDIO_UPSTREAM_TEST_PY}" ]]; then
-    if grep -q '_watch_coro = (' "${MCP_TOOL_PY}" 2>/dev/null &&
-        grep -q 'watch_task = asyncio.ensure_future(_watch_coro)' "${MCP_TOOL_PY}" 2>/dev/null &&
-        grep -q 'pid=%d): registered %d tool(s)' "${MCP_TOOL_PY}" 2>/dev/null &&
+    if grep -q '_watch_coro = ' "${MCP_TOOL_HANDLERS_PY}" 2>/dev/null &&
+        grep -q 'watch_task = asyncio.ensure_future(_watch_coro)' "${MCP_TOOL_HANDLERS_PY}" 2>/dev/null &&
+        grep -q 'pid=%d): registered %d tool(s)' "${MCP_TOOL_DISCOVERY_PY}" 2>/dev/null &&
         grep -q 'test_stdio_child_watcher_is_created_once_without_leaking_probe_coroutine' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
         grep -q 'test_registration_log_binds_tools_to_current_process' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
         grep -q 'test_live_child_reports_not_dead' "${MCP_STDIO_UPSTREAM_TEST_PY}" 2>/dev/null &&
@@ -3823,11 +3864,11 @@ fi
 # execute or terminate immediately; retry with a bounded 8k→16k→32k cap first.
 CHAT_COMPLETION_HELPERS_PY="${HERMES_AGENT}/agent/chat_completion_helpers.py"
 TRUNCATED_TOOL_RECOVERY_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_run_agent.py"
-if [[ -f "${VENV_PY}" && -f "${CONVERSATION_LOOP_PY}" && -f "${CHAT_COMPLETION_HELPERS_PY}" &&
+if [[ -f "${VENV_PY}" && -f "${TURN_TRUNCATION_PY}" && -f "${CHAT_COMPLETION_HELPERS_PY}" &&
     -f "${MCP_TASK_PERSIST_TEST_PY}" && -f "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" ]]; then
-    if grep -q 'def _raise_truncated_tool_call_output_cap' "${CONVERSATION_LOOP_PY}" 2>/dev/null &&
+    if grep -q 'def _raise_truncated_tool_call_output_cap' "${TURN_TRUNCATION_PY}" 2>/dev/null &&
         grep -q 'max_tokens=ephemeral_out if ephemeral_out is not None else (agent.max_tokens or 4096)' "${CHAT_COMPLETION_HELPERS_PY}" 2>/dev/null &&
-        grep -q 'max_tokens=_ephemeral_out if _ephemeral_out is not None else agent.max_tokens' "${CHAT_COMPLETION_HELPERS_PY}" 2>/dev/null &&
+        grep -q 'max_tokens=ephemeral_out if ephemeral_out is not None else agent.max_tokens' "${CHAT_COMPLETION_HELPERS_PY}" 2>/dev/null &&
         grep -q 'test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
         grep -q 'test_bedrock_consumes_ephemeral_output_cap' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
@@ -3856,7 +3897,7 @@ fi
 TOOL_SEARCH_PY="${HERMES_AGENT}/tools/tool_search.py"
 TOOL_SEARCH_TEST_PY="${HERMES_AGENT}/tests/tools/test_tool_search.py"
 if [[ -f "${VENV_PY}" && -f "${TOOL_SEARCH_PY}" && -f "${TOOL_SEARCH_TEST_PY}" ]]; then
-    if grep -q 'Repair exactly one redundant layer' "${TOOL_SEARCH_PY}" 2>/dev/null &&
+    if grep -q 'Repair exactly one layer' "${TOOL_SEARCH_PY}" 2>/dev/null &&
         grep -q 'test_resolve_underlying_call_repairs_one_redundant_bridge_envelope' "${TOOL_SEARCH_TEST_PY}" 2>/dev/null &&
         grep -q 'test_resolve_underlying_call_does_not_repair_nested_bridge_recursion' "${TOOL_SEARCH_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
@@ -3883,9 +3924,9 @@ fi
 # raw spelling only for the exact /private system alias; any other
 # symlinked temp dir stays non-exempt (fail-closed). Retire when upstream
 # normalizes both sides of the comparison.
-if [[ -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
-    if grep -q 'f"/private{raw_temp_dir}"' "${APPROVAL_PY}" 2>/dev/null &&
-        grep -q 'allowed_spellings' "${APPROVAL_PY}" 2>/dev/null &&
+if [[ -f "${APPROVAL_DETECTION_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
+    if grep -q 'f"/private{raw_temp_dir}"' "${APPROVAL_DETECTION_PY}" 2>/dev/null &&
+        grep -q 'allowed_spellings' "${APPROVAL_DETECTION_PY}" 2>/dev/null &&
         grep -q 'test_darwin_private_alias_accepts_raw_temp_spelling' "${APPROVAL_TEST_PY}" 2>/dev/null; then
         ok "Approval temp-cleanup Darwin alias patch: active (raw /private-alias spelling exempt, other symlinks fail-closed)"
         _APPROVAL_TEMP_CLEANUP_PATCH_OK=true

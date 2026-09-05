@@ -517,6 +517,8 @@ bash ~/.hermes/hermes-update.sh --final-audit --json \
 
 这是最终报告的唯一机器权威，取代 agent 手工拼装多段摘要。它必须在一个调用中完成：
 
+为缩短每轮回归耗时，full PATCH evidence 会把互不共享进程状态的逐 PATCH pytest 子进程按 `HERMES_PATCH_EVIDENCE_JOBS` 并行执行（默认 4，范围 1–8）；final-audit 同时并行启动 full evidence、canonical suite、Wiki lint 与 Doctor，整体并行度由 `HERMES_FINAL_AUDIT_PARALLELISM` 控制（默认 2，范围 1–4）。两层并行都保持每个 PATCH 独立进程、唯一 JUnit/trace 文件和确定性的错误优先级。会改变运行态或依赖前序结果的 post-canonical sandbox、derived consistency、bundle/repository 复核、cleanup 与 Gateway PID 检查仍严格串行；排障时可把两个变量设为 `1` 恢复串行执行。
+
 - 完整 PATCH evidence matrix：每个 active PATCH 的唯一 pytest node outcome、每个 Archive PATCH 的当前行为/退役探针，以及 runtime/dedicated/external probe 的本轮 `probe_results`；full 模式不允许 `contract_passed`、`deferred_full` 或无执行回执
 - canonical `--print-patched-tests` 文件套件，固定 `--file-retries 0` 且 0 failed；`passed + skipped` 必须与 full evidence 的 collect 数完全一致，skip/xfail 不能充当某个 PATCH 的唯一 evidence，pass-on-retry/FLAKY 不得作为终态绿灯
 - patch gate/transaction/fetch self-test、bundle byte/cached/reverse/index/base 闭环；active/Archive gate header、唯一置绿变量与 8c 消费集合必须一一对应；inner 只允许完整 `PATCHED_FILES` overlay，另可保留唯一、带双 SHA 审核回执且仅 unstaged 的 `package-lock.json` npm 归一化差异，其他 extra/staged 路径仍 fail closed；canonical 与 verifier 全部结束后必须再次执行 bundle 物理闭环，封死测试后漂移窗口

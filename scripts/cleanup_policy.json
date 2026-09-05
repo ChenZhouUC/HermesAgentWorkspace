@@ -37,6 +37,7 @@
     ".hermes-update-transaction": "Persistent update transaction state required for pinned-SHA recovery after failure or interruption.",
     ".hermes-update-transaction.lock/": "Atomic update/reconcile transaction lock held during preflight.",
     ".hermes_history": "Local interactive command history.",
+    ".install_id.lock": "Install identity coordination lock used by current Hermes releases.",
     ".mcp-discovery.lock": "MCP discovery coordination lock.",
     ".npm_lock_hash_*": "Installed dependency fingerprint.",
     ".restart_*.json": "Gateway restart coordination state.",
@@ -73,6 +74,7 @@
     "projects.db*": "Project database files.",
     "provider_models_cache.json": "Provider model cache.",
     "response_store.db*": "Response store database files.",
+    "runtime/": "Runtime coordination state for active sessions.",
     "sessions/": "Conversation transcript storage.",
     "skills/": "Runtime mirror of bundled skills.",
     "state*": "Gateway/session state databases and snapshots.",
@@ -117,7 +119,8 @@
     "hermes-agent/ui-tui/dist/": "Built TUI assets.",
     "hermes-agent/ui-tui/node_modules/": "TUI workspace dependencies.",
     "hermes-agent/venv/": "Hermes Python virtual environment.",
-    "hermes-agent/web/node_modules/": "Web workspace dependencies."
+    "hermes-agent/web/node_modules/": "Web workspace dependencies.",
+    "install_id": "Stable local installation identifier used by current Hermes releases."
   },
   "ignored_remove_globs": {
     ".DS_Store": "macOS Finder metadata.",

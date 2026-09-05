@@ -27,6 +27,7 @@ import tempfile
 import textwrap
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +51,15 @@ PYTEST_STRICT_WARNING_ARGS = (
 
 class EvidenceError(RuntimeError):
     pass
+
+
+def _patch_evidence_parallelism(job_count: int) -> int:
+    """Return a bounded worker count for independent per-PATCH pytest runs."""
+    try:
+        configured = int(os.environ.get("HERMES_PATCH_EVIDENCE_JOBS", "4"))
+    except ValueError:
+        configured = 4
+    return max(1, min(8, configured, max(1, job_count)))
 
 
 def _run(
@@ -383,13 +393,29 @@ def _run_registered_patch_audits(
 ) -> dict[str, list[dict[str, object]]]:
     if mode not in MODE_RANK:
         raise EvidenceError(f"unknown PATCH evidence mode: {mode}")
+    specs = _registered_probe_specs(active, archived)
     results: dict[str, list[dict[str, object]]] = defaultdict(list)
-    for patch_id, (function_name, minimum_mode) in _registered_probe_specs(active, archived).items():
+    jobs: list[tuple[str, str]] = []
+    for patch_id, (function_name, minimum_mode) in specs.items():
         if minimum_mode not in MODE_RANK:
             raise EvidenceError(f"{patch_id}: unknown minimum evidence mode: {minimum_mode}")
         if MODE_RANK[mode] < MODE_RANK[minimum_mode]:
             continue
-        details = _resolve_audit_function(function_name)()
+        jobs.append((patch_id, function_name))
+
+    def _run_probe(patch_id: str, function_name: str) -> tuple[str, str, object]:
+        return patch_id, function_name, _resolve_audit_function(function_name)()
+
+    with ThreadPoolExecutor(
+        max_workers=_patch_evidence_parallelism(len(jobs)),
+        thread_name_prefix="patch-probe",
+    ) as executor:
+        futures = {patch_id: executor.submit(_run_probe, patch_id, function_name) for patch_id, function_name in jobs}
+        # Preserve registry order in the report and deterministic failure
+        # precedence even though the probes execute concurrently.
+        completed = [futures[patch_id].result() for patch_id, _function_name in jobs]
+
+    for patch_id, function_name, details in completed:
         result: dict[str, object] = {"probe": function_name, "status": "passed"}
         if details is not None:
             result["details"] = details
@@ -712,7 +738,14 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
         )
         traced_files: dict[str, set[str]] = defaultdict(set)
         imported_files: dict[str, set[str]] = defaultdict(set)
-        for patch_index, (patch_id, nodes) in enumerate(sorted(resolved.items())):
+        patch_jobs = list(enumerate(sorted(resolved.items())))
+        max_workers = _patch_evidence_parallelism(len(patch_jobs))
+
+        def _run_patch(
+            patch_index: int,
+            patch_id: str,
+            nodes: list[str],
+        ) -> tuple[str, dict[str, object]]:
             if not nodes:
                 raise EvidenceError(f"{patch_id}: resolved to no pytest nodes")
             junit = temp / f"patch-{patch_index}.xml"
@@ -774,10 +807,25 @@ def _run_active_patch_nodes(active: dict[str, str], resolved: dict[str, list[str
                 raw_trace = json.loads(trace_json.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise EvidenceError(f"{patch_id}: active PATCH execution trace is unreadable: {exc}") from exc
-            for node, files in raw_trace.get("calls", {}).items():
-                traced_files[_base_node_id(node)].update(str(path) for path in files)
-            for node, files in raw_trace.get("imports", {}).items():
-                imported_files[_base_node_id(node)].update(str(path) for path in files)
+            return patch_id, raw_trace
+
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="patch-evidence") as executor:
+            futures = {
+                patch_id: executor.submit(_run_patch, patch_index, patch_id, nodes)
+                for patch_index, (patch_id, nodes) in patch_jobs
+            }
+            # Consume in stable PATCH order so simultaneous failures still
+            # produce deterministic diagnostics.
+            for _patch_index, (patch_id, _nodes) in patch_jobs:
+                _returned_patch_id, raw_trace = futures[patch_id].result()
+                if _returned_patch_id != patch_id:
+                    raise EvidenceError(
+                        f"PATCH evidence worker identity drift: expected {patch_id}, got {_returned_patch_id}"
+                    )
+                for node, files in raw_trace.get("calls", {}).items():
+                    traced_files[_base_node_id(node)].update(str(path) for path in files)
+                for node, files in raw_trace.get("imports", {}).items():
+                    imported_files[_base_node_id(node)].update(str(path) for path in files)
         managed_files = _run(["bash", str(SCRIPT), "--print-patched-files"]).stdout.splitlines()
         return _validate_patch_trace_hits(
             active,
@@ -1826,9 +1874,6 @@ def main() -> int:
         active, archived = audit_registry()
         audit_gate_links(active, archived)
         audit_runtime_artifacts()
-        probe_results = _run_registered_patch_audits(active, archived, mode=mode)
-        npm_probe = probe_results.get("PATCH-NPM-DEPENDENCY-HYGIENE", [])
-        npm = npm_probe[0].get("details", {}) if npm_probe else {"status": "deferred_full"}
         tests: dict[str, object] = {
             "files": 0,
             "collected": 0,
@@ -1838,12 +1883,31 @@ def main() -> int:
         }
         resolved: dict[str, list[str]] = {}
         executed_owned_files: dict[str, list[str]] = {}
-        if not args.quick:
-            tests, resolved, executed_owned_files = audit_current_tests(active)
+        if args.quick:
+            probe_results = _run_registered_patch_audits(active, archived, mode=mode)
+        else:
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="patch-evidence-phase") as executor:
+                probes_future = executor.submit(
+                    _run_registered_patch_audits,
+                    active,
+                    archived,
+                    mode=mode,
+                )
+                tests_future = executor.submit(audit_current_tests, active)
+                # Resolve in stable order so simultaneous failures have a
+                # deterministic primary error.
+                probe_results = probes_future.result()
+                tests, resolved, executed_owned_files = tests_future.result()
+        npm_probe = probe_results.get("PATCH-NPM-DEPENDENCY-HYGIENE", [])
+        npm = npm_probe[0].get("details", {}) if npm_probe else {"status": "deferred_full"}
         report = {
             "status": "ok",
             "mode": mode,
             "execution_scope": "per_patch_process" if mode == "full" else "deferred_full",
+            "parallelism": {
+                "worker_limit": _patch_evidence_parallelism(max(1, len(resolved))),
+                "full_branches": 2 if mode == "full" else 1,
+            },
             "active": len(active),
             "archived": len(archived),
             **tests,
