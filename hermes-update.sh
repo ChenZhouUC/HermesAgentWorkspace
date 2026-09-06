@@ -2841,6 +2841,14 @@ if [[ -f "${AI_AUXILIARY_CLIENT_PY}" && -f "${FEISHU_PY}" && -f "${GATEWAY_RUN_P
         grep -q 'test_process_inbound_message_high_ai_score_sends_local_refusal_with_quote_only' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_reply_metadata_carries_native_mention_target' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_build_outbound_payload_inlines_every_resolved_at_person' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_deduplicates_reply_target_already_at_start' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_mentions_reply_target_once_when_named_repeatedly' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_keeps_multiple_other_mentions_after_reply_target' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_leaves_unknown_mentions_as_text' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_keeps_leading_table_boundary_when_adding_mention' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_keeps_leading_block_boundaries_when_adding_mention' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_send_mentions_reply_target_only_in_first_chunk_when_body_names_them_later' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_send_notify_table_fallback_preserves_mention' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_send_quote_reply_uses_native_mention_from_notify_metadata' "${FEISHU_TEST_PY}" 2>/dev/null &&
         grep -q 'test_process_inbound_message_owner_bot_mention_skips_self_intro' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
         grep -q 'explicit path under ~/.hermes/wiki' "${FEISHU_BOT_ADMISSION_TEST_PY}" 2>/dev/null &&
@@ -3457,6 +3465,9 @@ fi
 # via _promote_block_markdown and rewrites flanking-invalid strong spans via
 # _fix_strong_flanking. The visual quote bar keeps a following space so a
 # whole-line strong span becomes `▎ **text**`, not the unrendered `▎**text**`.
+# The transport-owned reply mention is always first and unique. It stays inline
+# for prose, but moves to its own md row before tables/lists/rules/fences so the
+# first block marker survives; body-authored mentions of other users stay put.
 # The former table→bullets sub-branch was retired
 # 2026-07-25 after real-client verification of native GFM table rendering
 # (upstream #52786). Source + test live in adapter.py /
@@ -3476,8 +3487,12 @@ PYEOF
         grep -q 'def _promote_block_markdown' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _fix_strong_flanking' "${FEISHU_PY}" 2>/dev/null &&
         ! grep -q 'convert_table_to_bullets' "${FEISHU_PY}" 2>/dev/null &&
-        grep -q 'test_promote_block_markdown_fixes_flanking_inside_quotes_and_headings' "${FEISHU_TEST_PY}" 2>/dev/null; then
-        ok "Feishu markdown render patch: active (quote boundary + strong flanking fixed)"
+        grep -q 'test_promote_block_markdown_fixes_flanking_inside_quotes_and_headings' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_keeps_leading_block_boundaries_when_adding_mention' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_does_not_rewrite_reply_target_inside_code' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_build_outbound_payload_keeps_other_mentions_literal_inside_inline_code' "${FEISHU_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_send_notify_table_keeps_mention_outside_table_markdown' "${FEISHU_TEST_PY}" 2>/dev/null; then
+        ok "Feishu markdown render patch: active (quote/strong + mention/block boundaries fixed)"
         _FEISHU_MARKDOWN_PATCH_OK=true
     else
         warn "Feishu markdown render patch inactive or partial"
