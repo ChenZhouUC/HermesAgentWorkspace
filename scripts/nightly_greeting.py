@@ -58,6 +58,10 @@ OWNER_CHAT_ID_RE = re.compile(r"^\s*-\s*(oc_[A-Za-z0-9_]+)\s*$")
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 JSON_OBJECT_RE = re.compile(r"\{.*\}", re.S)
 ORG_SYNC_SUMMARY_RE = re.compile(r"^summary-json:\s*(\{.*\})$", re.M)
+SESSION_CONTENT_JSON_PREFIX = "\x00json:"
+SESSION_TEXT_PART_TYPES = frozenset({"text", "input_text", "output_text"})
+SESSION_IMAGE_PART_TYPES = frozenset({"image", "image_url", "input_image"})
+SESSION_AUDIO_PART_TYPES = frozenset({"audio", "input_audio"})
 
 TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else dt.timezone(dt.timedelta(hours=8))
 MAX_CONTEXT_CHARS = 90000
@@ -320,8 +324,33 @@ def notify_owner_org_sync(
     raise RuntimeError(f"Could not notify owner about organization sync result: {last_error}") from last_error
 
 
-def trim_message(content: str) -> str:
-    content = re.sub(r"\s+", " ", content or "").strip()
+def session_content_text(content: Any) -> str:
+    """Render persisted scalar or multimodal session content as prompt-safe text."""
+    if isinstance(content, str) and content.startswith(SESSION_CONTENT_JSON_PREFIX):
+        raw = content[len(SESSION_CONTENT_JSON_PREFIX) :]
+        try:
+            content = json.loads(raw)
+        except json.JSONDecodeError:
+            content = raw
+
+    if isinstance(content, list):
+        return "\n".join(filter(None, (session_content_text(part).strip() for part in content)))
+    if isinstance(content, dict):
+        kind = str(content.get("type") or "").strip()
+        if kind in SESSION_TEXT_PART_TYPES or (not kind and "text" in content):
+            value = content.get("text") or content.get("content") or ""
+            return session_content_text(value) if isinstance(value, (list, dict)) else str(value)
+        if kind in SESSION_IMAGE_PART_TYPES:
+            return "[image]"
+        if kind in SESSION_AUDIO_PART_TYPES:
+            return "[audio]"
+        return f"[{kind}]" if kind else "[structured content]"
+    return "" if content is None else str(content)
+
+
+def trim_message(content: Any) -> str:
+    content = session_content_text(content).replace("\x00", "")
+    content = re.sub(r"\s+", " ", content).strip()
     if len(content) <= MAX_MESSAGE_CHARS:
         return content
     return f"{content[:MAX_MESSAGE_CHARS]}..."
@@ -382,8 +411,9 @@ def read_sessions_from_snapshots(day: dt.date) -> str:
         for item in messages:
             role = item.get("role")
             content = item.get("content")
-            if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
-                blocks.append(f"[{path.name}] {role}: {trim_message(content)}")
+            rendered = trim_message(content)
+            if role in {"user", "assistant"} and rendered:
+                blocks.append(f"[{path.name}] {role}: {rendered}")
     return "\n".join(blocks)
 
 

@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import datetime as dt
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -96,6 +97,26 @@ class NightlyArgumentParsingTests(unittest.TestCase):
 
 
 class NightlyGreetingFormattingTests(unittest.TestCase):
+    def test_multimodal_session_content_keeps_text_without_inline_image_data(self) -> None:
+        content = nightly.SESSION_CONTENT_JSON_PREFIX + json.dumps(
+            [
+                {"type": "text", "text": "推进 SpaceSight 日报"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64," + "A" * 5000},
+                },
+            ]
+        )
+
+        result = nightly.trim_message(content)
+
+        self.assertEqual(result, "推进 SpaceSight 日报 [image]")
+        self.assertNotIn("\x00", result)
+        self.assertNotIn("base64", result)
+
+    def test_plain_session_content_strips_embedded_nul(self) -> None:
+        self.assertEqual(nightly.trim_message("今日\x00完成"), "今日完成")
+
     def test_generation_prompt_requires_chinese_then_english(self) -> None:
         prompt = nightly.build_generation_prompt(dt.date(2026, 8, 25), "SESSION")
 
