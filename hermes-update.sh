@@ -3310,6 +3310,8 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
     if grep -q 'people-profile' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'def _load_people_profiles' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'def _lookup_person' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'def _derive_default_profile_addresses' "${SESSION_PY}" 2>/dev/null &&
+        grep -q 'def _render_profile_address_guidance' "${SESSION_PY}" 2>/dev/null &&
         grep -q '称呼/address' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'redact_private_person_profile_text' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'redact_private_person_profile_text' "${GATEWAY_RUN_PY}" 2>/dev/null &&
@@ -3322,6 +3324,9 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q '_PEOPLE_SOURCE_SECRECY_RULE' "${SESSION_PY}" 2>/dev/null &&
         grep -q '_PEOPLE_SOURCE_LITERALS' "${SESSION_PY}" 2>/dev/null &&
         grep -q 'test_address_is_public_and_usable_for_reply' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_unset_address_derives_conservative_language_specific_defaults' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_parenthetical_nickname_is_not_an_automatic_address' "${SESSION_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_derived_addresses_remain_public_but_other_aliases_stay_private' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_private_profile_redactor_keeps_public_fields' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_short_private_values_require_ascii_token_boundaries' "${SESSION_TEST_PY}" 2>/dev/null &&
         grep -q 'test_private_values_never_rewrite_media_paths' "${SESSION_TEST_PY}" 2>/dev/null &&
@@ -3345,7 +3350,7 @@ if [[ -f "${SESSION_PY}" && -f "${GATEWAY_RUN_PY}" && -f "${STREAM_CONSUMER_PY}"
         grep -q 'redact_private_person_profile_text(source, response)' "${GATEWAY_RUN_TURN_PY}" 2>/dev/null &&
         grep -q 'text_filter=visible_text' "${GATEWAY_RUN_TURN_RUNNER_PY}" 2>/dev/null &&
         $_PEOPLE_PROFILE_FILE_OK; then
-        ok "People/group profile patch: active (people.yaml + groups.yaml owner-rw mode 0600; profile lookup; final/stream/interim/background/audio redaction; no background prompt replay; roster-source secrecy; public-only history sender join)"
+        ok "People/group profile patch: active (people.yaml + groups.yaml owner-rw mode 0600; deterministic default address + explicit override; profile lookup; final/stream/interim/background/audio redaction; no background prompt replay; roster-source secrecy; public-only history sender join)"
         _PEOPLE_PROFILE_PATCH_OK=true
     else
         warn "People/group profile patch inactive or partial"

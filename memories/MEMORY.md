@@ -6,7 +6,7 @@ Feishu: Max 9-row tables, no H1/trailing URL dots, nested bold in lists→400. B
 §
 LLM Wiki `~/.hermes/wiki`. Layer 1 (`_living/`, `raw/`) is source material; Active Layer 2 (`entities/`, `concepts/`, `comparisons/`, `queries/`) contains semantic nodes. Semantic wikilinks are Layer-2-to-Layer-2 only; cite `_living/` with compact provenance footnotes and `raw/` with raw-path footnotes. Run `python3 ~/.hermes/scripts/wiki_lint.py`.
 §
-User hardware: Mac M5; iTerm2; local proxy 127.0.0.1:7897; Claude Code/Codex CLI, aws/gcloud. Match input language.
+User hardware/tools: Mac M5; iTerm2; Homebrew Node; local proxy 127.0.0.1:7897; Claude Code/Codex/Gemini agent CLIs, aws/gcloud. Match input language.
 §
 SpaceSight: Product Leader. Tech: PTZ, Sophon, Edge-Cloud, VLM, Fisheye. Building AI device mgmt. Clients: Sephora (AI Lab POC, dewarp Q1-Q4). Baselines: 100RMB/stream/yr, 2hr deploy. Ops: 'Video truth'; FDE COACH. Debug: Edge ALGO -> ReID -> Airflow. POC: '奕镜' V5.
 §

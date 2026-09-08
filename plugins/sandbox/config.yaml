@@ -72,8 +72,10 @@ trusted_feishu_chat_ids_for_group_hypertex:
   - oc_0663408600b12ccec166f9889046a36a
   # SpaceSight 救命稻草
   - oc_4ca3cb5ee37232ca0b244f139ae785fa
-  # FDE 第四把交椅
+  # FDE 庶民群
   - oc_4fedab188b969db25dfdb591b74fcfab
+  # MKT AI Sparks
+  - oc_e09f5e3425fa60445d58713490ee11ff
   # SpaceSight Tech Sharing Group
   - oc_1d81b1992a1cf99620bf815945782f27
   # NA AI Lab
@@ -99,6 +101,8 @@ trusted_feishu_user_ids_for_group_hypertex:
   - ou_42c47e42a5ddd4aa186cf1aa8b6e4de0
   # 黄颂分
   - ou_96d357bea5c040d3c93a1474ede8e4cb
+  # 郑云嘉
+  - ou_857f0d9273be08b7e0579cf7725dcae4
 
 # Image generation is enabled for every admitted Feishu group. Each group still
 # receives its own hashed workspace and one generation call per inbound turn;
