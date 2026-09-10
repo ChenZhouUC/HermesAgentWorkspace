@@ -272,6 +272,11 @@ DEDICATED_EVIDENCE_AUDITS: dict[str, tuple[str, str]] = {
 
 
 EXTERNAL_EVIDENCE_AUDITS: dict[str, tuple[str, str, str]] = {
+    "PATCH-CLAUDE-SC-PROVIDER": (
+        "plugins/model-providers/claude-sc/verify.sh",
+        "audit_claude_sc_provider_verifier",
+        "full",
+    ),
     "PATCH-FEISHU-GROUP-SANDBOX": (
         "plugins/sandbox/verify.sh",
         "audit_sandbox_verifier",
@@ -1262,6 +1267,35 @@ def audit_sandbox_verifier() -> dict[str, object]:
     if passed <= 0 or skipped or failed or errors:
         raise EvidenceError(
             "sandbox verifier did not execute a clean regression set: "
+            f"passed={passed} skipped={skipped} failed={failed} errors={errors}"
+        )
+    return {
+        "verifier": verifier_rel,
+        "passed": passed,
+        "skipped": skipped,
+        "failed": failed,
+        "errors": errors,
+    }
+
+
+def audit_claude_sc_provider_verifier() -> dict[str, object]:
+    verifier_rel = EXTERNAL_EVIDENCE_AUDITS["PATCH-CLAUDE-SC-PROVIDER"][0]
+    verifier = ROOT / verifier_rel
+    result = _run(["bash", str(verifier)], timeout=60)
+    if result.returncode:
+        raise EvidenceError(f"claude-sc provider verifier failed: {result.stdout[-2000:]}{result.stderr[-2000:]}")
+    combined = f"{result.stdout}\n{result.stderr}"
+    matches = re.findall(
+        r"^PATCH_VERIFY_RESULT claude-sc passed=(\d+) skipped=(\d+) failed=(\d+) errors=(\d+)$",
+        combined,
+        re.MULTILINE,
+    )
+    if len(matches) != 1:
+        raise EvidenceError("claude-sc verifier did not report exactly one machine-readable result")
+    passed, skipped, failed, errors = (int(value) for value in matches[0])
+    if passed <= 0 or skipped or failed or errors:
+        raise EvidenceError(
+            "claude-sc verifier did not execute a clean contract set: "
             f"passed={passed} skipped={skipped} failed={failed} errors={errors}"
         )
     return {

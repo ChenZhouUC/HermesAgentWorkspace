@@ -1,0 +1,5 @@
+name: claude-sc
+kind: model-provider
+version: 1.0.0
+description: Claude Code-compatible SC endpoint for Hermes
+author: local

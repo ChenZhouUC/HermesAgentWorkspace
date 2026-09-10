@@ -186,7 +186,7 @@ index b62809ab4c6022505c200b84f660086bdac5aeaf..65577efcd1fbe769ea0ecec3fc884aac
              kind, args, kw = _ladder_step_call(step, req, retry_kwargs, candidate_kwargs)
              if kind == "call":
 diff --git a/agent/chat_completion_helpers.py b/agent/chat_completion_helpers.py
-index f4c24e9b6d18b8be8cdd2dff0407c9a8b55a2cae..1981fa2703f97996f59bc74a559dc92a17165fc5 100644
+index f4c24e9b6d18b8be8cdd2dff0407c9a8b55a2cae..a998056c9939c7442319c4a13dfd006a2fede737 100644
 --- a/agent/chat_completion_helpers.py
 +++ b/agent/chat_completion_helpers.py
 @@ -513,7 +513,12 @@ def _report_stale_nonstream_kill(agent, api_kwargs: dict, elapsed: float, stale_
@@ -245,19 +245,7 @@ index f4c24e9b6d18b8be8cdd2dff0407c9a8b55a2cae..1981fa2703f97996f59bc74a559dc92a
          self._abort_request("codex_stream_idle_kill")
          agent._touch_activity(f"codex stream killed after {int(event_stale_elapsed)}s with no SSE events")
          self._await_worker_after_kill(
-@@ -1405,8 +1417,10 @@ def _build_anthropic_kwargs(agent, api_messages, tools_for_api, reasoning_config
- 
- def _build_bedrock_kwargs(agent, api_messages, tools_for_api):
-     # Bedrock Converse — the adapter converts messages/tools and calls boto3 directly.
-+    ephemeral_out = _consume_ephemeral_max_output(agent)
-     return agent._get_transport().build_kwargs(model=agent.model, messages=api_messages, tools=tools_for_api,
--        max_tokens=agent.max_tokens or 4096, region=getattr(agent, "_bedrock_region", None) or "us-east-1",
-+        max_tokens=ephemeral_out if ephemeral_out is not None else (agent.max_tokens or 4096),
-+        region=getattr(agent, "_bedrock_region", None) or "us-east-1",
-         guardrail_config=getattr(agent, "_bedrock_guardrail_config", None))
- 
- 
-@@ -1430,10 +1444,12 @@ def _build_codex_kwargs(agent, api_messages, tools_for_api, reasoning_config, re
+@@ -1430,10 +1442,12 @@ def _build_codex_kwargs(agent, api_messages, tools_for_api, reasoning_config, re
              tools_for_api, _ = strip_slash_enum(tools_for_api)
          except Exception as exc:
              logger.warning("%s⚠️ Failed to sanitize tool schemas for xAI: %s", getattr(agent, "log_prefix", ""), exc)
@@ -271,7 +259,7 @@ index f4c24e9b6d18b8be8cdd2dff0407c9a8b55a2cae..1981fa2703f97996f59bc74a559dc92a
          timeout=agent._resolved_api_call_timeout(), request_overrides=request_overrides,
          provider=getattr(agent, "provider", None), is_github_responses=is_github_responses,
          is_codex_backend=is_codex_backend, is_xai_responses=is_xai_responses,
-@@ -1796,6 +1812,97 @@ def _fallback_reason_text(reason: "FailoverReason | None") -> str:
+@@ -1796,6 +1810,97 @@ def _fallback_reason_text(reason: "FailoverReason | None") -> str:
      return label or str(getattr(reason, "value", None) or reason or "provider failure").replace("_", " ")
  
  
@@ -350,7 +338,7 @@ index f4c24e9b6d18b8be8cdd2dff0407c9a8b55a2cae..1981fa2703f97996f59bc74a559dc92a
 +    r"|no\s+first\s+byte\s+from\s+provider"
 +    r"|no\s+response\s+from\s+provider"
 +    r"|no\s+output\s+from\s+provider"
-+    r"|no\s+events\s+from\s+bedrock)"
++    r")"
 +    r".*(?:reconnect|abort)"
 +    r"|model\s+fallback\s*:"
 +    r"|primary\s+model\s+restored\s*:.*fallback.*no\s+longer\s+active"
@@ -369,7 +357,7 @@ index f4c24e9b6d18b8be8cdd2dff0407c9a8b55a2cae..1981fa2703f97996f59bc74a559dc92a
  def _is_anthropic_wire_url(url: str) -> bool:
      """Same host match as determine_api_mode() / _detect_api_mode_for_url()."""
      return url.rstrip("/").lower().endswith("/anthropic") or base_url_hostname(url) == "api.anthropic.com"
-@@ -2091,9 +2198,16 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
+@@ -2091,9 +2196,16 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
          _rescope_fallback_extra_body(agent, old_model, old_provider, old_base_url)
          rewrite_prompt_model_identity(agent, fb_model, fb_provider)
  
@@ -390,10 +378,10 @@ index f4c24e9b6d18b8be8cdd2dff0407c9a8b55a2cae..1981fa2703f97996f59bc74a559dc92a
          # provenance so the restore path only emits a recovery notice after a real fallback.
          agent._provider_fallback_active = True
 diff --git a/agent/image_routing.py b/agent/image_routing.py
-index 19004139f659ca205e4563964a5b980112bcc603..b097f4681f94b793fe4a4f6bcc0d0af3a38ef152 100644
+index 19004139f659ca205e4563964a5b980112bcc603..af19e56ae5fda92894d7636465b60575ebd1afd3 100644
 --- a/agent/image_routing.py
 +++ b/agent/image_routing.py
-@@ -244,6 +244,484 @@ def _coerce_mode(raw: Any) -> str:
+@@ -244,6 +244,464 @@ def _coerce_mode(raw: Any) -> str:
      return mode if mode in _VALID_MODES else "auto"
  
  
@@ -415,26 +403,6 @@ index 19004139f659ca205e4563964a5b980112bcc603..b097f4681f94b793fe4a4f6bcc0d0af3
 +    # Vertex credentials and no OpenRouter/Nous auxiliary vision backend.
 +    if p in {"vertex", "google-vertex", "vertex-ai", "vertexai"}:
 +        if "gemini-3" in m or "gemini-pro-3" in m or "gemini-flash-3" in m:
-+            return True
-+
-+    # Bedrock inference-profile ARNs do not map cleanly into models.dev: the
-+    # model ID is embedded after the final slash (for example
-+    # ``.../global.anthropic.claude-opus-5``), so capability lookup returns
-+    # unknown and auto mode falls back to lossy text pre-analysis. Claude 3+
-+    # Haiku/Sonnet/Opus models accept image input through Bedrock Converse and
-+    # Messages. Keep the match family- and generation-scoped: older Claude v2
-+    # and opaque application-profile names remain unknown/fail-closed.
-+    if p in {"bedrock", "aws-bedrock", "amazon-bedrock"}:
-+        version_first = re.search(
-+            r"anthropic\.claude-(\d+)(?:[-.]\d+)*-(?:haiku|sonnet|opus)(?:[-.:/]|$)",
-+            m,
-+        )
-+        family_first = re.search(
-+            r"anthropic\.claude-(?:haiku|sonnet|opus)-(\d+)(?:[-.]\d+)*(?:[-.:/]|$)",
-+            m,
-+        )
-+        match = version_first or family_first
-+        if match and int(match.group(1)) >= 3:
 +            return True
 +
 +    return None
@@ -463,9 +431,9 @@ index 19004139f659ca205e4563964a5b980112bcc603..b097f4681f94b793fe4a4f6bcc0d0af3
 +
 +    Gemini 3.x on the Vertex OpenAI-compatible endpoint accepts inline
 +    ``data:audio/*`` media using the same ``image_url`` compatibility shape
-+    as video. GPT-5.5 and Bedrock Claude Opus 5 accept images but their model
-+    cards explicitly do not advertise audio input, so they remain unknown and
-+    are never selected optimistically.
++    as video. Vision support is intentionally not used as an audio proxy, so
++    image-capable text models remain unknown and are never selected
++    optimistically.
 +    """
 +    p = (provider or "").strip().lower()
 +    m = (model or "").strip().lower()
@@ -878,7 +846,7 @@ index 19004139f659ca205e4563964a5b980112bcc603..b097f4681f94b793fe4a4f6bcc0d0af3
  def _explicit_aux_vision_override(cfg: Optional[Dict[str, Any]]) -> bool:
      """True when the user configured a specific ``auxiliary.vision`` backend — the
      de-facto image route in ``auto`` mode even when the main model has native vision.
-@@ -334,6 +812,10 @@ def _lookup_supports_vision(
+@@ -334,6 +792,10 @@ def _lookup_supports_vision(
      if not provider or not model:
          return None
  
@@ -889,7 +857,7 @@ index 19004139f659ca205e4563964a5b980112bcc603..b097f4681f94b793fe4a4f6bcc0d0af3
      for label, probe in _VISION_PROBES:
          try:
              verdict = probe(provider, model, cfg)
-@@ -507,33 +989,117 @@ def build_native_content_parts(
+@@ -507,33 +969,117 @@ def build_native_content_parts(
      user_text: str,
      image_paths: List[str],
      image_urls: Optional[List[str]] = None,
@@ -9375,7 +9343,7 @@ index bdf53061f36541b77dfeea6f3ebfc3f5f1cd8ccd..16bbe1afb2fdda3f5dbcb07c263931bc
  
 -
 diff --git a/tests/agent/test_image_routing.py b/tests/agent/test_image_routing.py
-index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae776888056818faf8041 100644
+index f545909e1fa56570177b17c467da6332efef8f1a..15e411ba32e30a1c49c364c4d96681e861098c7e 100644
 --- a/tests/agent/test_image_routing.py
 +++ b/tests/agent/test_image_routing.py
 @@ -11,12 +11,21 @@ from agent.image_routing import (
@@ -9400,7 +9368,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
  )
  
  
-@@ -95,6 +104,100 @@ class TestDecideImageInputMode:
+@@ -95,6 +104,105 @@ class TestDecideImageInputMode:
  
  
  
@@ -9471,7 +9439,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
 +                )
 +
 +    def test_fallback_chain_models_all_route_images_natively(self):
-+        """The configured Azure → Bedrock Claude → Vertex chain sees pixels."""
++        """The configured Azure → SC Claude → Vertex chain sees pixels."""
 +        fake_caps = type("Caps", (), {"supports_vision": True})()
 +
 +        def capabilities(provider, _model, **_kwargs):
@@ -9479,13 +9447,18 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
 +
 +        routes = [
 +            ("azure-foundry", "gpt-5.5"),
-+            (
-+                "bedrock",
-+                "arn:aws:bedrock:us-east-1:123:inference-profile/"
-+                "global.anthropic.claude-opus-5",
-+            ),
++            ("claude-sc", "claude-fable-5-1"),
 +            ("vertex", "google/gemini-3.5-flash"),
 +        ]
++        cfg = {
++            "providers": {
++                "claude-sc": {
++                    "models": {
++                        "claude-fable-5-1": {"supports_vision": True},
++                    }
++                }
++            }
++        }
 +        with patch(
 +            "agent.models_dev.get_model_capabilities",
 +            side_effect=capabilities,
@@ -9494,14 +9467,14 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
 +            return_value=False,
 +        ):
 +            assert [
-+                decide_image_input_mode(provider, model, {})
++                decide_image_input_mode(provider, model, cfg)
 +                for provider, model in routes
 +            ] == ["native", "native", "native"]
 +
  
  # ─── _coerce_capability_bool ─────────────────────────────────────────────────
  
-@@ -235,6 +338,62 @@ class TestShouldProbeOllamaVision:
+@@ -235,6 +343,21 @@ class TestShouldProbeOllamaVision:
              )
          assert result is True
          mock_detect.assert_called_once_with("http://127.0.0.1:11434/v1", api_key="")
@@ -9520,51 +9493,10 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
 +
 +    def test_vertex_non_gemini_3_unknown(self):
 +        assert _known_provider_model_supports_vision("vertex", "text-only-model") is None
-+
-+    def test_bedrock_claude_opus_inference_profile_supports_vision(self):
-+        assert (
-+            _known_provider_model_supports_vision(
-+                "bedrock",
-+                "arn:aws:bedrock:us-east-1:123:inference-profile/"
-+                "global.anthropic.claude-opus-5",
-+            )
-+            is True
-+        )
-+
-+    def test_bedrock_claude3_foundation_model_supports_vision(self):
-+        assert (
-+            _known_provider_model_supports_vision(
-+                "bedrock",
-+                "anthropic.claude-3-5-sonnet-20240620-v1:0",
-+            )
-+            is True
-+        )
-+
-+    def test_bedrock_text_only_and_opaque_profiles_remain_unknown(self):
-+        assert (
-+            _known_provider_model_supports_vision(
-+                "bedrock", "anthropic.claude-v2:1"
-+            )
-+            is None
-+        )
-+        assert (
-+            _known_provider_model_supports_vision(
-+                "bedrock",
-+                "arn:aws:bedrock:us-east-1:123:application-inference-profile/"
-+                "my-private-profile",
-+            )
-+            is None
-+        )
-+        assert (
-+            _known_provider_model_supports_vision(
-+                "bedrock", "amazon.nova-micro-v1:0"
-+            )
-+            is None
-+        )
  
  
  # ─── decide_image_input_mode with auto + override ────────────────────────────
-@@ -274,27 +433,22 @@ class TestBuildNativeContentParts:
+@@ -274,27 +397,22 @@ class TestBuildNativeContentParts:
          assert skipped == []
          assert len(parts) == 2
          assert parts[0]["type"] == "text"
@@ -9599,7 +9531,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
          # User caption is preserved verbatim ahead of the hint.
          assert text_part["text"].startswith("attach this")
  
-@@ -308,11 +462,11 @@ class TestBuildNativeContentParts:
+@@ -308,11 +426,11 @@ class TestBuildNativeContentParts:
          assert skipped == []
          image_parts = [p for p in parts if p.get("type") == "image_url"]
          assert len(image_parts) == 2
@@ -9615,7 +9547,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
  
  
  
-@@ -419,7 +573,8 @@ class TestBuildNativeContentPartsURLs:
+@@ -419,7 +537,8 @@ class TestBuildNativeContentPartsURLs:
          assert skipped == []
          assert len(parts) == 2
          assert parts[0]["type"] == "text"
@@ -9625,7 +9557,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
          assert parts[0]["text"].startswith("what is this?")
          assert parts[1] == {
              "type": "image_url",
-@@ -441,8 +596,10 @@ class TestBuildNativeContentPartsURLs:
+@@ -441,8 +560,10 @@ class TestBuildNativeContentPartsURLs:
          assert image_parts[0]["image_url"]["url"].startswith("data:image/png;base64,")
          assert image_parts[1]["image_url"]["url"] == "https://example.com/remote.jpg"
          text = parts[0]["text"]
@@ -9638,7 +9570,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
  
  
  
-@@ -665,3 +822,359 @@ class TestProbeApiKeyForwarding:
+@@ -665,3 +786,348 @@ class TestProbeApiKeyForwarding:
          ) as detect:
              _lookup_supports_vision("custom", "llava", {"model": {"api_key": key}})
          assert detect.call_args.kwargs.get("api_key") == key
@@ -9661,15 +9593,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
 +        """Image vision support must not be used as a proxy for video."""
 +        assert decide_video_input_mode("anthropic", "claude-opus-4-8", {}) == "text"
 +        assert decide_video_input_mode("azure-foundry", "gpt-5.5", {}) == "text"
-+        assert (
-+            decide_video_input_mode(
-+                "bedrock",
-+                "arn:aws:bedrock:us-east-1:123:inference-profile/"
-+                "global.anthropic.claude-opus-5",
-+                {},
-+            )
-+            == "text"
-+        )
++        assert decide_video_input_mode("claude-sc", "claude-fable-5-1", {}) == "text"
 +        assert decide_video_input_mode("vertex", "google/gemini-2.0-flash", {}) == "text"
 +        assert decide_video_input_mode("", "", {}) == "text"
 +
@@ -9692,7 +9616,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
 +        cfg = {
 +            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
 +            "fallback_providers": [
-+                {"provider": "bedrock", "model": "arn:aws:bedrock:us-east-1:123:application-inference-profile/claude-opus-5"},
++                {"provider": "claude-sc", "model": "claude-fable-5-1"},
 +                {"provider": "vertex", "model": "google/gemini-3.5-flash"},
 +            ],
 +        }
@@ -9740,17 +9664,14 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
 +            )
 +            is True
 +        )
-+        assert _known_provider_model_supports_audio("bedrock", "claude-opus-5") is None
++        assert _known_provider_model_supports_audio("claude-sc", "claude-fable-5-1") is None
 +        assert _known_provider_model_supports_audio("azure-foundry", "gpt-5.5") is None
 +
 +    def test_audio_sidecar_follows_chain_to_vertex(self):
 +        cfg = {
 +            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
 +            "fallback_providers": [
-+                {
-+                    "provider": "bedrock",
-+                    "model": "global.anthropic.claude-opus-5",
-+                },
++                {"provider": "claude-sc", "model": "claude-fable-5-1"},
 +                {"provider": "vertex", "model": "google/gemini-3.5-flash"},
 +            ],
 +        }
@@ -9885,7 +9806,7 @@ index f545909e1fa56570177b17c467da6332efef8f1a..62c777b60329b18d622ae77688805681
 +        cfg = {
 +            "model": {"provider": "", "default": ""},
 +            "fallback_providers": [
-+                {"provider": "bedrock", "model": ""},
++                {"provider": "claude-sc", "model": ""},
 +                {"provider": "", "model": "google/gemini-3.1-pro-preview"},
 +                {"provider": "vertex", "model": "google/gemini-3.1-pro-preview"},
 +            ],
@@ -18503,7 +18424,7 @@ index 7e62328b208ffd4590f14c01c928c33c7fe6fb0d..add19ec60a68a6de19aba966d6eac806
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
 diff --git a/tests/gateway/test_image_input_routing_runtime.py b/tests/gateway/test_image_input_routing_runtime.py
-index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..2e4281948aeb91e7a2e0476ce1731016d2353e18 100644
+index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..b30aa7446a84ba4ce5f3a6c509805084d4f76f43 100644
 --- a/tests/gateway/test_image_input_routing_runtime.py
 +++ b/tests/gateway/test_image_input_routing_runtime.py
 @@ -1,3 +1,6 @@
@@ -18530,23 +18451,20 @@ index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..2e4281948aeb91e7a2e0476ce1731016
  def _image_event(text: str = "look") -> MessageEvent:
      return MessageEvent(
          text=text,
-@@ -81,6 +94,903 @@ def test_pre_turn_named_custom_provider_identity_selects_vision_override(monkeyp
+@@ -81,6 +94,913 @@ def test_pre_turn_named_custom_provider_identity_selects_vision_override(monkeyp
      ) == "native"
  
  
-+def test_gateway_bedrock_claude_inference_profile_routes_image_native(monkeypatch):
-+    """A session switched to Bedrock Opus must receive pixels, not a text summary."""
++def test_gateway_claude_sc_routes_image_native_from_config(monkeypatch):
++    """A session switched to SC Fable must receive pixels, not a text summary."""
 +    runner = _make_runner()
-+    model = (
-+        "arn:aws:bedrock:us-east-1:123:inference-profile/"
-+        "global.anthropic.claude-opus-5"
-+    )
++    model = "claude-fable-5-1"
 +    monkeypatch.setattr(
 +        runner,
 +        "_resolve_session_agent_runtime",
 +        lambda **_: (
 +            model,
-+            {"provider": "bedrock", "requested_provider": "bedrock"},
++            {"provider": "claude-sc", "requested_provider": "claude-sc"},
 +        ),
 +    )
 +    monkeypatch.setattr("agent.models_dev.get_model_capabilities", lambda *_args, **_kwargs: None)
@@ -18555,7 +18473,12 @@ index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..2e4281948aeb91e7a2e0476ce1731016
 +        source=_source(),
 +        user_config={
 +            "agent": {"image_input_mode": "auto"},
-+            "model": {"provider": "bedrock", "default": model},
++            "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
++            "providers": {
++                "claude-sc": {
++                    "models": {model: {"supports_vision": True}},
++                }
++            },
 +        },
 +    ) == "native"
 +
@@ -19238,19 +19161,27 @@ index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..2e4281948aeb91e7a2e0476ce1731016
 +    cfg = {
 +        "model": {"provider": "azure-foundry", "default": "gpt-5.5"},
 +        "fallback_providers": [
-+            {
-+                "provider": "bedrock",
-+                "model": "global.anthropic.claude-opus-5",
-+            },
++            {"provider": "claude-sc", "model": "claude-fable-5-1"},
 +            {"provider": "vertex", "model": "google/gemini-3.5-flash"},
 +        ],
++        "providers": {
++            "claude-sc": {
++                "models": {
++                    "claude-fable-5-1": {"supports_vision": True},
++                }
++            }
++        },
 +    }
-+    current_model = "global.anthropic.claude-opus-5"
++    current_model = "claude-fable-5-1"
 +    monkeypatch.setattr("gateway.run._load_gateway_config", lambda: cfg)
++    monkeypatch.setattr("hermes_cli.config.load_config", lambda: cfg)
 +    monkeypatch.setattr(
 +        runner,
 +        "_resolve_session_agent_runtime",
-+        lambda **_kwargs: (current_model, {"provider": "bedrock"}),
++        lambda **_kwargs: (
++            current_model,
++            {"provider": "claude-sc", "requested_provider": "claude-sc"},
++        ),
 +    )
 +    monkeypatch.setattr(
 +        "agent.models_dev.get_model_capabilities", lambda *_args, **_kwargs: None
@@ -20671,7 +20602,7 @@ index 7f807e3560cd295ae02409f5e59207da0b2af1b9..9a9052681654edb68b74c7c9f4914483
  # ---------------------------------------------------------------------------
 -
 diff --git a/tests/gateway/test_telegram_noise_filter.py b/tests/gateway/test_telegram_noise_filter.py
-index 3c7b292bf95ac813159f3e66f135fd358ce72850..d016a9707eeb661d7d7cde4bbf254a7339ffbea6 100644
+index 3c7b292bf95ac813159f3e66f135fd358ce72850..f7cf4e3fb567275f42a46fc9d8cb4103df5a63c7 100644
 --- a/tests/gateway/test_telegram_noise_filter.py
 +++ b/tests/gateway/test_telegram_noise_filter.py
 @@ -2,14 +2,22 @@
@@ -20707,8 +20638,8 @@ index 3c7b292bf95ac813159f3e66f135fd358ce72850..d016a9707eeb661d7d7cde4bbf254a73
 +    return _format_fallback_notice(
 +        "gpt-5.5",
 +        "azure-foundry",
-+        "arn:aws:bedrock:us-east-1:123456789012:inference-profile/global.example",
-+        "bedrock",
++        "claude-fable-5-1",
++        "claude-sc",
 +        FailoverReason.timeout,
 +    )
 +
@@ -20722,11 +20653,11 @@ index 3c7b292bf95ac813159f3e66f135fd358ce72850..d016a9707eeb661d7d7cde4bbf254a73
      "⏳ Retrying in 4.2s (attempt 1/3)...",
 +    (
 +        "🔄 Primary model failed — switching to fallback: "
-+        "arn:aws:bedrock:us-east-1:123:inference-profile/global.example via bedrock"
++        "claude-fable-5-1 via claude-sc"
 +    ),
 +    (
 +        "🔄 Switched to fallback model: gpt-5.5 via azure-foundry → "
-+        "global.example via bedrock"
++        "claude-fable-5-1 via claude-sc"
 +    ),
 +    _generated_fallback_notice(),
 +    _format_codex_stream_stall_notice(
@@ -20747,7 +20678,7 @@ index 3c7b292bf95ac813159f3e66f135fd358ce72850..d016a9707eeb661d7d7cde4bbf254a73
 +        primary_model="gpt-5.5",
 +        primary_provider="azure-foundry",
 +        fallback_model="fallback-model",
-+        fallback_provider="bedrock",
++        fallback_provider="claude-sc",
 +    ),
      # Buffered overflow/attempt-cap retry chatter (replayed on retry exhaustion).
      "🗜️ Context too large (~250,000 tokens) — compressing (1/3)...",
@@ -20794,7 +20725,7 @@ index 3c7b292bf95ac813159f3e66f135fd358ce72850..d016a9707eeb661d7d7cde4bbf254a73
 +            primary_model="gpt-5.5",
 +            primary_provider="azure-foundry",
 +            fallback_model="fallback-model",
-+            fallback_provider="bedrock",
++            fallback_provider="claude-sc",
 +        ),
 +    )
 +
@@ -22287,10 +22218,10 @@ index 0ea4b946f1805ad4554ee9d4abb9bca73da4d9eb..91b77fe410269ad1ed3c3b3ca39adf93
  
      def test_does_not_label_temporary_model_restore_as_fallback_recovery(self):
 diff --git a/tests/run_agent/test_provider_fallback.py b/tests/run_agent/test_provider_fallback.py
-index 434ee306e6eba9a2e2dcea9c456acc9850954990..df05fe6d703665a1ad19c9f6ef258fe2671f5930 100644
+index 434ee306e6eba9a2e2dcea9c456acc9850954990..ce7f43e533999a2330e36f2bbe0348107eff80c9 100644
 --- a/tests/run_agent/test_provider_fallback.py
 +++ b/tests/run_agent/test_provider_fallback.py
-@@ -131,6 +131,44 @@ class TestFallbackChainAdvancement:
+@@ -131,31 +131,72 @@ class TestFallbackChainAdvancement:
          assert agent._pending_fallback_notice == [expected]
          assert agent._retry_status_buffer[-1] == ("status", expected)
  
@@ -22335,8 +22266,47 @@ index 434ee306e6eba9a2e2dcea9c456acc9850954990..df05fe6d703665a1ad19c9f6ef258fe2
      def test_records_sequential_switches_in_order(self):
          agent = _make_agent(
              fallback_model=[
+-                {"provider": "zai", "model": "glm-5.2"},
+-                {"provider": "deepseek", "model": "deepseek-v4-flash"},
++                {"provider": "claude-sc", "model": "claude-fable-5-1"},
++                {"provider": "vertex", "model": "google/gemini-3.7-flash"},
+             ],
+         )
+-        agent.model = "gpt-5.6-sol"
+-        agent.provider = "openai-codex"
++        agent.model = "gpt-5.5"
++        agent.provider = "azure-foundry"
+         clients = [
+-            _mock_client(base_url="https://api.z.ai/v1"),
+-            _mock_client(base_url="https://api.deepseek.com/v1"),
++            _mock_client(base_url="https://socheap.ai"),
++            _mock_client(base_url="https://aiplatform.googleapis.com/v1"),
+         ]
+         with patch(
+             "agent.auxiliary_client.resolve_provider_client",
+-            side_effect=[(clients[0], "glm-5.2"), (clients[1], "deepseek-v4-flash")],
++            side_effect=[
++                (clients[0], "claude-fable-5-1"),
++                (clients[1], "google/gemini-3.7-flash"),
++            ],
+         ):
+             assert agent._try_activate_fallback(FailoverReason.rate_limit) is True
+             assert agent._try_activate_fallback(FailoverReason.overloaded) is True
+ 
+         assert agent._pending_fallback_notice == [
+-            "⚠️ Model fallback: gpt-5.6-sol via openai-codex unavailable "
+-            "(rate limit); using glm-5.2 via zai.",
+-            "⚠️ Model fallback: glm-5.2 via zai unavailable "
+-            "(provider overloaded); using deepseek-v4-flash via deepseek.",
++            "⚠️ Model fallback: gpt-5.5 via azure-foundry unavailable "
++            "(rate limit); using claude-fable-5-1 via claude-sc.",
++            "⚠️ Model fallback: claude-fable-5-1 via claude-sc unavailable "
++            "(provider overloaded); using google/gemini-3.7-flash via vertex.",
+         ]
+     def test_skips_unconfigured_provider_to_next(self):
+         """If resolve_provider_client returns None, skip to next in chain."""
 diff --git a/tests/run_agent/test_run_agent.py b/tests/run_agent/test_run_agent.py
-index 0da74057bd2e9e447bbfd842b5c570d6e6cf59de..cf9c424d59045783314e065e48c07cdb1c99fea3 100644
+index 0da74057bd2e9e447bbfd842b5c570d6e6cf59de..935ed79731a0b195b921649d27067cb5d6406926 100644
 --- a/tests/run_agent/test_run_agent.py
 +++ b/tests/run_agent/test_run_agent.py
 @@ -148,6 +148,13 @@ def test_direct_session_db_flushes_share_marker_claim(agent):
@@ -22353,23 +22323,26 @@ index 0da74057bd2e9e447bbfd842b5c570d6e6cf59de..cf9c424d59045783314e065e48c07cdb
      db = _BarrierDB()
      agent._session_db = db
      agent._session_db_created = True
-@@ -1453,6 +1460,41 @@ class TestBuildApiKwargs:
+@@ -1453,6 +1460,44 @@ class TestBuildApiKwargs:
          assert kwargs["messages"] is messages
          assert kwargs["timeout"] == 1800.0
  
-+    def test_bedrock_consumes_ephemeral_output_cap(self, agent, monkeypatch):
++    def test_claude_sc_consumes_ephemeral_output_cap(self, agent, monkeypatch):
 +        transport = MagicMock()
 +        transport.build_kwargs.side_effect = lambda **kwargs: kwargs
-+        agent.api_mode = "bedrock_converse"
-+        agent.provider = "bedrock"
-+        agent.model = "anthropic.claude-opus-5"
++        agent.api_mode = "chat_completions"
++        agent.provider = "claude-sc"
++        agent.model = "claude-fable-5-1"
++        agent.base_url = "https://socheap.ai"
++        agent._base_url_lower = agent.base_url.lower()
++        agent._base_url_hostname = "socheap.ai"
 +        agent.max_tokens = 4096
 +        agent._ephemeral_max_output_tokens = 8192
 +        monkeypatch.setattr(agent, "_get_transport", lambda: transport)
 +
 +        kwargs = agent._build_api_kwargs([{"role": "user", "content": "hi"}])
 +
-+        assert kwargs["max_tokens"] == 8192
++        assert kwargs["ephemeral_max_output_tokens"] == 8192
 +        assert agent._ephemeral_max_output_tokens is None
 +
 +    def test_codex_responses_consumes_ephemeral_output_cap(self, agent, monkeypatch):
@@ -22395,7 +22368,7 @@ index 0da74057bd2e9e447bbfd842b5c570d6e6cf59de..cf9c424d59045783314e065e48c07cdb
      def test_explicit_request_local_tools_reach_native_transport(self, agent, monkeypatch):
          from agent.prompt_caching import build_prompt_cache_plan
  
-@@ -4563,8 +4605,8 @@ class TestRunConversation:
+@@ -4563,8 +4608,8 @@ class TestRunConversation:
          assert result["final_response"] == "Done!"
  
  
@@ -22406,7 +22379,7 @@ index 0da74057bd2e9e447bbfd842b5c570d6e6cf59de..cf9c424d59045783314e065e48c07cdb
          self._setup_agent(agent)
          agent.valid_tool_names.add("write_file")
          good_tc = _mock_tool_call(
-@@ -4583,7 +4625,14 @@ class TestRunConversation:
+@@ -4583,7 +4628,14 @@ class TestRunConversation:
          bad_resp = _mock_response(
              content="", finish_reason="tool_calls", tool_calls=[bad_tc],
          )
@@ -22422,7 +22395,7 @@ index 0da74057bd2e9e447bbfd842b5c570d6e6cf59de..cf9c424d59045783314e065e48c07cdb
  
          with (
              patch("model_tools.handle_function_call", return_value='{"success":true}'),
-@@ -4594,9 +4643,10 @@ class TestRunConversation:
+@@ -4594,9 +4646,10 @@ class TestRunConversation:
              result = agent.run_conversation("write then truncate")
  
          assert result.get("partial") is True

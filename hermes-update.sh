@@ -3691,9 +3691,9 @@ fi
 
 # PATCH-IMAGE-NATIVE-ROUTING: main-model image capability must be recognised so
 # auto mode routes natively instead of degrading to auxiliary text analysis.
-# Three capability sources, one invariant: Vertex Gemini 3.x and Bedrock
-# Claude 3+ inference-profile IDs via narrow known-provider recognition,
-# azure-foundry via the models.dev catalog it was missing a provider mapping for.
+# Three capability sources, one invariant: Vertex Gemini 3.x via narrow
+# known-provider recognition, azure-foundry via the models.dev catalog it was
+# missing a provider mapping for, and SC Claude via its configured capability.
 IMAGE_ROUTING_PY="${HERMES_AGENT}/agent/image_routing.py"
 IMAGE_ROUTING_TEST_PY="${HERMES_AGENT}/tests/agent/test_image_routing.py"
 AUXILIARY_CLIENT_TEST_PY="${HERMES_AGENT}/tests/agent/test_auxiliary_client.py"
@@ -3705,12 +3705,13 @@ if [[ -f "${IMAGE_ROUTING_PY}" && -f "${IMAGE_ROUTING_TEST_PY}" && -f "${MODELS_
         grep -q '"vertex"' "${IMAGE_ROUTING_PY}" 2>/dev/null &&
         grep -q 'gemini-3.5-flash' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_auto_native_for_vertex_gemini_3_preview_without_catalog_entry' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_bedrock_claude_opus_inference_profile_supports_vision' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
         grep -q 'test_fallback_chain_models_all_route_images_natively' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_gateway_bedrock_claude_inference_profile_routes_image_native' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_gateway_claude_sc_routes_image_native_from_config' "${IMAGE_ROUTING_RUNTIME_TEST_PY}" 2>/dev/null &&
+        grep -q 'claude-fable-5-1' "${HERMES_HOME}/config.yaml" 2>/dev/null &&
+        grep -A4 '^  claude-sc:' "${HERMES_HOME}/config.yaml" 2>/dev/null | grep -q 'supports_vision: true' &&
         grep -q '"azure-foundry": "azure"' "${MODELS_DEV_PY}" 2>/dev/null &&
         grep -q 'test_auto_native_for_azure_foundry_gpt55_from_catalog' "${IMAGE_ROUTING_TEST_PY}" 2>/dev/null; then
-        ok "PATCH-IMAGE-NATIVE-ROUTING active: Azure GPT + Bedrock Claude + Vertex Gemini images route natively"
+        ok "PATCH-IMAGE-NATIVE-ROUTING active: Azure GPT + configured SC Claude + Vertex Gemini images route natively"
         _IMAGE_NATIVE_ROUTING_PATCH_OK=true
     else
         warn "PATCH-IMAGE-NATIVE-ROUTING inactive or partial"
@@ -3914,18 +3915,17 @@ TRUNCATED_TOOL_RECOVERY_TEST_PY="${HERMES_AGENT}/tests/run_agent/test_run_agent.
 if [[ -f "${VENV_PY}" && -f "${TURN_TRUNCATION_PY}" && -f "${CHAT_COMPLETION_HELPERS_PY}" &&
     -f "${MCP_TASK_PERSIST_TEST_PY}" && -f "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" ]]; then
     if grep -q 'def _raise_truncated_tool_call_output_cap' "${TURN_TRUNCATION_PY}" 2>/dev/null &&
-        grep -q 'max_tokens=ephemeral_out if ephemeral_out is not None else (agent.max_tokens or 4096)' "${CHAT_COMPLETION_HELPERS_PY}" 2>/dev/null &&
         grep -q 'max_tokens=ephemeral_out if ephemeral_out is not None else agent.max_tokens' "${CHAT_COMPLETION_HELPERS_PY}" 2>/dev/null &&
         grep -q 'test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover' "${MCP_TASK_PERSIST_TEST_PY}" 2>/dev/null &&
         grep -q 'test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
-        grep -q 'test_bedrock_consumes_ephemeral_output_cap' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_claude_sc_consumes_ephemeral_output_cap' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
         grep -q 'test_codex_responses_consumes_ephemeral_output_cap' "${TRUNCATED_TOOL_RECOVERY_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
         "${VENV_PY}" -m pytest -q \
             "${PYTEST_STRICT_WARNING_ARGS[@]}" \
             tests/run_agent/test_tool_call_incremental_persistence.py::test_hidden_truncated_tool_arguments_retry_with_larger_cap_and_recover \
             tests/run_agent/test_run_agent.py::TestRunConversation::test_truncated_tool_json_after_tool_batch_retries_then_closes_tool_tail \
-            tests/run_agent/test_run_agent.py::TestBuildApiKwargs::test_bedrock_consumes_ephemeral_output_cap \
+            tests/run_agent/test_run_agent.py::TestBuildApiKwargs::test_claude_sc_consumes_ephemeral_output_cap \
             tests/run_agent/test_run_agent.py::TestBuildApiKwargs::test_codex_responses_consumes_ephemeral_output_cap \
             >/dev/null 2>&1; then
         ok "PATCH-TRUNCATED-TOOL-CALL-RECOVERY active: incomplete tool JSON retries with larger cap"
@@ -4214,12 +4214,17 @@ fi
 # patched.
 #
 # Currently active plugins:
+#   - PATCH-CLAUDE-SC-PROVIDER
+#     claude-sc (SC Anthropic fallback with Claude Code-compatible Bearer identity)
 #   - PATCH-FEISHU-GROUP-SANDBOX
 #     sandbox (per-chat Feishu capability boundary, including generated/attached
 #     document images and covers; see README § 用户插件)
 #
 # Add new plugins here by appending another conditional block.
-PLUGIN_VERIFIERS=("${HERMES_HOME}/plugins/sandbox/verify.sh")
+PLUGIN_VERIFIERS=(
+    "${HERMES_HOME}/plugins/model-providers/claude-sc/verify.sh"
+    "${HERMES_HOME}/plugins/sandbox/verify.sh"
+)
 for verifier in "${PLUGIN_VERIFIERS[@]}"; do
     plugin_name=$(basename "$(dirname "${verifier}")")
     step "Verifying user plugin: ${plugin_name}"

@@ -4,10 +4,15 @@ model:
   base_url: https://admin-mj768a9d-eastus2.cognitiveservices.azure.com/openai/v1
   context_length: 1048576
 fallback_providers:
-  - provider: bedrock
-    model: ${CLAUDE_AM_OPUS_ARN}
+  - provider: claude-sc
+    model: claude-fable-5-1
   - provider: vertex
     model: google/gemini-3.7-flash
+providers:
+  claude-sc:
+    models:
+      claude-fable-5-1:
+        supports_vision: true
 toolsets:
   - hermes-cli
 agent:
