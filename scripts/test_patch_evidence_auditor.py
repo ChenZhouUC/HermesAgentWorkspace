@@ -31,6 +31,35 @@ def patch_block(validation: str) -> str:
 
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
+    def test_final_audit_rejects_stale_managed_file_snapshot(self) -> None:
+        """A newly registered test cannot disappear behind a stale docs count."""
+        files = ["tools/example.py", "tests/test_example.py"]
+        with tempfile.TemporaryDirectory(prefix="managed-snapshot-audit-") as raw:
+            root = Path(raw)
+            inner = root / "hermes-agent"
+            (inner / "hermes_cli").mkdir(parents=True)
+            (inner / "hermes_cli/__init__.py").write_text('__version__ = "0.0.1"\n')
+            (root / "README.md").write_text(f"| v0.0.1 | {date.today().isoformat()} | Audit fixture |\n")
+            (root / "hermes-update.md").write_text("")
+            (root / "config.yaml").write_text("{}\n")
+            update = root / "hermes-update.sh"
+            update.write_text("PATCHED_FILES=(\n" + "".join(f'    "{name}"\n' for name in files) + ")\n")
+            (root / "patches").mkdir()
+            for snapshot, count in [(files[:1], 1), (files, 1), (list(reversed(files)), 2)]:
+                with self.subTest(snapshot=snapshot, count=count):
+                    (root / "patches/PATCHES.md").write_text(
+                        "受 `PATCHED_FILES` 管理的文件\n"
+                        + "".join(f'"{name}"\n' for name in snapshot)
+                        + f"> 以上为快照（{count} 文件）。\n"
+                    )
+                    with (
+                        patch.object(final_audit, "ROOT", root),
+                        patch.object(final_audit, "INNER", inner),
+                        patch.object(final_audit, "UPDATE", update),
+                        self.assertRaisesRegex(final_audit.FinalAuditError, "array/snapshot/print output drift"),
+                    ):
+                        final_audit._derived_checks(files, {}, {}, 0)
+
     def test_final_audit_rejects_pending_gateway_restart_warning(self) -> None:
         completed = subprocess.CompletedProcess(
             ["hermes", "doctor"],

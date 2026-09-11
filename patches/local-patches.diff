@@ -5773,7 +5773,7 @@ index 51fe68ca418042a7b5c5a116ad386faa673f11e9..2edcf69302ead8383107310ee656a44b
      base_url="https://aiplatform.googleapis.com",  # real base_url computed at runtime
      auth_type="vertex", default_aux_model="google/gemini-3.6-flash",
 diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
-index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f67d0a209c 100644
+index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..82990bc27e046f9493593bab327fe25de3a6c8c1 100644
 --- a/plugins/platforms/feishu/adapter.py
 +++ b/plugins/platforms/feishu/adapter.py
 @@ -22,15 +22,19 @@ import asyncio
@@ -6539,7 +6539,42 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
  
  
  def _build_markdown_post_rows(content: str) -> List[List[Dict[str, str]]]:
-@@ -1197,7 +1852,7 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -488,6 +1143,21 @@ def parse_feishu_post_payload(
+         )
+         if row_text:
+             parts.append(row_text)
++    # New Feishu composers keep attachments beside content/content_v2. Keep
++    # legacy text/inline media intact and download each file key only once.
++    seen_file_keys = {ref.file_key for ref in media_refs}
++    for item in resolved.get("files", []):
++        if not isinstance(item, dict):
++            continue
++        file_key = item.get("file_key")
++        if not isinstance(file_key, str) or not file_key.strip():
++            continue
++        ref = _build_media_ref_from_payload(item, resource_type="file")
++        if ref.file_key in seen_file_keys:
++            continue
++        seen_file_keys.add(ref.file_key)
++        media_refs.append(ref)
++        parts.append(_attachment_placeholder(ref.file_name))
+     return FeishuPostParseResult(
+         text_content="\n".join(parts).strip() or FALLBACK_POST_TEXT, image_keys=image_keys, media_refs=media_refs,
+     )
+@@ -522,7 +1192,11 @@ def _to_post_payload(candidate: Any) -> Dict[str, Any]:
+     content = candidate.get("content")
+     if not isinstance(content, list):
+         return {}
+-    return {"title": str(candidate.get("title", "") or ""), "content": content}
++    files = candidate.get("files")
++    return {
++        "title": str(candidate.get("title", "") or ""), "content": content,
++        "files": files if isinstance(files, list) else [],
++    }
+ 
+ 
+ _STATIC_POST_TAGS = {"br": "\n", "hr": "\n\n---\n\n", "divider": "\n\n---\n\n"}
+@@ -1197,7 +1871,7 @@ class FeishuAdapter(BasePlatformAdapter):
      supports_code_blocks = True  # Feishu renders fenced code blocks
      splits_long_messages = True  # send() chunks via truncate_message(MAX_MESSAGE_LENGTH)
  
@@ -6548,7 +6583,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
      CHAT_LOCK_MAX_SIZE: int = 1000  # distinct chat IDs kept in _chat_locks before LRU eviction
      _SPLIT_THRESHOLD = 4000  # chunk near Feishu's ~4096-char client split → continuation almost certain
  
-@@ -1233,9 +1888,12 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1233,9 +1907,12 @@ class FeishuAdapter(BasePlatformAdapter):
          self._pending_inbound_lock = threading.Lock()
          self._pending_drain_scheduled = False
          self._pending_inbound_max_depth = 1000  # cap queue; drop oldest beyond
@@ -6561,7 +6596,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          self._app_lock_identity: Optional[str] = None
          self._text_batch_state = FeishuBatchState()
          self._pending_text_batches = self._text_batch_state.events
-@@ -1325,6 +1983,35 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1325,6 +2002,35 @@ class FeishuAdapter(BasePlatformAdapter):
              default_group_policy=str(extra.get("default_group_policy", "")).strip().lower(),
              group_rules=group_rules, allow_bots=allow_bots, allow_all_dm=allow_all_dm,
              require_mention=_to_boolean(extra.get("require_mention", _get_scoped_secret("FEISHU_REQUIRE_MENTION", "true"))),
@@ -6597,7 +6632,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          )
  
      def _apply_settings(self, settings: FeishuAdapterSettings) -> None:
-@@ -1378,6 +2065,256 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1378,6 +2084,256 @@ class FeishuAdapter(BasePlatformAdapter):
          loop = asyncio.get_running_loop()
          return await loop.run_in_executor(self._get_sdk_executor(), func, *args)
  
@@ -6854,7 +6889,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
      def _shutdown_sdk_executor(self) -> None:
          """Stop the adapter-owned SDK executor without touching the loop default."""
          lock = getattr(self, "_sdk_executor_lock", None)
-@@ -1528,6 +2465,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1528,6 +2484,13 @@ class FeishuAdapter(BasePlatformAdapter):
              await asyncio.gather(*pending, return_exceptions=True)
          tasks.clear()
  
@@ -6868,7 +6903,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
      def _reset_batch_buffers(self) -> None:
          self._pending_text_batches.clear()
          self._pending_text_batch_counts.clear()
-@@ -1561,6 +2505,19 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1561,6 +2524,19 @@ class FeishuAdapter(BasePlatformAdapter):
              return SendResult(success=False, error="Not connected")
  
          formatted = self.format_message(content)
@@ -6888,7 +6923,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          chunks = self.truncate_message(formatted, self.MAX_MESSAGE_LENGTH)
          # Decide markdown-vs-text once for the whole message: a chunk of a long
          # markdown reply may be plain prose that fails the per-chunk regex and would
-@@ -1570,18 +2527,37 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1570,18 +2546,37 @@ class FeishuAdapter(BasePlatformAdapter):
          prefer_post = bool(_MARKDOWN_HINT_RE.search(formatted))
          last_response = None
  
@@ -6930,7 +6965,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
                  try:
                      response = await self._feishu_send_with_retry(
                          chat_id=chat_id, msg_type=msg_type, payload=payload, reply_to=reply_to, metadata=metadata,
-@@ -1590,14 +2566,14 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1590,14 +2585,14 @@ class FeishuAdapter(BasePlatformAdapter):
                      if msg_type != "post" or not _POST_CONTENT_INVALID_RE.search(str(exc)):
                          raise
                      logger.warning("[Feishu] Invalid post payload rejected by API; falling back to plain text")
@@ -6947,7 +6982,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
                  last_response = response
  
              return self._finalize_send_result(last_response, "send failed")
-@@ -1876,9 +2852,13 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -1876,9 +2871,13 @@ class FeishuAdapter(BasePlatformAdapter):
                  return fallback
              data = getattr(response, "data", None)
              raw_chat_type = str(getattr(data, "chat_type", "") or "").strip().lower()
@@ -6961,7 +6996,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
              }
              self._chat_info_cache[chat_id] = info
              return dict(info)
-@@ -2487,69 +3467,1121 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2487,76 +3486,1137 @@ class FeishuAdapter(BasePlatformAdapter):
          return resolve_channel_prompt(extra, chat_id, parent_id)
  
      async def _process_inbound_message(
@@ -7336,11 +7371,22 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
 -        """Apply Feishu-specific burst protection before entering the base adapter."""
 -        if event.message_type == MessageType.TEXT and not event.is_command():
 -            await self._enqueue_text_event(event)
+-            return
+-        if self._should_batch_media_event(event):
+-            await self._enqueue_media_event(event)
+-            return
+-        await self._handle_message_with_guards(event)
+-
+-    # --- Media batching ---
+-    def _should_batch_media_event(self, event: MessageEvent) -> bool:
+-        batchable = {MessageType.PHOTO, MessageType.VIDEO, MessageType.DOCUMENT, MessageType.AUDIO}
+-        return bool(event.media_urls and event.message_type in batchable)
 +        end_ts = self._coerce_feishu_epoch_seconds(trigger_timestamp)
 +        if end_ts is None:
 +            end_ts = int(time.time())
 +        start_ts = max(0, end_ts - self._history_backfill_seconds)
-+
+ 
+-    def _media_batch_key(self, event: MessageEvent) -> str:
 +        try:
 +            page_size = max(
 +                self._history_backfill_limit + 1,
@@ -7372,12 +7418,9 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
 +    def _schedule_missed_event_backfill(self, reason: str) -> None:
 +        """Schedule a bounded history replay for messages missed during outages."""
 +        if not getattr(self, "_missed_event_backfill", True):
-             return
--        if self._should_batch_media_event(event):
--            await self._enqueue_media_event(event)
++            return
 +        if getattr(self, "_client", None) is None:
-             return
--        await self._handle_message_with_guards(event)
++            return
 +        loop = getattr(self, "_loop", None)
 +        if not self._loop_accepts_callbacks(loop):
 +            return
@@ -7811,7 +7854,16 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
 +            sender = getattr(item, "sender", None)
 +            if str(getattr(sender, "id", "") or "") not in wanted_senders:
 +                continue
-+            if str(getattr(item, "msg_type", "") or "") not in _FEISHU_BACKFILL_MSG_TYPES:
++            msg_type = str(getattr(item, "msg_type", "") or "")
++            if msg_type == "post":
++                normalized = self._normalize(
++                    msg_type, str(getattr(getattr(item, "body", None), "content", "") or ""),
++                    getattr(item, "mentions", None),
++                )
++                # Text-only posts must not consume the attachment-message cap.
++                if not (normalized.image_keys or normalized.media_refs):
++                    continue
++            elif msg_type not in _FEISHU_BACKFILL_MSG_TYPES:
 +                continue
 +            picked.append(item)
 +        if not picked:
@@ -8109,10 +8161,17 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
 +            await self._enqueue_media_event(event)
 +            return
 +        await self._handle_message_with_guards(event)
++
++    # --- Media batching ---
++    def _should_batch_media_event(self, event: MessageEvent) -> bool:
++        batchable = {MessageType.PHOTO, MessageType.VIDEO, MessageType.DOCUMENT, MessageType.AUDIO}
++        return bool(event.media_urls and event.message_type in batchable)
++
++    def _media_batch_key(self, event: MessageEvent) -> str:
+         return f"{self._text_batch_key(event)}:media:{event.message_type.value}"
  
-     # --- Media batching ---
-     def _should_batch_media_event(self, event: MessageEvent) -> bool:
-@@ -2616,9 +4648,13 @@ class FeishuAdapter(BasePlatformAdapter):
+     @staticmethod
+@@ -2616,9 +4676,13 @@ class FeishuAdapter(BasePlatformAdapter):
  
      async def _download_remote_document(self, file_url: str, *, default_ext: str, preferred_name: str) -> tuple[str, str]:
          from gateway.platforms.base import _ssrf_redirect_guard
@@ -8128,7 +8187,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          async with create_ssrf_safe_async_client(
              timeout=30.0, follow_redirects=True, event_hooks={"response": [_ssrf_redirect_guard]},
          ) as client:
-@@ -2802,7 +4838,10 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2802,7 +4866,10 @@ class FeishuAdapter(BasePlatformAdapter):
      def _text_batch_is_compatible(existing: MessageEvent, incoming: MessageEvent) -> bool:
          """Only merge text events when reply/thread context is identical."""
          return (
@@ -8140,7 +8199,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
              and existing.reply_to_text == incoming.reply_to_text
              and existing.source.thread_id == incoming.source.thread_id
          )
-@@ -2878,18 +4917,54 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2878,18 +4945,54 @@ class FeishuAdapter(BasePlatformAdapter):
          )
  
      async def _extract_message_content(
@@ -8196,7 +8255,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          if (
              inbound_type in {MessageType.DOCUMENT, MessageType.AUDIO, MessageType.VIDEO, MessageType.PHOTO}
              and len(media_urls) == 1
-@@ -2898,11 +4973,89 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2898,11 +5001,89 @@ class FeishuAdapter(BasePlatformAdapter):
              text = await self._maybe_extract_text_document(media_urls[0], media_types[0]) or text
          return text, inbound_type, media_urls, media_types, list(normalized.mentions)
  
@@ -8286,7 +8345,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
  
          def _collect(cached_path: str, media_type: str) -> None:
              if cached_path:
-@@ -2910,12 +5063,36 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2910,12 +5091,36 @@ class FeishuAdapter(BasePlatformAdapter):
                  media_types.append(media_type)
  
          for image_key in normalized.image_keys:
@@ -8328,7 +8387,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          return media_urls, media_types
  
      @staticmethod
-@@ -2968,7 +5145,9 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2968,7 +5173,9 @@ class FeishuAdapter(BasePlatformAdapter):
          )
          return await self._run_blocking(self._client.im.v1.message_resource.get, request)
  
@@ -8339,7 +8398,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          if not self._client or not message_id:
              return "", ""
          try:
-@@ -2992,7 +5171,8 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -2992,7 +5199,8 @@ class FeishuAdapter(BasePlatformAdapter):
              return "", ""
  
      async def _download_feishu_message_resource(
@@ -8349,7 +8408,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
      ) -> tuple[str, str]:
          if not self._client or not message_id:
              return "", ""
-@@ -3042,15 +5222,93 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3042,15 +5250,93 @@ class FeishuAdapter(BasePlatformAdapter):
                  logger.warning("[Feishu] Failed to cache message resource %s/%s", message_id, file_key, exc_info=True)
          return "", ""
  
@@ -8448,7 +8507,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
  
      @staticmethod
      def _get_response_header(response: Any, name: str) -> str:
-@@ -3126,13 +5384,14 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3126,13 +5412,14 @@ class FeishuAdapter(BasePlatformAdapter):
  
      def _get_cached_sender_name(self, sender_id: Optional[str]) -> Optional[str]:
          """Return a cached sender name only while its TTL is still valid."""
@@ -8465,7 +8524,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          return None
  
      async def _resolve_sender_name_from_api(self, sender_id: Optional[str], *, is_bot: bool = False) -> Optional[str]:
-@@ -3213,9 +5472,15 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3213,9 +5500,15 @@ class FeishuAdapter(BasePlatformAdapter):
              msg_type = getattr(parent, "msg_type", "") or ""
              raw_content = getattr(body, "content", "") or ""
              parent_mentions = getattr(parent, "mentions", None) if parent else None
@@ -8484,7 +8543,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
              self._message_text_cache[message_id] = text
              while len(self._message_text_cache) > _FEISHU_MESSAGE_TEXT_CACHE_SIZE:
                  self._message_text_cache.popitem(last=False)
-@@ -3248,6 +5513,69 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3248,6 +5541,69 @@ class FeishuAdapter(BasePlatformAdapter):
              logger.exception("[Feishu] Background inbound processing failed")
  
      # --- Inbound admission ---
@@ -8554,7 +8613,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
      def _admit(self, sender: Any, message: Any) -> Optional[RejectReason]:
          sender_ids = _sender_identity(sender)
          self_ids = frozenset(v for v in (self._bot_open_id, self._bot_user_id) if v)
-@@ -3279,65 +5607,455 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3279,65 +5635,455 @@ class FeishuAdapter(BasePlatformAdapter):
              return None if sender_ids & self._allowed_group_users else "dm_policy_rejected"
          if not self._allow_group_message(getattr(sender, "sender_id", None), chat_id, is_bot=is_bot):
              return "group_policy_rejected"
@@ -9056,7 +9115,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
  
      def _bot_identity(self) -> _FeishuBotIdentity:
          return _FeishuBotIdentity(open_id=self._bot_open_id, user_id=self._bot_user_id, name=self._bot_name)
-@@ -3463,7 +6181,20 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3463,7 +6209,20 @@ class FeishuAdapter(BasePlatformAdapter):
          return lock
  
      # --- Outbound payload construction and send pipeline ---
@@ -9078,7 +9137,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
          # Feishu clients render markdown tables inside ``post`` ``md`` elements natively, so tables
          # take the common markdown path (no text downgrade). ``prefer_post`` lets ``send`` keep every
          # chunk of a split markdown reply as ``post`` even when a chunk alone looks like prose.
-@@ -3472,9 +6203,24 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3472,9 +6231,24 @@ class FeishuAdapter(BasePlatformAdapter):
          # lets ``send`` treat the chunk as part of a larger markdown document: when a long markdown reply is
          # split at MAX_MESSAGE_LENGTH, the per-chunk regex would otherwise mis-classify a plain-prose chunk
          # as ``text``. See #26841.
@@ -9106,7 +9165,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
  
      @staticmethod
      def _get_audio_duration_ms(file_path: str) -> int:
-@@ -3592,18 +6338,18 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3592,18 +6366,18 @@ class FeishuAdapter(BasePlatformAdapter):
      async def _send_raw_message(
          self, *, chat_id: str, msg_type: str, payload: str, reply_to: Optional[str], metadata: Optional[Dict[str, Any]],
      ) -> Any:
@@ -9132,7 +9191,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
              receive_id, receive_id_type = chat_id.split(":", 1)[1], "user_id"
          else:
              receive_id, receive_id_type = chat_id, "open_id" if chat_id.startswith("ou_") else "chat_id"
-@@ -3715,8 +6461,22 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3715,8 +6489,22 @@ class FeishuAdapter(BasePlatformAdapter):
              # Without the "channel" UA tag Feishu won't push group @mention events over WS.
              extra_ua_tags=["channel"],
          )
@@ -9155,7 +9214,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
      async def _connect_webhook(self) -> None:
          if not FEISHU_WEBHOOK_AVAILABLE:
              raise RuntimeError("aiohttp not installed; webhook mode unavailable")
-@@ -3809,6 +6569,16 @@ class FeishuAdapter(BasePlatformAdapter):
+@@ -3809,6 +6597,16 @@ class FeishuAdapter(BasePlatformAdapter):
      def _build_get_message_request(message_id: str) -> Any:
          return _sdk_build(GetMessageRequest, message_id=message_id)
  
@@ -9172,7 +9231,7 @@ index 7614366cb7d7abf4e0e76512e2dc7a442362b0fc..054a1c87b1d5df712c239ea1725062f6
      @staticmethod
      def _build_message_resource_request(*, message_id: str, file_key: str, resource_type: str) -> Any:
          return _sdk_build(GetMessageResourceRequest, message_id=message_id, file_key=file_key, type=resource_type)
-@@ -4290,7 +7060,20 @@ def _apply_yaml_config(yaml_cfg: dict, feishu_cfg: dict) -> dict | None:
+@@ -4290,7 +7088,20 @@ def _apply_yaml_config(yaml_cfg: dict, feishu_cfg: dict) -> dict | None:
      """
      if "allow_bots" in feishu_cfg and not os.getenv("FEISHU_ALLOW_BOTS"):
          os.environ["FEISHU_ALLOW_BOTS"] = str(feishu_cfg["allow_bots"]).lower()
@@ -18423,6 +18482,212 @@ index 7e62328b208ffd4590f14c01c928c33c7fe6fb0d..add19ec60a68a6de19aba966d6eac806
  def test_feishu_bot_bypass_does_not_leak_to_other_platforms(monkeypatch):
      """FEISHU_ALLOW_BOTS=all must not authorize Telegram/Discord bot sources."""
      runner = _make_bare_runner()
+diff --git a/tests/gateway/test_feishu_post_files.py b/tests/gateway/test_feishu_post_files.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..6a8aa9326a57363d5dd5f19d494bff8f70617a53
+--- /dev/null
++++ b/tests/gateway/test_feishu_post_files.py
+@@ -0,0 +1,200 @@
++"""New Feishu post attachments must reuse the existing resource/document pipeline."""
++
++import io
++import json
++import os
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import AsyncMock
++
++import pytest
++
++from gateway.config import load_gateway_config
++from gateway.run import GatewayRunner
++from plugins.platforms.feishu.adapter import FeishuAdapter, _load_lark_oapi, normalize_feishu_message
++
++
++@pytest.mark.parametrize("wrapper", ["direct", "locale", "post_locale"])
++@pytest.mark.parametrize(
++    "files,extra_keys",
++    [
++        (None, []),
++        ({"file_key": "not_a_list"}, []),
++        ("not_a_list", []),
++        ([None, {}, {"file_key": None}, {"file_key": 42}, {"file_key": " "}], []),
++        ([
++            {"file_key": " file_old ", "file_name": "duplicate.pdf"},
++            {"file_key": "file_new", "file_name": "new.pdf", "is_folder": False},
++            {"file_key": "file_new", "file_name": "duplicate-new.pdf"},
++        ], ["file_new"]),
++    ],
++)
++def test_post_files_preserve_legacy_text_media_and_mentions(wrapper, files, extra_keys):
++    content = [[
++        {"tag": "at", "user_id": "@_user_1", "user_name": "Alice"},
++        {"tag": "text", "text": " inspect *these*", "style": ["bold"]},
++        {"tag": "img", "image_key": "img_old"},
++        {"tag": "file", "file_key": "file_old", "file_name": "old.pdf"},
++    ]]
++    legacy = {"title": "Report", "content": content}
++    payload = {**legacy, "content_v2": [[{"tag": "md", "text": "alternate body"}]], "files": files}
++    if wrapper != "direct":
++        payload = {"en_us": payload}
++    if wrapper == "post_locale":
++        payload = {"post": payload}
++    mentions = [SimpleNamespace(
++        key="@_user_1", name="Alice", id=SimpleNamespace(open_id="ou_alice", user_id=None),
++    )]
++    before = normalize_feishu_message(message_type="post", raw_content=json.dumps(legacy), mentions=mentions)
++    after = normalize_feishu_message(message_type="post", raw_content=json.dumps(payload), mentions=mentions)
++
++    assert after.text_content.startswith(before.text_content)
++    assert after.image_keys == before.image_keys
++    assert after.mentions == before.mentions
++    assert after.media_refs[:1] == before.media_refs
++    assert [ref.file_key for ref in after.media_refs] == ["file_old", *extra_keys]
++    assert "alternate body" not in after.text_content
++    if extra_keys:
++        assert after.text_content.count("[Attachment: new.pdf]") == 1
++    else:
++        assert after.text_content == before.text_content
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("chat_type", ["p2p", "group"])
++@pytest.mark.parametrize("route", ["direct", "reply", "merge", "sender"])
++@pytest.mark.parametrize("layout", ["top_level", "legacy_inline", "legacy_file", "both"])
++async def test_post_files_reach_existing_document_pipeline(route, layout, chat_type, monkeypatch):
++    assert _load_lark_oapi()
++    file_ref = {"file_key": "file_report", "file_name": "report.html", "is_folder": False}
++    content = [[{"tag": "text", "text": "Inspect report"}]]
++    payload = {"title": "", "content": content, "content_v2": content}
++    if layout in {"legacy_inline", "both"}:
++        content.append([{**file_ref, "tag": "file"}])
++    if layout in {"top_level", "both"}:
++        payload["files"] = [file_ref, file_ref]
++    message_type = "post"
++    if layout == "legacy_file":
++        message_type, payload = "file", file_ref
++    item = SimpleNamespace(
++        message_id="om_report", msg_type=message_type, body=SimpleNamespace(content=json.dumps(payload)),
++        upper_message_id="om_forward" if route == "merge" else "", mentions=[],
++        create_time="1710000299000", deleted=False,
++        sender=SimpleNamespace(id="ou_alice", sender_type="user"),
++    )
++    plain = SimpleNamespace(**{**vars(item), "message_id": "om_plain", "msg_type": "post",
++                               "body": SimpleNamespace(content='{"content":[[{"tag":"text","text":"hi"}]]}')})
++    foreign = SimpleNamespace(**{**vars(item), "message_id": "om_foreign",
++                                 "sender": SimpleNamespace(id="ou_bob", sender_type="user")})
++    deleted = SimpleNamespace(**{**vars(item), "message_id": "om_deleted", "deleted": True})
++    requests = []
++    document = b"<html><body><h1>Compatibility report</h1><p>Existing extraction still works.</p></body></html>"
++
++    def get_resource(request):
++        assert request.token_types
++        requests.append((request.message_id, request.file_key, request.type))
++        return SimpleNamespace(
++            success=lambda: True, file=io.BytesIO(document), file_name="report.html",
++            raw=SimpleNamespace(headers={"Content-Type": "text/html"}),
++        )
++
++    config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
++    config_path.write_text(
++        "feishu:\n  default_group_policy: open\n  require_mention: true\n"
++        "  history_backfill: true\n  attachment_backfill_max_messages: 1\n"
++        "  attachment_backfill_max_files: 1\n  attachment_backfill_window_seconds: 300\n"
++        "  attachment_backfill_timeout_seconds: 60\n",
++    )
++    config = load_gateway_config()
++    from gateway.config import Platform
++    adapter = FeishuAdapter(config.platforms[Platform.FEISHU])
++    adapter._bot_open_id = "ou_bot"
++    monkeypatch.setattr(adapter, "get_chat_info", AsyncMock(return_value={
++        "name": "Attachment test", "type": "dm" if chat_type == "p2p" else "group",
++    }))
++    monkeypatch.setattr(adapter, "_resolve_sender_name_from_api", AsyncMock(return_value="Alice"))
++    parent = SimpleNamespace(
++        message_id="om_forward", msg_type="merge_forward", body=SimpleNamespace(content="{}"),
++        mentions=[], sender=item.sender, create_time=item.create_time,
++    )
++    adapter._client = SimpleNamespace(im=SimpleNamespace(v1=SimpleNamespace(
++        message=SimpleNamespace(
++            get=lambda _request: SimpleNamespace(
++                success=lambda: True, data=SimpleNamespace(items=[parent, item] if route == "merge" else [item]),
++            ),
++            list=lambda _request: SimpleNamespace(
++                success=lambda: True, data=SimpleNamespace(items=[foreign, deleted, plain, item]),
++            ),
++        ),
++        message_resource=SimpleNamespace(get=get_resource),
++    )))
++    runner = object.__new__(GatewayRunner)
++    runner.config = config
++    runner.adapters = {}
++    runner._pending_native_image_paths_by_session = {}
++    runner._session_model_overrides = {}
++    runner._session_reasoning_overrides = {}
++    monkeypatch.setattr(runner, "_inbound_model_context_length", AsyncMock(return_value=10000))
++    delivered = []
++
++    async def consume(event):
++        prepared = await runner._prepare_inbound_message_text(
++            event=event, source=event.source, history=[], session_key="post-files-test",
++        )
++        delivered.append((event, prepared))
++
++    monkeypatch.setattr(adapter, "_dispatch_inbound_event", consume)
++    mention = SimpleNamespace(
++        key="@_user_1", name="Bot", id=SimpleNamespace(open_id="ou_bot", user_id=None),
++    )
++    message = SimpleNamespace(
++        message_id="om_report" if route == "direct" else "om_trigger", chat_id="oc_test",
++        chat_type=chat_type, create_time="1710000300000", thread_id=None, root_id=None,
++        upper_message_id=None,
++        parent_id=("om_forward" if route == "merge" else "om_report") if route in {"reply", "merge"} else None,
++        message_type=message_type if route == "direct" else "text",
++        content=item.body.content if route == "direct" else '{"text":"@_user_1 Inspect report"}',
++        mentions=[] if route == "direct" and layout == "legacy_file" else [mention],
++    )
++    if route == "direct" and message_type == "post":
++        payload["content"][0].insert(0, {"tag": "at", "user_id": "@_user_1", "user_name": "Bot"})
++        message.content = json.dumps(payload)
++    sender = SimpleNamespace(
++        sender_type="user", sender_id=SimpleNamespace(open_id="ou_alice", user_id=None, union_id=None),
++    )
++    data = SimpleNamespace(event=SimpleNamespace(message=message, sender=sender))
++    if chat_type == "group":
++        unmentioned = SimpleNamespace(**{**vars(message), "message_id": "om_unmentioned", "mentions": []})
++        await adapter._handle_message_event_data(SimpleNamespace(event=SimpleNamespace(message=unmentioned, sender=sender)))
++        assert delivered == [] and requests == []
++
++    await adapter._handle_message_event_data(data)
++    if chat_type == "group" and route == "direct" and layout == "legacy_file":
++        assert delivered == [] and requests == []
++        return
++    assert len(delivered) == 1
++    event, prepared = delivered[0]
++    assert event.raw_message is data
++    assert event.source.chat_type == ("dm" if chat_type == "p2p" else "group")
++    assert event.source.user_id == "ou_alice"
++    assert event.reply_to_message_id == message.parent_id
++    if chat_type == "p2p" and route == "sender":
++        assert requests == [] and event.media_urls == []
++        assert "Existing extraction still works." not in prepared
++        return
++    assert requests == [("om_report", "file_report", "file")]
++    assert len(event.media_urls) == 1
++    path = event.media_urls[0]
++    assert Path(path).read_bytes() == document
++    assert Path(path).is_relative_to(Path(os.environ["HERMES_HOME"]))
++    assert event.media_types == ["text/html"]
++    assert "Existing extraction still works." in prepared
++    assert "untrusted reference data" in prepared
++    assert path not in prepared
++    await adapter._handle_message_event_data(data)
++    assert len(delivered) == 1 and len(requests) == 1
++    if route == "reply":
++        message.message_id = "om_requote"
++        await adapter._handle_message_event_data(data)
++        assert len(delivered) == 2 and len(requests) == 2
++        assert "Existing extraction still works." in delivered[-1][1]
 diff --git a/tests/gateway/test_image_input_routing_runtime.py b/tests/gateway/test_image_input_routing_runtime.py
 index 2d2fa4a44c335c3d203a0d259b76c61e5d3d4a6b..b30aa7446a84ba4ce5f3a6c509805084d4f76f43 100644
 --- a/tests/gateway/test_image_input_routing_runtime.py
@@ -26081,7 +26346,7 @@ index a3fe5f0802bba5bad55dc222257ae891d9ce6664..e8f610037f28cedf787781672c157143
  ## Per-server filtering
  
 diff --git a/website/docs/user-guide/messaging/feishu.md b/website/docs/user-guide/messaging/feishu.md
-index 1c5a66543e4318f20cc38e404b3cabf32850520b..c3bbe08e04a505c928ff9665cc7888cd81f1caa6 100644
+index 1c5a66543e4318f20cc38e404b3cabf32850520b..2585c5233cdb17c9ca27c637928418fe597dd3f4 100644
 --- a/website/docs/user-guide/messaging/feishu.md
 +++ b/website/docs/user-guide/messaging/feishu.md
 @@ -29,6 +29,48 @@ group_sessions_per_user: true
@@ -26150,7 +26415,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..c3bbe08e04a505c928ff9665cc7888cd
  ### Webhook Encryption Key
  
  When running in webhook mode, set an encryption key to enable signature verification of inbound webhook payloads:
-@@ -385,14 +437,23 @@ The adapter receives and caches the following media types from users:
+@@ -385,14 +437,29 @@ The adapter receives and caches the following media types from users:
  
  | Type | Extensions | How it's processed |
  |------|-----------|-------------------|
@@ -26164,8 +26429,13 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..c3bbe08e04a505c928ff9665cc7888cd
 +| **Files** | .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, and more | Trusted local extraction first; empty/scanned PDFs use a capable document sidecar |
  
  Media from rich-text (post) messages, including inline images and file attachments, is also extracted and cached.
- 
+-
 -For small text-based documents (.txt, .md), the file content is automatically injected into the message text so the agent can read it directly without needing tools.
++Both legacy inline file nodes and newer top-level `files` arrays use the same
++download and document extraction pipeline. Files repeated in both locations
++are downloaded once. Existing `content` text, mentions, and inline media retain
++their current parsing behavior when `content_v2` is also present.
++
 +For text and structured documents, extracted content is injected into the current
 +turn with explicit attachment boundaries. Successful native, extracted, and
 +sidecar reads never expose the host cache path to the model. If every configured
@@ -26176,10 +26446,12 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..c3bbe08e04a505c928ff9665cc7888cd
 +groups, send the attachment and then @Hermes within the configured attachment
 +backfill window, or reply directly to the attachment and @Hermes. Explicit
 +replies are preferred and are not suppressed by sender-window deduplication.
++The same bounded sender window also accepts rich-text posts containing
++attachments; text-only posts do not consume its attachment-message limit.
  
  ### Outbound (sending)
  
-@@ -476,17 +537,17 @@ Additional webhook protections:
+@@ -476,17 +543,17 @@ Additional webhook protections:
  When using `websocket` mode, you can customize reconnect and ping behavior:
  
  ```yaml
@@ -26202,7 +26474,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..c3bbe08e04a505c928ff9665cc7888cd
  
  ## Per-Group Access Control
  
-@@ -528,6 +589,166 @@ Set `require_mention: false` on a `group_rules` entry to skip the @-mention requ
+@@ -528,6 +595,166 @@ Set `require_mention: false` on a `group_rules` entry to skip the @-mention requ
  
  Groups not listed in `group_rules` fall back to `default_group_policy` (defaults to the value of `FEISHU_GROUP_POLICY`).
  
@@ -26369,7 +26641,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..c3bbe08e04a505c928ff9665cc7888cd
  ## Deduplication
  
  Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedup state is persisted across restarts to `~/.hermes/feishu_seen_message_ids.json`.
-@@ -545,8 +766,13 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
+@@ -545,8 +772,13 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
  | `FEISHU_DOMAIN` | — | `feishu` | `feishu` (China) or `lark` (international) |
  | `FEISHU_CONNECTION_MODE` | — | `websocket` | `websocket` or `webhook` |
  | `FEISHU_ALLOWED_USERS` | — | _(empty)_ | Comma-separated open_id list for user allowlist |
@@ -26383,7 +26655,7 @@ index 1c5a66543e4318f20cc38e404b3cabf32850520b..c3bbe08e04a505c928ff9665cc7888cd
  | `FEISHU_HOME_CHANNEL` | — | — | Chat ID for cron/notification output |
  | `FEISHU_ENCRYPT_KEY` | — | _(empty)_ | Encrypt key for webhook signature verification |
  | `FEISHU_VERIFICATION_TOKEN` | — | _(empty)_ | Verification token for webhook payload auth |
-@@ -563,7 +789,7 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
+@@ -563,7 +795,7 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
  | `HERMES_FEISHU_TEXT_BATCH_MAX_CHARS` | — | `4000` | Max characters merged per text batch |
  | `HERMES_FEISHU_MEDIA_BATCH_DELAY_SECONDS` | — | `0.8` | Media burst debounce quiet period |
  

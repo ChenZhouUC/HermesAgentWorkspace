@@ -157,6 +157,7 @@ PATCHED_FILES=(
     "tests/gateway/test_config.py"
     "tests/gateway/test_display_config.py"
     "tests/gateway/test_feishu.py"
+    "tests/gateway/test_feishu_post_files.py"
     "tests/gateway/test_document_context_note.py"
     "tests/gateway/test_feishu_bot_admission.py"
     "tests/gateway/test_feishu_bot_auth_bypass.py"
@@ -3366,9 +3367,14 @@ fi
 # to PATCH-DOCUMENT-EXTRACTION.
 FEISHU_DOC_TOOL_PY="${HERMES_AGENT}/tools/feishu_doc_tool.py"
 FEISHU_TOOLS_TEST_PY="${HERMES_AGENT}/tests/tools/test_feishu_tools.py"
+FEISHU_POST_FILES_TEST_PY="${HERMES_AGENT}/tests/gateway/test_feishu_post_files.py"
 PLATFORMS_BASE_PY="${HERMES_AGENT}/gateway/platforms/base.py"
-if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${PLATFORMS_BASE_PY}" && -f "${GATEWAY_CONFIG_TEST_PY}" ]]; then
+if [[ -f "${FEISHU_PY}" && -f "${FEISHU_TEST_PY}" && -f "${FEISHU_DOC_TOOL_PY}" && -f "${FEISHU_TOOLS_TEST_PY}" && -f "${FEISHU_POST_FILES_TEST_PY}" && -f "${PLATFORMS_BASE_PY}" && -f "${GATEWAY_CONFIG_TEST_PY}" ]]; then
     if grep -q 'def _backfill_sender_attachments' "${FEISHU_PY}" 2>/dev/null &&
+        grep -Fq 'for item in resolved.get("files", []):' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'seen_file_keys' "${FEISHU_PY}" 2>/dev/null &&
+        grep -q 'test_post_files_preserve_legacy_text_media_and_mentions' "${FEISHU_POST_FILES_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_post_files_reach_existing_document_pipeline' "${FEISHU_POST_FILES_TEST_PY}" 2>/dev/null &&
         grep -q 'def _backfill_reply_attachments' "${FEISHU_PY}" 2>/dev/null &&
         grep -q 'def _mark_attachment_backfilled' "${FEISHU_PY}" 2>/dev/null &&
         grep -q '_FEISHU_BACKFILL_WINDOW_SECONDS' "${FEISHU_PY}" 2>/dev/null &&

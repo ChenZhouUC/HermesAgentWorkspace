@@ -135,6 +135,8 @@ Step 8b sentinel 只证明关键实现锚点存在，Step 2c canonical runner �
 
 ### Step 2c — 补丁功能回归（终态必须 0 failed）
 
+只有完整 `--reconcile` 已退出后，才能运行本节 canonical suite；两者必须串行。reconcile 的 Save/Clean 阶段会临时移除受管源码与新增测试，重叠执行得到的失败或绿色结果都无效，必须待补丁恢复后重跑。仅 Step 5d 内部明确编排的只读审计分支可以并行。
+
 patch 回贴 + 依赖自愈后，用脚本权威数组动态运行全部 `tests/**`（包含测试 helper，文件数也必须与摘要一致）：
 
 ```bash
@@ -162,7 +164,7 @@ cd "$HOME/.hermes/hermes-agent"
 
 **模型切换后的多模态验收（长期硬门槛）**：`config.model`、`fallback_providers` 或其具体型号/ARN 发生变化时，不得仅凭旧 catalog、provider 名或历史结论推断能力。对每条配置 route 至少用合成、无敏感内容的最小 canary 穿过真实 provider wire，分别验证官方声明支持的 image/audio/video/PDF 输入；官方明确不支持的模态必须保持 fail-closed，不得用强制 native 掩盖。运行时遵循 native-first：主模型真实支持就直接接收原始媒体；不支持或本地可信抽取/STT 全失败时，才把**单个当前媒体 + 有界 caption/引用上下文**交给 fallback 链中首个具备该模态的 route，禁止切换整轮 provider、禁止重放 transcript、禁止同一媒体先预分析后再重复调用工具。成功的 native、可信抽取和 sidecar 结果不得向模型暴露宿主 cache 绝对路径，也不得诱导再次 `read_file`/媒体工具；全部 reader 失败必须给当前 turn 一个明确、可测试的 `FAILED` 状态，说明不能声称读过并要求用户重发，禁止静默丢附件或退化为群聊不可达的 path note。PDF 还必须成对覆盖“纯文本只抽取”和“抽取有扫描/图片页缺口时补充 sidecar”两条路径。每轮升级和每次模型链调整都要证明 native route、sidecar route、可信抽取、视觉缺口补读、path-free 成功提示与显式失败反例；结论写入对应 PATCH 与测试，不能只留在会话记忆。
 
-**附件取得与 @mention 验收（长期硬门槛）**：Feishu 群的独立附件消息无法携带 @Bot，因此资源 PATCH 必须同时证明三条入口：同一 post 内附件+mention、显式回复附件+mention、同一发送者在配置化有界窗口内先发附件后 mention。窗口扫描必须覆盖 image/file/media/audio，限制消息数、文件数与超时；显式回复不受窗口去重抑制。所有 `attachment_backfill_*` 用户配置必须从根 `config.yaml` 穿过 `load_gateway_config()` 进入 adapter 实例，不能只证明 adapter 直接接收手工构造的 `PlatformConfig.extra`；现场出现大附件时，用真实大小/耗时校准本机有界 timeout，仍保留失败可见性，禁止改成无限等待。引用/history 文本只保留 path-free 附件占位符，资源字节由当前/引用附件链恰好下载一次；下载、回填或解码失败必须进入上述显式 `FAILED` 状态。测试至少穿过 Feishu 真实 payload → adapter event → Gateway provider/user turn，成对覆盖主私聊与群聊，并断言模型可见文本不含 `~/.hermes/cache`、`/Users/.../.hermes/cache` 或容器映射路径。
+**附件取得与 @mention 验收（长期硬门槛）**：Feishu 群的独立附件消息无法携带 @Bot，因此资源 PATCH 必须同时证明三条入口：同一 post 内附件+mention（旧内嵌 file 节点与新版顶层 `files[]`，含 `content` / `content_v2` 并存和资源去重）、显式回复附件+mention、同一发送者在配置化有界窗口内先发附件后 mention。窗口扫描必须覆盖 image/file/media/audio，限制消息数、文件数与超时；显式回复不受窗口去重抑制。所有 `attachment_backfill_*` 用户配置必须从根 `config.yaml` 穿过 `load_gateway_config()` 进入 adapter 实例，不能只证明 adapter 直接接收手工构造的 `PlatformConfig.extra`；现场出现大附件时，用真实大小/耗时校准本机有界 timeout，仍保留失败可见性，禁止改成无限等待。引用/history 文本只保留 path-free 附件占位符，资源字节由当前/引用附件链恰好下载一次；下载、回填或解码失败必须进入上述显式 `FAILED` 状态。SDK 只读回放和资源集成测试必须先执行适配器的 SDK 延迟初始化，不能把只具字段的 request fallback 当作真实 SDK 请求；只替换外部传输与模型元数据查询，不能替换 admission/附件归一化/下载/抽取链。测试至少穿过 Feishu 真实 payload → adapter event → Gateway provider/user turn，成对覆盖主私聊与群聊，并断言模型可见文本不含 `~/.hermes/cache`、`/Users/.../.hermes/cache` 或容器映射路径。
 
 **资源 provenance 的规范化形态同样属于真实边界**：Feishu/Gateway 会把出站回复中的裸链接回填为 Markdown `[URL](URL)`，用户也会发送 `[标题](URL)紧接正文`；任何群文档 read/append/rebuild/delete 的当前消息/显式引用授权测试，都必须同时覆盖规范化 `reply_to_text` 和 Markdown destination 后无空格紧接 CJK 正文的当前消息形态，并穿过 `pre_gateway_dispatch → deferred tool_call → pre_tool hook → handler`。URL parser 只能补出当前消息真实 destination，不能把 `channel_context` 或另一资源纳入授权；`/docx/`、`/docs/`、`/wiki/`、`/sheets/`、`/base/`、`/file/`、`/slides/` 的 URL/token canonicalization 必须同源。只把裸 URL/token 直接塞进 ContextVar 的 fixture 不足以证明生产链路。身份授权与目标引用失败必须返回不同 reason/message，避免把 parser/provenance 故障误诊为用户不可信。
 
@@ -462,17 +464,17 @@ Step 6 报告前，以本轮实际执行为镜，把本 playbook（含摩擦表�
 5. **独立性检查**：避免 producer、consumer、测试 fixture 和 gate 复制同一常量后共同漂移；优先让测试穿过真实 public boundary。不能自动化的外部 canary 必须记录原因、最小人工证据和退场条件。
 6. **复杂度约束**：新增 gate 必须对应一个具体失效模型，具备确定输入、唯一失败信号、负向回归、可接受耗时和退场条件；能加强或替换已有检查时不平行叠加。不得仅因“还能想到更多检查”延长审计。
 
-一次深度审计在同时满足以下条件后即收敛并停止：所有发现均完成“失败复现 → 最小修复 → 负向回归 → 权威文档落盘”；P0/P1 无遗留，P2/P3 已说明影响面和退场条件；最后一次 `--reconcile` 晚于全部执行链修改；pre-commit 与 post-commit final-audit 均通过；没有下一轮必须依赖本次会话记忆才能知道的步骤。**没有发现新缺口是合法且优先的结果**，不要求为了刷新游标而改动实现。
+一次深度审计在同时满足以下条件后即收敛并停止：所有发现均完成“失败复现 → 最小修复 → 负向回归 → 权威文档落盘”；P0/P1 无遗留，P2/P3 已说明影响面和退场条件；最后一次 `--reconcile` 晚于全部执行链修改；未提交时完整 final-audit 通过；用户明确要求提交时，pre-commit 与 post-commit final-audit 均通过；没有下一轮必须依赖本次会话记忆才能知道的步骤。**没有发现新缺口是合法且优先的结果**，不要求为了刷新游标而改动实现。
 
 深度审计成功后更新下方持久化游标；普通升级不得改动 `last_deep_audit_*`。如果深度审计与一次 upstream 更新合并执行，游标记录该固定 `TARGET_SHA`；如果只审计当前 checkout，则记录当前内层 HEAD。
 
 ```yaml
 toolchain_audit_state:
   schema_version: 1
-  last_deep_audit_date: 2026-09-05
+  last_deep_audit_date: 2026-09-11
   last_deep_audit_upstream_sha: 79445a496c86a19332ad786494b8384d2167e2d0
-  last_deep_audit_outer_commit: 0497e6fc8f729a014185487c130652a80875eb1e
-  trigger: user-full-patch-audit-stale-receipt-and-feishu-quote-authorship-hardening
+  last_deep_audit_outer_commit: cc79c3ef4ceb53381ee8d4ebecbc0a26b77700c8
+  trigger: feishu-files-compatibility-and-canonical-reconcile-ordering
 ```
 
 深度审计报告除 Step 6 常规内容外，还必须列出：触发原因；检查过的失效类别；新增负例与 toolchain 改动；明确未改动的类别；剩余不可机械证明的风险；更新后的审计游标。若因触发条件自动进入深度审计，agent 在开始时告知用户即可，不为既有范围内的只读检查和修复逐项追问。
@@ -636,6 +638,8 @@ final-audit 不是旁观者：它必须先取得与 update/reconcile 相同的�
 | 飞书文档创建成功，但 sourced 图片显示“无法导入该图片” | 飞书 Markdown import 会自行抓取 `![alt](https://...)`；远程 CDN 图片即使当前 HTTP 200，import task 仍可能整体成功却把图片替换为固定错误位图。旧 `read_url` 忽略 image block，Agent 因而把文本回读和后续本地图表上传误当成全部图片成功。处置：create/append/rebuild 禁止 Markdown/HTML 图片语法；公共图片先经 `stage_image_urls` 在当前群 workspace 做 HTTPS、credential、SSRF/redirect/connect、单图/总量、magic/Pillow/尺寸校验，再用 `insert_image` 上传。已存在占位块用 `replace_image` 原位修复；`read_url` 识别已知错误位图 hash 并输出 `[IMAGE_IMPORT_ERRORS]`。若未来 Feishu importer 提供可验证的远程图片事务结果，或 upstream 原生实现等价 staging + block-level image audit，可迁移并删除本 row。 |
 
 | full PATCH evidence 的单组节点普通 pytest 很快，但 `patch_trace_plugin` 固定 300 秒超时 | 先用失败命令的同组 node 在无 trace 条件下隔离复现；若普通 pytest 快、full trace 连续超时，不得提高预算或把局部重跑当终态绿灯。2026-09-01 实抓 profiler 对每个 Python `call` 都执行 `Path(...).resolve()`，配置/回退测试的高调用量被放大到 300 秒；修复应缓存 code filename → repo 相对路径映射，保留逐 PATCH 独立进程与真实调用归属，并用 auditor 负例禁止恢复逐调用 resolve。若未来证据采集改用低开销 coverage/monitoring API 且不再生成该 profiler，可删除本 row。 |
+
+| 飞书客户端提示升级后才能查看附件，机器人却只收到正文 | 先用既有消息只读 API 确认附件位于旧内嵌节点还是新顶层 `files[]`，再核对上游实际实现；上游已等价支持时通过升级吸收。仍缺失时只扩展既有消息归一化与资源补丁，不另建文档预处理链。回归保留正文/@/旧附件，穿过 SDK 初始化、真实入站、私聊/群聊、引用和窗口回看至 Gateway turn，并覆盖去重和不误触发；模型元数据等无关外部查询用测试依赖隔离。上游吸收新旧格式及等价边界回归后可删除本 row。 |
 
 > 这张表是**可扩展也可收缩**的：发现新摩擦就追加 row，且每个 row 的处置栏必须包含（显式一句或隐含于修法的）退场条件；Step 5c 每轮按退场条件审计本表——已消费的一次性预案、引用已归档/已移除事物的 row、连续多轮未触发的非结构性 row 当轮删除。
 
