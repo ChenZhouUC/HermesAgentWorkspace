@@ -416,6 +416,7 @@ if [[ -x "${VENV_PYTHON}" ]] &&
     (
         cd "${HERMES_AGENT}" &&
             HERMES_HOME="${HERMES_HOME}" "${VENV_PYTHON}" - <<'PY'
+import asyncio
 import contextvars
 import importlib
 import json
@@ -423,6 +424,7 @@ import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from dotenv import load_dotenv
 
@@ -451,7 +453,7 @@ config = load_config()
 import yaml
 from gateway.config import load_gateway_config, Platform
 from gateway.run_busy import GatewayBusySessionMixin
-from gateway.session import SessionSource
+from plugins.platforms.feishu.adapter import FeishuAdapter
 
 control_config = load_gateway_config()
 feishu_control = control_config.platforms[Platform.FEISHU]
@@ -461,6 +463,33 @@ assert feishu_control.home_channel is not None, "Feishu primary home chat is req
 primary_chat = feishu_control.home_channel.chat_id
 assert owner_chats == {primary_chat}, "Gateway home must match the single sandbox owner DM"
 control_runner = SimpleNamespace(config=control_config)
+people = (yaml.safe_load((home / "people.yaml").read_text()) or {})["people"]
+# The roster supplies test inputs only; runtime authorization uses event IDs.
+owner_person = next(person for person in people if owner_id in (
+    person.get("open_id"), person.get("user_id"), person.get("union_id"),
+))
+
+async def control_source(chat_type, chat_id, user_id, all_ids):
+    adapter = FeishuAdapter(feishu_control)
+    adapter.get_chat_info = AsyncMock(return_value={"name": "Control fixture", "type": chat_type})
+    adapter._resolve_sender_name_from_api = AsyncMock(return_value="Control fixture")
+    adapter._dispatch_inbound_event = AsyncMock()
+    sender_id = SimpleNamespace(**(
+        {key: owner_person.get(key) for key in ("open_id", "user_id", "union_id")}
+        if all_ids and user_id == owner_id
+        else {"open_id": user_id, "user_id": None, "union_id": None}
+    ))
+    message = SimpleNamespace(
+        chat_id=chat_id, message_id="om_control_fixture", thread_id=None,
+        message_type="text", content=json.dumps({"text": "/reset"}),
+    )
+    await adapter._process_inbound_message(
+        data=SimpleNamespace(event=SimpleNamespace(message=message)),
+        message=message, sender_id=sender_id,
+        chat_type="p2p" if chat_type == "dm" else "group", message_id=message.message_id,
+    )
+    return adapter._dispatch_inbound_event.await_args.args[0].source
+
 for chat_type, chat_id, user_id, session_allowed, gateway_allowed in (
     ("group", "oc_control_fixture", owner_id, True, False),
     ("group", "oc_control_fixture", "ou_control_untrusted", False, False),
@@ -468,12 +497,13 @@ for chat_type, chat_id, user_id, session_allowed, gateway_allowed in (
     ("dm", primary_chat, "ou_control_untrusted", True, False),
     ("dm", "oc_control_other_dm", owner_id, True, False),
 ):
-    source = SessionSource(platform=Platform.FEISHU, chat_type=chat_type, chat_id=chat_id, user_id=user_id)
-    for command in ("new", "branch", "restart", "update", "sethome"):
-        expected = session_allowed if command in {"new", "branch"} else gateway_allowed
-        allowed = GatewayBusySessionMixin._check_slash_access(control_runner, source, command) is None
-        assert allowed == expected, f"Feishu control scope mismatch: {chat_type}/{command}"
-print("OK   group session controls require the owner; Gateway lifecycle controls require the primary owner DM")
+    for all_ids in (False, True):
+        source = asyncio.run(control_source(chat_type, chat_id, user_id, all_ids))
+        for command in ("new", "branch", "restart", "update", "sethome"):
+            expected = session_allowed if command in {"new", "branch"} else gateway_allowed
+            allowed = GatewayBusySessionMixin._check_slash_access(control_runner, source, command) is None
+            assert allowed == expected, f"Feishu control scope mismatch: {chat_type}/{command}/all_ids={all_ids}"
+print("OK   normalized Feishu owner IDs authorize group sessions; Gateway controls require the primary owner DM")
 
 discover_mcp_tools()
 hypertex_mcp = (config.get("mcp_servers") or {}).get("hypertex") or {}

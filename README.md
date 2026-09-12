@@ -731,7 +731,7 @@ hermes gateway restart             # 重启 gateway 加载插件
 
 **位置**：`plugins/sandbox/`（`plugin.yaml` + `__init__.py` + `config.yaml`）
 
-**会话管理边界**：管理员可在群内用 `/new`、`/reset` 新建会话，或用 `/branch`、`/fork` 分支会话；普通群成员会被拒绝，且不会因此取消正在运行的任务。群内管理员重置不发审批卡；分支命令保留上游忙碌时的保护。`/restart` 重启的是 Gateway，只允许管理员在主私聊发起；`/update` 与可改变 home 位置的 `/sethome`（`/set-home`）同受此限。管理员取 `feishu.assistant_user_ids` 首项，按实际发送者 ID 匹配；Gateway 的 home DM 必须与 sandbox 唯一 owner DM 一致，verifier 每轮校验。
+**会话管理边界**：管理员可在群内用 `/new`、`/reset` 新建会话，或用 `/branch`、`/fork` 分支会话；普通群成员会被拒绝，且不会因此取消正在运行的任务。群内管理员重置不发审批卡；分支命令保留上游忙碌时的保护。`/restart` 重启的是 Gateway，只允许管理员在主私聊发起；`/update` 与可改变 home 位置的 `/sethome`（`/set-home`）同受此限。管理员取 `feishu.assistant_user_ids` 首项，匹配当前飞书事件中同一发送者的 `open_id` / `user_id` / `union_id`，会话主身份与 key 保持不变；显示名、提及、引用和持久化资料不授予管理员权限。Gateway 的 home DM 必须与 sandbox 唯一 owner DM 一致，verifier 每轮校验。
 
 **作用**：bot 同一个 Feishu 应用账号同时服务多个会话时，按 `chat_id` + `chat_type` 区分工具权限——配置中列出的 owner DM 拥有完整工具集，其他 Feishu DM 只能调用基础安全白名单；Feishu 群聊/频道额外拥有只读知识工具、按群隔离的临时文件工具、受控的飞书文档脚本入口，以及按群显式启用的沙箱图片/图表生成入口。生成结果、从显式引用文档导出的图片或当前消息/显式回复中的图片可以通过固定文档 action 插入正文或设置封面，不开放任意宿主路径与任意 URL 下载。HyperTeX MCP 使用一条窄策略：owner DM 直接可用；群聊同时命中 `trusted_feishu_chat_ids_for_group_hypertex` 与 `trusted_feishu_user_ids_for_group_hypertex` 才能调用。创建/迭代任务固定使用 `hermes` Contributor，新建 case 固定 `freestyle` 类型；执行器、模型/provider、会话、权重与路由决策均由 HyperTeX 服务端私有管理，调用侧不得请求、猜测或复述，sandbox 会删除模型或旧客户端传入的相关字段。本轮飞书附件，以及当前群工作区内由受控图片/图表/文档读取工具产生并显式传给 `asset_paths` 的文件，都会经路径、symlink、数量和大小校验后复制到 HyperTeX 私有暂存目录；原工作区路径不会直接交给 HyperTeX。未开通群或非可信成员即使能看见工具说明也会在调用期被拒绝。非 Feishu 来源（CLI/TUI、cron 调度器、内部事件）一律放行不拦截。
 

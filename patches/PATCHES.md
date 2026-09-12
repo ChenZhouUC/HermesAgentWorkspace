@@ -792,20 +792,20 @@ cat ~/.hermes/patches/.local-patches.base
 
 ### [PATCH-FEISHU-ADMIN-CONTROL-SCOPE] 管理员新会话与 Gateway 管理分域
 
-| 字段     | 内容                                                                                                                                                   |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **文件** | `gateway/slash_access.py`, `gateway/platforms/base.py`, `gateway/run_busy.py`, `gateway/run_inbound.py`, `tests/gateway/test_slash_access_dispatch.py` |
-| **状态** | 🟡 未上游合并；原生 opt-in slash policy 不提供本地 owner/主会话硬边界                                                                                  |
+| 字段     | 内容                                                                                                                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **文件** | `gateway/slash_access.py`, `gateway/platforms/base.py`, `gateway/run_busy.py`, `gateway/run_inbound.py`, `plugins/platforms/feishu/adapter.py`, `tests/gateway/test_slash_access_dispatch.py` |
+| **状态** | 🟡 未上游合并；原生 opt-in slash policy 不提供本地 owner/主会话硬边界                                                                                                                         |
 
 **问题**：群聊禁用 terminal 或拒绝工具审批，仍不能阻止原生短命令直接操作 Gateway。当前上游未配置 `group_allow_admin_from` 时默认允许任何已准入群成员 `/new`、`/reset` 或 `/restart`；空闲重置另走 `send_slash_confirm` 确认流程，而忙碌时 Base adapter 甚至会在 runner 拒绝后取消原任务。用户明确要求：新建/分支 session 可由管理员在群内发起，Gateway 重启只能由管理员在主私聊发起，两者不得混同。
 
-**修复**：共享 `feishu_control_denial` 使用当前 profile 的 `feishu.assistant_user_ids` 首项作为 owner，按发送者 ID 精确匹配，显示名、其他 assistant 身份及缺失/错误配置均不能授予权限。`new`/`branch` 及注册表别名在共享群只允许 owner；`restart`/`update` 还必须同时是 owner 与配置中的 home DM。`sethome` 同受主 DM 限制，防止通过修改 home 位置绕过 Gateway 管理边界。已有普通私聊会话操作及非 Feishu 平台策略保留。
+**修复**：共享 `feishu_control_denial` 使用当前 profile 的 `feishu.assistant_user_ids` 首项作为 owner，按发送者 ID 精确匹配，显示名、其他 assistant 身份及缺失/错误配置均不能授予权限。Feishu adapter 在普通消息和合成事件入口保留当前事件发送者的 `open_id` / `user_id` / `union_id`，由共享权限函数识别同一人的 ID 别名；这些传输身份不参与会话持久化，保持原有主身份和 session key，且不从显示名、提及、引用或人员画像补权。无传输身份的既有 source 仍只匹配主 `user_id`。这修复了配置使用 `open_id`、接收层优先使用租户 `user_id` 时管理员被误拒绝的问题。`new`/`branch` 及注册表别名在共享群只允许 owner；`restart`/`update` 还必须同时是 owner 与配置中的 home DM。`sethome` 同受主 DM 限制，防止通过修改 home 位置绕过 Gateway 管理边界。已有普通私聊会话操作及非 Feishu 平台策略保留。
 
 本项按新增语义 PATCH 登记：它维护“谁能在哪个会话发起管理命令”，可以在群聊审批已正确禁止时独立失效，也有独立的命令分派证据与上游吸收条件。`PATCH-FEISHU-GROUP-APPROVAL` 维护审批/确认请求的拒绝，`PATCH-FEISHU-GROUP-SANDBOX` 维护工具与工作区隔离，均不能替代本项。共享 `gateway/run_busy.py` 时，本项拥有 `_check_slash_access` 的命令授权改动；确认拒绝及 pending 清理属于审批 PATCH。共享测试文件中的两个管理权限节点归本项，原生确认节点归审批 PATCH，不能共用一份通过结果替代彼此的证据。
 
 Base adapter 在活动会话取消/排队之前执行同一权限判断；runner 的空闲和忙碌分派再次消费它，所有别名先由真实 registry 归一。管理员在群内明确发送新会话命令即进入原 reset handler，不发确认卡或文字 approve 提示；主 DM 的原生重置确认策略保留。`branch`/`fork` 保留上游的忙碌时拒绝策略。Step 8e 用实际配置验证 owner 的身份、home DM 与 sandbox 唯一 owner DM 一致，并执行正反权限矩阵；不在代码或 fixture 硬编码真实人员 ID。
 
-**验证**：`tests/gateway/test_slash_access_dispatch.py::test_feishu_control_scope_uses_identity_and_main_dm` 从真实临时 YAML 加载 Gateway 配置，穿过实际 `_handle_message`，按 registry 枚举 `new/reset`、`branch/fork`、`restart`、`update`、`sethome/set-home`，覆盖忙碌/空闲、管理员/普通人/无身份、同显示名冒充、额外 assistant 身份、空/错误 owner 配置、主/其他 DM 与缺失 home；分别断言执行、确认、拒绝且未中断任务。`tests/gateway/test_slash_access_dispatch.py::test_feishu_session_control_checks_access_before_adapter_cancellation` 穿过真实 Base adapter，证明普通群成员的 new/reset 不会调用 handler、取消任务、释放 guard 或遗留排队，管理员可正常通过。初始故障样本 76 个失败场景已复现；最终以 full PATCH evidence、canonical suite 和新 PID 下 sandbox verifier 为准。
+**验证**：`tests/gateway/test_slash_access_dispatch.py::test_feishu_control_scope_uses_identity_and_main_dm` 从真实临时 YAML 加载 Gateway 配置，先经过 Feishu adapter 的真实消息解析和身份归一，再穿过实际 `_handle_message`，按 registry 枚举 `new/reset`、`branch/fork`、`restart`、`update`、`sethome/set-home`，覆盖单 `open_id` 与同时存在三种发送者 ID、不同 owner ID 类型、忙碌/空闲、管理员/普通人/无身份、同显示名和提及/引用冒充、额外 assistant 身份、空/错误 owner 配置、主/其他 DM 与缺失 home；分别断言执行、确认、拒绝且未中断任务，并确认传输身份不能从 session 序列化恢复。`tests/gateway/test_slash_access_dispatch.py::test_feishu_session_control_checks_access_before_adapter_cancellation` 同样使用真实 Feishu 归一结果，穿过真实 Base adapter，证明普通群成员的 new/reset 不会调用 handler、取消任务、释放 guard 或遗留排队，管理员可正常通过。初始权限故障样本 76 个失败场景、ID 别名误判的 20 个失败场景均已复现；最终以 full PATCH evidence、canonical suite 和新 PID 下 sandbox verifier 为准。
 
 **上游吸收判断**：只有上游在 Base adapter 取消/排队之前和 runner 空闲/忙碌分派共同提供 owner 身份地板、注册表别名覆盖、群内管理员无卡重置、主 DM Gateway 管理及 home 修改约束，并保留私聊确认与其他平台策略时可归档；只有 opt-in 的 general slash allowlist 不构成等价吸收。
 
