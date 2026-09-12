@@ -21,6 +21,7 @@ import fnmatch
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1166,10 +1167,13 @@ def _run_unittest_probe(module: str, label: str) -> dict[str, object]:
     result = _run([sys.executable, "-m", "unittest", module], timeout=300)
     if result.returncode:
         raise EvidenceError(f"{label} failed: {result.stdout[-1500:]}{result.stderr[-1500:]}")
-    combined = f"{result.stdout}\n{result.stderr}"
-    match = re.search(r"Ran (\d+) tests?", combined)
+    match = re.search(r"^Ran (\d+) tests? in .+$", result.stderr, re.MULTILINE)
     if match is None or int(match.group(1)) <= 0:
         raise EvidenceError(f"{label} reported no executed tests")
+    # unittest exits zero for skipped and expected-failure cases. Only its
+    # unqualified terminal OK is a clean pass; stdout is test-controlled.
+    if result.stderr.rstrip().splitlines()[-1] != "OK":
+        raise EvidenceError(f"{label} did not report a clean pass: {result.stderr[-1500:]}")
     return {"tests": int(match.group(1))}
 
 
@@ -1398,7 +1402,7 @@ def audit_npm_dependency_hygiene() -> dict[str, object]:
     }
 
 
-def audit_skills_mirror() -> None:
+def audit_skills_mirror() -> dict[str, object]:
     script = SCRIPT.read_text(encoding="utf-8")
     for needle in (
         "rsync -a --delete",
@@ -1415,30 +1419,48 @@ def audit_skills_mirror() -> None:
         raise EvidenceError("rsync is unavailable for the Skills mirror regression")
     with tempfile.TemporaryDirectory(prefix="hermes-skills-mirror-evidence-") as temp_raw:
         root = Path(temp_raw)
-        source = root / "source"
-        target = root / "target"
+        source = root / "agent/skills"
+        target = root / "home/skills"
         (source / "demo").mkdir(parents=True)
         (source / "demo/SKILL.md").write_text("new-content\n", encoding="utf-8")
-        target.mkdir()
+        (source / "demo/__pycache__").mkdir()
+        (source / "demo/__pycache__/cold.pyc").write_bytes(b"not skill content")
+        (source / "demo/generated.pyc").write_bytes(b"not skill content")
+        (target / "demo").mkdir(parents=True)
+        (target / "demo/SKILL.md").write_text("old\n", encoding="utf-8")
         (target / "stale.txt").write_text("remove-me\n", encoding="utf-8")
-        (target / ".bundled_manifest").write_text("keep-manifest\n", encoding="utf-8")
-        (target / ".usage.json").write_text("keep-usage\n", encoding="utf-8")
-        (target / ".hub").mkdir()
-        (target / ".hub/state").write_text("keep-hub\n", encoding="utf-8")
+        runtime_files = {
+            ".bundled_manifest": "manifest",
+            ".curator_state": "curator",
+            ".usage.json": "usage",
+            ".usage.json.lock": "usage lock",
+            ".curator_backups/entry": "backup",
+            ".curator_suppressed": "suppression",
+            ".hub/state": "hub",
+            ".archive/entry/SKILL.md": "archive",
+            "demo/__pycache__/warm.pyc": "existing runtime cache",
+        }
+        for relative, content in runtime_files.items():
+            path = target / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        starts = list(re.finditer(r"^# ── 4b\. Full skills sync.*$", script, re.MULTILINE))
+        ends = list(re.finditer(r"^# ── 5\. Snapshot gateway.*$", script, re.MULTILINE))
+        if len(starts) != 1 or len(ends) != 1 or starts[0].start() >= ends[0].start():
+            raise EvidenceError("skills mirror production phase is missing or ambiguous")
+        phase = script[starts[0].start() : ends[0].start()]
+        # Execute the actual phase in a separate shell with private roots.
+        # Logging helpers are inert; rsync, arguments and failure propagation
+        # are the production code, never a second copy of the exclusion list.
+        harness = (
+            "set -euo pipefail\nFINAL_RC=0\n"
+            "step(){ :; }; ok(){ :; }; fail(){ :; }; warn(){ :; }; "
+            "add_warn(){ :; }; add_act(){ :; }\n" + phase + '\nexit "$FINAL_RC"\n'
+        )
         mirror = _run(
-            [
-                "rsync",
-                "-a",
-                "--delete",
-                "--exclude=/.bundled_manifest",
-                "--exclude=/.curator_state",
-                "--exclude=/.usage.json",
-                "--exclude=/.hub/",
-                "--exclude=/.archive/",
-                "--exclude=__pycache__/",
-                f"{source}/",
-                f"{target}/",
-            ],
+            ["bash", "-c", harness],
+            cwd=root,
+            env={**_hermetic_test_env(), "HERMES_AGENT": str(source.parent), "HERMES_HOME": str(target.parent)},
             timeout=30,
         )
         if mirror.returncode:
@@ -1447,20 +1469,66 @@ def audit_skills_mirror() -> None:
             raise EvidenceError("isolated Skills mirror did not update bundled content")
         if (target / "stale.txt").exists():
             raise EvidenceError("isolated Skills mirror did not delete stale bundled content")
-        for rel, expected in (
-            (".bundled_manifest", "keep-manifest\n"),
-            (".usage.json", "keep-usage\n"),
-            (".hub/state", "keep-hub\n"),
-        ):
-            if (target / rel).read_text(encoding="utf-8") != expected:
+        for rel, expected in runtime_files.items():
+            if not (target / rel).is_file() or (target / rel).read_text(encoding="utf-8") != expected:
                 raise EvidenceError(f"isolated Skills mirror did not preserve runtime state: {rel}")
+        if any((target / rel).exists() for rel in ("demo/generated.pyc", "demo/__pycache__/cold.pyc")):
+            raise EvidenceError("isolated Skills mirror copied generated bytecode as skill content")
+        return {"production_phase": "4b", "preserved_runtime_files": len(runtime_files)}
 
 
 def audit_fts5_build() -> dict[str, object]:
-    return _run_strict_pytest_probe(
+    with tempfile.TemporaryDirectory(prefix="hermes-fts5-build-evidence-") as raw:
+        root = Path(raw)
+        build_dir = root / "source"
+        shutil.copytree(
+            INNER / "native/fts5_cjk",
+            build_dir,
+            ignore=shutil.ignore_patterns("*.so", "*.dylib", "*.o"),
+        )
+        dest = root / "installed"
+        built = _run(
+            ["bash", str(build_dir / "build.sh"), str(dest)],
+            cwd=build_dir,
+            env=_hermetic_test_env(),
+            timeout=120,
+        )
+        artifact = dest / "libfts5_cjk.so"
+        if built.returncode or not artifact.is_file():
+            raise EvidenceError(f"FTS5 actual build failed: {built.stdout[-1000:]}{built.stderr[-1000:]}")
+        code = """
+import sqlite3, sys
+with sqlite3.connect(':memory:') as db:
+    db.enable_load_extension(True)
+    db.load_extension(sys.argv[1])
+    db.enable_load_extension(False)
+    db.execute("CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='cjk_unicode61')")
+    db.execute("INSERT INTO docs(body) VALUES (?)", ("本地项目审计",))
+    assert db.execute("SELECT body FROM docs WHERE docs MATCH ?", ("项目",)).fetchone() == ("本地项目审计",)
+"""
+        installed = ROOT / "lib/libfts5_cjk.so"
+        artifacts = [("built", artifact)]
+        if installed.exists():
+            artifacts.append(("installed", installed))
+        for label, candidate in artifacts:
+            loaded = _run(
+                [sys.executable, "-c", code, str(candidate)],
+                cwd=root,
+                env=_hermetic_test_env(),
+                timeout=30,
+            )
+            if loaded.returncode:
+                raise EvidenceError(f"FTS5 {label} artifact load/query failed: {loaded.stderr[-1500:]}")
+    result = _run_strict_pytest_probe(
         "FTS5 CJK regression",
         "tests/test_fts_cjk_bigram.py",
     )
+    return {
+        **result,
+        "build_script": "native/fts5_cjk/build.sh",
+        "built_artifact_query": "passed",
+        "installed_artifact_query": "passed" if installed.exists() else "not_installed",
+    }
 
 
 def _run_archived_pytest(*node_ids: str) -> dict[str, object]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,66 @@ def patch_block(validation: str) -> str:
 
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
+    def test_unittest_probe_rejects_skips_and_expected_failures(self) -> None:
+        for decorator, body in (
+            ('@unittest.skip("synthetic skip")', "pass"),
+            ("@unittest.expectedFailure", 'self.fail("synthetic failure")'),
+        ):
+            with self.subTest(decorator=decorator):
+                code = (
+                    "import unittest\nclass T(unittest.TestCase):\n"
+                    f"    {decorator}\n    def test_case(self):\n        {body}\n"
+                    "unittest.main()\n"
+                )
+                result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0)
+                with (
+                    patch.object(evidence, "_run", return_value=result),
+                    self.assertRaisesRegex(evidence.EvidenceError, "clean pass"),
+                ):
+                    evidence._run_unittest_probe("synthetic", "unittest outcome")
+
+    def test_skills_mirror_probe_executes_the_update_phase(self) -> None:
+        source = evidence.SCRIPT.read_text()
+        mutations = (
+            ('        "/.usage.json"\n', ""),
+            ('        "*.pyc"\n', ""),
+            ("rsync -a --delete --itemize-changes", "rsync -a --itemize-changes"),
+        )
+        with tempfile.TemporaryDirectory(prefix="mirror-probe-mutation-") as raw:
+            script = Path(raw) / "hermes-update.sh"
+            for original, replacement in mutations:
+                with self.subTest(original=original):
+                    self.assertIn(original, source)
+                    script.write_text(source.replace(original, replacement, 1))
+                    with (
+                        patch.object(evidence, "SCRIPT", script),
+                        self.assertRaises(evidence.EvidenceError),
+                    ):
+                        evidence.audit_skills_mirror()
+
+    def test_fts5_probe_rejects_a_broken_actual_build_script(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="native-build-probe-") as raw:
+            inner = Path(raw)
+            target = inner / "native/fts5_cjk"
+            shutil.copytree(evidence.INNER / "native/fts5_cjk", target, ignore=shutil.ignore_patterns("*.so"))
+            build = target / "build.sh"
+            original = build.read_text()
+            for failure in ("build", "installed artifact"):
+                with self.subTest(failure=failure):
+                    build.write_text("#!/bin/bash\nexit 23\n" if failure == "build" else original)
+                    if failure == "installed artifact":
+                        (inner / "lib").mkdir()
+                        (inner / "lib/libfts5_cjk.so").write_bytes(b"not a loadable extension")
+                    with (
+                        patch.object(evidence, "INNER", inner),
+                        patch.object(evidence, "ROOT", inner),
+                        patch.object(evidence, "_run_strict_pytest_probe", return_value={"tests": 1}) as fallback,
+                        self.assertRaisesRegex(evidence.EvidenceError, failure),
+                    ):
+                        evidence.audit_fts5_build()
+                    fallback.assert_not_called()
+
     def test_final_audit_rejects_stale_managed_file_snapshot(self) -> None:
         """A newly registered test cannot disappear behind a stale docs count."""
         files = ["tools/example.py", "tests/test_example.py"]

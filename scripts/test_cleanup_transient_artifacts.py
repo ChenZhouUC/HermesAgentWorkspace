@@ -172,6 +172,55 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
         self.assertIn("scripts/final_upgrade_audit.py", required)
         self.assertIn("scripts/test_patch_evidence.py", required)
         self.assertIn("scripts/test_patch_evidence_auditor.py", required)
+        self.assertIn("plugins/model-providers/claude-sc/verify.sh", required)
+
+    def test_repository_policy_classifies_nested_verifiers_and_wisdom_runtime(self) -> None:
+        repository = Path(__file__).resolve().parents[1]
+        policy = cleanup.load_policy(repository / "scripts/cleanup_policy.json")
+        with tempfile.TemporaryDirectory() as root_raw:
+            root = Path(root_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            verifier = root / "plugins/model-providers/example/verify.sh"
+            verifier.parent.mkdir(parents=True)
+            verifier.write_text("#!/bin/sh\nexit 0\n")
+            scoped_policy = {**policy, "required_scripts": {}, "required_files": {}}
+            audit, errors = cleanup.audit_scripts(root, scoped_policy)
+            self.assertEqual(errors, [])
+            self.assertEqual(
+                {item.path: item.classification for item in audit},
+                {"plugins/model-providers/example/verify.sh": "review"},
+            )
+            (root / ".gitignore").write_text((repository / ".gitignore").read_text())
+            (root / "fleet_restart_pending").write_text("expected_sha=test\n")
+            (root / "shared-state.db").write_bytes(b"coordination state")
+            (root / "shared-state.db-wal").write_bytes(b"journal")
+            wisdom = root / "wisdom"
+            wisdom.mkdir()
+            for name in ("wisdom.db", "wisdom.db-wal", "wisdom.db-shm"):
+                (wisdom / name).write_bytes(b"private runtime state")
+                ignored = subprocess.run(["git", "-C", str(root), "check-ignore", "-q", f"wisdom/{name}"])
+                self.assertEqual(ignored.returncode, 0, f"wisdom/{name} must remain outside Git")
+            cache = root / "hermes-agent/hermes_wisdom/agent_led/__pycache__"
+            cache.mkdir(parents=True)
+            (cache / "runtime.pyc").write_bytes(b"cache")
+            subprocess.run(["git", "init", "-q", str(root / "hermes-agent")], check=True)
+            (root / "hermes-agent/.gitignore").write_text("__pycache__/\n")
+            (cache.parent / "runtime.py").write_text("# Tracked runtime module.\n")
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root / "hermes-agent"),
+                    "add",
+                    "hermes_wisdom/agent_led/runtime.py",
+                ],
+                check=True,
+            )
+            audit, errors = cleanup.audit_ignored(root, scoped_policy)
+            self.assertEqual(errors, [])
+            self.assertTrue(all(item.classification == "keep" for item in audit))
+            self.assertIn("wisdom", {item.path.rstrip("/") for item in audit})
+            self.assertIn("hermes-agent/hermes_wisdom/agent_led/__pycache__", {item.path.rstrip("/") for item in audit})
 
     def test_script_audit_classifies_keep_remove_and_review(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:

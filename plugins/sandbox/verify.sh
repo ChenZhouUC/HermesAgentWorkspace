@@ -445,6 +445,36 @@ from tools.mcp_tool_discovery import discover_mcp_tools
 
 discover_plugins(force=True)
 config = load_config()
+
+# The owner principal and primary chat are separate authority checks. Moving the
+# notification home must not silently move Gateway control to another chat.
+import yaml
+from gateway.config import load_gateway_config, Platform
+from gateway.run_busy import GatewayBusySessionMixin
+from gateway.session import SessionSource
+
+control_config = load_gateway_config()
+feishu_control = control_config.platforms[Platform.FEISHU]
+owner_id = config["feishu"]["assistant_user_ids"][0]
+owner_chats = set((yaml.safe_load((home / "plugins/sandbox/config.yaml").read_text()) or {})["owner_feishu_chat_ids"])
+assert feishu_control.home_channel is not None, "Feishu primary home chat is required for Gateway control"
+primary_chat = feishu_control.home_channel.chat_id
+assert owner_chats == {primary_chat}, "Gateway home must match the single sandbox owner DM"
+control_runner = SimpleNamespace(config=control_config)
+for chat_type, chat_id, user_id, session_allowed, gateway_allowed in (
+    ("group", "oc_control_fixture", owner_id, True, False),
+    ("group", "oc_control_fixture", "ou_control_untrusted", False, False),
+    ("dm", primary_chat, owner_id, True, True),
+    ("dm", primary_chat, "ou_control_untrusted", True, False),
+    ("dm", "oc_control_other_dm", owner_id, True, False),
+):
+    source = SessionSource(platform=Platform.FEISHU, chat_type=chat_type, chat_id=chat_id, user_id=user_id)
+    for command in ("new", "branch", "restart", "update", "sethome"):
+        expected = session_allowed if command in {"new", "branch"} else gateway_allowed
+        allowed = GatewayBusySessionMixin._check_slash_access(control_runner, source, command) is None
+        assert allowed == expected, f"Feishu control scope mismatch: {chat_type}/{command}"
+print("OK   group session controls require the owner; Gateway lifecycle controls require the primary owner DM")
+
 discover_mcp_tools()
 hypertex_mcp = (config.get("mcp_servers") or {}).get("hypertex") or {}
 hypertex_enabled = bool(hypertex_mcp)
@@ -528,19 +558,20 @@ group_defs = get_tool_definitions(
     quiet_mode=True,
     skip_tool_search_assembly=True,
 )
-search_payload = tool_search.dispatch_tool_search(
-    {
-        "queries": [
-            "group cache feishu doc image chart generation"
-            + (" hypertex presentation" if hypertex_enabled else "")
-        ]
-    },
-    current_tool_defs=group_defs,
-)
-assert "group_cache" in search_payload
-assert "feishu_doc_manage" in search_payload
-assert "group_image_generate" in search_payload
-assert "group_chart_generate" in search_payload
+# Search now scores one coherent capability per query; unrelated keywords are
+# deliberately rejected upstream. Verify every result under its own query.
+for expected_tool, query in (
+    ("group_cache", "group cache"),
+    ("feishu_doc_manage", "feishu doc manage"),
+    ("group_image_generate", "group image generate"),
+    ("group_chart_generate", "group chart generate"),
+):
+    search_payload = tool_search.dispatch_tool_search(
+        {"queries": [query]}, current_tool_defs=group_defs,
+    )
+    search_result = json.loads(search_payload)
+    assert len(search_result.get("results", [])) == 1, search_result
+    assert expected_tool in search_result["results"][0].get("matches", []), (expected_tool, search_result)
 if hypertex_enabled:
     hypertex_create_payload = tool_search.dispatch_tool_search(
         {"queries": ["create case"]},

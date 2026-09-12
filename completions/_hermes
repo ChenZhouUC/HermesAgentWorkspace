@@ -90,6 +90,7 @@ _hermes() {
                 'tools:Configure which tools are enabled per platform'
                 'uninstall:Uninstall Hermes Agent'
                 'update:Update Hermes Agent to the latest version'
+                'vault:Manage the local encrypted autofill vault (add/list/rm crede'
                 'verify:Detect a projects run recipe and smoke-test it'
                 'webhook:Manage dynamic webhook subscriptions'
                 'whatsapp:Set up WhatsApp integration'
@@ -114,10 +115,13 @@ _hermes() {
                     'add:Add a pooled credential'
                     'list:List pooled credentials'
                     'logout:Log out a provider and clear stored auth state'
+                    'priority:Move a pooled credential to a priority (0 = tried first unde'
+                    'refresh:Refresh a pooled OAuth credentials tokens and clear its cool'
                     'remove:Remove a pooled credential by index, id, or label'
-                    'reset:Clear exhaustion status for all credentials for a provider'
+                    'reset:Clear exhaustion status for a providers credentials (all, or'
                     'spotify:Authenticate Hermes with Spotify via PKCE'
                     'status:Show auth status for a provider'
+                    'upgrade:Sign in with a Nous account, keeping your connectors'
                     )
                     _describe 'auth command' auth_cmds
                     ;;
@@ -454,18 +458,20 @@ _hermes() {
                 plugins)
                     local -a plugins_cmds
                     plugins_cmds=(
+                    'browse:List every curated plugin catalog entry'
                     'capabilities:Show declared vs granted capabilities per plugin'
                     'compat:Show installed plugins that import paths removed by the Sep '
                     'disable:Disable a plugin without removing it'
                     'doctor:Validate a plugin with the real runtime contracts'
                     'enable:Enable a disabled plugin'
-                    'install:Install a plugin from a Git URL, owner/repo, or index name'
+                    'install:Install a plugin from the curated catalog, a Git URL, or own'
                     'list:List installed plugins'
                     'pack:Declarative, shareable plugin sets (hermes-pack.yaml)'
                     'remove:Remove an installed plugin'
-                    'search:Search the community plugin index'
+                    'search:Search the curated Hermes plugin catalog'
                     'show:Show details for a single plugin (including emits/listens)'
                     'update:Pull latest changes for an installed plugin'
+                    'validate:Validate a plugin directory for catalog admission (CI gate)'
                     )
                     _describe 'plugins command' plugins_cmds
                     ;;
@@ -637,6 +643,16 @@ _hermes() {
                     'post-setup:Run a providers post-setup install hook (npm/pip/binary)'
                     )
                     _describe 'tools command' tools_cmds
+                    ;;
+                vault)
+                    local -a vault_cmds
+                    vault_cmds=(
+                    'add:Save a login, card or address ahead of time (optional: the a'
+                    'list:List vault items (metadata only, never values)'
+                    'rm:Remove a vault item by handle'
+                    'sources:Show detected password managers (1Password, Bitwarden); they'
+                    )
+                    _describe 'vault command' vault_cmds
                     ;;
                 webhook)
                     local -a webhook_cmds

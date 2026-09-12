@@ -91,7 +91,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.20.6 / main e387cbc0aa0fc89560bc14438762c7722663db05, `hermes completion zsh` already emits the
+# As of v0.21.1 / main 3b45681c25a880477a2a806cdebe91d2f1bfe9ce, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -121,6 +121,7 @@ PATCHED_FILES=(
     "gateway/slash_commands.py"
     "gateway/slash_commands_model.py"
     "gateway/slash_commands_session.py"
+    "gateway/slash_access.py"
     "gateway/session.py"
     "gateway/session_context.py"
     "gateway/session_state.py"
@@ -164,6 +165,7 @@ PATCHED_FILES=(
     "tests/gateway/test_session.py"
     "tests/gateway/test_session_env.py"
     "tests/gateway/test_run_progress_topics.py"
+    "tests/gateway/test_slash_access_dispatch.py"
     "tests/gateway/test_background_command.py"
     "tests/gateway/test_verbose_command.py"
     "tests/gateway/test_stream_consumer_silence.py"
@@ -200,6 +202,7 @@ PATCHED_FILES=(
     "tests/gateway/test_stale_confirmation_expiry.py"
     "agent/agent_runtime_helpers.py"
     "agent/chat_completion_helpers.py"
+    "agent/chat_completion_nonstream.py"
     "agent/tool_executor.py"
     "agent/mcp_task_protocol.py"
     "hermes_state_messages.py"
@@ -215,7 +218,7 @@ PATCHED_FILES=(
     "tests/tools/test_mcp_tasks_extension.py"
     "tests/tools/test_mcp_utility_capability_gating.py"
     "tests/tools/test_mcp_tool.py"
-    "tools/tool_search.py"
+    "tools/tool_search_validation.py"
     "tests/tools/test_tool_search.py"
     "website/docs/user-guide/features/mcp.md"
     "native/fts5_cjk/build.sh"
@@ -2488,6 +2491,7 @@ _FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK=false
 _FEISHU_GROUP_SCOPE_PATCH_OK=false
 _PLATFORM_CAPABILITY_SCOPE_PATCH_OK=false
 _FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK=false
+_FEISHU_ADMIN_CONTROL_SCOPE_PATCH_OK=false
 _FEISHU_NO_THREAD_PATCH_OK=false
 _FEISHU_FINAL_ONLY_PATCH_OK=false
 _PEOPLE_PROFILE_PATCH_OK=false
@@ -2532,6 +2536,8 @@ print("ok" if result.startswith(expected_root) else "native")
 PYEOF
     )
     if [[ "${_SKILL_CHECK}" == "ok" ]] &&
+        grep -q 'test_create_defaults_to_first_external_dir_without_explicit_override' "${SKILL_MANAGER_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_create_rejects_malformed_root_configuration_without_writing' "${SKILL_MANAGER_TEST_PY}" 2>/dev/null &&
         grep -q 'test_create_fails_closed_when_skill_root_config_cannot_be_read' "${SKILL_MANAGER_TEST_PY}" 2>/dev/null; then
         ok "Skill routing patch: active (new skills → my-skills/)"
         _SKILL_PATCH_OK=true
@@ -2983,6 +2989,11 @@ if [[ -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
         grep -q 'test_feishu_group_dangerous_command_does_not_send_approval_card' "${APPROVAL_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_block_precedes_allowlist_and_prior_approvals' "${APPROVAL_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_execute_code_guard_blocked' "${APPROVAL_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_group_generic_approval_never_notifies' "${APPROVAL_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_scan_findings_precede_approval_bypasses' "${APPROVAL_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_shared_slash_confirmation_never_prompts_or_executes' "${HERMES_AGENT}/tests/gateway/test_slash_access_dispatch.py" 2>/dev/null &&
+        grep -q 'test_feishu_approval_delivery_rejects_shared_chats' "${RUN_PROGRESS_TEST_PY}" 2>/dev/null &&
+        grep -q 'test_feishu_owner_dm_keeps_isolated_backend_approval_policy' "${APPROVAL_TEST_PY}" 2>/dev/null &&
         grep -q 'test_feishu_group_chat_type_from_context_when_key_not_canonical' "${APPROVAL_TEST_PY}" 2>/dev/null; then
         ok "PATCH-FEISHU-GROUP-APPROVAL active: approval escalation hard-blocked"
         _FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK=true
@@ -2992,6 +3003,22 @@ if [[ -f "${APPROVAL_PY}" && -f "${APPROVAL_TEST_PY}" ]]; then
     fi
 else
     warn "Could not locate PATCH-FEISHU-GROUP-APPROVAL files"
+fi
+
+# PATCH-FEISHU-ADMIN-CONTROL-SCOPE: session commands require the owner in groups;
+# Gateway lifecycle commands additionally require the owner's primary DM.
+FEISHU_CONTROL_PY="${HERMES_AGENT}/gateway/slash_access.py"
+FEISHU_CONTROL_TEST_PY="${HERMES_AGENT}/tests/gateway/test_slash_access_dispatch.py"
+if grep -q 'def feishu_control_denial' "${FEISHU_CONTROL_PY}" 2>/dev/null &&
+    grep -q 'feishu_control_denial' "${HERMES_AGENT}/gateway/platforms/base.py" 2>/dev/null &&
+    grep -q 'feishu_control_denial' "${GATEWAY_RUN_BUSY_PY}" 2>/dev/null &&
+    grep -q 'test_feishu_control_scope_uses_identity_and_main_dm' "${FEISHU_CONTROL_TEST_PY}" 2>/dev/null &&
+    grep -q 'test_feishu_session_control_checks_access_before_adapter_cancellation' "${FEISHU_CONTROL_TEST_PY}" 2>/dev/null; then
+    ok "PATCH-FEISHU-ADMIN-CONTROL-SCOPE active: owner session reset, primary-DM Gateway control"
+    _FEISHU_ADMIN_CONTROL_SCOPE_PATCH_OK=true
+else
+    warn "PATCH-FEISHU-ADMIN-CONTROL-SCOPE inactive or partial"
+    add_act "Re-apply: see PATCHES.md § [PATCH-FEISHU-ADMIN-CONTROL-SCOPE]"
 fi
 
 # PATCH-FEISHU-NORMAL-REPLY: replies must never create a topic/thread. Generic
@@ -3658,8 +3685,8 @@ if [[ -f "${UPDATE_FLEET_PY}" && -f "${UPDATE_FLEET_TEST_PY}" ]]; then
     if grep -q 'from hermes_cli.gateway import find_profile_gateway_processes' "${UPDATE_FLEET_PY}" 2>/dev/null &&
         grep -q 'from hermes_cli.update_receipt import collect_fleet_versions' "${UPDATE_FLEET_PY}" 2>/dev/null &&
         grep -q 'fleet_pids != live_pids' "${UPDATE_FLEET_PY}" 2>/dev/null &&
-        grep -q 'row.get("state") == "current"' "${UPDATE_FLEET_PY}" 2>/dev/null &&
-        grep -q 'row.get("code_sha") == expected_sha' "${UPDATE_FLEET_PY}" 2>/dev/null &&
+        grep -q 'row.get("state") != "current"' "${UPDATE_FLEET_PY}" 2>/dev/null &&
+        grep -q 'row.get("code_sha") != expected_sha' "${UPDATE_FLEET_PY}" 2>/dev/null &&
         grep -q 'test_startup_warn_ignores_stale_receipt_when_live_fleet_is_current' "${UPDATE_FLEET_TEST_PY}" 2>/dev/null; then
         ok "Update fleet receipt freshness patch: active (live current fleet overrides stale historical receipt)"
         _UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK=true
@@ -3947,10 +3974,10 @@ fi
 # PATCH-TOOL-CALL-DOUBLE-WRAP-RECOVERY: some models repeat the outer
 # {name,arguments} envelope inside tool_call. Repair exactly one redundant
 # self-wrapper, then keep normal scoped-catalog/schema/sandbox checks.
-TOOL_SEARCH_PY="${HERMES_AGENT}/tools/tool_search.py"
+TOOL_SEARCH_PY="${HERMES_AGENT}/tools/tool_search_validation.py"
 TOOL_SEARCH_TEST_PY="${HERMES_AGENT}/tests/tools/test_tool_search.py"
 if [[ -f "${VENV_PY}" && -f "${TOOL_SEARCH_PY}" && -f "${TOOL_SEARCH_TEST_PY}" ]]; then
-    if grep -q 'Repair exactly one layer' "${TOOL_SEARCH_PY}" 2>/dev/null &&
+    if grep -q 'Repair one redundant envelope' "${TOOL_SEARCH_PY}" 2>/dev/null &&
         grep -q 'test_resolve_underlying_call_repairs_one_redundant_bridge_envelope' "${TOOL_SEARCH_TEST_PY}" 2>/dev/null &&
         grep -q 'test_resolve_underlying_call_does_not_repair_nested_bridge_recursion' "${TOOL_SEARCH_TEST_PY}" 2>/dev/null &&
         cd "${HERMES_AGENT}" &&
@@ -4030,7 +4057,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_TEST_RUNTIME_STATE_ISOLATION_PATCH_OK && $_UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_ADMIN_CONTROL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_TEST_RUNTIME_STATE_ISOLATION_PATCH_OK && $_UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

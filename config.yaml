@@ -597,14 +597,7 @@ paste_collapse_char_threshold: 2000
 vertex:
   project_id: ''
   region: global
-_config_version: 40
-session_reset:
-  mode: idle
-  idle_minutes: 1440
-  notify_exclude_platforms:
-    - api_server
-    - webhook
-    - feishu
+_config_version: 42
 group_sessions_per_user: false
 platform_toolsets:
   feishu_group:
