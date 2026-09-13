@@ -91,7 +91,7 @@ TRANSACTION_TARGET_REF="refs/hermes-update/target"
 # Files we maintain local patches for (relative to HERMES_AGENT).
 # Note: completions/_hermes (PATCH-ZSH-COMPLETION-SYNTAX) is handled separately in step 7 via
 # inline python rewrite, not via git diff, since it lives outside HERMES_AGENT.
-# As of v0.21.1 / main 3b45681c25a880477a2a806cdebe91d2f1bfe9ce, `hermes completion zsh` already emits the
+# As of v0.21.2 / main 28bf67b17607af53c147431f117d07955dc870da, `hermes completion zsh` already emits the
 # canonical `'(-)'{-h,--help}'[...]'` form. The step 7 regression sentinel
 # dates back to v0.13.0 (upstream commit fe61d95b4) and stays as a guard
 # against future upstream regression.
@@ -146,6 +146,8 @@ PATCHED_FILES=(
     "tools/approval_detection.py"
     "tests/tools/test_approval.py"
     "tools/skills_tool.py"
+    "tools/skills_tool_dedup.py"
+    "tools/skills_tool_plugin.py"
     "tests/tools/test_skills_tool.py"
     "toolsets.py"
     "tools/feishu_doc_tool.py"
@@ -2503,6 +2505,7 @@ _VERTEX_THOUGHTS_PATCH_OK=false
 _VERTEX_DOCTOR_PATCH_OK=false
 _DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK=false
 _TEST_RUNTIME_STATE_ISOLATION_PATCH_OK=false
+_CODEX_WATCHDOG_TEST_CLOCK_PATCH_OK=false
 _UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK=false
 _IMAGE_NATIVE_ROUTING_PATCH_OK=false
 _VERTEX_VIDEO_ROUTING_PATCH_OK=false
@@ -2969,7 +2972,12 @@ if [[ -f "${SKILL_UTILS_PY}" && -f "${SKILL_COMMANDS_TEST_PY}" && -f "${PROMPT_B
 import toolsets as t
 assert t.TOOLSETS["skills_readonly"]["tools"] == ["skills_list", "skill_view"], t.TOOLSETS["skills_readonly"]["tools"]
 assert t.TOOLSETS["file_readonly"]["tools"] == ["read_file", "search_files"], t.TOOLSETS["file_readonly"]["tools"]
-' 2>/dev/null); then
+' 2>/dev/null) &&
+        (cd "${HERMES_AGENT}" && "${VENV_PY}" -m pytest -q -p no:cacheprovider \
+            "${PYTEST_STRICT_WARNING_ARGS[@]}" \
+            tests/tools/test_skills_tool.py::TestSkillView::test_registered_view_rechecks_access_and_source_before_dedup \
+            tests/tools/test_skills_tool.py::TestSkillView::test_registered_view_uses_session_scope_before_process_platform \
+            >/dev/null 2>&1); then
         ok "PATCH-PLATFORM-CAPABILITY-SCOPE active: bundled hidden + external allowlist + read-only toolsets"
         _PLATFORM_CAPABILITY_SCOPE_PATCH_OK=true
     else
@@ -3776,6 +3784,21 @@ else
     warn "Could not locate PATCH-VERTEX-VIDEO-ROUTING files"
 fi
 
+# PATCH-CODEX-WATCHDOG-TEST-CLOCK: keepalive deadlines are tested with
+# controlled time through actual auxiliary/primary adapters, without host timing assumptions.
+if [[ -f "${VENV_PY}" ]] &&
+    (cd "${HERMES_AGENT}" && "${VENV_PY}" -m pytest -q -p no:cacheprovider \
+        "${PYTEST_STRICT_WARNING_ARGS[@]}" \
+        tests/agent/test_auxiliary_client.py::TestCodexAuxiliaryAdapterTimeout::test_keepalive_stream_cannot_extend_no_progress_deadline \
+        tests/agent/test_codex_ttfb_watchdog.py::test_event_stale_phase_is_scoped_to_physical_stream_attempt \
+        >/dev/null 2>&1); then
+    ok "PATCH-CODEX-WATCHDOG-TEST-CLOCK active: event/watchdog deadlines and owner-thread cleanup verified"
+    _CODEX_WATCHDOG_TEST_CLOCK_PATCH_OK=true
+else
+    warn "PATCH-CODEX-WATCHDOG-TEST-CLOCK inactive or failing"
+    add_act "Repair the deterministic auxiliary timeout regression before refreshing the bundle"
+fi
+
 # PATCH-MULTIMODAL-SIDECAR: delegate only current-turn image/audio/video/PDF
 # bytes plus bounded caption/quote context to a capable configured route — no
 # turn-wide provider switch or transcript replay. Also carries the
@@ -3899,7 +3922,11 @@ if [[ -f "${MCP_TASK_PROTOCOL_PY}" && -f "${MCP_TASKS_EXTENSION_PY}" && -f "${MC
         grep -q 'test_successful_call' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
         grep -q 'test_utility_tools_registered' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
         grep -q 'test_default_strips_authorization_and_task_routing_headers' "${HERMES_AGENT}/tests/tools/test_mcp_tool.py" 2>/dev/null &&
-        grep -q 'test_tasks_extension_registers_standard_task_utilities' "${MCP_UTILITY_GATE_TEST_PY}" 2>/dev/null; then
+        grep -q 'test_tasks_extension_registers_standard_task_utilities' "${MCP_UTILITY_GATE_TEST_PY}" 2>/dev/null &&
+        (cd "${HERMES_AGENT}" && "${VENV_PY}" -m pytest -q -p no:cacheprovider \
+            "${PYTEST_STRICT_WARNING_ARGS[@]}" \
+            tests/tools/test_mcp_tasks_extension.py::test_registered_task_lifecycle_honors_mutation_trust_before_transport \
+            >/dev/null 2>&1); then
         ok "PATCH-MCP-TASKS-ASYNC-HANDOFF active: task handles return structured Markdown tables without a second LLM call"
         _MCP_TASKS_ASYNC_HANDOFF_PATCH_OK=true
     else
@@ -4057,7 +4084,7 @@ fi
 # and the patched files are conflict-marker-free. The canonical bundle/base are
 # replaced only after exact managed-file coverage plus byte/cached/reverse replay
 # checks all pass.
-if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_ADMIN_CONTROL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_TEST_RUNTIME_STATE_ISOLATION_PATCH_OK && $_UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
+if $_PATCH_APPLY_OK && $_ARCHIVED_DOCTOR_TOOLSETS_OK && $_ARCHIVED_DASHBOARD_BUILD_CACHE_OK && $_ARCHIVED_DELEGATE_ACP_ROUTING_OK && $_ARCHIVED_GEMINI_THOUGHT_SIGNATURE_OK && $_GEMINI_CROSS_PROVIDER_TOOL_HISTORY_PATCH_OK && $_ARCHIVED_LAUNCHD_WRAPPER_SUPERVISOR_OK && $_ARCHIVED_COMPACTION_LIFECYCLE_SILENCE_OK && $_AMBIENT_CREDENTIAL_ISOLATION_PATCH_OK && $_MODEL_CONFIGURED_ONLY_PATCH_OK && $_ARCHIVED_LAZY_ACTIVE_ANCHOR_OK && $_SKILL_PATCH_OK && $_FEISHU_DEPS_PATCH_OK && $_OPENCLAW_GATEWAY_TOKEN_PATCH_OK && $_FEISHU_GROUP_ADMISSION_PATCH_OK && $_FEISHU_MISSED_EVENT_BACKFILL_PATCH_OK && $_FEISHU_GROUP_SCOPE_PATCH_OK && $_PLATFORM_CAPABILITY_SCOPE_PATCH_OK && $_FEISHU_GROUP_APPROVAL_FLOOR_PATCH_OK && $_FEISHU_ADMIN_CONTROL_SCOPE_PATCH_OK && $_FEISHU_NO_THREAD_PATCH_OK && $_FEISHU_QUOTE_CHAIN_SESSION_PATCH_OK && $_FEISHU_FINAL_ONLY_PATCH_OK && $_PEOPLE_PROFILE_PATCH_OK && $_FEISHU_RESOURCE_ACCESS_PATCH_OK && $_TRUSTED_DOCUMENT_EXTRACTION_PATCH_OK && $_FEISHU_MARKDOWN_PATCH_OK && $_FEISHU_RESPONSE_BUDGET_PATCH_OK && $_FEISHU_SSRF_TEST_SYSPROXY_PATCH_OK && $_VERTEX_THOUGHTS_PATCH_OK && $_VERTEX_DOCTOR_PATCH_OK && $_DOCTOR_TEST_NETWORK_ISOLATION_PATCH_OK && $_TEST_RUNTIME_STATE_ISOLATION_PATCH_OK && $_CODEX_WATCHDOG_TEST_CLOCK_PATCH_OK && $_UPDATE_FLEET_RECEIPT_FRESHNESS_PATCH_OK && $_IMAGE_NATIVE_ROUTING_PATCH_OK && $_VERTEX_VIDEO_ROUTING_PATCH_OK && $_MULTIMODAL_SIDECAR_PATCH_OK && $_HISTORY_RETENTION_PATCH_OK && $_MCP_TASKS_ASYNC_HANDOFF_PATCH_OK && $_MCP_STDIO_WATCHER_LIFECYCLE_PATCH_OK && $_TRUNCATED_TOOL_CALL_RECOVERY_PATCH_OK && $_TOOL_CALL_DOUBLE_WRAP_RECOVERY_PATCH_OK && $_GATEWAY_FAILOVER_STATUS_SILENCE_PATCH_OK && $_APPROVAL_TEMP_CLEANUP_PATCH_OK && $_FTS5_CJK_BUILD_PATCH_OK; then
     cd "${HERMES_AGENT}"
     if _has_conflict_markers "${PATCHED_FILES[@]}"; then
         warn "Patched files contain conflict markers — skipping diff refresh"

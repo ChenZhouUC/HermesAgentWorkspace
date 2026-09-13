@@ -58,7 +58,7 @@ people.yaml.bak*
 processes.json
 spawn-ledger.json*
 shared-state.db*
-# Profile-local skill snapshots and consent state managed by WisdomStore.
+# Preserve private skill snapshots and consent state from retired Collective Wisdom V1.
 /wisdom/
 cron/jobs.json
 .update_check

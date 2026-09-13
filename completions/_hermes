@@ -275,6 +275,7 @@ _hermes() {
                     'enroll:Enroll this gateway with a relay connector (writes relay aut'
                     'install:Install gateway as a systemd/launchd background service'
                     'list:List all profiles and their gateway status'
+                    'migrate:Move per-profile gateways onto one multiplexed default gatew'
                     'migrate-legacy:Remove legacy hermes.service units from pre-rename installs'
                     'restart:Restart gateway service'
                     'run:Run gateway in foreground (recommended for WSL, Docker, Term'

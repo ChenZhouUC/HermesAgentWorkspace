@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import tomllib
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -1087,7 +1088,7 @@ def _validate_update_pytest_warning_filters(script: str) -> int:
     if missing_filters:
         raise EvidenceError(f"hermes-update.sh strict pytest warning array is incomplete: {missing_filters}")
     direct_commands = re.findall(
-        r'"\$\{VENV_PY\}" -m pytest(?P<body>.*?)(?:>/dev/null 2>&1; then)',
+        r'"\$\{VENV_PY\}" -m pytest(?P<body>.*?)(?:>/dev/null 2>&1\)?; then)',
         script,
         re.DOTALL,
     )
@@ -1311,23 +1312,31 @@ def audit_claude_sc_provider_verifier() -> dict[str, object]:
     }
 
 
-def audit_socks_dependency() -> None:
-    pyproject = (INNER / "pyproject.toml").read_text(encoding="utf-8")
-    lazy = (INNER / "tools/lazy_deps.py").read_text(encoding="utf-8")
-    if "python-socks==2.8.1" not in pyproject or "python-socks==2.8.1" not in lazy:
-        raise EvidenceError("python-socks pin is missing from the eager/lazy Feishu paths")
+def audit_socks_dependency() -> dict[str, object]:
+    try:
+        project = tomllib.loads((INNER / "pyproject.toml").read_text(encoding="utf-8"))
+        feishu = project["project"]["optional-dependencies"]["feishu"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise EvidenceError(f"Feishu eager dependency declaration is unreadable: {exc}") from exc
+    if not isinstance(feishu, list) or "python-socks==2.8.1" not in feishu:
+        raise EvidenceError("python-socks pin is missing from project.optional-dependencies.feishu")
     result = _run(
         [
             str(INNER / "venv/bin/python"),
             "-c",
-            "import python_socks, importlib.metadata; assert importlib.metadata.version('python-socks') == '2.8.1'; print(python_socks.__name__)",
-        ]
+            "import python_socks, importlib.metadata; from tools.lazy_deps import LAZY_DEPS; "
+            "assert 'python-socks==2.8.1' in LAZY_DEPS['platform.feishu']; "
+            "assert importlib.metadata.version('python-socks') == '2.8.1'; print(python_socks.__name__)",
+        ],
+        cwd=INNER,
+        env=_hermetic_test_env(),
     )
     if result.returncode:
         raise EvidenceError(f"python-socks cannot be imported: {result.stderr.strip()}")
+    return {"eager_feishu": True, "lazy_feishu": True, "installed_version": "2.8.1"}
 
 
-def audit_openclaw_token_migration() -> None:
+def audit_openclaw_token_migration() -> dict[str, bool]:
     import tempfile
 
     source_text = {
@@ -1340,29 +1349,43 @@ def audit_openclaw_token_migration() -> None:
         target = root / "hermes"
         source.mkdir()
         (source / "openclaw.json").write_text(json.dumps(source_text), encoding="utf-8")
-        result = _run(
-            [
-                str(INNER / "venv/bin/python"),
-                str(INNER / "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"),
-                "--source",
-                str(source),
-                "--target",
-                str(target),
-                "--json",
-            ],
-        )
-        if result.returncode:
-            raise EvidenceError(f"OpenClaw migration dry-run failed: {result.stderr.strip()}")
-        combined = f"{result.stdout}\n{result.stderr}"
+        command = [
+            str(INNER / "venv/bin/python"),
+            str(INNER / "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"),
+            "--source",
+            str(source),
+            "--target",
+            str(target),
+            "--include",
+            "gateway-config",
+            "--json",
+        ]
         forbidden = (
             "HERMES_GATEWAY_TOKEN",
             "gateway.auth.token",
             "must-not-be-migrated",
         )
-        if any(token in combined for token in forbidden):
-            raise EvidenceError("OpenClaw migration leaked the deprecated gateway token")
-        if target.exists() and any(token in target.read_text(encoding="utf-8", errors="ignore") for token in forbidden):
-            raise EvidenceError("OpenClaw migration wrote the deprecated gateway token to target output")
+        output = root / "report"
+        for execute in (False, True):
+            if execute:
+                target.mkdir(exist_ok=True)
+                (target / ".env").write_text("KEEP_EXISTING=retained\n", encoding="utf-8")
+            argv = command + (["--execute", "--output-dir", str(output)] if execute else [])
+            result = _run(argv, env=_hermetic_test_env())
+            if result.returncode:
+                raise EvidenceError(
+                    f"OpenClaw migration {'execute' if execute else 'dry-run'} failed: {result.stderr.strip()}"
+                )
+            combined = f"{result.stdout}\n{result.stderr}"
+            if any(token in combined for token in forbidden):
+                raise EvidenceError("OpenClaw migration leaked the deprecated gateway token")
+        env_text = (target / ".env").read_text(encoding="utf-8")
+        if any(token in env_text for token in forbidden) or env_text != "KEEP_EXISTING=retained\n":
+            raise EvidenceError("OpenClaw migration changed target env or wrote the deprecated gateway token")
+        archive = output / "archive/gateway-config.json"
+        if not archive.is_file() or json.loads(archive.read_text(encoding="utf-8")) != source_text["gateway"]:
+            raise EvidenceError("OpenClaw migration did not preserve the full gateway recovery archive")
+    return {"dry_run": True, "execute": True, "env_unchanged": True, "gateway_archive_preserved": True}
 
 
 def audit_npm_dependency_hygiene() -> dict[str, object]:

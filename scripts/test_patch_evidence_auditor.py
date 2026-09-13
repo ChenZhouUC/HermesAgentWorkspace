@@ -32,6 +32,78 @@ def patch_block(validation: str) -> str:
 
 
 class PatchEvidenceAuditorTest(unittest.TestCase):
+    def test_socks_probe_requires_both_feishu_dependency_entries(self) -> None:
+        original_run = evidence._run
+
+        def run_fixture(argv, **kwargs):
+            return original_run([sys.executable, *argv[1:]], **kwargs)
+
+        with tempfile.TemporaryDirectory(prefix="socks-location-probe-") as raw:
+            inner = Path(raw)
+            (inner / "tools").mkdir()
+            (inner / "tools/__init__.py").write_text("")
+            pin = "python-socks==2.8.1"
+            for eager, lazy in ((False, True), (True, False), (True, True)):
+                with self.subTest(eager=eager, lazy=lazy):
+                    (inner / "pyproject.toml").write_text(
+                        "[project.optional-dependencies]\n"
+                        f"feishu = {json.dumps([pin] if eager else [])}\n"
+                        f'other = ["{pin}"]\n'
+                    )
+                    (inner / "tools/lazy_deps.py").write_text(
+                        f"LAZY_DEPS = {{'platform.feishu': {([pin] if lazy else [])!r}, 'other': ['{pin}']}}\n"
+                    )
+                    with (
+                        patch.object(evidence, "INNER", inner),
+                        patch.object(evidence, "_run", side_effect=run_fixture),
+                    ):
+                        if eager and lazy:
+                            evidence.audit_socks_dependency()
+                        else:
+                            with self.assertRaises(evidence.EvidenceError):
+                                evidence.audit_socks_dependency()
+
+    def test_openclaw_probe_checks_execute_env_and_preserves_gateway_archive(self) -> None:
+        original_run = evidence._run
+
+        def run_fixture(argv, **kwargs):
+            return original_run([sys.executable, *argv[1:]], **kwargs)
+
+        with tempfile.TemporaryDirectory(prefix="openclaw-execute-probe-") as raw:
+            inner = Path(raw)
+            script = inner / "optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py"
+            script.parent.mkdir(parents=True)
+            for failure in ("env", "archive", "none"):
+                with self.subTest(failure=failure):
+                    script.write_text(
+                        "import argparse, json\nfrom pathlib import Path\n"
+                        "p=argparse.ArgumentParser()\n"
+                        "p.add_argument('--source'); p.add_argument('--target'); p.add_argument('--output-dir')\n"
+                        "p.add_argument('--execute', action='store_true')\n"
+                        "a,_=p.parse_known_args()\n"
+                        "if a.execute:\n"
+                        " t=Path(a.target); t.mkdir(parents=True, exist_ok=True)\n"
+                        " out=Path(a.output_dir)/'archive'; out.mkdir(parents=True, exist_ok=True)\n"
+                        " gateway=json.loads((Path(a.source)/'openclaw.json').read_text())['gateway']\n"
+                        + (
+                            " (t/'.env').write_text('HERMES_GATEWAY_TOKEN='+gateway['auth']['token'])\n"
+                            if failure == "env"
+                            else ""
+                        )
+                        + (" gateway={}\n" if failure == "archive" else "")
+                        + " (out/'gateway-config.json').write_text(json.dumps(gateway))\n"
+                        "print('{}')\n"
+                    )
+                    with (
+                        patch.object(evidence, "INNER", inner),
+                        patch.object(evidence, "_run", side_effect=run_fixture),
+                    ):
+                        if failure == "none":
+                            evidence.audit_openclaw_token_migration()
+                        else:
+                            with self.assertRaises(evidence.EvidenceError):
+                                evidence.audit_openclaw_token_migration()
+
     def test_unittest_probe_rejects_skips_and_expected_failures(self) -> None:
         for decorator, body in (
             ('@unittest.skip("synthetic skip")', "pass"),
@@ -283,18 +355,22 @@ class PatchEvidenceAuditorTest(unittest.TestCase):
         command = (
             '"${VENV_PY}" -m pytest -q "${PYTEST_STRICT_WARNING_ARGS[@]}" tests/test_contract.py >/dev/null 2>&1; then'
         )
-        script = f"PYTEST_STRICT_WARNING_ARGS=(\n{filters}\n)\n{command}\n"
-        self.assertEqual(evidence._validate_update_pytest_warning_filters(script), 1)
-        with self.assertRaisesRegex(evidence.EvidenceError, "omit strict warning filters"):
-            evidence._validate_update_pytest_warning_filters(script.replace(' "${PYTEST_STRICT_WARNING_ARGS[@]}"', ""))
-        with self.assertRaisesRegex(evidence.EvidenceError, "array is incomplete"):
-            evidence._validate_update_pytest_warning_filters(
-                script.replace("error::pytest.PytestUnraisableExceptionWarning", "")
-            )
-        with self.assertRaisesRegex(evidence.EvidenceError, "inventory is incomplete"):
-            evidence._validate_update_pytest_warning_filters(
-                script + '\n"${VENV_PY}" -m pytest tests/test_unchecked.py\n'
-            )
+        for invocation in (command, '(cd "${HERMES_AGENT}" && ' + command.replace("; then", "); then")):
+            with self.subTest(invocation=invocation):
+                script = f"PYTEST_STRICT_WARNING_ARGS=(\n{filters}\n)\n{invocation}\n"
+                self.assertEqual(evidence._validate_update_pytest_warning_filters(script), 1)
+                with self.assertRaisesRegex(evidence.EvidenceError, "omit strict warning filters"):
+                    evidence._validate_update_pytest_warning_filters(
+                        script.replace(' "${PYTEST_STRICT_WARNING_ARGS[@]}"', "")
+                    )
+                with self.assertRaisesRegex(evidence.EvidenceError, "array is incomplete"):
+                    evidence._validate_update_pytest_warning_filters(
+                        script.replace("error::pytest.PytestUnraisableExceptionWarning", "")
+                    )
+                with self.assertRaisesRegex(evidence.EvidenceError, "inventory is incomplete"):
+                    evidence._validate_update_pytest_warning_filters(
+                        script + '\n"${VENV_PY}" -m pytest tests/test_unchecked.py\n'
+                    )
 
     def test_sandbox_pytest_command_requires_every_strict_warning_filter(self) -> None:
         filters = " ".join(f"-W {warning_filter}" for warning_filter in evidence.PYTEST_STRICT_WARNING_ARGS[1::2])
