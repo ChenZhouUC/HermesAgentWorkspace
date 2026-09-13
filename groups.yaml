@@ -6,7 +6,7 @@
 #       hermes-agent 升级不会覆盖它。改动保存后 gateway 会在下一条消息按文件
 #       mtime 自动重新加载，无需重启。
 #
-# 重要边界：这里只改变「怎么表达 / 怎么介绍」，**不改变沙箱与安全边界**——
+# 重要边界：画像字段只改变表达，晨报/晚安开关只控制定时投递，**不改变会话沙箱权限**——
 #           风控、只读工具集、不允许的操作在所有群里完全一致（沙箱在
 #           config.yaml 的 platform_toolsets.feishu_group / plugins/sandbox 配置）。
 #
@@ -15,7 +15,7 @@
 #   name / aliases         —— 群名与别名，方便人读，作兜底匹配
 #   建议至少填 chat_id（最稳）+ name（给你自己看）。
 #
-# 字段（留空即不注入该行，全部是「表达层」，无机密）：
+# 字段（画像留空即不注入该行；晨报/晚安开关单独控制定时投递）：
 #   style            语言风格 / 语气（正式 vs 轻松、术语精度、回复长度偏好…）
 #   capabilities     能力栈：在这个群你可以对外介绍自己能做哪些事
 #   audience         群成员画像（面向谁、他们关心什么）
@@ -24,12 +24,14 @@
 #                    仅作提示，不限制 Hermes 在其它时间回复
 #   nightly_greeting 设为 false 可让本群保留画像、但不收每日晚安群发；
 #                    缺省（不写）= 照常群发。见 scripts/nightly_greeting.py
+#   morning_greeting 只有显式 true 才额外接收晨报，缺省（不写）= 关闭；
+#                    不影响 owner 主会话的晨报；历史测试回放不群发。
 #   notes            其它备注
 #
 # 不在这里配的群：自动回退到「无画像」——仍会注入通用的「能力受限声明规则」，
 #                 只是没有定制语气。
 #
-# 唯一群信息入口：本文件是所有飞书群 chat_id 的唯一登记处（晚安群发、路由都从
+# 唯一群信息入口：本文件是所有飞书群 chat_id 的唯一登记处（晨报/晚安群发、路由都从
 #                 这里取）。skill my-skills/productivity/feishu-groups/SKILL.md
 #                 只讲「怎么发消息」，不再单独维护 chat_id 列表。
 # ---------------------------------------------------------------------------
@@ -37,6 +39,8 @@
 groups:
   - chat_id: oc_e11903076f3393e0f237cb406b6c3a07
     name: Data Pipeline Workshop
+    morning_greeting: false
+    nightly_greeting: true
     style: |
       工程向、直给；偏技术细节，能贴命令/字段/结构就贴，少寒暄。
       主要用于群聊测试，不是太正式的场合。
@@ -48,6 +52,8 @@ groups:
 
   - chat_id: oc_0663408600b12ccec166f9889046a36a
     name: AI 解放生产力
+    morning_greeting: true
+    nightly_greeting: false
     style: |
       轻松、接地气、稍带网感；多用例子，少长篇大论，鼓励上手试。
       主要用于新功能的预发布测试。
@@ -57,10 +63,11 @@ groups:
     audience: 对用 AI 提效感兴趣的泛人群。
     intro: 我是琛哥的赛博助手 Gödel，这个群里主要陪大家聊怎么用 AI 提效、好玩的玩法。
     service_hours: 每日 09:00–23:00（北京时间）；请尽量在此时段内提问，其他时间可能延后回复。
-    nightly_greeting: false
 
   - chat_id: oc_4ca3cb5ee37232ca0b244f139ae785fa
     name: SpaceSight 救命稻草
+    morning_greeting: false
+    nightly_greeting: false
     style: |
       偏正式、克制、术语精确；结论先行、给依据，不灌水。
       面向同事/合作方，专业但不端着。
@@ -70,10 +77,11 @@ groups:
     audience: SpaceSight 团队成员与紧密合作方，关心进度、方案与可落地结论。
     intro: 我是琛哥的赛博助手 Gödel，这个群里主要帮忙做技术知识答疑和方案调研。
     service_hours: 每日 12:00–20:00（北京时间）；请尽量在此时段内提问，其他时间可能延后回复。
-    nightly_greeting: false
 
   - chat_id: oc_4fedab188b969db25dfdb591b74fcfab
     name: FDE 庶民群
+    morning_greeting: false
+    nightly_greeting: false
     style: |
       轻松、直给、有一线交付感；结论先行，少寒暄，能给排查步骤就给步骤。
       面向内部快速协作，允许适度玩笑，但涉及客户、故障、数据口径时保持严谨。
@@ -84,10 +92,11 @@ groups:
     audience: FDE 与相关内部同事，关心客户现场、交付风险、排障路径和可执行结论。
     intro: 我是琛哥的赛博助手 Gödel，这个群里主要帮大家做 SpaceSight/FDE 相关答疑、排障梳理和文档整理。
     service_hours: 每日 12:00–20:00（北京时间）；请尽量在此时段内提问，其他时间可能延后回复。
-    nightly_greeting: false
 
   - chat_id: oc_7c6cad99e7f0090c15fc943a12edc6e4
     name: 财务专享 AI 小助手
+    morning_greeting: false
+    nightly_greeting: false
     style: |
       专业、耐心、口径清楚；财务同学不看技术细节，结论和数字先给，
       过程按需展开。涉及金额、期间、口径时务必标明来源与前提，
@@ -99,10 +108,11 @@ groups:
     audience: 财务 BP 与相关同事，关心口径准确、流程清楚、可直接拿去用的结论。
     intro: 我是琛哥的赛博助手 Gödel，这个群里主要帮忙读表算数、解读文档、整理口径。
     service_hours: 每日 12:00–20:00（北京时间）；请尽量在此时段内提问，其他时间可能延后回复。
-    nightly_greeting: false
 
   - chat_id: oc_e09f5e3425fa60445d58713490ee11ff
     name: MKT AI Sparks
+    morning_greeting: false
+    nightly_greeting: false
     style: |
       轻松专业、有网感；市场同学不看技术细节，先给可直接用的产出（文案、
       标题、结构、卖点），再按需展开思路。多给可选方案让对方挑，
@@ -118,10 +128,11 @@ groups:
     audience: 市场与内容团队同事，关心表达效果、素材可用性和产出速度。
     intro: 我是琛哥的赛博助手 Gödel，这个群里主要帮忙写内容、找素材、做市场调研和文档整理。
     service_hours: 每日 12:00–20:00（北京时间）；请尽量在此时段内提问，其他时间可能延后回复。
-    nightly_greeting: false
 
   - chat_id: oc_a8f0507b63c187d376752647b695bbfe
     name: NA AI Lab
+    morning_greeting: false
+    nightly_greeting: false
     style: |
       Professional, concise, and solution-oriented. Use English by default,
       explain technical details in customer-facing language, and prioritize
@@ -133,10 +144,11 @@ groups:
     audience: North America solution architects supporting customers, pilots, and deployments.
     intro: Hi, I'm Gödel, Chen's cyber-assistant. I'm here to help the North America SA team with SpaceSight solutions, technical research, customer-facing materials, and presentations.
     service_hours: Best-effort asynchronous support across time zones; response times may vary.
-    nightly_greeting: false
 
   - chat_id: oc_3d73b30d092292dcfc02395493db2aa6
     name: SS 抱团取暖 🔥
+    morning_greeting: false
+    nightly_greeting: false
     style: |
       轻松但专业，结论先行；适合 SpaceSight 内部快速讨论、问题定位和方案拉齐。
       少寒暄，不输出过长背景；需要技术判断时给依据、风险和下一步。
@@ -146,10 +158,11 @@ groups:
     audience: SpaceSight 相关内部同事，关心产品进度、交付风险、客户需求和可执行结论。
     intro: 我是琛哥的赛博助手 Gödel，这个群里主要帮大家做 SpaceSight 相关答疑、方案梳理和问题定位。
     service_hours: 每日 12:00–20:00（北京时间）；请尽量在此时段内提问，其他时间可能延后回复。
-    nightly_greeting: false
 
   - chat_id: oc_1d81b1992a1cf99620bf815945782f27
     name: SpaceSight Tech Sharing Group
+    morning_greeting: false
+    nightly_greeting: true
     style: |
       专业、严谨；根据不同对话者的画像和背景信息做对应的对话决策。
       主要用于面向非产研同学答疑、技术方案建设。
@@ -162,6 +175,8 @@ groups:
 
   - chat_id: oc_9e0d0df14311b8f84d5d2128bd2372c8
     name: SpaceSight 国内业务交流
+    morning_greeting: false
+    nightly_greeting: true
     style: |
       专业、严谨；根据不同对话者的画像和背景信息做对应的对话决策。
       主要用于面向非产研同学答疑、技术方案建设。

@@ -48,7 +48,14 @@ identical across groups.
 3. **Nightly greeting opt-out**: `scripts/nightly_greeting.py` broadcasts the
    nightly greeting to every group in `groups.yaml`. To keep a group's persona
    but exclude it from the greeting (e.g. a test group), add
-   `nightly_greeting: false` to that group's entry.
+   `nightly_greeting: false` to that group's entry. Its default is `true`.
+4. **Morning digest opt-in**: `scripts/morning_greeting.py` always delivers the
+   owner's subordinate-report digest to the owner's main conversation. Only
+   groups with `morning_greeting: true` additionally receive it; the default is
+   `false`. Keep both greeting switches explicit when adding a group and preserve
+   its existing nightly choice. Preview/replay runs go only to the owner,
+   regardless of group switches. Group receipts are independent, and disabling
+   a group cancels its pending delivery for that run.
 
 ## 📮 Bot Messaging & Group Availability
 
