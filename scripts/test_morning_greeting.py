@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from scripts import morning_greeting as morning
 
-END = dt.datetime.fromisoformat("2026-09-11T10:00:00+08:00")
+END = dt.datetime.fromisoformat("2026-09-11T09:00:00+08:00")
 START = END - dt.timedelta(days=1)
 ROSTER = {
     "ou_a": {"name": "甲", "leader": "ou_owner"},
@@ -80,27 +80,27 @@ class MorningWindowTests(unittest.TestCase):
         self.assertEqual(morning.window(delayed), (START, delayed))
 
     def test_previous_calendar_day_survives_dst(self):
-        end = dt.datetime(2026, 3, 8, 10, tzinfo=ZoneInfo("America/New_York"))
+        end = dt.datetime(2026, 3, 8, 9, tzinfo=ZoneInfo("America/New_York"))
         with patch.object(morning.nightly, "is_chinese_workday", return_value=True):
             start, _ = morning.window(end)
-        self.assertEqual((start.day, start.hour), (7, 10))
+        self.assertEqual((start.day, start.hour), (7, 9))
         self.assertEqual(end.timestamp() - start.timestamp(), 23 * 3600)
 
-    def test_schedule_runs_every_day_at_ten_so_makeup_days_are_not_missed(self):
+    def test_schedule_runs_every_day_at_nine_so_makeup_days_are_not_missed(self):
         from croniter import croniter
 
         iterator = croniter(morning.SCHEDULE, END)
         upcoming = [iterator.get_next(dt.datetime) for _ in range(8)]
-        self.assertEqual(upcoming[0], dt.datetime.fromisoformat("2026-09-12T10:00:00+08:00"))
+        self.assertEqual(upcoming[0], dt.datetime.fromisoformat("2026-09-12T09:00:00+08:00"))
         self.assertEqual([d.weekday() for d in upcoming], [5, 6, 0, 1, 2, 3, 4, 5])
-        self.assertTrue(all((d.hour, d.minute) == (10, 0) for d in upcoming))
+        self.assertTrue(all((d.hour, d.minute) == (9, 0) for d in upcoming))
 
     def test_previous_workday_window_includes_weekends_and_long_holidays(self):
         for instant, expected in (
-            ("2026-09-14T10:07:12+08:00", "2026-09-11T10:00:00+08:00"),
-            ("2026-10-08T10:00:00+08:00", "2026-09-30T10:00:00+08:00"),
-            ("2026-09-20T10:00:00+08:00", "2026-09-18T10:00:00+08:00"),
-            ("2026-09-21T10:00:00+08:00", "2026-09-20T10:00:00+08:00"),
+            ("2026-09-14T09:07:12+08:00", "2026-09-11T09:00:00+08:00"),
+            ("2026-10-08T09:00:00+08:00", "2026-09-30T09:00:00+08:00"),
+            ("2026-09-20T09:00:00+08:00", "2026-09-18T09:00:00+08:00"),
+            ("2026-09-21T09:00:00+08:00", "2026-09-20T09:00:00+08:00"),
         ):
             end = dt.datetime.fromisoformat(instant)
             with self.subTest(instant=instant):
@@ -109,7 +109,7 @@ class MorningWindowTests(unittest.TestCase):
     def test_replay_requires_explicit_mode_and_offset(self):
         for argv in (
             ["--at", END.isoformat()],
-            ["--dry-run", "--at", "2026-09-11T10:00:00"],
+            ["--dry-run", "--at", "2026-09-11T09:00:00"],
             ["--preview", "--dry-run"],
             ["--install", "--preview"],
             ["--force-preview"],
@@ -575,7 +575,7 @@ class MorningRuntimeTests(unittest.TestCase):
 
     def test_tomorrow_preview_only_queries_existing_data_and_does_not_mark_daily_run(self):
         now = dt.datetime.fromisoformat("2026-09-13T11:00:00+08:00")
-        tomorrow = dt.datetime.fromisoformat("2026-09-14T10:00:00+08:00")
+        tomorrow = dt.datetime.fromisoformat("2026-09-14T09:00:00+08:00")
         with patch.object(morning, "current_time", return_value=now):
             morning.run(morning.parse_args(["--preview", "--force-preview", "--at", tomorrow.isoformat()]))
         self.query.assert_called_once_with("token", ROSTER, END, now)
@@ -584,20 +584,20 @@ class MorningRuntimeTests(unittest.TestCase):
         self.assertEqual(entry["window_end"], tomorrow.isoformat())
         self.assertEqual(entry["data_until"], now.isoformat())
         self.assertIn("未来时刻模拟", entry["parts"][0])
-        self.assertTrue(all("模拟运行 2026-09-14 10:00" in part for part in entry["parts"][1:]))
+        self.assertTrue(all("模拟运行 2026-09-14 09:00" in part for part in entry["parts"][1:]))
         self.assertNotIn("daily:2026-09-14", morning.load_state()["runs"])
         self.assertEqual(self.send.call_count, 4)
 
     def test_future_preview_before_window_start_refuses_to_invent_reports(self):
         with self.assertRaisesRegex(RuntimeError, "has not started"):
-            morning.run(morning.parse_args(["--preview", "--at", "2026-10-08T10:00:00+08:00"]))
+            morning.run(morning.parse_args(["--preview", "--at", "2026-10-08T09:00:00+08:00"]))
         self.token.assert_not_called()
         self.send.assert_not_called()
 
     def test_future_dry_run_also_labels_its_actual_data_cutoff(self):
         now = dt.datetime.fromisoformat("2026-09-13T11:00:00+08:00")
         with patch.object(morning, "current_time", return_value=now):
-            text = morning.run(morning.parse_args(["--dry-run", "--at", "2026-09-14T10:00:00+08:00"]))
+            text = morning.run(morning.parse_args(["--dry-run", "--at", "2026-09-14T09:00:00+08:00"]))
         self.assertIn("未来时刻模拟", text)
         self.assertIn("2026-09-13 11:00:00", text)
         self.send.assert_not_called()
@@ -669,7 +669,7 @@ class MorningRuntimeTests(unittest.TestCase):
         self.assertEqual(next(iter(runs.values()))["status"], "sent")
 
     def test_weekends_and_statutory_holidays_skip_before_network(self):
-        for date in ("2026-09-12T10:00:00+08:00", "2026-09-13T10:00:00+08:00", "2026-10-01T10:00:00+08:00"):
+        for date in ("2026-09-12T09:00:00+08:00", "2026-09-13T09:00:00+08:00", "2026-10-01T09:00:00+08:00"):
             with patch.object(morning, "current_time", return_value=dt.datetime.fromisoformat(date)):
                 morning.run(morning.parse_args([]))
         self.token.assert_not_called()
@@ -677,8 +677,8 @@ class MorningRuntimeTests(unittest.TestCase):
 
     def test_monday_and_makeup_sunday_run_with_current_time_cutoff(self):
         for instant, start in (
-            ("2026-09-14T10:07:12+08:00", "2026-09-11T10:00:00+08:00"),
-            ("2026-09-20T10:00:00+08:00", "2026-09-18T10:00:00+08:00"),
+            ("2026-09-14T09:07:12+08:00", "2026-09-11T09:00:00+08:00"),
+            ("2026-09-20T09:00:00+08:00", "2026-09-18T09:00:00+08:00"),
         ):
             end = dt.datetime.fromisoformat(instant)
             with self.subTest(instant=instant), patch.object(morning, "current_time", return_value=end):
@@ -689,7 +689,7 @@ class MorningRuntimeTests(unittest.TestCase):
 
     def test_replay_flags_do_not_bypass_rest_day_guard(self):
         for flags in (["--dry-run"], ["--preview"], ["--preview", "--force-preview"]):
-            morning.run(morning.parse_args([*flags, "--at", "2026-10-01T10:00:00+08:00"]))
+            morning.run(morning.parse_args([*flags, "--at", "2026-10-01T09:00:00+08:00"]))
         self.token.assert_not_called()
         self.send.assert_not_called()
 
@@ -765,8 +765,8 @@ class MorningInstallTests(unittest.TestCase):
                 self.assertEqual(first["id"], second["id"])
                 self.assertEqual(len(jobs.list_jobs(include_disabled=True)), 2)
                 self.assertEqual(jobs.get_job(nightly["id"]), before)
-                self.assertEqual(second["schedule"]["expr"], "0 10 * * *")
-                self.assertEqual(second["next_run_at"], "2026-09-12T10:00:00+08:00")
+                self.assertEqual(second["schedule"]["expr"], "0 9 * * *")
+                self.assertEqual(second["next_run_at"], "2026-09-12T09:00:00+08:00")
                 self.assertEqual(second["origin"], {"platform": "feishu", "chat_id": "oc_owner"})
                 self.assertTrue(second["no_agent"])
                 self.assertTrue(second["enabled"])

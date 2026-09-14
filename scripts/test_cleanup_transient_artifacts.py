@@ -303,6 +303,47 @@ class CleanupTransientArtifactsTest(unittest.TestCase):
             _audit, errors = cleanup.audit_scripts(root, policy)
             self.assertTrue(any(error.startswith("missing required script") for error in errors))
 
+    def test_repository_policy_keeps_cron_state_with_tracked_definitions_and_curator_blobs(self) -> None:
+        repository = Path(__file__).resolve().parents[1]
+        policy = cleanup.load_policy(repository / "scripts/cleanup_policy.json")
+        with tempfile.TemporaryDirectory() as root_raw:
+            root = Path(root_raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / ".gitignore").write_text((repository / ".gitignore").read_text())
+            definition = root / "cron/definitions/morning_greeting.json"
+            definition.parent.mkdir(parents=True)
+            definition.write_text("{}\n")
+            subprocess.run(["git", "-C", str(root), "add", "cron/definitions/morning_greeting.json"], check=True)
+            state_files = (
+                "cron/.jobs.lock",
+                "cron/.tick.lock",
+                "cron/.fire-example.lock",
+                "cron/jobs.json",
+                "cron/executions.db",
+                "cron/executions.db-wal",
+                "cron/ticker_heartbeat",
+                "cron/ticker_last_success",
+                "cron/output/example.txt",
+                ".curator_backups/blobs/example",
+            )
+            for relative in state_files:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("private runtime state\n")
+            audit, errors = cleanup.audit_ignored(root, policy)
+            self.assertEqual(errors, [])
+            classifications = {item.path: item.classification for item in audit}
+            self.assertEqual(
+                classifications,
+                {
+                    **{relative: "keep" for relative in state_files[:-2]},
+                    "cron/output/": "keep",
+                    ".curator_backups/": "keep",
+                },
+            )
+            self.assertTrue(cleanup._is_git_tracked(root, definition))
+            self.assertTrue(all((root / relative).exists() for relative in state_files))
+
     def test_ignored_audit_classifies_keep_remove_and_review(self) -> None:
         with tempfile.TemporaryDirectory() as root_raw:
             root = Path(root_raw)

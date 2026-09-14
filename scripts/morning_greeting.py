@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Collect subordinate daily reports for the owner and explicitly enabled groups.
 
-Hermes runs this script without an agent at 10:00 every day, skipping Chinese
+Hermes runs this script without an agent at 09:00 every day, skipping Chinese
 rest days with the same calendar as nightly_greeting. The script
 queries Feishu itself and uses the configured Hermes model only for summarizing;
 the model never receives tools or chooses recipients, time windows, or counts.
@@ -29,16 +29,19 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
+    from . import greeting_jobs
     from . import nightly_greeting as nightly
     from . import pull_feishu_people as people_sync
 else:
+    import greeting_jobs
     import nightly_greeting as nightly
     import pull_feishu_people as people_sync
 
 HOME = Path(__file__).resolve().parents[1]
 WORK_DIR = HOME / "tmp/morning_greeting"
 STATE_PATH = WORK_DIR / "state.json"
-SCHEDULE = "0 10 * * *"
+SCHEDULE = greeting_jobs.load_definition("morning_greeting")["schedule"]
+REPORT_TIME = dt.time(hour=int(SCHEDULE.split()[1]), minute=int(SCHEDULE.split()[0]))
 DAILY_RULE = re.compile(r"日报|日汇报|每日汇报|\bdaily\b", re.I)
 BATCH_CHARS = 32000
 MAX_POST_BYTES = 20000
@@ -65,7 +68,7 @@ def window(end: dt.datetime) -> tuple[dt.datetime, dt.datetime]:
     for _ in range(366):
         previous -= dt.timedelta(days=1)
         if nightly.is_chinese_workday(previous):
-            return dt.datetime.combine(previous, dt.time(10), end.tzinfo), end
+            return dt.datetime.combine(previous, REPORT_TIME, end.tzinfo), end
     raise RuntimeError("No previous working day found; refusing an incorrect report window.")
 
 
@@ -85,17 +88,7 @@ def private_write(path: Path, value: Any) -> None:
 
 
 def owner_chat_id() -> str:
-    allowed = nightly.load_owner_chat_ids()
-    jobs_path = HOME / "cron/jobs.json"
-    if jobs_path.exists():
-        jobs = json.loads(jobs_path.read_text()).get("jobs", [])
-        for job in jobs:
-            if job.get("script") == "nightly_greeting.py":
-                origin = job.get("origin") or {}
-                chat_id = origin.get("chat_id")
-                if origin.get("platform") == "feishu" and chat_id in allowed:
-                    return chat_id
-    return allowed[0]
+    return greeting_jobs.owner_chat_id(HOME, nightly.load_owner_chat_ids())
 
 
 def morning_group_ids(path: Path | None = None) -> list[str]:
@@ -522,7 +515,7 @@ def render(
             "**统计范围**",
             "",
             f"- 时间：{start:%Y-%m-%d %H:%M:%S} 至 {end:%Y-%m-%d %H:%M:%S %z}",
-            "- 口径：上一个工作日 10:00 至本次运行时刻，期间休息日提交的日报也计入。",
+            f"- 口径：上一个工作日 {REPORT_TIME:%H:%M} 至本次运行时刻，期间休息日提交的日报也计入。",
             "- 人员：当前飞书组织关系中的全部直属及间接下属，按实际提交时间统计。",
         ]
     )
@@ -783,38 +776,7 @@ def run(args: argparse.Namespace) -> str | None:
 
 
 def install_job() -> dict:
-    from cron import jobs
-
-    destination = owner_chat_id()
-    matches = [
-        job
-        for job in jobs.list_jobs(include_disabled=True)
-        if job.get("name") == "morning_greeting" or Path(job.get("script") or "").name == "morning_greeting.py"
-    ]
-    if len(matches) > 1:
-        raise RuntimeError("Multiple morning_greeting jobs exist; refusing to add another.")
-    definition = {
-        "name": "morning_greeting",
-        "schedule": SCHEDULE,
-        "prompt": "Check today's Chinese workday calendar at each daily 10:00 run, skipping rest days "
-        "and including makeup working weekends like nightly_greeting. Query all direct and indirect subordinates' "
-        "Feishu daily reports from the previous working day at 10:00 through the current execution time, "
-        "including reports submitted on intervening rest days; "
-        "use five bold sections: 统计概览, 统计范围, 产品迭代, 项目交付, 主要卡点. "
-        "Use one bullet per product module/project with an inline bracketed label, combining people, "
-        "progress and next steps. Send exactly four messages: statistics/scope, 产品迭代 mentioning 孙可天, "
-        "项目交付 mentioning 张文华, and 主要卡点 mentioning the owner. Use native Feishu mentions "
-        "and underline body names. Always deliver to the owner's main Feishu conversation; "
-        "add only groups with morning_greeting: true in groups.yaml. Replay previews go only to the owner.",
-        "script": "morning_greeting.py",
-        "no_agent": True,
-        "deliver": "origin",
-        "origin": {"platform": "feishu", "chat_id": destination},
-        "workdir": str(HOME),
-    }
-    if matches:
-        return jobs.update_job(matches[0]["id"], definition)
-    return jobs.create_job(**definition)
+    return greeting_jobs.install_job("morning_greeting", HOME, owner_chat_id())
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -831,7 +793,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--at",
         type=dt.datetime.fromisoformat,
-        help="Replay execution time with offset, e.g. 2026-09-11T10:00:00+08:00.",
+        help="Replay execution time with offset, e.g. 2026-09-11T09:00:00+08:00.",
     )
     args = parser.parse_args(argv)
     if args.force_preview and not args.preview:

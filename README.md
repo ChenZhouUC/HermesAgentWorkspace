@@ -68,6 +68,7 @@
 | `my-skills/`                 | 自定义 Skills（随主仓库入库）                             |
 | `plugins/`                   | 用户插件（每个子目录 = 一个插件，随主仓库入库）           |
 | `cron/jobs.json`             | Cron live store（定义与运行状态混合；本地保留、不入库）   |
+| `cron/definitions/`          | 晨报与晚安的稳定任务配置（入库；不含会话 ID 和运行记录）  |
 | `spawn-ledger.json`          | Hermes 进程身份账本（运行态生成，保留但不入库）           |
 | `patches/local-patches.diff` | hermes-agent 本地补丁 diff（更新时自动重新应用）          |
 | `patches/PATCHES.md`         | 本地补丁详细记录（问题 / 根因 / 修复方案）                |
@@ -631,6 +632,56 @@ mcp_servers:
 ```bash
 hermes mcp test chatbi
 ```
+
+### Habitat MCP（主会话）
+
+`mcp_servers.habitat` 通过 Streamable HTTP 接入 Habitat 生产环境，使用
+`X-MCP-Token` 请求头传递个人 Habitat MCP token（`mcp_` 前缀）或 Alivia token。
+凭据写入 Git 忽略的 `~/.hermes/.env`：`HABITAT_MCP_TOKEN=<个人 token>`；
+`config.yaml` 只保留 `${env:HABITAT_MCP_TOKEN}` 引用。飞书应用凭据用于读取接入指南，
+不用于 Habitat 业务鉴权，也不要直接使用指南中的示例 token。
+
+```yaml
+mcp_servers:
+  habitat:
+    url: https://habitat2-backend.meetwhale.com/mcp/message
+    headers:
+      X-MCP-Token: ${env:HABITAT_MCP_TOKEN}
+    connect_timeout: 15
+    timeout: 120
+    trust: untrusted
+    strict_redirect_headers: true
+    sampling:
+      enabled: false
+    elicitation:
+      enabled: false
+    tools:
+      resources: false
+      prompts: false
+    enabled: true
+```
+
+启用前须在 `.env` 中填入个人 token，并通过 `getMyInfo` 验证身份；新环境缺少
+凭据时先设为 `enabled: false`。
+`sampling.enabled: false` 和 `elicitation.enabled: false` 避免 Hermes 握手发送
+`sampling.tools` / `elicitation.form`，这些字段会被当前 Habitat 服务端拒绝；
+这不影响业务工具调用。
+主飞书私聊和 CLI 加载后使用 `mcp__habitat__*` 工具；群聊仍受现有
+`platform_toolsets.feishu_group` 和 sandbox allowlist 限制。
+
+```bash
+hermes mcp test habitat
+```
+
+此命令只验证连接与工具发现；服务端的 `initialize` / `tools/list` 不校验 token，
+因此还需要调用只读的 `getMyInfo`（参数 `{}`）确认凭据及当前用户身份，不能仅凭
+“Connected”判断业务可用。已有会话通过 `/reload-mcp` 重新加载；若 `.env` 刚有改动，
+重启 Gateway 以刷新进程凭据。
+
+2026-09-14 生产端点实测提供 54 个工具。调用时以服务返回的工具 schema 和说明为准：
+例如 `listAcquiredLead` 的查询条件放在 `parm` 内，分页参数放在顶层：
+`{"parm":{"scopeType":"self"},"pageNum":1,"pageSize":10}`。
+按用户需求选择 `self` 或 `all`，并先查询枚举工具获取筛选值。
 
 ### 飞书集成
 
@@ -1212,13 +1263,24 @@ hermes cron run JOB_ID       # 立即执行一次
 
 `~/.hermes/cron/jobs.json` 是 Hermes 持续读写的 live store，不是稳定的声明式配置：除任务定义外还包含 `last_run_at`、`next_run_at`、执行状态、投递错误和 claim 等运行字段，因此本仓库将它保留在本机并通过 `.gitignore` 排除。需要迁移或备份 Cron 任务时使用 `hermes backup --quick` / `hermes backup` 和 `hermes import`，不要依赖 Git 同步该文件。
 
-当前 `日报和晚安问候` 任务由 `scripts/nightly_greeting.py` 以 no-agent 模式执行。任务首先按中国工作日历判断：周末和法定休息日直接跳过整个流程（调休补班日照常执行），只有显式传入 `--ignore-holiday` 才会绕过；工作日固定顺序为：① 同步飞书组织架构；② 从当日 Hermes 会话提取日报素材并提交日报；③ 向 `groups.yaml` 中未关闭 `nightly_greeting` 的群发送晚安词。晚安词固定为两句两行，第一句中文、第二句英文，两句表达相同的完整含义。组织同步与后两阶段严格隔离：飞书可提供的在职人员、open_id、tenant user_id、岗位、部门、上级等字段以最新完整快照为准，离职人员移除；身份快照要求每人同时具备唯一的 open_id 与 user_id，缺失或重复会整轮拒绝写入；aliases、称谓、背景、沟通偏好及其它飞书无法提供的自定义字段继续保留。人员排序从 `config.yaml` 的唯一 `feishu.assistant_user_ids` 推导置顶 owner，不在共享脚本中硬编码某台机器的 open_id。同步成功或失败都会单独通知 sandbox 配置中的 owner 私聊；成功只报告新增/移除人员，没有人员变化时也会明确说明同步成功，失败则报告原因。同步失败不会阻断日报和晚安，也不会把同步结果注入日报素材或群发内容；通知首轮发送失败会在日报/晚安阶段后再补发，补发仍失败则将该次 cron 标为失败，不再静默记为成功。dry-run 只写新增/移除人员预览，不覆盖 `people.yaml`。
+晨报与晚安的稳定定义单独保存在 Git 中，任务名、脚本名和配置文件名使用同一组名称；`prompt` 统一按“时间、日历、流程、投递、重跑、预览”说明实际行为：
+
+| 任务名             | 配置文件                                 | Cron         | 作用                             |
+| ------------------ | ---------------------------------------- | ------------ | -------------------------------- |
+| `morning_greeting` | `cron/definitions/morning_greeting.json` | `0 9 * * *`  | 汇总下属日报，发送晨报           |
+| `nightly_greeting` | `cron/definitions/nightly_greeting.json` | `0 22 * * *` | 同步组织、提交本人日报、发送晚安 |
+
+两份配置使用相同字段：`name`、`schedule`、`prompt`、`script`、`no_agent`、`deliver`、`enabled_toolsets`。统一以 no-agent 模式运行、`deliver=origin`、不设置 agent 工具集；调度器的 `prompt` 是任务说明，具体流程由脚本执行。`scripts/greeting_jobs.py` 负责校验与同步，只接受这组稳定字段，拒绝把 `origin`、执行记录等运行字段混入配置。安装时从本机 owner 白名单及既有 nightly 任务补入投递会话，并将两个工作目录统一为 `~/.hermes`；会话 ID、凭据和绝对路径不写入这两份配置。
+
+修改定义后，运行对应脚本的 `--install` 同步到 live store；仅编辑 JSON 不会改变调度器。同步按名称或脚本匹配原任务并保留 ID、暂停状态、执行次数及历史，只有 cron 表达式变化才重新计算下一次运行时间，遇到重复任务会拒绝修改。晨报统计窗口起点自动采用其配置的每日执行时刻。新机器可用同一命令创建任务，但需先配置本机凭据、owner 和群路由。Git 回滚静态定义不会直接回滚去重记录；配置中的业务流程和发送时刻仍属于可见信息，公开仓库前应确认这些说明适合公开。
+
+当前 `nightly_greeting`（原名 `日报和晚安问候`）任务由 `scripts/nightly_greeting.py` 以 no-agent 模式每天 22:00 执行。任务首先按中国工作日历判断：周末和法定休息日直接跳过整个流程（调休补班日照常执行），只有显式传入 `--ignore-holiday` 才会绕过；工作日固定顺序为：① 同步飞书组织架构；② 从当日 Hermes 会话提取日报素材并提交日报；③ 向 `groups.yaml` 中未关闭 `nightly_greeting` 的群发送晚安词。晚安词固定为两句两行，第一句中文、第二句英文，两句表达相同的完整含义。组织同步与后两阶段严格隔离：飞书可提供的在职人员、open_id、tenant user_id、岗位、部门、上级等字段以最新完整快照为准，离职人员移除；身份快照要求每人同时具备唯一的 open_id 与 user_id，缺失或重复会整轮拒绝写入；aliases、称谓、背景、沟通偏好及其它飞书无法提供的自定义字段继续保留。人员排序从 `config.yaml` 的唯一 `feishu.assistant_user_ids` 推导置顶 owner，不在共享脚本中硬编码某台机器的 open_id。同步成功或失败都会单独通知 sandbox 配置中的 owner 私聊；成功只报告新增/移除人员，没有人员变化时也会明确说明同步成功，失败则报告原因。同步失败不会阻断日报和晚安，也不会把同步结果注入日报素材或群发内容；通知首轮发送失败会在日报/晚安阶段后再补发，补发仍失败则将该次 cron 标为失败，不再静默记为成功。dry-run 只写新增/移除人员预览，不覆盖 `people.yaml`。
 
 可选参数遵循固定优先级：非工作日守卫最先执行且仅 `--ignore-holiday` 可绕过；`--skip-org-sync`、`--skip-report`、`--skip-greeting` 显式关闭对应阶段，并优先于同阶段的 force 参数；`--force-report`、`--force-greeting` 只绕过当天成功标记；`--dry-run` / `--dryrun` / 位置参数 `dryrun`（或 `dry-run`）只做组织预览并将日报/晚安预览发送到主私聊，不覆盖人员文件、不提交日报、不群发；`--force-dry-run` / `--force-dryrun` 在已有当天预览标记时重新发送；`--date YYYY-MM-DD` 统一决定工作日判断、会话范围和状态键。
 
-`morning_greeting` 由 `scripts/morning_greeting.py` 以 no-agent 模式执行，cron 表达式为 `0 10 * * *`：每天 10:00 触发，在本次运行时读取当天日期并调用与 nightly 相同的 `is_chinese_workday` 判断，休息日跳过，调休上班日照常发送；不把周末排除写死在 cron 表达式里。使用 Hermes 调度器时钟；本机未配置独立 timezone，因此跟随系统时间（当前 UTC+8）。日历判断复用 nightly 的离线中国工作日日历及其缺包/年份超出数据范围时的兜底行为。
+`morning_greeting` 由 `scripts/morning_greeting.py` 以 no-agent 模式执行，cron 表达式为 `0 9 * * *`：每天 09:00 触发，在本次运行时读取当天日期并调用与 nightly 相同的 `is_chinese_workday` 判断，休息日跳过，调休上班日照常发送；不把周末排除写死在 cron 表达式里。使用 Hermes 调度器时钟；本机未配置独立 timezone，因此跟随系统时间（当前 UTC+8）。日历判断复用 nightly 的离线中国工作日日历及其缺包/年份超出数据范围时的兜底行为。
 
-每次从当天向前寻找最近的一个工作日，查询窗口为**上一个工作日 10:00 至本次实际运行时刻**，以飞书提交时间为准，期间周末/节假日提交的日报同样纳入。不是只截取上一个工作日的 24 小时：例如周一 2026-09-14 10:07 运行时，窗口为周五 2026-09-11 10:00 至周一 10:07；长假后会连续覆盖整个间隔。日常幂等标记绑定实际执行日期，回放标记绑定 `--at` 指定的执行时刻；普通预览/强制重发不会绕过该执行日期的休息日守卫。
+每次从当天向前寻找最近的一个工作日，查询窗口为**上一个工作日 09:00 至本次实际运行时刻**，以飞书提交时间为准，期间周末/节假日提交的日报同样纳入。不是只截取上一个工作日的 24 小时：例如周一 2026-09-14 09:07 运行时，窗口为周五 2026-09-11 09:00 至周一 09:07；长假后会连续覆盖整个间隔。日常幂等标记绑定实际执行日期，回放标记绑定 `--at` 指定的执行时刻；普通预览/强制重发不会绕过该执行日期的休息日守卫。
 
 `--at` 也可模拟未来的工作日，但实际查询截止时间只能取当前时刻，消息会明确区分计划窗口和当前已有数据，三个主题消息也会标出模拟日期与数据截至时间；窗口尚未开始则拒绝查询，不虚构未来日报。模拟使用独立 preview 回执，不消耗正式日期的 daily 标记，不更改下一次定时运行。届时正式任务仍会重新读取工作日、人员和最新日报。
 
@@ -1237,27 +1299,29 @@ Markdown 排版只使用上述五个加粗标题，下面以 `- 【产品模块�
 状态、原始日报和消息预览保存在不入 Git 的 `tmp/morning_greeting/`，数据文件使用 0600 权限。进程锁、每日成功标记、稳定消息 UUID 和逐条 message_id 回执共同防止重复发送；部分发送失败时重跑沿用已保存的正文，只补投未成功的分段。历史回放使用单独状态键和“测试回放”标题，人员范围按回放时读取的当前组织关系确定。
 
 ```bash
-# 首次注册或同步定义（保留同名任务 ID，不修改 nightly）
+# 首次注册或同步定义（各自保留原任务 ID 和运行状态，不执行发送流程）
 ~/.hermes/hermes-agent/venv/bin/python ~/.hermes/scripts/morning_greeting.py --install
+~/.hermes/hermes-agent/venv/bin/python ~/.hermes/scripts/nightly_greeting.py --install
 
 # 上周五早上回放：仅查询和生成，不发送
 ~/.hermes/hermes-agent/venv/bin/python ~/.hermes/scripts/morning_greeting.py \
-  --dry-run --at 2026-09-11T10:00:00+08:00
+  --dry-run --at 2026-09-11T09:00:00+08:00
 
 # 将带测试标记的历史摘要发送到 owner 主会话；同一回放重复执行会跳过
 ~/.hermes/hermes-agent/venv/bin/python ~/.hermes/scripts/morning_greeting.py \
-  --preview --at 2026-09-11T10:00:00+08:00
+  --preview --at 2026-09-11T09:00:00+08:00
 
 # 用户明确要求再看一次时显式重发；保留原回执，不改变每日自动去重
 ~/.hermes/hermes-agent/venv/bin/python ~/.hermes/scripts/morning_greeting.py \
-  --preview --force-preview --at 2026-09-11T10:00:00+08:00
+  --preview --force-preview --at 2026-09-11T09:00:00+08:00
 
 # 模拟未来工作日；仅使用当前已有数据，不替代当天正式运行
 ~/.hermes/hermes-agent/venv/bin/python ~/.hermes/scripts/morning_greeting.py \
-  --preview --force-preview --at 2026-09-14T10:00:00+08:00
+  --preview --force-preview --at 2026-09-14T09:00:00+08:00
 
 cd ~/.hermes
-~/.hermes/hermes-agent/venv/bin/python -B -m unittest scripts.test_morning_greeting
+~/.hermes/hermes-agent/venv/bin/python -B -m unittest \
+  scripts.test_greeting_jobs scripts.test_morning_greeting scripts.test_nightly_greeting
 ```
 
 ---

@@ -60,6 +60,7 @@ spawn-ledger.json*
 shared-state.db*
 # Preserve private skill snapshots and consent state from retired Collective Wisdom V1.
 /wisdom/
+# Stable definitions in cron/definitions/ are tracked; live jobs contain private routing and runtime state.
 cron/jobs.json
 .update_check
 .hermes-update-transaction

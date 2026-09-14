@@ -13,17 +13,21 @@
     "scripts/test_patch_evidence.py": "Durable regression-evidence audit for every active/archive PATCH.",
     "scripts/test_patch_evidence_auditor.py": "Negative regression suite for the PATCH evidence auditor itself.",
     "scripts/inject_launchd_proxy_env": "Operator utility for launchd proxy environment injection.",
-    "scripts/nightly_greeting.py": "Nightly report and Feishu greeting workflow.",
+    "scripts/greeting_jobs.py": "Tracked greeting definitions and idempotent private cron-store reconciliation.",
+    "scripts/nightly_greeting.py": "Nightly report and Feishu greeting workflow and idempotent cron registration.",
     "scripts/morning_greeting.py": "Subordinate daily-report morning digest and idempotent cron registration.",
     "scripts/pull_feishu_people.py": "Feishu organization sync and people profile generator.",
     "scripts/test_cleanup_transient_artifacts.py": "Regression suite for the cleanup policy and mover.",
     "scripts/test_nightly_greeting.py": "Regression suite for the nightly workflow.",
+    "scripts/test_greeting_jobs.py": "Regression suite for greeting configuration validation and runtime-state preservation.",
     "scripts/test_morning_greeting.py": "Regression suite for report collection, summary coverage, scheduling, and delivery.",
     "scripts/test_pull_feishu_people.py": "Regression suite for organization sync.",
     "scripts/wiki_lint.py": "LLM Wiki schema and content linter."
   },
   "required_files": {
-    "scripts/cleanup_policy.json": "Tracked whitelist/blacklist policy consumed by the cleanup entrypoint."
+    "scripts/cleanup_policy.json": "Tracked whitelist/blacklist policy consumed by the cleanup entrypoint.",
+    "cron/definitions/morning_greeting.json": "Portable morning job definition without private routing or runtime state.",
+    "cron/definitions/nightly_greeting.json": "Portable nightly job definition without private routing or runtime state."
   },
   "removable_script_globs": {
     "test-pager*.js": "Temporary Chrome DevTools pager verification script.",
@@ -34,6 +38,7 @@
   "ignored_keep_globs": {
     ".backup.lock": "Runtime backup lock.",
     ".claude/": "Local Claude/Codex workflow metadata.",
+    ".curator_backups/": "Private content-addressed skill history blobs used by the curator ledger and recovery.",
     ".clean_shutdown": "Ephemeral graceful-shutdown receipt consumed by Gateway startup; preserving it prevents clean restarts from being misclassified as crashes.",
     ".env": "Local secrets and provider configuration.",
     ".env.*": "Local environment variants.",
@@ -57,6 +62,12 @@
     "context_length_cache.yaml": "Model context-length cache.",
     "credentials/": "Local credential storage.",
     "cron/": "Cron scheduler state and outputs.",
+    "cron/*.lock": "Live cron store, ticker and fire-claim coordination locks; preserve their inodes.",
+    "cron/jobs.json": "Private cron definitions and execution state, listed separately once static definitions are tracked.",
+    "cron/executions.db*": "Cron execution history database and SQLite journals.",
+    "cron/output/": "Private cron execution outputs.",
+    "cron/ticker_heartbeat": "Cron ticker liveness receipt.",
+    "cron/ticker_last_success": "Cron ticker successful-tick receipt.",
     "db_workspace/": "Database tooling workspace.",
     "feishu_seen_message_ids.json": "Feishu replay/dedup state.",
     "fleet_restart_pending": "Official updater restart obligation; preserve until a verified fleet restart consumes it.",

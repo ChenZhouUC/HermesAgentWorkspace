@@ -1,0 +1,9 @@
+{
+  "name": "nightly_greeting",
+  "schedule": "0 22 * * *",
+  "prompt": "时间：每天 22:00，使用 Hermes 调度器时钟。\n日历：中国休息日跳过，调休上班日照常执行；仅 --ignore-holiday 可绕过。\n流程：依次同步飞书组织关系、从当天 Hermes 会话生成并提交 owner 日报、生成中英文两句晚安词；组织同步失败不阻断后续阶段，日报与晚安发送失败也各自独立处理。\n投递：组织同步结果通知 owner 私聊；日报提交至飞书汇报；晚安发送到 groups.yaml 中 nightly_greeting 未设为 false 的群。\n重跑：按执行日期分别保存日报和晚安成功标记，跳过已完成阶段；组织同步通知补发仍失败时整次任务记为失败。\n预览：--dry-run 会向 owner 主私聊发送日报和晚安预览，并通知组织预览结果；不覆盖人员文件、不提交日报、不群发，仍遵守休息日守卫。",
+  "script": "nightly_greeting.py",
+  "no_agent": true,
+  "deliver": "origin",
+  "enabled_toolsets": null
+}

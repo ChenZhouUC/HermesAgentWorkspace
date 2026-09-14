@@ -1,0 +1,9 @@
+{
+  "name": "morning_greeting",
+  "schedule": "0 9 * * *",
+  "prompt": "时间：每天 09:00，使用 Hermes 调度器时钟。\n日历：中国休息日跳过，调休上班日照常执行。\n流程：只读获取在职组织关系，汇总 owner 全部直属及间接下属的飞书日报；统计窗口为上一个工作日 09:00 至本次实际运行时刻，包含期间休息日提交的日报。\n投递：固定四条消息：统计概览与统计范围、产品迭代、项目交付、主要卡点；使用原生负责人提及及正文人名下划线。发送到 owner 主私聊，并发送到 groups.yaml 中 morning_greeting 显式为 true 的群。\n重跑：按执行日期及逐条回执去重；查询或摘要校验失败时不发送不完整汇总。\n预览：--dry-run 仅本地查询和生成；--preview 向 owner 主私聊发送带标记的回放；两者仍遵守休息日守卫。",
+  "script": "morning_greeting.py",
+  "no_agent": true,
+  "deliver": "origin",
+  "enabled_toolsets": null
+}

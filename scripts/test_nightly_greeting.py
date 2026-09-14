@@ -41,6 +41,7 @@ class NightlyArgumentParsingTests(unittest.TestCase):
         args = nightly.parse_args([])
 
         self.assertIsNone(args.date)
+        self.assertFalse(args.install)
         self.assertFalse(args.dry_run)
         self.assertFalse(args.force_dry_run)
         self.assertFalse(args.skip_org_sync)
@@ -94,6 +95,24 @@ class NightlyArgumentParsingTests(unittest.TestCase):
             nightly.parse_args(["--date", "2026-99-99"])
 
         self.assertIn("expected YYYY-MM-DD", stderr.getvalue())
+
+    def test_install_cannot_be_combined_with_run_options(self) -> None:
+        self.assertTrue(nightly.parse_args(["--install"]).install)
+        for options in (
+            ["--date", "2026-09-14"],
+            ["--dry-run"],
+            ["dryrun"],
+            ["--force-dry-run"],
+            ["--skip-org-sync"],
+            ["--skip-report"],
+            ["--skip-greeting"],
+            ["--force-report"],
+            ["--force-greeting"],
+            ["--ignore-holiday"],
+        ):
+            with self.subTest(options=options), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    nightly.parse_args(["--install", *options])
 
 
 class NightlyGreetingFormattingTests(unittest.TestCase):

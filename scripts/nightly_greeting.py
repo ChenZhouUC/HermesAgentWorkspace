@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Sync Feishu org data, build/send Chen's report, then greet Feishu groups.
 
+Hermes runs this script without an agent at 22:00 every day, skipping Chinese
+rest days with the same calendar as morning_greeting.
+
 Normal cron runs are intentionally silent on stdout. With Hermes cron
 ``--no-agent``, empty stdout means no extra delivery message; the only user
 visible side effects are the Feishu report submission and group messages.
@@ -28,6 +31,11 @@ import textwrap
 import time
 from pathlib import Path
 from typing import Any
+
+if __package__:
+    from . import greeting_jobs
+else:
+    import greeting_jobs
 
 try:
     from zoneinfo import ZoneInfo
@@ -85,6 +93,9 @@ def parse_date_arg(value: str) -> str:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--install", action="store_true", help="Create/update this cron job through the Hermes job store."
+    )
     parser.add_argument("mode", nargs="?", choices=("dryrun", "dry-run"), help=argparse.SUPPRESS)
     parser.add_argument(
         "--date",
@@ -122,6 +133,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Run even on weekends / Chinese statutory holidays (skip the rest-day guard).",
     )
     args = parser.parse_args(argv)
+    if args.install and any(value for key, value in vars(args).items() if key != "install"):
+        parser.error("--install cannot be combined with run options.")
     if args.mode in {"dryrun", "dry-run"} or args.force_dry_run:
         args.dry_run = True
     return args
@@ -972,10 +985,26 @@ def run(args: argparse.Namespace) -> str | None:
     return None
 
 
+def install_job() -> dict:
+    destination = greeting_jobs.owner_chat_id(HERMES_HOME, load_owner_chat_ids())
+    return greeting_jobs.install_job("nightly_greeting", HERMES_HOME, destination)
+
+
 def main() -> int:
     args = parse_args()
     with contextlib.redirect_stdout(sys.stderr):
-        run(args)
+        if args.install:
+            from hermes_cli.env_loader import load_hermes_dotenv
+
+            load_hermes_dotenv(hermes_home=HERMES_HOME)
+            result = install_job()
+            output = json.dumps(
+                {k: result.get(k) for k in ("id", "name", "schedule", "enabled", "next_run_at")}, ensure_ascii=False
+            )
+        else:
+            output = run(args)
+    if output:
+        print(output)
     return 0
 
 

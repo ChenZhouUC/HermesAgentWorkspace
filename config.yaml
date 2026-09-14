@@ -127,17 +127,6 @@ openrouter:
   response_cache: true
   response_cache_ttl: 300
   min_coding_score: 0.65
-bedrock:
-  region: ${AWS_REGION}
-  discovery:
-    enabled: true
-    provider_filter: []
-    refresh_interval: 3600
-  guardrail:
-    guardrail_identifier: ''
-    guardrail_version: ''
-    stream_processing_mode: async
-    trace: disabled
 auxiliary:
   feishu_ai_authorship:
     provider: auto
@@ -690,6 +679,22 @@ mcp_servers:
       resources: false
       prompts: false
     enabled: true
+  habitat:
+    url: https://habitat2-backend.meetwhale.com/mcp/message
+    headers:
+      X-MCP-Token: ${env:HABITAT_MCP_TOKEN}
+    connect_timeout: 15
+    timeout: 120
+    trust: untrusted
+    strict_redirect_headers: true
+    sampling:
+      enabled: false
+    elicitation:
+      enabled: false
+    tools:
+      resources: false
+      prompts: false
+    enabled: true
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.
@@ -705,7 +710,6 @@ mcp_servers:
 #   kimi-coding-cn (KIMI_CN_API_KEY)   — Kimi / Moonshot (China)
 #   minimax      (MINIMAX_API_KEY)     — MiniMax
 #   minimax-cn   (MINIMAX_CN_API_KEY)  — MiniMax (China)
-#   bedrock      (AWS IAM / boto3)     — AWS Bedrock (Converse API)
 #
 # For custom OpenAI-compatible endpoints, add base_url and key_env.
 #
